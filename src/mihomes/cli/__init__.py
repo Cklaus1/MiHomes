@@ -67,6 +67,25 @@ from mihomes.cli.audit import app as audit_app  # noqa: E402
 app.add_typer(dashboard_app, name="dashboard")
 app.add_typer(audit_app, name="audit")
 
+# Phase 1b sub-apps
+from mihomes.cli.contract import app as contract_app  # noqa: E402
+from mihomes.cli.recurring import app as recurring_app  # noqa: E402
+from mihomes.cli.insurance import app as insurance_app  # noqa: E402
+from mihomes.cli.template import app as template_app  # noqa: E402
+from mihomes.cli.tag import app as tag_app  # noqa: E402
+from mihomes.cli.search import app as search_app  # noqa: E402
+from mihomes.cli.backup import app as backup_app  # noqa: E402
+from mihomes.cli.doctor import app as doctor_app  # noqa: E402
+
+app.add_typer(contract_app, name="contract")
+app.add_typer(recurring_app, name="recurring")
+app.add_typer(insurance_app, name="insurance")
+app.add_typer(template_app, name="template")
+app.add_typer(tag_app, name="tag")
+app.add_typer(search_app, name="search")
+app.add_typer(backup_app, name="backup")
+app.add_typer(doctor_app, name="doctor")
+
 # Register init command directly on root app
 from mihomes.cli.init import register_init  # noqa: E402
 register_init(app)

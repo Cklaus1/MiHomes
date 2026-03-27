@@ -46,3 +46,8 @@ from mihomes.models.budget import Budget, Transaction  # noqa: E402, F401
 from mihomes.models.note import Note  # noqa: E402, F401
 from mihomes.models.configuration import Configuration  # noqa: E402, F401
 from mihomes.models.alert import Alert  # noqa: E402, F401
+from mihomes.models.contract import Contract  # noqa: E402, F401
+from mihomes.models.recurring_expense import RecurringExpense  # noqa: E402, F401
+from mihomes.models.insurance import InsurancePolicy  # noqa: E402, F401
+from mihomes.models.template import Template, TemplateItem  # noqa: E402, F401
+from mihomes.models.tag import Tag, TagAssignment  # noqa: E402, F401

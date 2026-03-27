@@ -17,8 +17,8 @@ from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_ide
 VALID_TRANSITIONS: dict[WorkOrderStatus, list[WorkOrderStatus]] = {
     WorkOrderStatus.DRAFT: [WorkOrderStatus.ESTIMATED, WorkOrderStatus.APPROVED, WorkOrderStatus.CANCELLED],
     WorkOrderStatus.ESTIMATED: [WorkOrderStatus.APPROVED, WorkOrderStatus.CANCELLED],
-    WorkOrderStatus.APPROVED: [WorkOrderStatus.ASSIGNED, WorkOrderStatus.IN_PROGRESS, WorkOrderStatus.CANCELLED],
-    WorkOrderStatus.ASSIGNED: [WorkOrderStatus.IN_PROGRESS, WorkOrderStatus.CANCELLED],
+    WorkOrderStatus.APPROVED: [WorkOrderStatus.ASSIGNED, WorkOrderStatus.IN_PROGRESS, WorkOrderStatus.COMPLETED, WorkOrderStatus.CANCELLED],
+    WorkOrderStatus.ASSIGNED: [WorkOrderStatus.IN_PROGRESS, WorkOrderStatus.COMPLETED, WorkOrderStatus.CANCELLED],
     WorkOrderStatus.IN_PROGRESS: [WorkOrderStatus.COMPLETED, WorkOrderStatus.CANCELLED],
     WorkOrderStatus.COMPLETED: [WorkOrderStatus.VERIFIED],
     WorkOrderStatus.VERIFIED: [],

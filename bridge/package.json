@@ -1,0 +1,16 @@
+{
+  "name": "mihomes-whatsapp-bridge",
+  "version": "0.1.0",
+  "description": "MiHomes WhatsApp bridge using Baileys",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.0",
+    "express": "^4.18.0",
+    "pino": "^9.0.0",
+    "qrcode-terminal": "^0.12.0"
+  }
+}

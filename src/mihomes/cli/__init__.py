@@ -115,6 +115,14 @@ from mihomes.cli.calendar_import import app as calendar_app  # noqa: E402
 app.add_typer(auto_app, name="auto")
 app.add_typer(calendar_app, name="calendar")
 
+# WhatsApp + CSV
+from mihomes.cli.whatsapp import app as whatsapp_app  # noqa: E402
+from mihomes.cli.csv_cmd import export_app, import_app  # noqa: E402
+
+app.add_typer(whatsapp_app, name="whatsapp")
+app.add_typer(export_app, name="export")
+app.add_typer(import_app, name="import-csv")
+
 # Register init command directly on root app
 from mihomes.cli.init import register_init  # noqa: E402
 register_init(app)

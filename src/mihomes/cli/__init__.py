@@ -1,9 +1,16 @@
 """MiHomes CLI — root Typer application."""
 
+import signal
+import sys
+
 import typer
 from rich import print as rprint
 
 from mihomes import __version__
+
+# Handle SIGPIPE gracefully — prevents data loss when output is piped through
+# head/tail/etc. Without this, piping kills the process before session commits.
+signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 
 app = typer.Typer(
     name="mihomes",

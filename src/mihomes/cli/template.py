@@ -91,12 +91,15 @@ def seed_templates():
     from mihomes.services.seasonal import seed_templates as do_seed
     with get_session() as session:
         created = do_seed(session)
-        if created:
-            format_success(f"Seeded {len(created)} seasonal templates:")
-            for t in created:
-                console.print(f"  - {t.name} (slug: {t.slug}, {len(t.items)} steps)")
-        else:
-            console.print("[dim]All seasonal templates already exist.[/dim]")
+        # Collect output data before session closes (commit happens on exit)
+        results = [(t.name, t.slug, len(t.items)) for t in created] if created else []
+    # Print AFTER session is committed (safe from SIGPIPE data loss)
+    if results:
+        format_success(f"Seeded {len(results)} seasonal templates:")
+        for name, slug, steps in results:
+            console.print(f"  - {name} (slug: {slug}, {steps} steps)")
+    else:
+        console.print("[dim]All seasonal templates already exist.[/dim]")
 
 
 @app.command("delete")

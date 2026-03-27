@@ -232,9 +232,13 @@ app.post('/link-group', (req, res) => {
 function loadGroupLinks() {
   const linksFile = path.join(AUTH_DIR, 'group-links.json');
   if (fs.existsSync(linksFile)) {
-    const data = JSON.parse(fs.readFileSync(linksFile, 'utf-8'));
-    for (const [jid, slug] of Object.entries(data)) {
-      linkedGroups.set(jid, slug);
+    try {
+      const data = JSON.parse(fs.readFileSync(linksFile, 'utf-8'));
+      for (const [jid, slug] of Object.entries(data)) {
+        linkedGroups.set(jid, slug);
+      }
+    } catch (e) {
+      console.error('Failed to load group links:', e.message);
     }
   }
 }

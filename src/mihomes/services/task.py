@@ -1,6 +1,6 @@
 """Task service — CRUD with recurrence support."""
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
@@ -201,7 +201,7 @@ def get_upcoming_tasks(
     property_id_or_slug: str | None = None,
 ) -> list[Task]:
     today = date.today()
-    end = today + __import__("datetime").timedelta(days=days)
+    end = today + timedelta(days=days)
     query = session.query(Task).filter(
         Task.due_date >= today,
         Task.due_date <= end,

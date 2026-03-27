@@ -68,7 +68,7 @@ def import_csv(session: Session, entity_type: str, csv_text: str) -> list[dict]:
         try:
             record = _create_from_row(session, entity_type, row)
             created.append(record)
-        except Exception as e:
+        except (KeyError, ValueError, TypeError) as e:
             errors.append({"row": row_num, "error": str(e), "data": dict(row)})
 
     session.flush()

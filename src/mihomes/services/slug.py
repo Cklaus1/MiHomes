@@ -55,5 +55,26 @@ def resolve_identifier(session: Session, model_class, id_or_slug: str):
     if instance is not None:
         return instance
 
-    entity_type = model_class.__tablename__.rstrip("s")  # rough singularize
+    entity_type = _singularize(model_class.__tablename__)
     raise EntityNotFoundError(entity_type, id_or_slug)
+
+
+_SINGULARS = {
+    "properties": "property",
+    "staff": "staff",
+    "vendors": "vendor",
+    "tasks": "task",
+    "issues": "issue",
+    "spaces": "space",
+    "assets": "asset",
+    "templates": "template",
+    "events": "event",
+    "guests": "guest",
+    "documents": "document",
+    "work_orders": "work order",
+    "insurance_policies": "insurance policy",
+}
+
+
+def _singularize(table_name: str) -> str:
+    return _SINGULARS.get(table_name, table_name.rstrip("s"))

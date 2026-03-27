@@ -20,7 +20,7 @@ def add_note(
         try:
             note = note_svc.add_note(session, to, content)
             format_success(f"Note added to {to} (id: {note.id})")
-        except (ValueError, Exception) as e:
+        except ValueError as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -33,7 +33,7 @@ def list_notes(
     with get_session() as session:
         try:
             notes = note_svc.list_notes(session, to)
-        except (ValueError, Exception) as e:
+        except ValueError as e:
             format_error(str(e))
             raise typer.Exit(1)
 

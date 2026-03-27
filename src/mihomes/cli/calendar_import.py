@@ -70,8 +70,8 @@ def import_ical(
                     if start_date:
                         occupy_property(session, property, start_date, end_date)
                         imported += 1
-                except Exception:
-                    pass  # Skip events that can't be parsed as occupancy
+                except (ValueError, TypeError, KeyError):
+                    console.print(f"[dim]  Skipped: {ev.get('title', 'unknown')} (parse error)[/dim]")
 
         format_success(f"{imported} event(s) imported as occupancy periods")
 

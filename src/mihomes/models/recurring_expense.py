@@ -3,7 +3,7 @@
 import enum
 from datetime import date
 
-from sqlalchemy import Date, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Date, Enum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mihomes.models import Base, TimestampMixin
@@ -32,7 +32,7 @@ class RecurringExpense(Base, TimestampMixin):
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     last_generated: Mapped[date | None] = mapped_column(Date, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    active: Mapped[bool] = mapped_column(Integer, default=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     property = relationship("Property")
     vendor = relationship("Vendor")

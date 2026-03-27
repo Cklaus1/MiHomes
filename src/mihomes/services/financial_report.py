@@ -21,23 +21,19 @@ def spending_by_vendor(
     prop = resolve_identifier(session, Property, property_id_or_slug)
     rows = session.query(
         Transaction.vendor_id,
+        Vendor.company_name,
         func.sum(Transaction.amount).label("total"),
         func.count(Transaction.id).label("count"),
-    ).filter(
+    ).outerjoin(Vendor, Transaction.vendor_id == Vendor.id).filter(
         Transaction.property_id == prop.id,
         Transaction.date >= start,
         Transaction.date <= end,
-    ).group_by(Transaction.vendor_id).all()
+    ).group_by(Transaction.vendor_id, Vendor.company_name).all()
 
     results = []
     for row in rows:
-        vendor_name = "Unassigned"
-        if row.vendor_id:
-            vendor = session.get(Vendor, row.vendor_id)
-            if vendor:
-                vendor_name = vendor.company_name
         results.append({
-            "vendor": vendor_name,
+            "vendor": row.company_name or "Unassigned",
             "vendor_id": row.vendor_id,
             "total": round(row.total, 2),
             "transaction_count": row.count,

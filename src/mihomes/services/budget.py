@@ -147,7 +147,7 @@ def get_budget_report(
                 "budgeted": 0.0,
                 "spent": total,
                 "remaining": -total,
-                "pct_used": 0,
+                "pct_used": 100.0 if total > 0 else 0,
                 "currency": prop.currency,
             })
 

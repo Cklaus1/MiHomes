@@ -172,8 +172,11 @@ def verify(session: Session, id_or_slug: str) -> WorkOrder:
     if wo.source_type == "issue" and wo.source_id:
         issue = session.get(Issue, wo.source_id)
         if issue:
+            old_issue_status = issue.status.value
             issue.status = IssueStatus.VERIFIED
             session.flush()
+            record_change(session, "issue", issue.id, "update",
+                          {"status": {"old": old_issue_status, "new": "verified"}})
 
     new_snap = snapshot_instance(wo)
     changes = diff_instance(old_snap, new_snap)

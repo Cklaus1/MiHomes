@@ -108,6 +108,13 @@ app.add_typer(guest_app, name="guest")
 app.add_typer(document_app, name="document")
 app.add_typer(report_app, name="report")
 
+# Phase 4: Automation sub-apps
+from mihomes.cli.automation import app as auto_app  # noqa: E402
+from mihomes.cli.calendar_import import app as calendar_app  # noqa: E402
+
+app.add_typer(auto_app, name="auto")
+app.add_typer(calendar_app, name="calendar")
+
 # Register init command directly on root app
 from mihomes.cli.init import register_init  # noqa: E402
 register_init(app)

@@ -112,6 +112,58 @@ def show_property(
                 table.add_row(s.name, s.space_type or "-", s.slug)
             console.print(table)
 
+        # Show related entities
+        from mihomes.models.task import Task, TaskStatus
+        from mihomes.models.issue import Issue, IssueStatus
+        from mihomes.models.asset import Asset
+
+        open_tasks = session.query(Task).filter(
+            Task.property_id == prop.id,
+            Task.status.notin_([TaskStatus.COMPLETED, TaskStatus.CANCELLED]),
+        ).order_by(Task.due_date.asc().nullslast()).limit(5).all()
+        if open_tasks:
+            table = Table(title=f"Open Tasks ({len(open_tasks)})")
+            table.add_column("Title", style="bold")
+            table.add_column("Priority")
+            table.add_column("Due")
+            for t in open_tasks:
+                table.add_row(t.title, t.priority.value, str(t.due_date) if t.due_date else "-")
+            console.print(table)
+
+        open_issues = session.query(Issue).filter(
+            Issue.property_id == prop.id,
+            Issue.status.notin_([IssueStatus.RESOLVED, IssueStatus.VERIFIED]),
+        ).order_by(Issue.severity).limit(5).all()
+        if open_issues:
+            table = Table(title=f"Open Issues ({len(open_issues)})")
+            table.add_column("Title", style="bold")
+            table.add_column("Severity")
+            table.add_column("Status")
+            for i in open_issues:
+                table.add_row(i.title, i.severity.value, i.status.value)
+            console.print(table)
+
+        assets = session.query(Asset).filter(
+            Asset.property_id == prop.id, Asset.active.is_(True)
+        ).limit(5).all()
+        if assets:
+            table = Table(title=f"Assets ({len(assets)})")
+            table.add_column("Name", style="bold")
+            table.add_column("Type")
+            table.add_column("Warranty")
+            for a in assets:
+                table.add_row(a.name, a.asset_type.value, str(a.warranty_expires) if a.warranty_expires else "-")
+            console.print(table)
+
+        # Staff assigned
+        if prop.staff_members:
+            table = Table(title="Staff")
+            table.add_column("Name", style="bold")
+            table.add_column("Role")
+            for s in prop.staff_members:
+                table.add_row(s.name, s.role.value)
+            console.print(table)
+
 
 @app.command("edit")
 def edit_property(

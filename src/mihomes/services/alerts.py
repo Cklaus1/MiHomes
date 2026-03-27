@@ -14,6 +14,9 @@ def generate_alerts(session: Session) -> int:
     count = 0
     count += _check_overdue_tasks(session)
     count += _check_critical_issues(session)
+    # Also check expirations (contracts, insurance, warranties)
+    from mihomes.services.automation import generate_expiration_alerts
+    count += generate_expiration_alerts(session, days_ahead=30)
     return count
 
 

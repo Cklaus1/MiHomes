@@ -73,4 +73,44 @@ def run_doctor() -> list[dict]:
     else:
         findings.append({"level": "warning", "message": "No backups found. Run 'mihomes backup'"})
 
+    # DB integrity checks
+    try:
+        from mihomes.db import get_session
+        from mihomes.models.property import Property
+        from mihomes.models.task import Task, TaskStatus
+        from mihomes.models.issue import Issue, IssueStatus
+        from mihomes.models.audit_log import AuditLog
+
+        with get_session() as session:
+            prop_count = session.query(Property).count()
+            task_count = session.query(Task).count()
+            issue_count = session.query(Issue).count()
+            audit_count = session.query(AuditLog).count()
+            findings.append({"level": "ok", "message": f"Entities: {prop_count} properties, {task_count} tasks, {issue_count} issues"})
+            findings.append({"level": "ok", "message": f"Audit log: {audit_count} entries"})
+
+            # Check for orphaned tasks (property deleted but task remains)
+            from sqlalchemy import and_, not_
+            orphan_tasks = session.query(Task).filter(
+                ~Task.property_id.in_(session.query(Property.id))
+            ).count()
+            if orphan_tasks > 0:
+                findings.append({"level": "warning", "message": f"Orphaned tasks: {orphan_tasks} task(s) reference deleted properties"})
+
+            # Check for tasks with no slug
+            no_slug = session.query(Task).filter(Task.slug == "").count()
+            if no_slug > 0:
+                findings.append({"level": "warning", "message": f"Empty slugs: {no_slug} task(s) have empty slugs"})
+
+            # FK integrity via PRAGMA
+            cursor = session.execute({"text": "PRAGMA foreign_key_check"} if False else __import__("sqlalchemy").text("PRAGMA foreign_key_check"))
+            fk_violations = cursor.fetchall()
+            if fk_violations:
+                findings.append({"level": "error", "message": f"FK violations: {len(fk_violations)} foreign key constraint failures"})
+            else:
+                findings.append({"level": "ok", "message": "Foreign key integrity: OK"})
+
+    except Exception as e:
+        findings.append({"level": "error", "message": f"DB check failed: {e}"})
+
     return findings

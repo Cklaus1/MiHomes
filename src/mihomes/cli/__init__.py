@@ -70,6 +70,50 @@ def help_cmd():
     ))
 
 
+@app.command("stats")
+def stats_cmd():
+    """Quick counts of everything in the system."""
+    from mihomes.db import get_session
+    from mihomes.models.property import Property
+    from mihomes.models.staff import Staff
+    from mihomes.models.vendor import Vendor
+    from mihomes.models.task import Task, TaskStatus
+    from mihomes.models.issue import Issue, IssueStatus
+    from mihomes.models.asset import Asset
+    from mihomes.models.work_order import WorkOrder, WorkOrderStatus
+    from mihomes.models.event import Event
+    from mihomes.models.document import Document
+    from mihomes.models.contract import Contract
+    from mihomes.models.insurance import InsurancePolicy
+    from mihomes.models.audit_log import AuditLog
+
+    with get_session() as session:
+        stats = [
+            ("Properties", session.query(Property).count()),
+            ("Staff", session.query(Staff).count()),
+            ("Vendors", session.query(Vendor).count()),
+            ("Tasks (open)", session.query(Task).filter(Task.status.notin_([TaskStatus.COMPLETED, TaskStatus.CANCELLED])).count()),
+            ("Tasks (total)", session.query(Task).count()),
+            ("Issues (open)", session.query(Issue).filter(Issue.status.notin_([IssueStatus.RESOLVED, IssueStatus.VERIFIED])).count()),
+            ("Issues (total)", session.query(Issue).count()),
+            ("Assets", session.query(Asset).filter(Asset.active.is_(True)).count()),
+            ("Work Orders (open)", session.query(WorkOrder).filter(WorkOrder.status.notin_([WorkOrderStatus.COMPLETED, WorkOrderStatus.VERIFIED, WorkOrderStatus.CANCELLED])).count()),
+            ("Events", session.query(Event).count()),
+            ("Documents", session.query(Document).count()),
+            ("Contracts", session.query(Contract).count()),
+            ("Insurance Policies", session.query(InsurancePolicy).count()),
+            ("Audit Log Entries", session.query(AuditLog).count()),
+        ]
+    from rich.table import Table
+    table = Table(title="MiHomes Statistics", show_header=False)
+    table.add_column("Metric", style="bold")
+    table.add_column("Count", justify="right")
+    for label, count in stats:
+        table.add_row(label, str(count))
+    from mihomes.cli.formatters import console
+    console.print(table)
+
+
 @app.command("version")
 def version_cmd():
     """Show MiHomes version and system info."""

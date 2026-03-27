@@ -88,6 +88,19 @@ def resolve_issue(session: Session, id_or_slug: str, notes: str | None = None) -
     new_snap = snapshot_instance(issue)
     changes = diff_instance(old_snap, new_snap)
     record_change(session, "issue", issue.id, "update", changes)
+
+    # Auto-resolve any alerts for this issue
+    from mihomes.models.alert import Alert, AlertStatus
+    stale_alerts = session.query(Alert).filter(
+        Alert.source_entity_type == "issue",
+        Alert.source_entity_id == issue.id,
+        Alert.status != AlertStatus.RESOLVED,
+    ).all()
+    for alert in stale_alerts:
+        alert.status = AlertStatus.RESOLVED
+    if stale_alerts:
+        session.flush()
+
     return issue
 
 

@@ -101,9 +101,11 @@ def dashboard(
         status_text = "  " + " | ".join(status_items) if status_items else "  [green]All clear[/green]"
 
         # Render
-        title = "MiHomes Estate Dashboard"
+        from datetime import date as date_cls
+        today_str = date_cls.today().strftime("%A, %B %d, %Y")
+        title = f"MiHomes Estate Dashboard — {today_str}"
         if property:
-            title = f"MiHomes — {property}"
+            title = f"MiHomes — {property} — {today_str}"
 
         console.print()
         console.print(Panel(

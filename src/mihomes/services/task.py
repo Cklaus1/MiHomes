@@ -155,6 +155,18 @@ def complete_task(session: Session, id_or_slug: str, notes: str | None = None) -
     changes = diff_instance(old_snap, new_snap)
     record_change(session, "task", task.id, "update", changes)
 
+    # Auto-resolve any alerts for this task
+    from mihomes.models.alert import Alert, AlertStatus
+    stale_alerts = session.query(Alert).filter(
+        Alert.source_entity_type == "task",
+        Alert.source_entity_id == task.id,
+        Alert.status != AlertStatus.RESOLVED,
+    ).all()
+    for alert in stale_alerts:
+        alert.status = AlertStatus.RESOLVED
+    if stale_alerts:
+        session.flush()
+
     # Advance recurring task
     if task.schedule and task.schedule.frequency != RecurrenceFrequency.ONCE:
         _advance_recurring_task(session, task)

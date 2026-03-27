@@ -60,14 +60,24 @@ def list_tasks(
     priority: Optional[TaskPriority] = typer.Option(None, "--priority"),
     assignee: Optional[str] = typer.Option(None, "--assignee"),
     overdue: bool = typer.Option(False, "--overdue", help="Show only overdue tasks"),
+    recent: bool = typer.Option(False, "--recent", help="Show recently completed tasks (last 7 days)"),
 ):
     """List tasks."""
     with get_session() as session:
         try:
-            tasks = task_svc.list_tasks(
-                session, property_id_or_slug=property, status=status,
-                priority=priority, assignee_id_or_slug=assignee, overdue=overdue,
-            )
+            if recent:
+                from datetime import datetime, timedelta, timezone
+                cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+                from mihomes.models.task import Task as TaskModel
+                tasks = session.query(TaskModel).filter(
+                    TaskModel.status == TaskStatus.COMPLETED,
+                    TaskModel.completed_at >= cutoff,
+                ).order_by(TaskModel.completed_at.desc()).all()
+            else:
+                tasks = task_svc.list_tasks(
+                    session, property_id_or_slug=property, status=status,
+                    priority=priority, assignee_id_or_slug=assignee, overdue=overdue,
+                )
         except EntityNotFoundError as e:
             format_error(str(e))
             raise typer.Exit(1)

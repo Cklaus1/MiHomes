@@ -164,6 +164,20 @@ def show_property(
                 table.add_row(s.name, s.role.value)
             console.print(table)
 
+        # Seasonal recommendations for closed/seasonal properties
+        from mihomes.models.property import PropertyStatus, PropertyType
+        if prop.property_type == PropertyType.SEASONAL or prop.status == PropertyStatus.CLOSED:
+            from mihomes.services.seasonal import recommend_seasonal
+            try:
+                recs = recommend_seasonal(session, id_or_slug)
+                if recs:
+                    console.print("\n[bold yellow]Seasonal Recommendations:[/bold yellow]")
+                    for r in recs[:3]:
+                        console.print(f"  → [cyan]mihomes template run {r['template']} --property {prop.slug}[/cyan]")
+                        console.print(f"    {r['reason']}")
+            except Exception:
+                pass  # Seasonal recommendations are advisory, not critical
+
 
 @app.command("edit")
 def edit_property(

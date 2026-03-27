@@ -85,6 +85,20 @@ def run_template(
             raise typer.Exit(1)
 
 
+@app.command("seed")
+def seed_templates():
+    """Seed built-in seasonal maintenance templates."""
+    from mihomes.services.seasonal import seed_templates as do_seed
+    with get_session() as session:
+        created = do_seed(session)
+        if created:
+            format_success(f"Seeded {len(created)} seasonal templates:")
+            for t in created:
+                console.print(f"  - {t.name} (slug: {t.slug}, {len(t.items)} steps)")
+        else:
+            console.print("[dim]All seasonal templates already exist.[/dim]")
+
+
 @app.command("delete")
 def delete_template(
     id_or_slug: str = typer.Argument(...),

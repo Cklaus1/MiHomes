@@ -49,5 +49,8 @@ def get_provider(provider_name: str = "claude", api_key: str | None = None) -> A
     elif provider_name == "openai":
         from mihomes.services.ai.openai_provider import OpenAIProvider
         return OpenAIProvider(api_key=api_key)
+    elif provider_name == "ollama":
+        from mihomes.services.ai.ollama_provider import OllamaProvider
+        return OllamaProvider()
     else:
         raise AIProviderError(f"Unknown AI provider: {provider_name}")

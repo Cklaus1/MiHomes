@@ -93,6 +93,21 @@ from mihomes.cli.cron import app as cron_app  # noqa: E402
 app.add_typer(ai_app, name="ai")
 app.add_typer(cron_app, name="cron")
 
+# Phase 3a sub-apps
+from mihomes.cli.asset import app as asset_app  # noqa: E402
+from mihomes.cli.work_order import app as workorder_app  # noqa: E402
+from mihomes.cli.event import app as event_app  # noqa: E402
+from mihomes.cli.guest import app as guest_app  # noqa: E402
+from mihomes.cli.document import app as document_app  # noqa: E402
+from mihomes.cli.report import app as report_app  # noqa: E402
+
+app.add_typer(asset_app, name="asset")
+app.add_typer(workorder_app, name="workorder")
+app.add_typer(event_app, name="event")
+app.add_typer(guest_app, name="guest")
+app.add_typer(document_app, name="document")
+app.add_typer(report_app, name="report")
+
 # Register init command directly on root app
 from mihomes.cli.init import register_init  # noqa: E402
 register_init(app)

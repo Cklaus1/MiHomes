@@ -1,0 +1,74 @@
+"""Database engine, session management, and initialization."""
+
+from contextlib import contextmanager
+from typing import Generator
+
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session, sessionmaker
+
+from mihomes.config import DB_URL, ensure_dirs
+
+_engine: Engine | None = None
+_SessionLocal: sessionmaker | None = None
+
+
+@event.listens_for(Engine, "connect")
+def _set_sqlite_pragmas(dbapi_conn, connection_record):
+    """Enable WAL mode and foreign key enforcement on every connection."""
+    cursor = dbapi_conn.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
+
+
+def get_engine(url: str | None = None) -> Engine:
+    """Get or create the SQLAlchemy engine."""
+    global _engine
+    if _engine is None or url is not None:
+        _engine = create_engine(url or DB_URL, echo=False)
+    return _engine
+
+
+def get_session_factory(engine: Engine | None = None) -> sessionmaker:
+    """Get or create the session factory."""
+    global _SessionLocal
+    if _SessionLocal is None or engine is not None:
+        _SessionLocal = sessionmaker(bind=engine or get_engine())
+    return _SessionLocal
+
+
+@contextmanager
+def get_session(engine: Engine | None = None) -> Generator[Session, None, None]:
+    """Context manager yielding a database session with auto commit/rollback."""
+    factory = get_session_factory(engine)
+    session = factory()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def init_db(url: str | None = None) -> None:
+    """Initialize the database: create dirs, run migrations."""
+    ensure_dirs()
+    engine = get_engine(url)
+
+    from alembic import command
+    from alembic.config import Config
+
+    alembic_cfg = Config()
+    alembic_cfg.set_main_option("script_location", _get_alembic_dir())
+    alembic_cfg.set_main_option("sqlalchemy.url", str(engine.url))
+    command.upgrade(alembic_cfg, "head")
+
+
+def _get_alembic_dir() -> str:
+    """Get the alembic directory path."""
+    from pathlib import Path
+
+    return str(Path(__file__).parent.parent.parent / "alembic")

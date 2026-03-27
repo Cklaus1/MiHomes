@@ -3,6 +3,7 @@
 **Version:** 1.0
 **Date:** 2026-03-27
 **Status:** Draft
+**License:** [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) — Creative Commons Attribution-NonCommercial 4.0 International
 
 ---
 
@@ -33,47 +34,185 @@ Managing multiple homes involves coordinating dozens of recurring tasks (weekly 
 | Runtime | Python 3.11+ | Rich CLI ecosystem, strong AI/LLM library support |
 | Database | SQLite | Zero-config, local-first, portable, sufficient for single-user |
 | CLI Framework | Typer + Rich | Modern, type-hinted CLI with rich terminal output |
-| AI Integration | Claude API (Anthropic) | Best reasoning for advisory/planning tasks |
+| AI Integration | Multi-provider (Claude default, OpenAI, Ollama) | Best reasoning for advisory; abstraction avoids lock-in |
+| WhatsApp | Baileys (@whiskeysockets/baileys) | Free, open-source, no Business API costs, full group/media support |
 | Architecture | Local-first, single-user | Privacy, simplicity, no infrastructure cost |
 
 ### Data Model (Core Entities)
 
 ```
-Properties        — homes, addresses, features, status
+Properties        — homes, addresses, features, type, status, climate_zone
+                    type enum: primary, vacation, seasonal, investment, rental, estate, other
+                    status enum: open, closed, caretaker-mode, under-renovation
+                    climate_zone: determines seasonal task scheduling (e.g., northeast, southeast, mountain, tropical)
 Spaces            — rooms/areas within properties
 Staff             — household employees, roles, certifications, assignments
+                    includes: phone, email, whatsapp_phone (required for Phase 3 gateway)
 Vendors           — contractors, service providers, ratings, contracts
-Tasks             — recurring and one-off work items
+Contracts         — vendor/service contracts with terms, renewal dates, costs
+Tasks             — recurring and one-off work items, with priority (urgent/high/medium/low)
 TaskSchedules     — recurrence rules (weekly/monthly/quarterly/seasonal/annual)
+RecurringExpenses — repeating financial items (utilities, payroll, subscriptions, contract payments)
+                    links to: property, vendor, category; generates Transactions on schedule
+Templates         — reusable checklists and task templates (pre-arrival, seasonal closing, etc.)
+TemplateItems     — individual steps within a template
 Issues            — problems discovered, linked to property/space
 WorkOrders        — vendor/staff assignments for tasks or issues
 Assets            — inventory items, appliances, vehicles, valuables
+InsurancePolicies — property, liability, vehicle, and valuable articles policies
+                    fields: policy number, carrier, type, coverage limit, deductible,
+                    premium, renewal date, linked properties/assets/vehicles
 Budgets           — per-property and per-category budget targets
 Transactions      — income and expenses, linked to properties/vendors/categories
+                    source: manual, recurring_expense, work_order, whatsapp
 Events            — planned gatherings, guest visits
 Guests            — guest profiles, preferences, dietary info
 Documents         — files, warranties, manuals, contracts, policies
 Notes             — free-form notes linked to any entity
+Tags              — user-defined labels, polymorphic (attachable to any entity)
+TagAssignments    — join table linking tags to entities
+AuditLog          — immutable changelog of all create/update/delete operations with timestamps
+Configurations    — system settings (calendar provider, AI provider, currency, etc.)
+CalendarEvents    — synced or manually entered occupancy and schedule events
+Alerts            — persisted alert records with lifecycle (generated/seen/acknowledged/resolved)
+                    sources: overdue tasks, expiring items, budget variances, AI recommendations
+                    fields: type, source_entity, severity, message, status, snoozed_until
 AIConversations   — history of AI advisory sessions
+WhatsAppThreads   — staff messaging threads linked to tasks/issues/properties (Phase 3)
 ```
 
-## 5. Feature Specification
+### Entity Identification Strategy
 
-### 5.1 Property Management (Core)
+Every entity has a numeric `id` (auto-incrementing primary key) used internally and in foreign keys. User-facing entities also have a `slug` (URL-safe, unique identifier) for CLI convenience:
+
+- **Auto-generated** from name: "Beach House" → `beach-house`, "ABC Plumbing" → `abc-plumbing`
+- **User-overridable** at creation: `mihomes property add "Beach House" --slug bh`
+- **CLI accepts either** ID or slug: `mihomes property show 3` or `mihomes property show beach-house`
+- Slugs are unique per entity type (two properties can't share a slug, but a property and a vendor can)
+- Slug collisions append a numeric suffix: `beach-house`, `beach-house-2`
+
+## 5. Project Structure
+
+```
+mihomes/
+├── pyproject.toml                # project metadata, dependencies, CLI entry point
+├── alembic/                      # database migration scripts
+│   └── versions/
+├── src/
+│   └── mihomes/
+│       ├── __init__.py
+│       ├── cli/                  # Typer command definitions (one module per entity)
+│       │   ├── __init__.py       # main app, registers all sub-commands
+│       │   ├── property.py       # mihomes property add/list/show/occupy/vacate
+│       │   ├── task.py           # mihomes task add/list/complete/upcoming
+│       │   ├── issue.py
+│       │   ├── staff.py
+│       │   ├── vendor.py
+│       │   ├── budget.py
+│       │   ├── asset.py
+│       │   ├── ai.py             # mihomes ai ask/review/search
+│       │   ├── dashboard.py
+│       │   ├── config.py
+│       │   ├── report.py
+│       │   └── ...
+│       ├── models/               # SQLAlchemy ORM models (one module per entity)
+│       │   ├── __init__.py
+│       │   ├── property.py
+│       │   ├── task.py
+│       │   ├── issue.py
+│       │   └── ...
+│       ├── services/             # business logic layer (no CLI or DB dependencies)
+│       │   ├── recurrence.py     # task recurrence calculation engine
+│       │   ├── alerts.py         # alert generation and aggregation
+│       │   ├── search.py         # cross-entity search
+│       │   ├── budget.py         # budget calculations, variance detection
+│       │   └── ...
+│       ├── ai/                   # AI provider abstraction and role definitions
+│       │   ├── __init__.py
+│       │   ├── provider.py       # AIProvider protocol
+│       │   ├── claude.py         # ClaudeProvider
+│       │   ├── openai.py         # OpenAIProvider
+│       │   ├── ollama.py         # OllamaProvider (Phase 3)
+│       │   ├── router.py         # role routing logic
+│       │   ├── context.py        # context window assembly and management
+│       │   └── roles/            # system prompt templates per AI role
+│       │       ├── estate_manager.py
+│       │       ├── maintenance.py
+│       │       └── ...
+│       ├── gateways/             # external integrations
+│       │   ├── whatsapp/         # Baileys bridge communication
+│       │   │   ├── client.py     # Python client for the Node.js bridge
+│       │   │   ├── parser.py     # message classification and issue extraction
+│       │   │   └── review.py     # review queue management
+│       │   └── calendar/         # CalendarProvider implementations
+│       │       ├── provider.py   # CalendarProvider protocol
+│       │       ├── google.py
+│       │       ├── outlook.py
+│       │       └── ical.py
+│       ├── db.py                 # database connection, session management
+│       └── config.py             # configuration loading and defaults
+├── bridge/                       # Node.js WhatsApp bridge (Baileys)
+│   ├── package.json
+│   ├── index.ts                  # Baileys connection, local HTTP API server
+│   └── tsconfig.json
+├── tests/
+│   ├── unit/
+│   ├── integration/
+│   └── e2e/
+└── templates/                    # CSV import templates, built-in task templates
+```
+
+**Key architectural patterns:**
+- **CLI → Service → Model**: CLI modules are thin (parse args, call service, format output). Services contain business logic. Models handle persistence.
+- **No service depends on CLI**: Services are testable without Typer.
+- **No model depends on service**: Models are pure data definitions and queries.
+- **Gateway protocol pattern**: `WhatsAppGateway`, `CalendarProvider`, `AIProvider` — all use Python Protocol classes so implementations are swappable.
+- **Bridge pattern for Node.js**: The Baileys WhatsApp bridge is a separate Node.js process communicating over localhost HTTP. This avoids mixing Python and Node.js runtimes while keeping the bridge independently deployable and restartable.
+
+## 6. First-Run & Onboarding
+
+When a user runs any `mihomes` command for the first time:
+
+1. **Auto-detect** that `~/.mihomes/` does not exist
+2. **Run `mihomes init`** interactively:
+   - Create `~/.mihomes/` directory structure: `db/`, `media/`, `backups/`, `exports/`
+   - Create SQLite database with full schema
+   - Prompt for basic configuration:
+     - Default currency (default: USD)
+     - AI provider and API key (optional, can skip — AI features disabled until configured)
+     - First property (optional, can add later)
+   - Display a welcome message with quick-start commands
+3. **`mihomes init` is also manually runnable** to reset or reconfigure
+4. **`mihomes init --demo`** loads sample data (3 properties, tasks, vendors, issues) so users can explore the CLI before entering real data
+
+## 7. Feature Specification
+
+### 7.1 Property Management (Core)
 
 **Properties & Spaces**
-- Register properties with address, type, features, square footage, seasonal status (open/closed/caretaker-mode)
+- Register properties with address, type, features, square footage, seasonal status
+- Property types: primary, vacation, seasonal, investment, rental, estate, other
+- Property status: open, closed, caretaker-mode, under-renovation
 - Define spaces (rooms, garages, yards, pools, outbuildings) per property
 - Track occupancy status and family calendar integration
 - Seasonal opening/closing checklists per property
 
 **Task Management**
 - Create tasks with recurrence: weekly, biweekly, monthly, quarterly, seasonal, annual, or custom cron
+- Seasonal recurrence is climate-zone-aware per property:
+  - Each property has a `climate_zone` field (set during property creation or via edit)
+  - Seasons are configurable per climate zone. Defaults: Spring (Mar-May), Summer (Jun-Aug), Fall (Sep-Nov), Winter (Dec-Feb)
+  - Seasonal tasks specify which season(s) they apply to: `--recurrence seasonal:spring,fall`
+  - Tasks auto-schedule to the first week of the applicable season for that property's climate zone
+  - Example: "Gutter cleaning" with `seasonal:spring,fall` at a Northeast property triggers in March and September
+- Priority levels: urgent, high, medium, low (AI can suggest priority using SPACE framework)
 - Assign tasks to staff or vendors
 - Track completion with timestamps and notes
 - Overdue task alerts and escalation
 - Task templates for common operations (pre-arrival prep, seasonal closing, post-storm inspection)
+- Instantiate a template into a set of linked tasks with one command
 - Dependency chains (task B cannot start until task A completes)
+- Tags for flexible cross-cutting categorization (e.g., "pre-sale", "guest-visit", "insurance")
 
 **Issue Tracking**
 - Log issues found at any property/space with severity (critical/high/medium/low)
@@ -88,7 +227,7 @@ AIConversations   — history of AI advisory sessions
 - Track cost estimates vs. actuals
 - Approval workflow for work above a cost threshold
 
-### 5.2 Staff Management
+### 7.2 Staff Management
 
 - Staff profiles: name, role, properties assigned, certifications, contact info
 - Role types: housekeeper, groundskeeper, property manager, driver, chef, security, personal assistant, other
@@ -97,7 +236,7 @@ AIConversations   — history of AI advisory sessions
 - Performance notes (not ratings — qualitative observations)
 - Certification and license expiration tracking
 
-### 5.3 Vendor Management
+### 7.3 Vendor Management
 
 - Vendor profiles: company, contacts, service categories, service areas, insurance info
 - Link vendors to properties and service categories
@@ -106,7 +245,7 @@ AIConversations   — history of AI advisory sessions
 - Preferred vendor designation per property per service category
 - Compare vendor costs against budget benchmarks
 
-### 5.4 Financial Management
+### 7.4 Financial Management
 
 - **Budgets:** Set annual/quarterly/monthly budgets per property and per category (maintenance, landscaping, cleaning, utilities, staff, events, vehicles, supplies)
 - **Transactions:** Log expenses and income, categorize by property/vendor/category
@@ -115,7 +254,7 @@ AIConversations   — history of AI advisory sessions
 - **Reports:** Spending by property, by category, by vendor, by time period
 - **Cost anomaly detection:** Flag expenses significantly above historical norms
 
-### 5.5 Asset & Inventory Management
+### 7.5 Asset & Inventory Management
 
 - **Appliances & Systems:** Model, serial number, install date, warranty expiration, maintenance schedule, location
 - **Vehicles:** Make, model, year, VIN, location, registration/insurance dates, maintenance schedule, mileage
@@ -123,7 +262,7 @@ AIConversations   — history of AI advisory sessions
 - **Consumables:** Cleaning supplies, pantry basics, linens — with par levels and reorder alerts
 - **Equipment:** Tools, outdoor gear, AV systems, smart home devices — with firmware/warranty tracking
 
-### 5.6 Event & Hospitality Management
+### 7.6 Event & Hospitality Management
 
 - Plan events with guest lists, vendor coordination, budgets, timelines
 - Guest profiles with preferences (dietary, room, activities)
@@ -131,29 +270,329 @@ AIConversations   — history of AI advisory sessions
 - Post-event task generation (cleanup, inventory restock, vendor review)
 - Event history and cost tracking for future reference
 
-### 5.7 Seasonal & Weather Awareness
+### 7.7 Seasonal & Weather Awareness
 
 - Property climate zone tracking
 - Seasonal task templates (winterization, spring opening, hurricane prep, wildfire prep)
 - Weather alert integration (future: API-based; initial: manual input)
 - Automated seasonal checklist activation based on calendar
 
-### 5.8 Documents & Knowledge Base
+### 7.8 Documents & Knowledge Base
 
 - Store documents linked to any entity (warranties, contracts, manuals, insurance policies, permits)
 - Expiration date tracking with renewal alerts
 - SOP library for staff procedures
 - Property-specific house manuals
 
+### 7.9 Tags & Labels
+
+- User-defined tags attachable to any entity (properties, tasks, issues, vendors, assets, etc.)
+- Polymorphic tagging via `TagAssignments` join table
+- Filter and search by tag across all entity types: `mihomes search --tag "pre-sale"`
+- Bulk operations by tag: `mihomes task list --tag "guest-visit"` to see all guest-related tasks across properties
+- AI can suggest tags when creating entities based on context
+
+### 7.10 Templates & Checklists
+
+- Create reusable templates with ordered steps: `mihomes template add "Summer Opening" --steps "Turn on water main, Test all faucets, ..."`
+- Assign default staff/vendor, estimated duration, and dependencies per step
+- Instantiate a template into real tasks: `mihomes template run "Summer Opening" --property beach-house --due 2026-05-01`
+- Built-in starter templates for common operations (seasonal opening/closing, pre-arrival, post-storm, new vendor onboarding)
+- Templates are versionable — editing a template does not affect previously instantiated tasks
+
+### 7.11 Vendor Contracts
+
+- Track contract terms: start date, end date, auto-renewal flag, notice period, cost/rate
+- Link contracts to vendors, properties, and service categories
+- Renewal alerts triggered by notice period (e.g., "Contract with ABC Landscaping auto-renews in 30 days unless cancelled")
+- Cost history per contract for renegotiation context
+- Store contract documents (PDFs) linked to the contract record
+
+### 7.12 Audit Trail
+
+- Immutable `AuditLog` table records every create, update, and delete operation
+- Each entry: timestamp, entity type, entity ID, action, field changes (old → new), actor (admin or "whatsapp:Sarah")
+- `mihomes audit <entity-type> <id>` to view full history of any record
+- `mihomes audit --recent` to see latest changes across the system
+- Foundation for future multi-user accountability and compliance
+
+### 7.13 Search
+
+- Global search across all entity types: `mihomes search "plumbing"` returns matching properties, tasks, issues, vendors, assets, notes, and documents
+- Scoped search: `mihomes search "leak" --type issues --property beach-house`
+- Tag-based search: `mihomes search --tag "urgent"`
+- AI-enhanced search (Phase 2): `mihomes ai search "what did we do about the roof last year?"` uses AI to interpret intent and query across entities and audit history
+
+### 7.14 Configuration
+
+- System settings managed via CLI: `mihomes config set <key> <value>`
+- Key settings:
+  - `calendar.provider` — manual | ical | google | outlook
+  - `ai.provider` — claude | openai | ollama
+  - `ai.api_key` — stored securely (not in SQLite)
+  - `currency.default` — USD, EUR, etc.
+  - `notifications.format` — rich | brief | json
+  - `data.directory` — path to `~/.mihomes/` (DB, media, backups)
+- `mihomes config list` to view all current settings
+- `mihomes config reset <key>` to restore defaults
+- Settings stored in `Configurations` table with the exception of secrets (API keys stored in OS keyring or `.env` file)
+
+### 7.15 Backup & Restore
+
+- `mihomes backup` — creates a timestamped copy of the SQLite database and media directory into `~/.mihomes/backups/`
+- `mihomes backup --output /path/to/backup.tar.gz` — export to a specific location
+- `mihomes restore <backup-file>` — restores from a backup with confirmation prompt
+- `mihomes doctor` — integrity checks: orphaned media files, missing references, database consistency, stale calendar events
+- Future (Phase 4): automated backup scheduling via cron helper
+
+### 7.16 WhatsApp Staff Gateway (Phase 3)
+
+- Bidirectional messaging between MiHomes and staff via **Baileys** (`@whiskeysockets/baileys`)
+- **Outbound (MiHomes → Staff):**
+  - Task assignments with details and due dates
+  - Reminders for overdue or upcoming tasks
+  - Issue alerts relevant to staff's assigned properties
+  - Daily/weekly digest of their task list
+- **Inbound (Staff → MiHomes):**
+  - Reply "done" (or similar) to mark tasks complete, with optional notes
+  - Send photos that auto-attach to the relevant task or issue
+  - Report new issues: "Issue: water stain on ceiling in guest bedroom" → AI parses and creates issue record
+  - Request information: "What's my schedule this week?" → MiHomes responds with task list
+- **Group chats:** Property-specific staff groups for coordination
+- **Thread tracking:** All messages stored in `WhatsAppThreads` and linked to the relevant task/issue/property for audit trail
+- **Media capture:** All photos/videos sent in threads are downloaded via Baileys `downloadMediaMessage()`, stored in `~/.mihomes/media/whatsapp/`, and linked to the relevant entity. AI analyzes images for context (damage severity, before/after comparison, equipment model identification)
+- Architecture: `NotificationGateway` protocol with `WhatsAppGateway` (Baileys), `CLIGateway` implementations
+
+#### 7.16.0 Baileys Integration Details
+
+**Why Baileys over WhatsApp Business API:**
+- Zero cost (no per-message fees, no BSP subscription)
+- Uses your existing personal/team WhatsApp number — no separate business number required
+- Full group chat access including reading all messages (Business API cannot join existing groups)
+- No message template approval process — send any message anytime
+- No 24-hour conversation window restrictions
+- Runs locally (aligns with local-first architecture)
+
+**How it works:**
+- Baileys is a Node.js/TypeScript library that implements the WhatsApp Web Multi-Device protocol via WebSocket
+- Registers as a "linked device" on your WhatsApp account (like WhatsApp Web)
+- Phone does NOT need to stay online after initial QR code pairing
+- MiHomes runs a lightweight Node.js sidecar process (`mihomes-whatsapp-bridge`) that connects via Baileys and communicates with the Python CLI via a local socket/REST API
+
+**Setup flow:**
+- `mihomes whatsapp setup` — starts the bridge, displays QR code in terminal
+- User scans QR code with their WhatsApp mobile app (one-time)
+- Session credentials stored in `~/.mihomes/whatsapp-auth/` — persists across restarts
+- `mihomes whatsapp link-group <group-name> --property lakeside-estate` — links an existing WhatsApp group to a property
+- `mihomes whatsapp status` — shows connection status, linked groups, message stats
+
+**Runtime architecture:**
+- `mihomes-whatsapp-bridge` runs as a background daemon (Node.js)
+- Communicates with MiHomes Python process via local HTTP API on `localhost`
+- Bridge handles: WebSocket connection, message encryption/decryption, media download, event streaming
+- Python side handles: AI analysis, issue extraction, task creation, admin notifications
+
+**Risks and mitigations:**
+- **Account ban risk:** Baileys violates WhatsApp's ToS. Mitigations: use a dedicated WhatsApp number (not personal), keep message volume low (estate management is naturally low-volume), avoid bulk/broadcast messaging, maintain organic chat activity on the number
+- **Protocol changes:** WhatsApp can break Baileys with protocol updates. Mitigation: WhiskeySockets community is active and typically patches within days; gateway degrades gracefully (messages queue locally until connection restores)
+- **Session expiry:** WhatsApp may force re-linking. Mitigation: `mihomes whatsapp status` checks health; alerts admin if session needs re-authentication
+
+#### 7.16.1 Passive Issue Detection (Conversation Intelligence)
+
+Staff group chats contain a constant stream of operational signal mixed with social conversation. MiHomes AI monitors group messages passively and extracts actionable items — without requiring staff to use any special format or commands.
+
+**How it works:**
+1. All group messages are ingested and stored in `WhatsAppThreads`
+2. AI periodically (or in near-real-time) analyzes the conversation stream
+3. AI classifies each message or message cluster into categories:
+   - **Issue / Problem** — something is broken, damaged, malfunctioning, missing, or needs repair
+   - **Task / Request** — someone is asking for something to be done
+   - **Task Completion** — someone confirming work was done
+   - **Delivery / Scheduling** — coordination about upcoming arrivals, installations, visits
+   - **Informational** — status updates, FYIs, social/personal (no action needed)
+   - **Supply Need** — something needs to be purchased, replaced, or restocked
+   - **Vendor Activity** — a vendor visit, repair, or installation is happening or planned
+4. For actionable items, AI extracts: what, where (property/space), who reported it, severity estimate, any associated photos, and related context from the thread
+5. Extracted items are surfaced to the admin as **suggested issues/tasks** in a review queue — NOT auto-created
+6. Admin reviews via `mihomes whatsapp review` and confirms, edits, or dismisses each suggestion
+7. Confirmed items become real Issues, Tasks, or Work Orders linked back to the original WhatsApp messages
+
+**Real-world example** — given this actual staff group conversation:
+
+```
+[10:33 AM] Sarah: The bush where the herb garden is needs to be trimmed
+[10:33 AM] Sarah: There are tons of spiders there
+[10:34 AM] Sarah: The sun room near master needs to be cleaned as well
+[11:08 AM] Sarah: Deer treatment
+[1:41 PM]  James: Hey Marco, The back left tire on the Rivian is running low
+                   on air and needs to be brought back up to 42 PSI
+[1:42 PM]  Marco: Not a problem James 👍🏼
+[5:42 PM]  Sarah: Marco, Do we have a tire patch?
+[5:42 PM]  Sarah: James tire may have a hole in it
+[12:37 PM] Sarah: We need a new water gallon in master please
+[12:38 PM] Marco: I'll replace right away 👍🏼
+[4:06 PM]  Sarah: Marco, Kevin is coming to check the backyard bar ice maker
+[2:21 PM]  Lisa: NO WATER
+[3:39 PM]  Sarah: I just noticed. I told James
+[3:52 PM]  Sarah: I check the correspondence on this issue and they fixed it
+                   by tightening the drain plug back in May.
+[10:52 AM] Sarah: Patio furniture/cushions needs to be washed, bar area,
+                   pool chair cushions needs to be cleaned as well
+[9:34 AM]  Lisa: Ac is out at your office Sarah!
+[9:34 AM]  Lisa: It needs to buy a new cover for the cart
+[10:31 AM] Sarah: I'd like to check the sump pumps. Make sure good condition
+[10:31 AM] Sarah: Check pool equipment in back. The pool company has ordered
+                   parts to get it fixed.
+[10:41 AM] Lisa: [re: cart cover] It is ripped, and it can't be sewn
+```
+
+**AI would extract and present to admin:**
+
+```
+╭─ WhatsApp Review Queue (12 items from property: Lakeside Estate) ─╮
+│                                                                     │
+│  ISSUES                                                             │
+│  1. 🔴 No water (recurring)                    Severity: Critical   │
+│     Reported by: Lisa, 7/8 2:21 PM                                 │
+│     Context: Previously fixed May (drain plug). Recurrence          │
+│     suggests deeper problem.                                        │
+│     → [Create Issue] [Dismiss] [Edit]                               │
+│                                                                     │
+│  2. 🟡 AC out in office                        Severity: High      │
+│     Reported by: Lisa, 7/11 9:34 AM                                │
+│     Note: Sarah says she messaged Tyler (vendor?) about it         │
+│     → [Create Issue] [Dismiss] [Edit]                               │
+│                                                                     │
+│  3. 🟡 Rivian back left tire — possible puncture Severity: Medium  │
+│     Reported by: Sarah, 6/25 5:42 PM                               │
+│     Context: Initially low air (James), Sarah suspects hole.       │
+│     Asset: Rivian (auto-linked)                                     │
+│     → [Create Issue] [Dismiss] [Edit]                               │
+│                                                                     │
+│  4. 🟡 Pool equipment needs parts/repair       Severity: Medium    │
+│     Reported by: Sarah, 7/11 10:31 AM                              │
+│     Context: Pool company has ordered parts                         │
+│     → [Create Issue] [Dismiss] [Edit]                               │
+│                                                                     │
+│  5. 🟢 Cart cover ripped, cannot be sewn       Severity: Low       │
+│     Reported by: Lisa, 7/11 10:41 AM                               │
+│     Action needed: Purchase replacement                             │
+│     → [Create Issue] [Create Supply Request] [Dismiss]              │
+│                                                                     │
+│  6. 🟢 Spider infestation near herb garden     Severity: Low       │
+│     Reported by: Sarah, 6/25 10:33 AM                              │
+│     → [Create Issue] [Dismiss] [Edit]                               │
+│                                                                     │
+│  TASKS                                                              │
+│  7. Trim bush (herb garden area)               Assignee: —         │
+│     Reported by: Sarah, 6/25 10:33 AM                              │
+│     → [Create Task] [Dismiss] [Edit]                                │
+│                                                                     │
+│  8. Clean sun room near master                 Assignee: —         │
+│     Reported by: Sarah, 6/25 10:34 AM                              │
+│     → [Create Task] [Dismiss] [Edit]                                │
+│                                                                     │
+│  9. Deer treatment (landscaping)               Assignee: —         │
+│     Reported by: Sarah, 6/25 11:08 AM                              │
+│     → [Create Task] [Dismiss] [Edit]                                │
+│                                                                     │
+│ 10. Wash patio furniture/cushions, bar area,   Assignee: —         │
+│     pool chair cushions                                             │
+│     Reported by: Sarah, 7/9 10:52 AM                               │
+│     → [Create Task] [Dismiss] [Edit]                                │
+│                                                                     │
+│ 11. Check sump pumps condition                 Assignee: —         │
+│     Reported by: Sarah, 7/11 10:31 AM                              │
+│     → [Create Task] [Dismiss] [Edit]                                │
+│                                                                     │
+│  COMPLETED (auto-detected)                                          │
+│ 12. ✅ Ice machine installed (backyard bar)                         │
+│     Confirmed by: Marco, 7/1 2:14 PM                               │
+│     Vendor: Kevin (visited 6/27)                                    │
+│     → [Log Completion] [Dismiss]                                    │
+│                                                                     │
+│  SKIPPED (no action needed)                                         │
+│  - Water gallon replacement (Marco handled immediately)             │
+│  - Bread/food sharing messages (social)                             │
+│  - Pet medication discussion (personal)                             │
+│  - Washer/dryer delivery coordination (informational)               │
+│  - Max's cat missing (personal, not property issue)                 │
+╰─────────────────────────────────────────────────────────────────────╯
+```
+
+**Key intelligence features:**
+- **Correlates related messages:** Links James's tire air request → Sarah's puncture suspicion → upgrades from simple task to potential issue
+- **Detects recurring problems:** "NO WATER" cross-referenced with May drain plug fix → flags as recurring with higher severity
+- **Identifies vendor activity:** Kevin's ice maker visit → Marco confirms installation → logs as completed work
+- **Filters noise:** Bread sharing, pet medication, social messages correctly classified as non-actionable
+- **Captures implicit tasks:** "Deer treatment" with no verb is still recognized as a task request
+- **Links to assets:** "Rivian" auto-matched to vehicle in asset inventory
+- **Escalates intelligently:** "NO WATER" gets Critical severity; spider infestation gets Low
+- **Preserves context:** Each extracted item links back to the original messages and any associated photos for full traceability
+
+### 7.17 Insurance Tracking
+
+- Track insurance policies across all properties, vehicles, and valuable assets
+- Policy types: property/homeowners, liability/umbrella, valuable articles (art, jewelry, wine), vehicle, workers compensation, event liability
+- Fields per policy: policy number, carrier, agent contact, type, coverage limit, deductible, annual premium, renewal date, linked entities (properties, assets, vehicles)
+- Renewal alerts triggered by configurable lead time (default: 60 days before renewal)
+- Coverage gap detection: AI compares insured values against current asset/property values and flags underinsurance
+- Claim tracking: log claims against policies with status, amounts, and documentation
+- `mihomes insurance list` — all policies across the estate
+- `mihomes insurance list --expiring 90` — policies renewing in 90 days
+- `mihomes insurance gaps` — AI-assisted coverage adequacy review
+
+### 7.18 Recurring Expenses
+
+- Define repeating financial items that auto-generate transactions on schedule
+- Types: utility bills, staff payroll, subscriptions, service contracts, HOA dues, insurance premiums, loan payments
+- Fields: amount (fixed or estimated), frequency (weekly/biweekly/monthly/quarterly/annual), vendor, property, category, start date, end date (optional)
+- `mihomes recurring add "Pool Service" --amount 350 --frequency monthly --vendor pool-pros --property beach-house --category maintenance`
+- `mihomes recurring list` — all active recurring expenses
+- `mihomes recurring generate` — create pending transactions for current period (run manually or via cron)
+- Estimated vs. actual: recurring expenses generate "expected" transactions; user confirms or adjusts the actual amount when the bill arrives
+- Feeds into budget forecasting: AI uses recurring expenses + known one-time costs to project future spend
+
+### 7.19 Alerts
+
+- Centralized alert system aggregating time-sensitive items across all subsystems
+- `mihomes alerts` — show all pending alerts, sorted by urgency (SPACE framework)
+- `mihomes alerts --format brief` — one-line-per-alert output for cron piping
+- `mihomes alerts --format json` — machine-readable output for custom integrations
+- Alert sources:
+  - Overdue tasks
+  - Issues above a severity threshold unresolved for N days
+  - Budget variance exceeding threshold
+  - Warranty/contract/insurance/certification expirations within configured lead time
+  - Recurring expenses pending confirmation
+  - Seasonal preparation reminders based on property climate zone and calendar
+  - AI-generated proactive recommendations (Phase 2)
+- Alert lifecycle: generated → seen → acknowledged → resolved (or auto-resolved when underlying item is addressed)
+- Alert suppression: `mihomes alerts snooze <alert-id> --days 7` to defer non-urgent items
+
+### 7.20 Data Retention & Archival
+
+- Active data: all current/open items live in main tables with full query performance
+- Completed/resolved items: remain in main tables indefinitely (they're small and useful for AI pattern analysis)
+- Archival policy for high-volume tables:
+  - `AuditLog`: entries older than 2 years archived to `audit_log_archive` table (still queryable but excluded from default queries). Configurable: `mihomes config set retention.audit_years 2`
+  - `WhatsAppThreads`: message content older than 1 year archived; thread metadata retained. Configurable: `mihomes config set retention.whatsapp_years 1`
+  - `AIConversations`: conversations older than 1 year archived. Configurable: `mihomes config set retention.ai_years 1`
+  - `Transactions`: never archived (financial records must be retained for tax/legal purposes)
+- `mihomes archive run` — manually trigger archival based on configured retention periods
+- `mihomes archive stats` — show data volume per table and what would be archived
+- Archived data remains in the SQLite file (separate tables) and is included in backups
+- `mihomes search` and `mihomes audit` can optionally query archived data with `--include-archived`
+
 ---
 
-## 6. AI System Design
+## 8. AI System Design
 
-### 6.1 Philosophy
+### 8.1 Philosophy
 
 MiHomes treats AI as a **team of specialist advisors**, not a single chatbot. Each AI role has a defined scope, data context, and decision framework. The user interacts through a unified interface, but the system routes queries to the appropriate specialist context.
 
-### 6.2 AI Expert Roles
+### 8.2 AI Expert Roles
 
 | Role | Scope | Key Capabilities |
 |---|---|---|
@@ -171,7 +610,40 @@ MiHomes treats AI as a **team of specialist advisors**, not a single chatbot. Ea
 | **Compliance Monitor** | Regulations & permits | Deadline tracking, regulatory changes, HOA compliance |
 | **Lifestyle Assistant** | Personal & family | Subscriptions, appointments, travel coordination, preference management |
 
-### 6.3 AI Interaction Model
+### 8.3 AI Role Routing
+
+When a user issues an `ai ask` or `ai review` command, the system must decide which AI role(s) to activate:
+
+**Routing strategy:**
+1. **Keyword + entity analysis:** Parse the user's query for entity references (property names, vendor names, asset types) and domain keywords ("budget" → Financial Analyst, "leak" → Maintenance Advisor, "party" → Hospitality Planner)
+2. **Multi-role queries:** If a query spans multiple domains (e.g., "the roof is leaking and I need to know if insurance covers it"), activate multiple roles. The Estate Manager role serves as orchestrator, synthesizing inputs from Maintenance Advisor and Asset Curator (insurance)
+3. **Explicit routing:** User can force a role: `mihomes ai ask --role financial "should I renegotiate the landscaping contract?"`
+4. **Fallback:** If no specific role matches, route to Estate Manager as the generalist
+
+**Implementation:**
+- Each role is a **system prompt template** that includes: role description, decision framework, SPACE priorities relevant to this role, and instructions for structured output
+- Each role has a **data fetcher** that assembles the relevant context (e.g., Maintenance Advisor gets: property details, asset inventory for that property, recent work orders, vendor list, warranty dates)
+- Roles do NOT call the AI independently in parallel — the orchestrator builds a single prompt with the relevant role context(s) and makes one AI call
+- The role's system prompt is prepended; the assembled data context is injected as a structured data block; the user's query is appended
+
+### 8.4 AI Context Window Management
+
+With potentially 100 properties and 100K+ tasks, sending everything to the AI is impossible. Context must be carefully selected:
+
+**Context selection strategy:**
+1. **Query-scoped data:** If the query references a specific property, only fetch data for that property. If it references a vendor, fetch that vendor's history.
+2. **Relevance ranking:** For broad queries ("what should I prioritize this week?"), fetch:
+   - All overdue tasks (capped at 50, sorted by SPACE priority)
+   - All open issues (capped at 30, sorted by severity)
+   - Budget summaries per property (aggregated, not individual transactions)
+   - Upcoming deadlines within 30 days (warranties, contracts, certifications)
+   - Recent audit log entries (last 7 days, capped at 20)
+3. **Summary over detail:** Send aggregated summaries rather than raw records. Example: "Beach House: 12 open tasks, 3 overdue, 2 critical issues, Q1 budget 78% spent" rather than all 12 task records
+4. **Progressive detail:** If the AI's response indicates it needs more data, the system can do a follow-up call with additional context (e.g., AI says "I need the maintenance history for the HVAC" → fetch and re-query)
+5. **Token budget:** Each AI call targets a maximum context of ~50K tokens for data, leaving room for system prompt and response. Data is truncated with a "... and N more items, use --detail for full context" note
+6. **Conversation continuity:** `AIConversations` stores prior exchanges so follow-up questions can reference previous context without re-fetching everything
+
+### 8.5 AI Interaction Model
 
 ```
 mihomes ai ask "The Hamptons house has a water stain on the guest bedroom ceiling"
@@ -194,7 +666,7 @@ Proactive daily/weekly review:
 - Seasonal preparation reminders
 - Maintenance predictions based on equipment age and history
 
-### 6.4 SPACE Prioritization Framework
+### 8.6 SPACE Prioritization Framework
 
 When AI makes recommendations, it uses the **SPACE** framework:
 
@@ -210,22 +682,31 @@ Every AI recommendation includes its SPACE classification so the user understand
 
 ---
 
-## 7. CLI Interface Design
+## 9. CLI Interface Design
 
-### 7.1 Command Structure
+### 9.1 Command Structure
 
 ```bash
 mihomes <entity> <action> [options]
 ```
 
-### 7.2 Core Commands
+### 9.2 Core Commands
 
 ```bash
+# Setup & Help
+mihomes init                               # first-run setup wizard
+mihomes init --demo                        # load sample data for exploration
+mihomes version                            # show version, Python version, DB path
+mihomes help                               # command overview with examples
+mihomes <command> --help                   # detailed help for any command
+
 # Properties
-mihomes property add "Beach House" --address "123 Ocean Dr" --type vacation
+mihomes property add "Beach House" --address "123 Ocean Dr" --type vacation --climate-zone northeast
 mihomes property list
 mihomes property show beach-house
 mihomes property status                    # overview of all properties
+mihomes property occupy beach-house --from 2026-06-01 --to 2026-08-31
+mihomes property vacate beach-house        # mark as unoccupied now
 
 # Tasks
 mihomes task add "Clean gutters" --property beach-house --recurrence quarterly
@@ -238,8 +719,17 @@ mihomes issue add "Leak under kitchen sink" --property beach-house --severity hi
 mihomes issue list --open --sort severity
 mihomes issue resolve <issue-id> --notes "Replaced P-trap, tested for 24hrs"
 
+# Spaces (rooms/areas within properties)
+mihomes space add "Master Bedroom" --property beach-house --type bedroom
+mihomes space add "Pool Area" --property beach-house --type outdoor
+mihomes space list --property beach-house
+
 # Staff & Vendors
 mihomes staff add "Maria Santos" --role housekeeper --property beach-house
+mihomes staff show maria-santos
+mihomes staff schedule maria-santos            # view assigned tasks and workload
+mihomes staff schedule --property beach-house  # all staff schedules for a property
+mihomes staff workload                         # summary of task counts per staff member
 mihomes vendor add "ABC Plumbing" --category plumbing --area "South Shore"
 mihomes vendor rate <vendor-id> --quality 4 --reliability 5 --notes "Fast response"
 
@@ -259,19 +749,121 @@ mihomes vehicle add "Range Rover" --property beach-house --year 2024 --vin XXX
 mihomes event add "July 4th Party" --property beach-house --date 2026-07-04 --guests 40
 mihomes guest add "John Smith" --dietary vegan --room-preference "ocean view suite"
 
+# Edit & Delete (available on all entities)
+mihomes property edit beach-house --name "Oceanfront Villa"
+mihomes task edit <task-id> --priority urgent --assignee marco
+mihomes issue edit <issue-id> --severity critical
+mihomes vendor edit abc-plumbing --area "North Shore, South Shore"
+mihomes property delete mountain-lodge      # requires confirmation
+mihomes task delete <task-id>               # requires confirmation
+# Pattern: mihomes <entity> edit <id-or-slug> --<field> <value>
+# Pattern: mihomes <entity> delete <id-or-slug> (always prompts for confirmation)
+
+# Notes (attachable to any entity)
+mihomes note add --to property:beach-house "Neighbor contact: Tom at 555-1234"
+mihomes note add --to issue:42 "Spoke with vendor, scheduling for next week"
+mihomes note add --to vendor:abc-plumbing "Ask for Mike, he knows our systems"
+mihomes note list --to property:beach-house
+
+# Documents
+mihomes document add warranty.pdf --to asset:sub-zero-fridge --type warranty \
+  --expires 2027-03-15
+mihomes document add "HOA Rules 2026.pdf" --to property:beach-house --type regulation
+mihomes document list --property beach-house
+mihomes document list --expiring 90         # documents expiring in 90 days
+
+# Work Orders (Phase 3)
+mihomes workorder create --from issue:42 --vendor abc-plumbing --estimate 850 \
+  --due 2026-04-15
+mihomes workorder list --property beach-house --open
+mihomes workorder approve <wo-id>           # approve if above cost threshold
+mihomes workorder complete <wo-id> --actual-cost 920 --notes "Additional fitting needed"
+
+# Templates
+mihomes template add "Summer Opening" --steps "Turn on water,Test faucets,Pool startup"
+mihomes template list
+mihomes template run "Summer Opening" --property beach-house --due 2026-05-01
+
+# Tags
+mihomes tag create "pre-sale"
+mihomes tag apply "pre-sale" --to issue:42 task:87 task:88
+mihomes task list --tag "pre-sale"
+
+# Search
+mihomes search "plumbing"                  # global search across all entities
+mihomes search "leak" --type issues        # scoped search
+mihomes search --tag "urgent"              # tag-based search
+
+# Contracts
+mihomes contract add --vendor abc-landscaping --property beach-house \
+  --start 2026-04-01 --end 2027-03-31 --annual 18000 --auto-renew
+mihomes contract list --expiring 60        # contracts expiring in 60 days
+
+# Config
+mihomes config set ai.provider claude
+mihomes config set currency.default USD
+mihomes config list
+
+# Backup & Maintenance
+mihomes backup                             # snapshot DB + media
+mihomes restore backup-2026-03-27.tar.gz
+mihomes doctor                             # integrity checks
+
+# Audit
+mihomes audit issues 42                    # full history of issue #42
+mihomes audit --recent --days 7            # all changes in last 7 days
+
+# WhatsApp Intelligence (Phase 3)
+mihomes whatsapp setup                     # start bridge, display QR code for pairing
+mihomes whatsapp link-group "House Staff" --property lakeside-estate
+mihomes whatsapp status                    # gateway connection status, linked groups, message stats
+mihomes whatsapp review                    # review AI-extracted issues/tasks from group chats
+mihomes whatsapp review --property lakeside-estate
+mihomes whatsapp review --accept 1,2,7,8   # bulk-confirm suggested items
+
+# Insurance
+mihomes insurance add --type homeowners --carrier "State Farm" --property beach-house \
+  --coverage 2000000 --deductible 5000 --premium 12000 --renewal 2027-01-15
+mihomes insurance list --expiring 90
+mihomes insurance gaps                     # AI coverage adequacy review
+
+# Recurring Expenses
+mihomes recurring add "Pool Service" --amount 350 --frequency monthly \
+  --vendor pool-pros --property beach-house --category maintenance
+mihomes recurring list
+mihomes recurring generate                 # create pending transactions for current period
+
+# Alerts
+mihomes alerts                             # all pending alerts by urgency
+mihomes alerts --format brief              # one-line output for cron
+mihomes alerts --format json               # machine-readable
+mihomes alerts snooze <alert-id> --days 7  # defer non-urgent items
+
+# Archive
+mihomes archive stats                      # data volume per table
+mihomes archive run                        # archive old audit/whatsapp/ai data
+
+# Reports
+mihomes report estate --period Q1-2026     # full estate quarterly summary
+mihomes report property beach-house        # single property health report
+mihomes report vendor abc-plumbing         # vendor performance summary
+mihomes report spending --by-category --period 2026
+mihomes report upcoming --days 30          # everything due in 30 days across all properties
+
 # AI
 mihomes ai ask "What should I prioritize this week?"
 mihomes ai review                          # proactive AI review
 mihomes ai plan --property beach-house --scenario "opening for summer"
 mihomes ai budget-review --property beach-house
 mihomes ai assess-issue <issue-id>
+mihomes ai search "what did we do about the roof last year?"
 
 # Dashboard
 mihomes dashboard                          # full estate overview
 mihomes dashboard --property beach-house   # single property focus
 ```
 
-### 7.3 Dashboard Output (Rich Terminal)
+### 9.3 Dashboard Output (Rich Terminal)
 
 ```
 ╭─ MiHomes Estate Dashboard ─────────────────────────────────────╮
@@ -307,64 +899,96 @@ mihomes dashboard --property beach-house   # single property focus
 
 ---
 
-## 8. Implementation Phases
+## 10. Implementation Phases
 
-### Phase 1: Foundation (MVP)
-**Goal:** Core data management and task tracking via CLI
+### Phase 1a: Core (MVP)
+**Goal:** Get the essential data model and daily-use commands working
 
+- `mihomes init` setup wizard with optional `--demo` sample data
+- `mihomes version`, `mihomes help`, `--help` on all commands, tab completion via Typer
 - SQLite database with schema migrations (alembic)
-- Property CRUD
-- Task CRUD with recurrence engine (weekly/monthly/quarterly/seasonal/annual)
-- Issue tracking (create, list, update, resolve)
-- Staff and vendor directories
-- Basic expense logging and budget tracking
+- Property CRUD with types (primary/vacation/seasonal/investment/rental/estate), status, and occupancy (manual entry via `occupy`/`vacate`)
+- Task CRUD with recurrence engine (weekly/monthly/quarterly/seasonal/annual) and priority levels
+- Issue tracking (create, list, update, resolve) with severity
+- Staff and vendor directories (staff includes `whatsapp_phone` field for Phase 3 readiness)
+- Basic expense logging and budget tracking (with `currency` column from day one)
 - Dashboard command showing overview across properties
+- Slug-based entity identification (auto-generated from name, user-overridable)
+- Audit log — immutable record of all changes from day one
 - CLI with Typer + Rich for formatted output
 
-### Phase 2: Intelligence
-**Goal:** AI advisory layer
+### Phase 1b: Supporting Features
+**Goal:** Round out the MVP with operational depth
 
-- Claude API integration for natural language interaction
-- `ai ask` command with context-aware responses
+- Vendor contract tracking with renewal alerts
+- Recurring expenses
+- Insurance policy tracking with renewal alerts
+- Templates and checklists — create, manage, instantiate into tasks
+- Tags — create, apply to any entity, filter by tag
+- Global search across all entity types
+- Alerts system — centralized view of overdue tasks, expiring items, budget variances
+- Unified reporting (`mihomes report`)
+- Configuration system (`mihomes config`)
+- Backup/restore commands and `mihomes doctor` integrity checks
+- Data retention and archival commands
+- CSV import/export with template files
+
+### Phase 2: Intelligence
+**Goal:** AI advisory layer with multi-provider support
+
+- `AIProvider` abstraction with `ClaudeProvider` and `OpenAIProvider` implementations
+- `ai ask` command with context-aware responses (routes to appropriate AI expert roles)
 - `ai review` for proactive recommendations
+- `ai search` for natural language querying across entities and history
 - AI-assisted issue severity assessment
 - AI-assisted task prioritization using SPACE framework
+- AI-assisted import — paste unstructured text, AI parses into records for confirmation
+- AI-suggested tags and priority when creating entities
 - Conversation history storage for context continuity
+- Cron-friendly output mode (`mihomes alerts --format brief`) with `mihomes cron setup` helper
 
-### Phase 3: Depth
-**Goal:** Full operational capability
+### Phase 3: Depth + Communication
+**Goal:** Full operational capability and staff communication
 
 - Asset and inventory management (appliances, vehicles, valuables)
 - Work order workflow (estimate → approve → assign → complete → verify)
 - Vendor performance tracking and comparison
-- Event and guest management
+- Event and guest management with guest preference profiles
 - Document storage and expiration tracking
-- Seasonal checklists and templates
+- Seasonal checklists and templates (built-in starter templates)
 - Advanced financial reports and forecasting
+- **WhatsApp gateway via Baileys** — staff receive assignments, report completions, submit issues with photos
+- WhatsApp group chats per property for staff coordination
+- **Passive issue detection** — AI monitors group conversations and extracts issues/tasks into a review queue
+- Google Calendar and MS365 Outlook integration (bidirectional sync via `CalendarProvider` abstraction)
+- iCal file import
+- Ollama/local model support for offline AI advisory
 
 ### Phase 4: Automation
 **Goal:** Proactive and automated operations
 
-- Scheduled AI reviews (daily/weekly digest)
-- Auto-generated task reminders and escalations
-- Weather-aware task scheduling (API integration)
+- Scheduled AI reviews (daily/weekly digest via cron)
+- Auto-generated task reminders and escalations (CLI + WhatsApp delivery)
+- Weather-aware task scheduling (weather API integration)
 - Smart reorder alerts for consumable inventory
 - Cross-property optimization recommendations
-- Calendar integration for occupancy-aware automation
+- Occupancy-aware automation (calendar-triggered task workflows)
+- Automated backup scheduling
 
 ### Phase 5: Scale (Future)
-**Goal:** Multi-user and beyond CLI
+**Goal:** Multi-user, web UI, and integrations
 
-- Web UI (optional, for non-technical family members)
-- Multi-user access with role-based permissions
-- Mobile notifications
-- Smart home sensor integration
+- Web UI (for non-technical family members and staff)
+- Full multi-user with role-based permissions and authentication
+- Email and SMS notification gateways
+- Multi-currency with live exchange rates
+- Smart home sensor integration (temperature, humidity, water, security)
 - API for third-party integrations
 - Migration path to PostgreSQL if needed
 
 ---
 
-## 9. Non-Functional Requirements
+## 11. Non-Functional Requirements
 
 | Requirement | Target |
 |---|---|
@@ -376,7 +1000,61 @@ mihomes dashboard --property beach-house   # single property focus
 | Data privacy | All data stored locally, AI queries send only relevant context |
 | Backup | Simple file copy; future: automated backup scheduling |
 
-## 10. Key Design Principles
+## 12. Testing Strategy
+
+### Unit Tests
+- All data access layer functions (CRUD operations, queries, recurrence calculations)
+- Business logic: task scheduling, budget calculations, overdue detection, SPACE prioritization scoring
+- Template instantiation (template → tasks with correct dependencies and assignments)
+- Tag filtering and search logic
+- CSV import parsing and validation
+
+### Integration Tests
+- Full CLI command execution via Typer's test runner (CliRunner)
+- Database migrations — verify forward/backward migration integrity
+- AI provider abstraction — mock provider tests ensuring all providers conform to the protocol
+- WhatsApp gateway message parsing (inbound) and formatting (outbound)
+- Calendar provider sync (mock API responses for Google/Outlook)
+
+### End-to-End Tests
+- Scenario-based: "Add a property, create recurring tasks, complete some, run dashboard, verify output"
+- AI integration: verify context assembly (correct data gathered before sending to AI)
+- Backup/restore round-trip: backup, modify data, restore, verify original state
+- `mihomes doctor` detects intentionally introduced integrity problems
+
+### Test Infrastructure
+- pytest as test framework
+- Factory Boy or fixtures for test data generation
+- In-memory SQLite for fast unit tests, file-based SQLite for integration tests
+- CI via GitHub Actions on every push
+
+## 13. Error Handling & Data Integrity
+
+### Database Integrity
+- SQLite WAL mode for crash resilience
+- Foreign key constraints enforced at the database level
+- All multi-step operations wrapped in transactions (e.g., template instantiation creates multiple tasks atomically)
+- `mihomes doctor` checks: orphaned media files, broken foreign key references, stale calendar events, audit log consistency
+
+### AI Failure Handling
+- All AI features are non-blocking — if the AI provider is unavailable, commands complete without AI enrichment
+- Timeout: AI calls abort after 30 seconds with a user-visible warning, not an error
+- Rate limiting: queue and retry with backoff, surface status to user
+- Malformed AI responses: validate structured output before applying; fall back to raw text display if parsing fails
+- No AI response is auto-committed — all AI-generated records (issues, tasks, import data) require user confirmation
+
+### WhatsApp Gateway Resilience
+- Inbound message queue: messages are stored locally and processed even if MiHomes was offline when received
+- Outbound retry: failed message delivery retried 3 times with exponential backoff, then queued for next cycle
+- Message validation: AI parses inbound staff messages but flags low-confidence interpretations for admin review rather than auto-creating records
+- Gateway down: staff can still be managed via CLI; WhatsApp is an enhancement, not a dependency
+
+### General Principles
+- Never silently discard data — if an operation partially fails, show what succeeded and what didn't
+- All destructive operations (delete, restore, bulk import) require explicit confirmation
+- Corrupt or unreadable backup files are detected before restore begins, not mid-restore
+
+## 14. Key Design Principles
 
 1. **AI-first, not AI-only** — Every feature works without AI. AI enhances but never gates functionality.
 2. **Local-first** — Your data stays on your machine. AI queries send minimal context.
@@ -384,8 +1062,10 @@ mihomes dashboard --property beach-house   # single property focus
 4. **Progressive disclosure** — Simple commands for common tasks, full power available when needed.
 5. **Single source of truth** — One database, one CLI, no data duplication.
 6. **Proactive > Reactive** — The system should surface issues before the user asks.
+7. **Graceful degradation** — AI down? WhatsApp down? Calendar API down? Core functionality continues uninterrupted.
+8. **Confirm before commit** — AI-generated records, destructive operations, and bulk imports always require explicit user confirmation.
 
-## 11. Success Metrics
+## 15. Success Metrics
 
 - All recurring tasks tracked and none missed
 - Issue resolution time decreasing over time
@@ -394,9 +1074,9 @@ mihomes dashboard --property beach-house   # single property focus
 - Zero data loss incidents
 - User spends less time managing logistics, more time enjoying properties
 
-## 12. Open Questions
+## 16. Open Questions (Resolved)
 
-### 12.1 Calendar Integration
+### 16.1 Calendar Integration
 
 How should we track property occupancy and family schedules?
 
@@ -413,7 +1093,7 @@ How should we track property occupancy and family schedules?
 - **Phase 3:** Google Calendar API and MS365 Outlook API as selectable providers, bidirectional sync
 - Architecture: a `CalendarProvider` protocol that each provider implements (`GoogleCalendarProvider`, `OutlookCalendarProvider`, `ICalFileProvider`), configured via `mihomes config set calendar.provider google|outlook|ical|manual`
 
-### 12.2 Photo Storage
+### 16.2 Photo Storage
 
 How should we handle photos for issues, inspections, assets, and properties?
 
@@ -425,7 +1105,7 @@ How should we handle photos for issues, inspections, assets, and properties?
 
 **Recommendation:** **Filesystem with DB references**. Store photos in a `~/.mihomes/media/` directory organized by entity type and ID (e.g., `issues/42/photo1.jpg`). The DB stores the relative path. This keeps the SQLite file small and fast, photos are viewable with any tool, and backup is just copying the `~/.mihomes/` directory. Add a `mihomes doctor` command that detects orphaned or missing files.
 
-### 12.3 Multi-Currency
+### 16.3 Multi-Currency
 
 Do we need to support multiple currencies for international properties?
 
@@ -437,7 +1117,7 @@ Do we need to support multiple currencies for international properties?
 
 **Recommendation:** **Single currency default, with a currency field per property** in the schema from day one. Phase 1 stores amounts in each property's local currency and displays them as-is. Phase 3 adds a base currency setting and manual exchange rates for consolidated reporting. Live rates are a Phase 5 nice-to-have. The key is getting the schema right now so we don't need a migration later — just store a `currency` column on `properties` and `transactions` from the start.
 
-### 12.4 Notification Delivery
+### 16.4 Notification Delivery
 
 How do we alert the user about overdue tasks, expiring warranties, and urgent issues?
 
@@ -452,15 +1132,15 @@ How do we alert the user about overdue tasks, expiring warranties, and urgent is
 **Decision:** **Cron + CLI as the core, WhatsApp as the staff communication gateway.**
 - **Phase 1:** CLI-only — dashboard highlights urgent items, `mihomes alerts` shows pending notifications
 - **Phase 2:** Cron-friendly output mode (`mihomes alerts --format brief`) pipeable to any notification tool via cron job. Add `mihomes cron setup` helper to configure common schedules (daily digest, hourly urgent-only)
-- **Phase 3:** **WhatsApp Business API gateway** for staff and staff group communication. Staff can:
+- **Phase 3:** **WhatsApp gateway via Baileys** for staff and staff group communication. Staff can:
   - Receive task assignments and reminders via WhatsApp
   - Report task completion by replying to messages
   - Submit new issues with photos directly from WhatsApp
   - Participate in property-specific staff group chats managed by MiHomes
-  - Architecture: a `NotificationGateway` protocol with `WhatsAppGateway` (via WhatsApp Business API / Cloud API), `CLIGateway`, and future `EmailGateway` implementations
+  - Architecture: a `NotificationGateway` protocol with `WhatsAppGateway` (Baileys Node.js bridge), `CLIGateway`, and future `EmailGateway` implementations
 - **Phase 5:** Email/SMS as additional gateway options
 
-### 12.5 AI Model Flexibility
+### 16.5 AI Model Flexibility
 
 Should we support multiple LLM providers or build exclusively on Claude?
 
@@ -476,7 +1156,7 @@ Should we support multiple LLM providers or build exclusively on Claude?
 - Configuration: `mihomes config set ai.provider claude|openai|ollama` with per-provider API key management
 - Provider-specific features (Claude's long context, OpenAI's function calling) used opportunistically via capability flags on the provider interface
 
-### 12.6 Collaboration / Multi-User
+### 16.6 Collaboration / Multi-User
 
 When does MiHomes need to support multiple users?
 
@@ -489,10 +1169,10 @@ When does MiHomes need to support multiple users?
 
 **Decision:** **Single admin user via CLI, staff participate via WhatsApp gateway.**
 - **Phase 1-2:** Single admin user (estate manager/owner) operates via CLI. `audit_log` table from day one tracks all changes with timestamps.
-- **Phase 3:** Staff become lightweight participants via the WhatsApp gateway (see 12.4) — they can receive assignments, report completions, and submit issues, but all management decisions remain with the admin via CLI. This gives multi-user *participation* without multi-user *complexity* (no auth system, no role-based permissions, no conflict resolution).
+- **Phase 3:** Staff become lightweight participants via the WhatsApp gateway (see 16.4) — they can receive assignments, report completions, and submit issues, but all management decisions remain with the admin via CLI. This gives multi-user *participation* without multi-user *complexity* (no auth system, no role-based permissions, no conflict resolution).
 - **Phase 5:** Full multi-user with web UI and role-based permissions for when the estate operation needs multiple administrators or family members want direct access.
 
-### 12.7 Import/Export
+### 16.7 Import/Export
 
 How should users bootstrap the system with existing data?
 
@@ -527,7 +1207,7 @@ How should users bootstrap the system with existing data?
 
 ## Appendix B: AI Role Quick Reference
 
-See Section 6.2 for the full table. The 13 AI specialist roles cover: estate management, maintenance, finance, vendors, hospitality, housekeeping, grounds, fleet, security, energy, assets, compliance, and lifestyle.
+See Section 8.2 for the full table. The 13 AI specialist roles cover: estate management, maintenance, finance, vendors, hospitality, housekeeping, grounds, fleet, security, energy, assets, compliance, and lifestyle.
 
 ## Appendix C: SPACE Framework Quick Reference
 

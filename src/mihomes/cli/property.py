@@ -27,17 +27,21 @@ def add_property(
 ):
     """Add a new property."""
     with get_session() as session:
-        prop = prop_svc.create_property(
-            session,
-            name,
-            address=address,
-            property_type=property_type,
-            climate_zone=climate_zone,
-            sqft=sqft,
-            currency=currency,
-            slug=slug,
-        )
-        format_success(f"Property '{prop.name}' created (slug: {prop.slug})")
+        try:
+            prop = prop_svc.create_property(
+                session,
+                name,
+                address=address,
+                property_type=property_type,
+                climate_zone=climate_zone,
+                sqft=sqft,
+                currency=currency,
+                slug=slug,
+            )
+            format_success(f"Property '{prop.name}' created (slug: {prop.slug})")
+        except ValueError as e:
+            format_error(str(e))
+            raise typer.Exit(1)
 
 
 @app.command("list")

@@ -24,3 +24,8 @@ Review this at the start of each session.
 - Use explicit singularization maps instead of naive `.rstrip("s")` for table names
 - For unbudgeted categories, `pct_used` should be 100% (not 0%) if there's actual spending
 - Wrap JSON.parse() in try/catch when reading persisted files (corrupted files shouldn't crash the app)
+
+## Fourth Review Lessons (2026-03-27)
+- NEVER use `hasattr(instance, key)` to guard `setattr` on ORM models — it matches relationships too. Use `key in {c.name for c in instance.__table__.columns}` to only allow column attributes. Created `safe_update()` helper.
+- Always guard state-transition operations (complete, resolve, verify) against being called on entities already in a terminal state. A completed task must not be completable again.
+- `init --demo` must be idempotent or guarded — running it twice creates duplicate data with slug suffixes.

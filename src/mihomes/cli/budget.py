@@ -53,7 +53,7 @@ def set_budget(
             period_start = date.fromisoformat(start) if start else date(date.today().year, 1, 1)
             b = budget_svc.set_budget(session, property, category, period, amount, period_start)
             format_success(f"Budget set: {category} = {b.currency} {b.amount:,.0f} ({period.value})")
-        except EntityNotFoundError as e:
+        except (EntityNotFoundError, ValueError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 

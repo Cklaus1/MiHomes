@@ -21,6 +21,8 @@ def set_budget(
     period_start: date,
     currency: str = "USD",
 ) -> Budget:
+    from mihomes.services.validators import validate_positive_amount
+    validate_positive_amount(amount, "Budget amount")
     prop = resolve_identifier(session, Property, property_id_or_slug)
     # Upsert: update if exists for same property/category/period/start
     existing = session.query(Budget).filter(

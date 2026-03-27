@@ -48,7 +48,7 @@ def add_task(
             if task.schedule:
                 msg += f" [recurrence: {task.schedule.frequency.value}]"
             format_success(msg)
-        except EntityNotFoundError as e:
+        except (EntityNotFoundError, ValueError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 

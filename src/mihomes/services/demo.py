@@ -178,6 +178,37 @@ def load_demo_data(session: Session) -> None:
     budget_svc.add_transaction(session, 150, str(city.id), "utilities", today - timedelta(days=5),
                                description="Electric bill")
 
+    # === Assets ===
+    from mihomes.services.asset import create_asset
+    from mihomes.models.asset import AssetType
+    create_asset(session, "Sub-Zero Refrigerator", AssetType.APPLIANCE, str(beach.id),
+                 model_name="BI-36U", warranty_expires=date(today.year + 1, 6, 15))
+    create_asset(session, "Wolf Range", AssetType.APPLIANCE, str(beach.id),
+                 model_name="GR606", warranty_expires=date(today.year + 2, 3, 1))
+    create_asset(session, "Range Rover Sport", AssetType.VEHICLE, str(beach.id),
+                 make="Land Rover", model_name="Sport HSE", vehicle_info={"year": 2024, "vin": "SAL12345"})
+    create_asset(session, "Snow Blower", AssetType.EQUIPMENT, str(mountain.id),
+                 make="Honda", model_name="HSS928A")
+
+    # === Contracts ===
+    from mihomes.services.contract import create_contract
+    create_contract(session, "coastal-plumbing", str(beach.id), date(today.year, 1, 1),
+                    end_date=date(today.year, 12, 31), annual_cost=12000, auto_renew=True,
+                    service_category="plumbing")
+    create_contract(session, "peak-landscaping", str(mountain.id), date(today.year, 4, 1),
+                    end_date=date(today.year, 10, 31), annual_cost=8000,
+                    service_category="landscaping")
+
+    # === Insurance ===
+    from mihomes.services.insurance import create_policy
+    from mihomes.models.insurance import InsuranceType
+    create_policy(session, "State Farm", InsuranceType.HOMEOWNERS,
+                  property_id_or_slug=str(beach.id), coverage_limit=2000000,
+                  annual_premium=12000, renewal_date=date(today.year + 1, 1, 15))
+    create_policy(session, "Allstate", InsuranceType.HOMEOWNERS,
+                  property_id_or_slug=str(mountain.id), coverage_limit=3000000,
+                  annual_premium=15000, renewal_date=date(today.year, 9, 1))
+
     # === Notes ===
     note_svc.add_note(session, "property:beach-house", "Neighbor at 125 Ocean Dr is Tom (555-0301) - has spare gate key")
     note_svc.add_note(session, "vendor:coastal-plumbing", "Ask for Mike - he knows our system")

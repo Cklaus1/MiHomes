@@ -146,6 +146,7 @@ def assign_staff(
 @app.command("workload")
 def staff_workload():
     """Show task counts per staff member."""
+    from mihomes.models.task import Task, TaskStatus
     with get_session() as session:
         members = staff_svc.list_staff(session)
         if not members:
@@ -154,9 +155,14 @@ def staff_workload():
         table = Table(title="Staff Workload")
         table.add_column("Name", style="bold")
         table.add_column("Role")
+        table.add_column("Pending", justify="right")
+        table.add_column("In Progress", justify="right")
+        table.add_column("Completed", justify="right")
         table.add_column("Properties")
         for m in members:
+            pending = session.query(Task).filter(Task.assignee_id == m.id, Task.status == TaskStatus.PENDING).count()
+            in_prog = session.query(Task).filter(Task.assignee_id == m.id, Task.status == TaskStatus.IN_PROGRESS).count()
+            done = session.query(Task).filter(Task.assignee_id == m.id, Task.status == TaskStatus.COMPLETED).count()
             props = ", ".join(p.name for p in m.properties) or "-"
-            table.add_row(m.name, format_enum(m.role), props)
+            table.add_row(m.name, format_enum(m.role), str(pending), str(in_prog), str(done), props)
         console.print(table)
-        console.print("[dim]Task counts will be available after Task module is built.[/dim]")

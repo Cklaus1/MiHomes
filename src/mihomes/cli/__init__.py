@@ -26,11 +26,48 @@ def main(ctx: typer.Context):
     from mihomes.config import is_initialized
 
     # Allow init and version without initialization
-    if ctx.invoked_subcommand in ("init", "version", None):
+    if ctx.invoked_subcommand in ("init", "version", "help", None):
         return
     if not is_initialized():
         rprint("[yellow]MiHomes is not initialized. Run:[/yellow] [bold]mihomes init[/bold]")
         raise typer.Exit(1)
+
+
+@app.command("help")
+def help_cmd():
+    """Quick reference for common MiHomes commands."""
+    from rich.panel import Panel
+    rprint(Panel(
+        "[bold]Getting Started[/bold]\n"
+        "  mihomes init --demo          Load sample data\n"
+        "  mihomes dashboard            Estate overview\n\n"
+        "[bold]Daily Operations[/bold]\n"
+        "  mihomes task list --overdue   See what's overdue\n"
+        "  mihomes task complete <id>    Mark task done\n"
+        "  mihomes issue add <title> -p <property> -s <severity>\n"
+        "  mihomes issue resolve <id>    Resolve an issue\n\n"
+        "[bold]Management[/bold]\n"
+        "  mihomes property list         All properties\n"
+        "  mihomes staff workload        Task counts per staff\n"
+        "  mihomes budget report -p <property>\n"
+        "  mihomes report spending -p <property>\n\n"
+        "[bold]AI Advisory[/bold]\n"
+        "  mihomes ai ask <question>     Ask the AI advisor\n"
+        "  mihomes ai review             Proactive recommendations\n"
+        "  mihomes ai prioritize         SPACE-ranked task ordering\n\n"
+        "[bold]Automation[/bold]\n"
+        "  mihomes auto run-all          Full automation sweep\n"
+        "  mihomes auto digest           Daily summary\n"
+        "  mihomes cron setup            Recommended cron jobs\n\n"
+        "[bold]Data[/bold]\n"
+        "  mihomes search <query>        Search everything\n"
+        "  mihomes export csv <type>     Export to CSV\n"
+        "  mihomes backup                Backup database\n"
+        "  mihomes doctor                Integrity checks\n\n"
+        "[dim]Use mihomes <command> --help for detailed options.[/dim]",
+        title="MiHomes Quick Reference",
+        expand=False,
+    ))
 
 
 @app.command("version")

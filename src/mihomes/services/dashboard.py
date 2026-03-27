@@ -6,11 +6,13 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from mihomes.models.alert import Alert, AlertStatus
+from mihomes.models.asset import Asset
 from mihomes.models.audit_log import AuditLog
 from mihomes.models.budget import Budget, Transaction
 from mihomes.models.issue import Issue, IssueStatus
 from mihomes.models.property import Property
 from mihomes.models.task import Task, TaskStatus
+from mihomes.models.work_order import WorkOrder, WorkOrderStatus
 
 
 def get_dashboard_data(session: Session, property_id: int | None = None) -> dict:
@@ -86,6 +88,20 @@ def get_dashboard_data(session: Session, property_id: int | None = None) -> dict
                 "currency": p.currency,
             })
 
+    # Open work orders
+    wo_query = session.query(WorkOrder).filter(
+        WorkOrder.status.notin_([WorkOrderStatus.COMPLETED, WorkOrderStatus.VERIFIED, WorkOrderStatus.CANCELLED]),
+    )
+    if property_id:
+        wo_query = wo_query.filter(WorkOrder.property_id == property_id)
+    open_work_orders = wo_query.count()
+
+    # Asset count
+    asset_query = session.query(func.count(Asset.id)).filter(Asset.active.is_(True))
+    if property_id:
+        asset_query = asset_query.filter(Asset.property_id == property_id)
+    asset_count = asset_query.scalar()
+
     # Alert count
     alert_count = session.query(func.count(Alert.id)).filter(
         Alert.status != AlertStatus.RESOLVED,
@@ -97,5 +113,7 @@ def get_dashboard_data(session: Session, property_id: int | None = None) -> dict
         "overdue_count": overdue_count,
         "open_issues": open_issues,
         "budget_summaries": budget_summaries,
+        "open_work_orders": open_work_orders,
+        "asset_count": asset_count,
         "alert_count": alert_count,
     }

@@ -90,12 +90,15 @@ def dashboard(
             expand=True,
         )
 
-        # Alerts
-        alert_text = ""
+        # Status bar
+        status_items = []
         if data["alert_count"] > 0:
-            alert_text = f"  [yellow]{data['alert_count']} pending alert(s) — run 'mihomes alerts'[/yellow]"
-        else:
-            alert_text = "  [green]No pending alerts[/green]"
+            status_items.append(f"[yellow]{data['alert_count']} alert(s)[/yellow]")
+        if data["open_work_orders"] > 0:
+            status_items.append(f"{data['open_work_orders']} open work order(s)")
+        if data["asset_count"] > 0:
+            status_items.append(f"{data['asset_count']} tracked asset(s)")
+        status_text = "  " + " | ".join(status_items) if status_items else "  [green]All clear[/green]"
 
         # Render
         title = "MiHomes Estate Dashboard"
@@ -113,5 +116,5 @@ def dashboard(
         # Two-column layout
         console.print(Columns([prop_panel, task_panel], equal=True, expand=True))
         console.print(Columns([issue_panel, budget_panel], equal=True, expand=True))
-        console.print(Panel(alert_text, title="Alerts", expand=True))
+        console.print(Panel(status_text, title="Status", expand=True))
         console.print()

@@ -71,6 +71,18 @@ def assemble_context(
         sections.append(text)
         token_est += len(text) // 4
 
+    if token_est < max_tokens:
+        text = _fetch_assets(session, property_slug)
+        if text:
+            sections.append(text)
+            token_est += len(text) // 4
+
+    if token_est < max_tokens:
+        text = _fetch_work_orders(session, property_slug)
+        if text:
+            sections.append(text)
+            token_est += len(text) // 4
+
     # Conversation history
     if session_id and token_est < max_tokens:
         text = _fetch_conversation_history(session, session_id)
@@ -235,6 +247,48 @@ def _fetch_staff(session: Session, property_slug: str | None) -> str:
         for s in staff[:15]:
             props = ", ".join(p.name for p in s.properties) or "unassigned"
             lines.append(f"- {s.name} ({s.role.value}) — {props}")
+    return "\n".join(lines)
+
+
+def _fetch_assets(session: Session, property_slug: str | None) -> str:
+    from mihomes.models.asset import Asset
+    from mihomes.services.property import list_properties
+
+    lines = ["## Assets"]
+    query = session.query(Asset).filter(Asset.active.is_(True))
+    if property_slug:
+        from mihomes.models.property import Property
+        from mihomes.services.slug import resolve_identifier
+        prop = resolve_identifier(session, Property, property_slug)
+        query = query.filter(Asset.property_id == prop.id)
+    assets = query.limit(20).all()
+    if not assets:
+        return ""
+    for a in assets:
+        warranty = f", warranty expires {a.warranty_expires}" if a.warranty_expires else ""
+        lines.append(f"- {a.name} ({a.asset_type.value}) @ {a.property.name}{warranty}")
+    return "\n".join(lines)
+
+
+def _fetch_work_orders(session: Session, property_slug: str | None) -> str:
+    from mihomes.models.work_order import WorkOrder, WorkOrderStatus
+
+    lines = ["## Open Work Orders"]
+    query = session.query(WorkOrder).filter(
+        WorkOrder.status.notin_([WorkOrderStatus.COMPLETED, WorkOrderStatus.VERIFIED, WorkOrderStatus.CANCELLED]),
+    )
+    if property_slug:
+        from mihomes.models.property import Property
+        from mihomes.services.slug import resolve_identifier
+        prop = resolve_identifier(session, Property, property_slug)
+        query = query.filter(WorkOrder.property_id == prop.id)
+    work_orders = query.limit(15).all()
+    if not work_orders:
+        return ""
+    for wo in work_orders:
+        vendor = wo.vendor.company_name if wo.vendor else "unassigned"
+        cost = f"${wo.estimated_cost:,.0f}" if wo.estimated_cost else "no estimate"
+        lines.append(f"- [{wo.status.value}] {wo.title} @ {wo.property.name} — {vendor}, {cost}")
     return "\n".join(lines)
 
 

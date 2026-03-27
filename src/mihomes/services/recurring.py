@@ -46,7 +46,7 @@ def create_recurring_expense(
 def list_recurring_expenses(session: Session, *, active_only: bool = True) -> list[RecurringExpense]:
     query = session.query(RecurringExpense)
     if active_only:
-        query = query.filter(RecurringExpense.active == True)
+        query = query.filter(RecurringExpense.active.is_(True))
     return query.order_by(RecurringExpense.name).all()
 
 
@@ -54,7 +54,7 @@ def generate_transactions(session: Session) -> list[Transaction]:
     """Generate pending transactions for all active recurring expenses due now."""
     today = date.today()
     generated = []
-    expenses = session.query(RecurringExpense).filter(RecurringExpense.active == True).all()
+    expenses = session.query(RecurringExpense).filter(RecurringExpense.active.is_(True)).all()
 
     for exp in expenses:
         if exp.end_date and exp.end_date < today:
@@ -94,4 +94,5 @@ def _next_due_date(exp: RecurringExpense) -> date | None:
             return add_months(last, 3)
         case ExpenseFrequency.ANNUAL:
             return add_months(last, 12)
-    return None
+        case _:
+            raise ValueError(f"Unknown recurring expense frequency: {exp.frequency}")

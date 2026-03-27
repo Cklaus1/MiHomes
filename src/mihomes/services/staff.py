@@ -47,7 +47,7 @@ def list_staff(
 ) -> list[Staff]:
     query = session.query(Staff)
     if active_only:
-        query = query.filter(Staff.active == True)
+        query = query.filter(Staff.active.is_(True))
     if role is not None:
         query = query.filter(Staff.role == role)
     return query.order_by(Staff.name).all()

@@ -30,16 +30,17 @@ def create_work_order(
     source_type = None
     source_id = None
     if source:
-        parts = source.split(":")
-        if len(parts) == 2:
-            source_type = parts[0]
-            try:
-                source_id = int(parts[1])
-            except ValueError:
-                format_error(f"Invalid source reference: {source}. Expected format: type:id")
-                raise typer.Exit(1)
-        else:
-            format_error(f"Invalid source reference: {source}. Expected format: type:id")
+        if ":" not in source:
+            format_error(f"Source must be in format 'type:id' (e.g., 'issue:42'). Got: {source}")
+            raise typer.Exit(1)
+        source_type, source_id_str = source.split(":", 1)
+        if source_type not in ("issue", "task"):
+            format_error(f"Source type must be 'issue' or 'task'. Got: {source_type}")
+            raise typer.Exit(1)
+        try:
+            source_id = int(source_id_str)
+        except ValueError:
+            format_error(f"Source ID must be a number. Got: '{source_id_str}'")
             raise typer.Exit(1)
     due_date = None
     if due:

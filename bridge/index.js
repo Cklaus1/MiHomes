@@ -222,9 +222,16 @@ app.get('/groups', async (req, res) => {
 app.post('/link-group', (req, res) => {
   const { groupJid, propertySlug } = req.body;
   linkedGroups.set(groupJid, propertySlug);
-  // Persist links
+  // Persist links atomically — write to temp file then rename
   const linksFile = path.join(AUTH_DIR, 'group-links.json');
-  fs.writeFileSync(linksFile, JSON.stringify(Object.fromEntries(linkedGroups)));
+  const tmpFile = linksFile + '.tmp';
+  try {
+    fs.writeFileSync(tmpFile, JSON.stringify(Object.fromEntries(linkedGroups)));
+    fs.renameSync(tmpFile, linksFile);
+  } catch (e) {
+    console.error('Failed to persist group links:', e.message);
+    try { fs.unlinkSync(tmpFile); } catch (_) {}
+  }
   res.json({ success: true });
 });
 

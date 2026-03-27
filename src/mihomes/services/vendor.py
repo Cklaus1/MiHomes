@@ -46,7 +46,7 @@ def list_vendors(
 ) -> list[Vendor]:
     query = session.query(Vendor)
     if active_only:
-        query = query.filter(Vendor.active == True)
+        query = query.filter(Vendor.active.is_(True))
     vendors = query.order_by(Vendor.company_name).all()
     if category:
         vendors = [v for v in vendors if v.service_categories and category.lower() in [c.lower() for c in v.service_categories]]

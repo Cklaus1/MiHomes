@@ -81,7 +81,7 @@ def generate_expiration_alerts(session: Session, days_ahead: int = 30) -> int:
         Asset.warranty_expires != None,
         Asset.warranty_expires <= cutoff,
         Asset.warranty_expires >= today,
-        Asset.active == True,
+        Asset.active.is_(True),
     ).all()
     for a in assets:
         if not _alert_exists(session, "expiring_warranty", a.id):

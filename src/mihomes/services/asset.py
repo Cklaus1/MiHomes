@@ -66,7 +66,7 @@ def list_assets(
     if asset_type:
         query = query.filter(Asset.asset_type == asset_type)
     if active_only:
-        query = query.filter(Asset.active == True)  # noqa: E712
+        query = query.filter(Asset.active.is_(True))
     return query.order_by(Asset.name).all()
 
 

@@ -35,7 +35,20 @@ def ask(
     property_slug: str | None = None,
     continue_session: bool = False,
 ) -> AIResponse:
-    """Process an AI ask query."""
+    """Process an AI ask query.
+
+    Args:
+        session: SQLAlchemy database session.
+        query: The user's natural language question.
+        role: Force a specific AI role (e.g., 'financial', 'maintenance').
+              If None, auto-routes based on query keywords.
+        property_slug: Scope context assembly to a single property.
+        continue_session: If True, loads conversation history from the
+              previous session (within 30 min timeout).
+
+    Returns:
+        AIResponse with the AI's text, active role, and session ID.
+    """
     # Resolve provider
     provider_name = get_ai_provider_name(session)
     api_key = get_ai_api_key(session, provider_name)

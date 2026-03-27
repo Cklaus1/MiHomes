@@ -28,6 +28,14 @@ def _validate_entity(entity_type: str | None, entity_id: int | None) -> None:
         raise ValueError("entity_type is required when entity_id is set")
 
 
+def _validate_file_path(file_path: str) -> None:
+    """Validate file path doesn't contain traversal attacks."""
+    from pathlib import Path
+    normalized = str(Path(file_path).resolve())
+    if ".." in file_path:
+        raise ValueError(f"Path traversal detected in file path: {file_path}")
+
+
 def create_document(
     session: Session,
     title: str,
@@ -41,6 +49,7 @@ def create_document(
     slug: str | None = None,
 ) -> Document:
     _validate_entity(entity_type, entity_id)
+    _validate_file_path(file_path)
     slug = ensure_unique_slug(session, Document, slug or generate_slug(title))
     doc = Document(
         title=title, slug=slug, file_path=file_path, document_type=document_type,

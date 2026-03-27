@@ -151,12 +151,17 @@ def invite_guest(
     return eg
 
 
+VALID_RSVP_STATUSES = {"invited", "accepted", "declined", "maybe", "attended"}
+
+
 def update_rsvp(
     session: Session,
     event_id_or_slug: str,
     guest_id_or_slug: str,
     rsvp_status: str,
 ) -> EventGuest:
+    if rsvp_status not in VALID_RSVP_STATUSES:
+        raise ValueError(f"Invalid RSVP status: '{rsvp_status}'. Valid: {sorted(VALID_RSVP_STATUSES)}")
     event = resolve_identifier(session, Event, event_id_or_slug)
     guest = resolve_identifier(session, Guest, guest_id_or_slug)
     eg = session.query(EventGuest).filter(

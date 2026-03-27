@@ -35,6 +35,8 @@ def create_task(
     season_spec: str | None = None,
     slug: str | None = None,
 ) -> Task:
+    if len(title) > 300:
+        raise ValueError(f"Task title too long (max 300 chars, got {len(title)})")
     prop = resolve_identifier(session, Property, property_id_or_slug)
     assignee_id = None
     if assignee_id_or_slug:
@@ -54,6 +56,19 @@ def create_task(
     )
     session.add(task)
     session.flush()
+
+    # Validate seasonal spec
+    if recurrence == RecurrenceFrequency.SEASONAL:
+        if not season_spec:
+            raise ValueError("Season spec required for seasonal recurrence (e.g., 'spring,fall')")
+        from mihomes.services.recurrence import SEASON_CALENDAR
+        zone = (prop.climate_zone or "default").lower()
+        calendar = SEASON_CALENDAR.get(zone, SEASON_CALENDAR["default"])
+        valid_seasons = set(calendar.keys())
+        requested = {s.strip().lower() for s in season_spec.split(",")}
+        invalid = requested - valid_seasons
+        if invalid:
+            raise ValueError(f"Invalid season(s) {invalid} for climate zone '{zone}'. Valid: {valid_seasons}")
 
     # Create schedule for recurring tasks
     if recurrence != RecurrenceFrequency.ONCE:

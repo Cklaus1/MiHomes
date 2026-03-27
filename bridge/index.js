@@ -22,10 +22,11 @@ const PORT = process.env.BRIDGE_PORT || 7867;
 const AUTH_DIR = process.env.AUTH_DIR || path.join(__dirname, '..', '.mihomes', 'whatsapp-auth');
 const MEDIA_DIR = process.env.MEDIA_DIR || path.join(__dirname, '..', '.mihomes', 'media', 'whatsapp');
 
-// Message store — last 1000 messages in memory, flushed to disk
+// Message store — last 1000 messages in memory, persisted to disk
 const messageStore = [];
 const MAX_MESSAGES = 1000;
 const linkedGroups = new Map(); // groupJid -> propertySlug
+const MESSAGES_FILE = path.join(AUTH_DIR, 'messages.jsonl');
 
 const logger = pino({ level: 'warn' });
 const app = express();
@@ -125,6 +126,13 @@ async function startConnection() {
       messageStore.push(record);
       if (messageStore.length > MAX_MESSAGES) {
         messageStore.shift();
+      }
+
+      // Persist to disk (append)
+      try {
+        fs.appendFileSync(MESSAGES_FILE, JSON.stringify(record) + '\n');
+      } catch (e) {
+        console.error('Failed to persist message:', e.message);
       }
     }
   });
@@ -250,10 +258,31 @@ function loadGroupLinks() {
   }
 }
 
+// Load persisted messages on startup
+function loadMessages() {
+  if (fs.existsSync(MESSAGES_FILE)) {
+    try {
+      const lines = fs.readFileSync(MESSAGES_FILE, 'utf-8').trim().split('\n');
+      const recent = lines.slice(-MAX_MESSAGES);
+      for (const line of recent) {
+        if (line.trim()) {
+          try {
+            messageStore.push(JSON.parse(line));
+          } catch (_) {}
+        }
+      }
+      console.log(`Loaded ${messageStore.length} messages from disk`);
+    } catch (e) {
+      console.error('Failed to load messages:', e.message);
+    }
+  }
+}
+
 // --- Start ---
 
 app.listen(PORT, () => {
   console.log(`MiHomes WhatsApp Bridge listening on http://localhost:${PORT}`);
   loadGroupLinks();
+  loadMessages();
   startConnection();
 });

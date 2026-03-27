@@ -86,9 +86,11 @@ def assign_to_property(session: Session, staff_id_or_slug: str, property_id_or_s
     member = resolve_identifier(session, Staff, staff_id_or_slug)
     prop = resolve_identifier(session, Property, property_id_or_slug)
     if prop not in member.properties:
+        old_props = [p.name for p in member.properties]
         member.properties.append(prop)
         session.flush()
-        record_change(session, "staff", member.id, "update", {"assigned_property": {"old": None, "new": prop.name}})
+        new_props = [p.name for p in member.properties]
+        record_change(session, "staff", member.id, "update", {"properties": {"old": old_props, "new": new_props}})
     return member
 
 
@@ -96,9 +98,11 @@ def remove_from_property(session: Session, staff_id_or_slug: str, property_id_or
     member = resolve_identifier(session, Staff, staff_id_or_slug)
     prop = resolve_identifier(session, Property, property_id_or_slug)
     if prop in member.properties:
+        old_props = [p.name for p in member.properties]
         member.properties.remove(prop)
         session.flush()
-        record_change(session, "staff", member.id, "update", {"removed_property": {"old": prop.name, "new": None}})
+        new_props = [p.name for p in member.properties]
+        record_change(session, "staff", member.id, "update", {"properties": {"old": old_props, "new": new_props}})
     return member
 
 

@@ -52,6 +52,10 @@ def run_template(
 ) -> list[Task]:
     """Instantiate a template into tasks for a property."""
     template = resolve_identifier(session, Template, template_id_or_slug)
+    # Validate property exists before creating any tasks
+    from mihomes.models.property import Property
+    resolve_identifier(session, Property, property_id_or_slug)
+
     tasks = []
     base_due = due_date or date.today()
 

@@ -92,5 +92,8 @@ class ClaudeProvider:
             raise AIRateLimitError(f"Rate limited: {e}")
         except anthropic.APIError as e:
             raise AIProviderError(f"Claude API error: {e}")
-        except json.JSONDecodeError:
-            raise AIProviderError("Failed to parse structured output from Claude")
+        except json.JSONDecodeError as e:
+            # Include partial response for debugging
+            text_blocks = [b.text for b in response.content if hasattr(b, 'text')] if 'response' in dir() else []
+            preview = text_blocks[0][:200] if text_blocks else "no text"
+            raise AIProviderError(f"Failed to parse structured output from Claude. Response: {preview}")

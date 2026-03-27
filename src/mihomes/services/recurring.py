@@ -1,6 +1,6 @@
 """Recurring expense service — manage and generate transactions."""
 
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -83,10 +83,8 @@ def _next_due_date(exp: RecurringExpense) -> date | None:
     last = exp.last_generated
     match exp.frequency:
         case ExpenseFrequency.WEEKLY:
-            from datetime import timedelta
             return last + timedelta(weeks=1)
         case ExpenseFrequency.BIWEEKLY:
-            from datetime import timedelta
             return last + timedelta(weeks=2)
         case ExpenseFrequency.MONTHLY:
             return add_months(last, 1)

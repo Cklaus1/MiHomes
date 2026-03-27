@@ -145,7 +145,9 @@ def complete(
 
     # Create a budget transaction for the completed work
     cost = wo.actual_cost or wo.estimated_cost
-    if cost and cost > 0:
+    if cost is None:
+        raise ValueError("Cannot complete work order without estimated or actual cost. Provide --actual-cost.")
+    if cost > 0:
         from mihomes.services.budget import add_transaction
         add_transaction(
             session, cost, str(wo.property_id), "maintenance",

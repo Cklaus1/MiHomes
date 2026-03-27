@@ -5,11 +5,20 @@ import os
 
 from mihomes.services.ai.provider import AIAuthError, AIProviderError, AIRateLimitError
 
+try:
+    import openai
+except ImportError:
+    openai = None
+
 
 class OpenAIProvider:
     """AI provider using OpenAI's API."""
 
     def __init__(self, api_key: str | None = None, model: str | None = None):
+        if openai is None:
+            raise AIProviderError(
+                "OpenAI SDK not installed. Install with: pip install openai>=1.0"
+            )
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
         if not self.api_key:
             raise AIAuthError(
@@ -17,14 +26,7 @@ class OpenAIProvider:
                 "or run: mihomes ai setup"
             )
         self.model = model or os.environ.get("MIHOMES_AI_MODEL", "gpt-4o")
-
-        try:
-            import openai
-            self.client = openai.OpenAI(api_key=self.api_key)
-        except ImportError:
-            raise AIProviderError(
-                "OpenAI SDK not installed. Install with: pip install openai>=1.0"
-            )
+        self.client = openai.OpenAI(api_key=self.api_key)
 
     def complete(
         self,
@@ -32,8 +34,6 @@ class OpenAIProvider:
         user_message: str,
         context_data: str | None = None,
     ) -> str:
-        import openai
-
         message_content = user_message
         if context_data:
             message_content = f"{user_message}\n\n<estate_data>\n{context_data}\n</estate_data>"
@@ -62,8 +62,6 @@ class OpenAIProvider:
         schema: dict,
         context_data: str | None = None,
     ) -> dict:
-        import openai
-
         message_content = user_message
         if context_data:
             message_content = f"{user_message}\n\n<data>\n{context_data}\n</data>"

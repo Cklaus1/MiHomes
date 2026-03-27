@@ -104,6 +104,17 @@ def get_budget_report(
     """Get budget vs actual spending by category for a property and period."""
     prop = resolve_identifier(session, Property, property_id_or_slug)
 
+    # Warn about mixed currencies
+    tx_currencies = session.query(Transaction.currency).filter(
+        Transaction.property_id == prop.id,
+        Transaction.date >= period_start,
+        Transaction.date < period_end,
+    ).distinct().all()
+    currencies = {c[0] for c in tx_currencies}
+    if len(currencies) > 1:
+        import warnings
+        warnings.warn(f"Property '{prop.name}' has transactions in multiple currencies: {currencies}. Report may be inaccurate.")
+
     # Get budgets for this property
     budgets = session.query(Budget).filter(
         Budget.property_id == prop.id,

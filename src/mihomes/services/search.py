@@ -8,10 +8,18 @@ from mihomes.models.vendor import Vendor
 from mihomes.models.task import Task
 from mihomes.models.issue import Issue
 from mihomes.models.note import Note
+from mihomes.models.asset import Asset
+from mihomes.models.work_order import WorkOrder
+from mihomes.models.event import Event, Guest
+from mihomes.models.document import Document
 
 
 def global_search(session: Session, query: str, *, entity_type: str | None = None) -> list[dict]:
-    """Search across all entities for a text match. Returns list of {type, id, name, match_field}."""
+    """Search across all entities for a text match.
+
+    Returns list of {type, id, name, slug}. NULL columns are handled
+    safely — ILIKE on NULL returns no match (correct behavior).
+    """
     results = []
     q = f"%{query}%"
 
@@ -42,6 +50,36 @@ def global_search(session: Session, query: str, *, entity_type: str | None = Non
             Issue.title.ilike(q) | Issue.description.ilike(q) | Issue.resolution_notes.ilike(q)
         ).all():
             results.append({"type": "issue", "id": i.id, "name": i.title, "slug": i.slug})
+
+    if entity_type is None or entity_type == "asset":
+        for a in session.query(Asset).filter(
+            Asset.name.ilike(q) | Asset.make.ilike(q) | Asset.model_name.ilike(q) | Asset.notes.ilike(q)
+        ).all():
+            results.append({"type": "asset", "id": a.id, "name": a.name, "slug": a.slug})
+
+    if entity_type is None or entity_type == "workorder":
+        for w in session.query(WorkOrder).filter(
+            WorkOrder.title.ilike(q) | WorkOrder.description.ilike(q) | WorkOrder.completion_notes.ilike(q)
+        ).all():
+            results.append({"type": "workorder", "id": w.id, "name": w.title, "slug": w.slug})
+
+    if entity_type is None or entity_type == "event":
+        for e in session.query(Event).filter(
+            Event.title.ilike(q) | Event.description.ilike(q)
+        ).all():
+            results.append({"type": "event", "id": e.id, "name": e.title, "slug": e.slug})
+
+    if entity_type is None or entity_type == "guest":
+        for g in session.query(Guest).filter(
+            Guest.name.ilike(q) | Guest.notes.ilike(q)
+        ).all():
+            results.append({"type": "guest", "id": g.id, "name": g.name, "slug": g.slug})
+
+    if entity_type is None or entity_type == "document":
+        for d in session.query(Document).filter(
+            Document.title.ilike(q) | Document.notes.ilike(q)
+        ).all():
+            results.append({"type": "document", "id": d.id, "name": d.title, "slug": d.slug})
 
     if entity_type is None or entity_type == "note":
         for n in session.query(Note).filter(Note.content.ilike(q)).all():

@@ -17,12 +17,21 @@ def _get_model_class(entity_type: str):
         from mihomes.models.vendor import Vendor
         from mihomes.models.task import Task
         from mihomes.models.issue import Issue
+        from mihomes.models.asset import Asset
+        from mihomes.models.work_order import WorkOrder
+        from mihomes.models.event import Event, Guest
+        from mihomes.models.document import Document
         ENTITY_TYPE_MAP.update({
             "property": Property,
             "staff": Staff,
             "vendor": Vendor,
             "task": Task,
             "issue": Issue,
+            "asset": Asset,
+            "workorder": WorkOrder,
+            "event": Event,
+            "guest": Guest,
+            "document": Document,
         })
     return ENTITY_TYPE_MAP.get(entity_type)
 

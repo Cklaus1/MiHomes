@@ -193,16 +193,16 @@ def edit_task(
     if priority is not None: kwargs["priority"] = priority
     if due is not None: kwargs["due_date"] = date.fromisoformat(due)
     if status is not None: kwargs["status"] = status
-    if assignee is not None:
-        with get_session() as session:
-            from mihomes.models.staff import Staff
-            from mihomes.services.slug import resolve_identifier
-            staff = resolve_identifier(session, Staff, assignee)
-            kwargs["assignee_id"] = staff.id
-    if not kwargs:
+    # Assignee is resolved inside the same session below
+    if not kwargs and assignee is None:
         format_error("No fields to update.")
         raise typer.Exit(1)
     with get_session() as session:
+        if assignee is not None:
+            from mihomes.models.staff import Staff
+            from mihomes.services.slug import resolve_identifier as resolve_id
+            staff = resolve_id(session, Staff, assignee)
+            kwargs["assignee_id"] = staff.id
         try:
             task = task_svc.update_task(session, id_or_slug, **kwargs)
             format_success(f"Task '{task.title}' updated")

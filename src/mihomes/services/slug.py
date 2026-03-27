@@ -15,7 +15,12 @@ class EntityNotFoundError(Exception):
 
 def generate_slug(name: str) -> str:
     """Generate a URL-safe slug from a name."""
-    return slugify(name, max_length=80)
+    slug = slugify(name, max_length=80)
+    if not slug:
+        # Name was all special characters — generate a fallback
+        import hashlib
+        slug = "item-" + hashlib.md5(name.encode()).hexdigest()[:8]
+    return slug
 
 
 def ensure_unique_slug(

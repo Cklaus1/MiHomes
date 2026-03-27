@@ -36,7 +36,9 @@ class TestGenerateSlug:
         assert len(slug) <= 80
 
     def test_empty_string(self):
-        assert generate_slug("") == ""
+        # Empty input gets a fallback slug (never empty)
+        slug = generate_slug("")
+        assert slug.startswith("item-")
 
     def test_numbers(self):
         assert generate_slug("Property 123") == "property-123"

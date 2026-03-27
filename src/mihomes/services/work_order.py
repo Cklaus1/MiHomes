@@ -185,6 +185,21 @@ def verify(session: Session, id_or_slug: str) -> WorkOrder:
     return wo
 
 
+def cancel(session: Session, id_or_slug: str, notes: str | None = None) -> WorkOrder:
+    """Cancel a work order from any non-terminal state."""
+    wo = resolve_identifier(session, WorkOrder, id_or_slug)
+    _validate_transition(wo.status, WorkOrderStatus.CANCELLED)
+    old_snap = snapshot_instance(wo)
+    wo.status = WorkOrderStatus.CANCELLED
+    if notes:
+        wo.completion_notes = notes
+    session.flush()
+    new_snap = snapshot_instance(wo)
+    changes = diff_instance(old_snap, new_snap)
+    record_change(session, "work_order", wo.id, "cancel", changes)
+    return wo
+
+
 def delete_work_order(session: Session, id_or_slug: str) -> str:
     wo = resolve_identifier(session, WorkOrder, id_or_slug)
     name = wo.title

@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from mihomes.models.vendor import Vendor
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
+from mihomes.services.update_helpers import safe_update
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
 
 
@@ -62,9 +63,7 @@ def update_vendor(session: Session, id_or_slug: str, **kwargs) -> Vendor:
     old_snap = snapshot_instance(vendor)
     if "company_name" in kwargs and "slug" not in kwargs:
         kwargs["slug"] = ensure_unique_slug(session, Vendor, generate_slug(kwargs["company_name"]), exclude_id=vendor.id)
-    for key, value in kwargs.items():
-        if hasattr(vendor, key):
-            setattr(vendor, key, value)
+    safe_update(vendor, kwargs)
     session.flush()
     new_snap = snapshot_instance(vendor)
     changes = diff_instance(old_snap, new_snap)

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from mihomes.models.event import Event, EventGuest, EventStatus, Guest
 from mihomes.models.property import Property
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
+from mihomes.services.update_helpers import safe_update
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
 
 
@@ -64,9 +65,7 @@ def update_event(session: Session, id_or_slug: str, **kwargs) -> Event:
     old_snap = snapshot_instance(event)
     if "title" in kwargs and "slug" not in kwargs:
         kwargs["slug"] = ensure_unique_slug(session, Event, generate_slug(kwargs["title"]), exclude_id=event.id)
-    for key, value in kwargs.items():
-        if hasattr(event, key):
-            setattr(event, key, value)
+    safe_update(event, kwargs)
     session.flush()
     new_snap = snapshot_instance(event)
     changes = diff_instance(old_snap, new_snap)

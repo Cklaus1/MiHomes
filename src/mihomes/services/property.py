@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from mihomes.models.property import Property, PropertyStatus, PropertyType
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
+from mihomes.services.update_helpers import safe_update
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
 
 
@@ -68,9 +69,7 @@ def update_property(session: Session, id_or_slug: str, **kwargs) -> Property:
             session, Property, generate_slug(kwargs["name"]), exclude_id=prop.id
         )
 
-    for key, value in kwargs.items():
-        if hasattr(prop, key):
-            setattr(prop, key, value)
+    safe_update(prop, kwargs)
 
     session.flush()
     new_snap = snapshot_instance(prop)

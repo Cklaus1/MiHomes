@@ -10,6 +10,7 @@ from mihomes.models.staff import Staff
 from mihomes.models.vendor import Vendor
 from mihomes.models.work_order import WorkOrder, WorkOrderStatus
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
+from mihomes.services.update_helpers import safe_update
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
 
 # Valid state transitions: {from_status: [allowed_to_statuses]}
@@ -95,9 +96,7 @@ def update_work_order(session: Session, id_or_slug: str, **kwargs) -> WorkOrder:
     old_snap = snapshot_instance(wo)
     if "title" in kwargs and "slug" not in kwargs:
         kwargs["slug"] = ensure_unique_slug(session, WorkOrder, generate_slug(kwargs["title"]), exclude_id=wo.id)
-    for key, value in kwargs.items():
-        if hasattr(wo, key):
-            setattr(wo, key, value)
+    safe_update(wo, kwargs)
     session.flush()
     new_snap = snapshot_instance(wo)
     changes = diff_instance(old_snap, new_snap)

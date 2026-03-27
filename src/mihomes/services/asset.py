@@ -8,6 +8,7 @@ from mihomes.models.asset import Asset, AssetCondition, AssetType
 from mihomes.models.property import Property
 from mihomes.models.space import Space
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
+from mihomes.services.update_helpers import safe_update
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
 
 
@@ -79,9 +80,7 @@ def update_asset(session: Session, id_or_slug: str, **kwargs) -> Asset:
     old_snap = snapshot_instance(asset)
     if "name" in kwargs and "slug" not in kwargs:
         kwargs["slug"] = ensure_unique_slug(session, Asset, generate_slug(kwargs["name"]), exclude_id=asset.id)
-    for key, value in kwargs.items():
-        if hasattr(asset, key):
-            setattr(asset, key, value)
+    safe_update(asset, kwargs)
     session.flush()
     new_snap = snapshot_instance(asset)
     changes = diff_instance(old_snap, new_snap)

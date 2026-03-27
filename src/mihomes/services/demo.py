@@ -21,6 +21,10 @@ from mihomes.models.budget import BudgetPeriod
 
 def load_demo_data(session: Session) -> None:
     """Load sample data for exploring MiHomes."""
+    from mihomes.models.property import Property
+    existing = session.query(Property).filter(Property.slug == "beach-house").first()
+    if existing:
+        raise ValueError("Demo data already loaded. Delete the database and reinitialize to reload.")
     today = date.today()
 
     # === Properties ===

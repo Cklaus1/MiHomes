@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from mihomes.models.document import Document, DocumentType
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
+from mihomes.services.update_helpers import safe_update
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
 
 # Allowed entity types for polymorphic linking
@@ -93,9 +94,7 @@ def update_document(session: Session, id_or_slug: str, **kwargs) -> Document:
             kwargs.get("entity_type", doc.entity_type),
             kwargs.get("entity_id", doc.entity_id),
         )
-    for key, value in kwargs.items():
-        if hasattr(doc, key):
-            setattr(doc, key, value)
+    safe_update(doc, kwargs)
     session.flush()
     new_snap = snapshot_instance(doc)
     changes = diff_instance(old_snap, new_snap)

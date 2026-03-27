@@ -14,6 +14,7 @@ from mihomes.models.task import (
     TaskStatus,
 )
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
+from mihomes.services.update_helpers import safe_update
 from mihomes.services.recurrence import calculate_next_due
 from mihomes.services.slug import (
     ensure_unique_slug,
@@ -129,9 +130,7 @@ def update_task(session: Session, id_or_slug: str, **kwargs) -> Task:
     old_snap = snapshot_instance(task)
     if "title" in kwargs and "slug" not in kwargs:
         kwargs["slug"] = ensure_unique_slug(session, Task, generate_slug(kwargs["title"]), exclude_id=task.id)
-    for key, value in kwargs.items():
-        if hasattr(task, key):
-            setattr(task, key, value)
+    safe_update(task, kwargs)
     session.flush()
     new_snap = snapshot_instance(task)
     changes = diff_instance(old_snap, new_snap)
@@ -143,6 +142,8 @@ def update_task(session: Session, id_or_slug: str, **kwargs) -> Task:
 def complete_task(session: Session, id_or_slug: str, notes: str | None = None) -> Task:
     """Complete a task and create the next occurrence if recurring."""
     task = resolve_identifier(session, Task, id_or_slug)
+    if task.status in (TaskStatus.COMPLETED, TaskStatus.CANCELLED):
+        raise ValueError(f"Task is already {task.status.value}. Cannot complete again.")
     old_snap = snapshot_instance(task)
 
     task.status = TaskStatus.COMPLETED

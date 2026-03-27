@@ -8,6 +8,7 @@ from mihomes.models.issue import Issue, IssueSeverity, IssueStatus
 from mihomes.models.property import Property
 from mihomes.models.space import Space
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
+from mihomes.services.update_helpers import safe_update
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
 
 
@@ -68,9 +69,7 @@ def update_issue(session: Session, id_or_slug: str, **kwargs) -> Issue:
     old_snap = snapshot_instance(issue)
     if "title" in kwargs and "slug" not in kwargs:
         kwargs["slug"] = ensure_unique_slug(session, Issue, generate_slug(kwargs["title"]), exclude_id=issue.id)
-    for key, value in kwargs.items():
-        if hasattr(issue, key):
-            setattr(issue, key, value)
+    safe_update(issue, kwargs)
     session.flush()
     new_snap = snapshot_instance(issue)
     changes = diff_instance(old_snap, new_snap)

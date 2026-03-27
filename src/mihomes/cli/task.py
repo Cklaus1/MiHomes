@@ -142,7 +142,7 @@ def complete_task(
             format_success(f"Task '{task.title}' completed")
             if task.schedule and task.schedule.frequency != RecurrenceFrequency.ONCE:
                 console.print("[dim]Next occurrence has been created.[/dim]")
-        except EntityNotFoundError as e:
+        except (EntityNotFoundError, ValueError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 

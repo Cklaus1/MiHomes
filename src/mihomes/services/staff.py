@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from mihomes.models.property import Property
 from mihomes.models.staff import Staff, StaffRole
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
+from mihomes.services.update_helpers import safe_update
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
 
 
@@ -62,9 +63,7 @@ def update_staff(session: Session, id_or_slug: str, **kwargs) -> Staff:
     old_snap = snapshot_instance(member)
     if "name" in kwargs and "slug" not in kwargs:
         kwargs["slug"] = ensure_unique_slug(session, Staff, generate_slug(kwargs["name"]), exclude_id=member.id)
-    for key, value in kwargs.items():
-        if hasattr(member, key):
-            setattr(member, key, value)
+    safe_update(member, kwargs)
     session.flush()
     new_snap = snapshot_instance(member)
     changes = diff_instance(old_snap, new_snap)

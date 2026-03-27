@@ -30,8 +30,11 @@ def register_init(app: typer.Typer):
             rprint("\n[bold]Loading demo data...[/bold]")
             with get_session() as session:
                 from mihomes.services.demo import load_demo_data
-                load_demo_data(session)
-            format_success("Demo data loaded: 3 properties, 3 staff, 3 vendors, 6 tasks, 4 issues, budgets")
+                try:
+                    load_demo_data(session)
+                    format_success("Demo data loaded: 3 properties, 3 staff, 3 vendors, 6 tasks, 4 issues, budgets")
+                except ValueError as e:
+                    rprint(f"[yellow]{e}[/yellow]")
 
         if not demo:
             # Interactive setup

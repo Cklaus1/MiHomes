@@ -86,6 +86,13 @@ app.add_typer(search_app, name="search")
 app.add_typer(backup_app, name="backup")
 app.add_typer(doctor_app, name="doctor")
 
+# Phase 2: AI sub-apps
+from mihomes.cli.ai import app as ai_app  # noqa: E402
+from mihomes.cli.cron import app as cron_app  # noqa: E402
+
+app.add_typer(ai_app, name="ai")
+app.add_typer(cron_app, name="cron")
+
 # Register init command directly on root app
 from mihomes.cli.init import register_init  # noqa: E402
 register_init(app)

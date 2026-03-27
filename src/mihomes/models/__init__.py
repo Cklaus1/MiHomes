@@ -51,3 +51,4 @@ from mihomes.models.recurring_expense import RecurringExpense  # noqa: E402, F40
 from mihomes.models.insurance import InsurancePolicy  # noqa: E402, F401
 from mihomes.models.template import Template, TemplateItem  # noqa: E402, F401
 from mihomes.models.tag import Tag, TagAssignment  # noqa: E402, F401
+from mihomes.models.ai_conversation import AIConversation  # noqa: E402, F401

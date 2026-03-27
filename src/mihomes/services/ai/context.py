@@ -1,0 +1,254 @@
+"""Context assembly — build structured text from existing services for AI prompts."""
+
+from datetime import date, timedelta
+
+from sqlalchemy.orm import Session
+
+from mihomes.models.ai_conversation import AIConversation
+from mihomes.services.ai.roles import AIRole
+
+
+def assemble_context(
+    session: Session,
+    roles: list[AIRole],
+    query: str,
+    *,
+    property_slug: str | None = None,
+    session_id: str | None = None,
+    max_tokens: int = 50000,
+) -> str:
+    """Build a structured context string for the AI prompt."""
+    # Merge data categories from all active roles
+    categories = set()
+    for role in roles:
+        categories.update(role.data_categories)
+
+    sections = []
+    token_est = 0
+
+    if "properties" in categories:
+        text = _fetch_properties(session, property_slug)
+        sections.append(text)
+        token_est += len(text) // 4
+
+    if "tasks" in categories and token_est < max_tokens:
+        text = _fetch_tasks(session, property_slug)
+        sections.append(text)
+        token_est += len(text) // 4
+
+    if "issues" in categories and token_est < max_tokens:
+        text = _fetch_issues(session, property_slug)
+        sections.append(text)
+        token_est += len(text) // 4
+
+    if "budgets" in categories and token_est < max_tokens:
+        text = _fetch_budgets(session, property_slug)
+        sections.append(text)
+        token_est += len(text) // 4
+
+    if "alerts" in categories and token_est < max_tokens:
+        text = _fetch_alerts(session)
+        sections.append(text)
+        token_est += len(text) // 4
+
+    if "contracts" in categories and token_est < max_tokens:
+        text = _fetch_contracts(session, property_slug)
+        sections.append(text)
+        token_est += len(text) // 4
+
+    if "insurance" in categories and token_est < max_tokens:
+        text = _fetch_insurance(session, property_slug)
+        sections.append(text)
+        token_est += len(text) // 4
+
+    if "vendors" in categories and token_est < max_tokens:
+        text = _fetch_vendors(session)
+        sections.append(text)
+        token_est += len(text) // 4
+
+    if "staff" in categories and token_est < max_tokens:
+        text = _fetch_staff(session, property_slug)
+        sections.append(text)
+        token_est += len(text) // 4
+
+    # Conversation history
+    if session_id and token_est < max_tokens:
+        text = _fetch_conversation_history(session, session_id)
+        if text:
+            sections.append(text)
+
+    return "\n\n".join(s for s in sections if s.strip())
+
+
+def _fetch_properties(session: Session, property_slug: str | None) -> str:
+    from mihomes.services.property import list_properties, get_property
+    from mihomes.services.issue import list_issues
+
+    lines = ["## Properties"]
+    props = list_properties(session)
+    for p in props:
+        open_issues = len(list_issues(session, property_id_or_slug=str(p.id), open_only=True))
+        occ = ", occupied" if p.occupied else ""
+        lines.append(
+            f"- {p.name} ({p.property_type.value}, {p.status.value}{occ}): "
+            f"climate={p.climate_zone or 'default'}, {open_issues} open issues"
+        )
+    return "\n".join(lines)
+
+
+def _fetch_tasks(session: Session, property_slug: str | None) -> str:
+    from mihomes.services.task import get_overdue_tasks, get_upcoming_tasks
+
+    lines = ["## Tasks"]
+    overdue = get_overdue_tasks(session, property_id_or_slug=property_slug)
+    if overdue:
+        lines.append(f"### Overdue ({len(overdue)})")
+        for t in overdue[:20]:
+            assignee = t.assignee.name if t.assignee else "unassigned"
+            lines.append(f"- [{t.priority.value}] {t.title} @ {t.property.name} — due {t.due_date}, {assignee}")
+
+    upcoming = get_upcoming_tasks(session, days=30, property_id_or_slug=property_slug)
+    if upcoming:
+        lines.append(f"### Upcoming 30 days ({len(upcoming)})")
+        for t in upcoming[:20]:
+            lines.append(f"- [{t.priority.value}] {t.title} @ {t.property.name} — due {t.due_date}")
+
+    if len(lines) == 1:
+        lines.append("No overdue or upcoming tasks.")
+    return "\n".join(lines)
+
+
+def _fetch_issues(session: Session, property_slug: str | None) -> str:
+    from mihomes.services.issue import list_issues
+
+    lines = ["## Open Issues"]
+    issues = list_issues(session, property_id_or_slug=property_slug, open_only=True)
+    if not issues:
+        lines.append("No open issues.")
+    else:
+        for i in issues[:20]:
+            space = f" ({i.space.name})" if i.space else ""
+            lines.append(f"- [{i.severity.value}] {i.title} @ {i.property.name}{space} — {i.status.value}")
+            if i.description:
+                lines.append(f"  Description: {i.description[:200]}")
+    return "\n".join(lines)
+
+
+def _fetch_budgets(session: Session, property_slug: str | None) -> str:
+    from mihomes.services.budget import get_budget_report
+    from mihomes.services.property import list_properties
+
+    today = date.today()
+    year_start = date(today.year, 1, 1)
+    year_end = date(today.year + 1, 1, 1)
+    lines = ["## Budget Status (YTD)"]
+
+    props = list_properties(session)
+    for p in props:
+        if property_slug and p.slug != property_slug:
+            continue
+        report = get_budget_report(session, str(p.id), year_start, year_end)
+        if report:
+            total_budgeted = sum(r["budgeted"] for r in report)
+            total_spent = sum(r["spent"] for r in report)
+            pct = round(total_spent / total_budgeted * 100, 1) if total_budgeted else 0
+            lines.append(f"- {p.name}: ${total_spent:,.0f} / ${total_budgeted:,.0f} ({pct}% used)")
+            for r in report:
+                if r["pct_used"] > 75:
+                    lines.append(f"  WARNING: {r['category']} at {r['pct_used']}%")
+
+    if len(lines) == 1:
+        lines.append("No budgets set.")
+    return "\n".join(lines)
+
+
+def _fetch_alerts(session: Session) -> str:
+    from mihomes.services.alerts import list_alerts
+
+    lines = ["## Active Alerts"]
+    alerts = list_alerts(session)
+    if not alerts:
+        lines.append("No active alerts.")
+    else:
+        for a in alerts[:10]:
+            lines.append(f"- [{a.severity.value}] {a.message}")
+    return "\n".join(lines)
+
+
+def _fetch_contracts(session: Session, property_slug: str | None) -> str:
+    from mihomes.services.contract import list_contracts
+
+    lines = ["## Contracts"]
+    contracts = list_contracts(session, property_id_or_slug=property_slug)
+    if not contracts:
+        lines.append("No contracts.")
+    else:
+        for c in contracts[:15]:
+            end = str(c.end_date) if c.end_date else "ongoing"
+            cost = f"${c.annual_cost:,.0f}/yr" if c.annual_cost else ""
+            renew = " (auto-renew)" if c.auto_renew else ""
+            lines.append(f"- {c.vendor.company_name} → {c.property.name}: {end} {cost}{renew}")
+    return "\n".join(lines)
+
+
+def _fetch_insurance(session: Session, property_slug: str | None) -> str:
+    from mihomes.services.insurance import list_policies
+
+    lines = ["## Insurance Policies"]
+    policies = list_policies(session, property_id_or_slug=property_slug)
+    if not policies:
+        lines.append("No policies.")
+    else:
+        for p in policies[:15]:
+            prop_name = p.property.name if p.property else "general"
+            renewal = str(p.renewal_date) if p.renewal_date else "no date"
+            lines.append(
+                f"- {p.carrier} ({p.insurance_type.value}) → {prop_name}: "
+                f"coverage ${p.coverage_limit:,.0f}, renewal {renewal}" if p.coverage_limit else
+                f"- {p.carrier} ({p.insurance_type.value}) → {prop_name}: renewal {renewal}"
+            )
+    return "\n".join(lines)
+
+
+def _fetch_vendors(session: Session) -> str:
+    from mihomes.services.vendor import list_vendors
+
+    lines = ["## Vendors"]
+    vendors = list_vendors(session)
+    if not vendors:
+        lines.append("No vendors.")
+    else:
+        for v in vendors[:15]:
+            cats = ", ".join(v.service_categories) if v.service_categories else "general"
+            lines.append(f"- {v.company_name} ({cats})")
+    return "\n".join(lines)
+
+
+def _fetch_staff(session: Session, property_slug: str | None) -> str:
+    from mihomes.services.staff import list_staff
+
+    lines = ["## Staff"]
+    staff = list_staff(session)
+    if not staff:
+        lines.append("No staff.")
+    else:
+        for s in staff[:15]:
+            props = ", ".join(p.name for p in s.properties) or "unassigned"
+            lines.append(f"- {s.name} ({s.role.value}) — {props}")
+    return "\n".join(lines)
+
+
+def _fetch_conversation_history(session: Session, session_id: str) -> str:
+    history = session.query(AIConversation).filter(
+        AIConversation.session_id == session_id,
+    ).order_by(AIConversation.created_at.desc()).limit(3).all()
+
+    if not history:
+        return ""
+
+    lines = ["## Previous Conversation"]
+    for h in reversed(history):
+        lines.append(f"User: {h.user_message[:300]}")
+        lines.append(f"AI ({h.role}): {h.ai_response[:500]}")
+        lines.append("")
+    return "\n".join(lines)

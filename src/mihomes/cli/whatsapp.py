@@ -197,7 +197,9 @@ def monitor(
 
     console.print(f"[bold green]Monitoring WhatsApp groups[/bold green] (polling every {interval}s) — Ctrl+C to stop\n")
 
-    last_check = datetime.now(timezone.utc)
+    from datetime import timedelta
+    # Look back 5 minutes on startup to catch recent unprocessed messages
+    last_check = datetime.now(timezone.utc) - timedelta(minutes=5)
     processed_ids: set = set()
 
     while True:

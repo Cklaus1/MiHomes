@@ -1,6 +1,7 @@
 """WhatsApp bridge client — Python HTTP client for the Node.js Baileys bridge."""
 
 import json
+import urllib.parse
 import urllib.request
 import urllib.error
 from datetime import datetime
@@ -36,13 +37,13 @@ class WhatsAppClient:
         self, since: datetime | None = None, group_jid: str | None = None, limit: int = 100
     ) -> list[dict]:
         """Fetch messages from the bridge."""
-        params = []
+        params: dict = {"limit": limit}
         if since:
-            params.append(f"since={since.isoformat()}")
+            # Format as UTC Z-suffix to avoid + encoding issues in query strings
+            params["since"] = since.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
         if group_jid:
-            params.append(f"groupJid={group_jid}")
-        params.append(f"limit={limit}")
-        query = "&".join(params)
+            params["groupJid"] = group_jid
+        query = urllib.parse.urlencode(params)
         result = self._get(f"/messages?{query}")
         return result.get("messages", [])
 

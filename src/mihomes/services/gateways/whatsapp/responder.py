@@ -1,52 +1,9 @@
-"""WhatsApp AI responder — analyzes incoming messages and sends AI advisory replies."""
+"""WhatsApp responder — logs issues/tasks and sends a simple confirmation."""
 
 from sqlalchemy.orm import Session
 
 from mihomes.services.gateways.whatsapp.client import WhatsAppClient
 from mihomes.services.gateways.whatsapp.review import analyze_messages
-
-
-def _build_reply(item: dict, issue_id: int | None = None, task_id: int | None = None) -> str:
-    """Build a WhatsApp-formatted reply for a logged item."""
-    category = item.get("category", "")
-    title = item.get("title", "Unknown")
-    severity = item.get("severity", "")
-    advice = item.get("description") or ""
-
-    sev_icon = {"critical": "🚨", "high": "🔴", "medium": "🟡", "low": "🟢"}.get(severity, "")
-
-    if category == "issue":
-        ref = f" (#{issue_id})" if issue_id else ""
-        lines = [f"✅ *Issue logged{ref}* — {title}"]
-        if severity:
-            lines.append(f"Severity: {sev_icon} {severity.capitalize()}")
-        if advice:
-            lines.append(f"\n*AI Assessment:* {advice}")
-        lines.append("\n_MiHomes AI — Estate Advisor_")
-    elif category in ("task", "supply_need"):
-        ref = f" (#{task_id})" if task_id else ""
-        lines = [f"📋 *Task logged{ref}* — {title}"]
-        if advice:
-            lines.append(f"\n*Note:* {advice}")
-        lines.append("\n_MiHomes AI — Estate Advisor_")
-    else:
-        lines = [f"ℹ️ *Noted* — {title}", "\n_MiHomes AI_"]
-
-    return "\n".join(lines)
-
-
-def _build_advisory_reply(question: str, session: Session, property_slug: str | None) -> str:
-    """Ask the AI advisor and format a WhatsApp-friendly reply."""
-    try:
-        from mihomes.services.ai.orchestrator import ask
-        response = ask(session, question, role="maintenance", property_slug=property_slug)
-        # Trim to ~500 chars for WhatsApp readability
-        text = response.text.strip()
-        if len(text) > 500:
-            text = text[:497] + "..."
-        return f"*AI Estate Advisor:*\n{text}\n\n_MiHomes AI_"
-    except Exception as e:
-        return f"_AI advisor unavailable: {e}_"
 
 
 def process_and_respond(
@@ -55,9 +12,12 @@ def process_and_respond(
     property_slug: str | None = None,
 ) -> dict:
     """
-    Analyze messages, create issues/tasks, and send AI replies back to the group.
+    Analyze messages, create issues/tasks, and send a simple confirmation
+    back to the group for each successfully logged item.
 
-    Returns dict with counts of replies sent.
+    Sends nothing if an item could not be logged.
+
+    Returns dict with: logged, replied, errors.
     """
     if not messages:
         return {"replied": 0, "logged": 0, "errors": []}
@@ -66,43 +26,33 @@ def process_and_respond(
     result = analyze_messages(session, messages, property_name=property_slug)
     items = result.get("items", [])
 
-    replied = 0
-    logged = 0
-    errors = []
-
-    # Group messages by JID so we know where to reply
-    jid_map = {}
-    for m in messages:
-        if m.get("jid"):
-            jid_map[m["jid"]] = m.get("propertySlug") or property_slug
-
-    # Pick the first linked group JID to reply to
-    reply_jid = next((jid for jid, slug in jid_map.items() if slug), None)
+    # Find the group JID to reply to
+    reply_jid = next(
+        (m["jid"] for m in messages if m.get("jid") and (m.get("propertySlug") or property_slug)),
+        None,
+    )
     if not reply_jid:
         return {"replied": 0, "logged": 0, "errors": ["No linked group JID found"]}
+
+    # Build a map of original message text by sender for the confirmation quote
+    # Use the last message text as a fallback quote
+    last_text = messages[-1].get("text", "") if messages else ""
+
+    logged = 0
+    replied = 0
+    errors = []
 
     for item in items:
         category = item.get("category", "")
         title = item.get("title", "Unknown")
         prop = item.get("property_slug") or property_slug
 
-        if category in ("informational", "vendor_activity"):
-            continue
-
-        if category == "task_completion":
-            # Acknowledge task completions
-            try:
-                client.send_group_message(reply_jid, f"✅ *Noted* — {title} marked as complete.\n\n_MiHomes AI_")
-                replied += 1
-            except Exception as e:
-                errors.append(str(e))
+        # Only log actionable categories
+        if category not in ("issue", "task", "supply_need"):
             continue
 
         if not prop:
             continue
-
-        issue_id = None
-        task_id = None
 
         try:
             if category == "issue":
@@ -113,24 +63,22 @@ def process_and_respond(
                     sev = IssueSeverity(sev_val)
                 except ValueError:
                     sev = IssueSeverity.MEDIUM
-                issue = create_issue(session, title, prop, severity=sev, description=item.get("description"))
-                issue_id = issue.id
+                create_issue(session, title, prop, severity=sev, description=item.get("description"))
                 logged += 1
             elif category in ("task", "supply_need"):
                 from mihomes.services.task import create_task
-                task = create_task(session, title, prop, description=item.get("description"))
-                task_id = task.id
+                create_task(session, title, prop, description=item.get("description"))
                 logged += 1
         except Exception as e:
             errors.append(f"Failed to create '{title}': {e}")
-            continue
+            continue  # Don't send confirmation if logging failed
 
-        # Send AI reply back to the group
+        # Send simple confirmation — quote the title as logged
         try:
-            reply = _build_reply(item, issue_id=issue_id, task_id=task_id)
-            client.send_group_message(reply_jid, reply)
+            confirmation = f'"{title}" logged ✓'
+            client.send_group_message(reply_jid, confirmation)
             replied += 1
         except Exception as e:
-            errors.append(f"Failed to send reply for '{title}': {e}")
+            errors.append(f"Failed to send confirmation for '{title}': {e}")
 
     return {"replied": replied, "logged": logged, "errors": errors}

@@ -73,9 +73,9 @@ def process_and_respond(
             errors.append(f"Failed to create '{title}': {e}")
             continue  # Don't send confirmation if logging failed
 
-        # Send simple confirmation — quote the title as logged
+        # Send simple confirmation — house emoji marks it as AI, not the owner
         try:
-            confirmation = f'"{title}" logged ✓'
+            confirmation = f'🏠 "{title}" logged ✓'
             client.send_group_message(reply_jid, confirmation)
             replied += 1
         except Exception as e:

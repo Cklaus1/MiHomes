@@ -1,5 +1,7 @@
 """WhatsApp CLI commands — bridge management, message review, group linking."""
 
+import time
+from datetime import datetime, timezone
 from typing import Optional
 
 import typer
@@ -170,6 +172,76 @@ def send_group_message(
     except WhatsAppBridgeError as e:
         format_error(str(e))
         raise typer.Exit(1)
+
+
+@app.command("monitor")
+def monitor(
+    interval: int = typer.Option(15, "--interval", "-i", help="Poll interval in seconds"),
+    property: Optional[str] = typer.Option(None, "--property", "-p", help="Scope to a property"),
+):
+    """Monitor linked groups and auto-respond with AI analysis.
+
+    Polls for new messages, logs issues/tasks, and sends AI advisory
+    replies back into the group. Press Ctrl+C to stop.
+    """
+    from mihomes.services.gateways.whatsapp.responder import process_and_respond
+
+    try:
+        client = _get_client()
+        if not client.is_connected():
+            format_error("WhatsApp bridge is not connected. Start with: cd bridge && npm start")
+            raise typer.Exit(1)
+    except WhatsAppBridgeError as e:
+        format_error(str(e))
+        raise typer.Exit(1)
+
+    console.print(f"[bold green]Monitoring WhatsApp groups[/bold green] (polling every {interval}s) — Ctrl+C to stop\n")
+
+    last_check = datetime.now(timezone.utc)
+    processed_ids: set = set()
+
+    while True:
+        try:
+            now = datetime.now(timezone.utc)
+            messages = client.get_messages(since=last_check, limit=50)
+
+            # Filter to linked groups and unseen messages
+            new_msgs = [
+                m for m in messages
+                if m.get("propertySlug")
+                and m.get("id") not in processed_ids
+                and not m.get("fromMe", False)
+            ]
+
+            if property:
+                new_msgs = [m for m in new_msgs if m.get("propertySlug") == property]
+
+            if new_msgs:
+                console.print(f"[dim]{now.strftime('%H:%M:%S')}[/dim] {len(new_msgs)} new message(s) — analyzing...")
+                with get_session() as session:
+                    result = process_and_respond(session, new_msgs, property_slug=property)
+
+                if result["logged"]:
+                    console.print(f"  [green]✓[/green] {result['logged']} item(s) logged")
+                if result["replied"]:
+                    console.print(f"  [green]✓[/green] {result['replied']} reply(ies) sent")
+                for err in result["errors"]:
+                    console.print(f"  [yellow]⚠[/yellow] {err}")
+
+                processed_ids.update(m["id"] for m in new_msgs if m.get("id"))
+                # Cap memory
+                if len(processed_ids) > 2000:
+                    processed_ids = set(list(processed_ids)[-1000:])
+
+            last_check = now
+            time.sleep(interval)
+
+        except WhatsAppBridgeError as e:
+            console.print(f"[yellow]Bridge error: {e} — retrying...[/yellow]")
+            time.sleep(interval)
+        except KeyboardInterrupt:
+            console.print("\n[dim]Monitor stopped.[/dim]")
+            break
 
 
 @app.command("review")

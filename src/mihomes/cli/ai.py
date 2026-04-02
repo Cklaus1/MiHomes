@@ -280,7 +280,8 @@ def setup_cmd():
 
     console.print("\n[bold]AI Setup[/bold]\n")
 
-    provider = typer.prompt("AI provider", default="claude", type=str)
+    console.print("[dim]Supported providers: claude, openai, nim, ollama[/dim]\n")
+    provider = typer.prompt("AI provider", default="nim", type=str)
 
     if provider == "claude":
         key = typer.prompt("Anthropic API key", hide_input=True)
@@ -288,12 +289,21 @@ def setup_cmd():
     elif provider == "openai":
         key = typer.prompt("OpenAI API key", hide_input=True)
         env_var = "OPENAI_API_KEY"
+    elif provider == "nim":
+        key = typer.prompt("NVIDIA API key (nvapi-...)", hide_input=True)
+        env_var = "NVIDIA_API_KEY"
+    elif provider == "ollama":
+        console.print("[dim]Ollama runs locally — no API key needed.[/dim]")
+        key = ""
+        env_var = ""
     else:
-        console.print(f"[yellow]Unknown provider '{provider}'. Supported: claude, openai[/yellow]")
+        console.print(f"[yellow]Unknown provider '{provider}'. Supported: claude, openai, nim, ollama[/yellow]")
         raise typer.Exit(1)
 
     with get_session() as session:
         set_config(session, "ai.provider", provider)
-        set_config(session, f"ai.{provider}_api_key", key)
+        if key:
+            set_config(session, f"ai.{provider}_api_key", key)
         format_success(f"AI configured: provider={provider}")
-        console.print(f"[dim]Tip: You can also set {env_var} environment variable instead.[/dim]")
+        if env_var:
+            console.print(f"[dim]Tip: You can also set {env_var} environment variable instead.[/dim]")

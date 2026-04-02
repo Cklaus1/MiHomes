@@ -11,7 +11,7 @@
  * Session credentials persist in ../mihomes-data/whatsapp-auth/
  */
 
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, downloadMediaMessage, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, downloadMediaMessage, fetchLatestBaileysVersion, Browsers } = require('@whiskeysockets/baileys');
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
@@ -50,6 +50,7 @@ async function startConnection() {
     version,
     auth: state,
     logger,
+    browser: Browsers.macOS('Desktop'),
     printQRInTerminal: false,
     syncFullHistory: false,
     markOnlineOnConnect: false,

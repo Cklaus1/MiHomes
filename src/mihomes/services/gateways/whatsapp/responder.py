@@ -8,27 +8,46 @@ from mihomes.services.gateways.whatsapp.client import WhatsAppClient
 from mihomes.services.gateways.whatsapp.review import analyze_messages
 
 
-def _ask_ai(session: Session, question: str, property_slug: str | None) -> str:
-    """Ask the AI advisor and return a concise WhatsApp-friendly plain-text answer."""
+def _strip_markdown(text: str) -> str:
+    text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
+    text = re.sub(r'\*(.*?)\*', r'\1', text)
+    text = re.sub(r'#{1,6}\s*', '', text)
+    text = re.sub(r'[-•]\s+', '', text)
+    return text.strip()
+
+
+def _ai_response(session: Session, prompt: str, role: str, property_slug: str | None) -> str | None:
+    """Call the AI advisor and return a plain-text 1-2 sentence response, or None on failure."""
     try:
         from mihomes.services.ai.orchestrator import ask
-        # Instruct the AI to be brief and plain — no markdown, no bullet points
-        whatsapp_question = (
-            f"{question}\n\n"
-            "Reply in 2-3 sentences maximum. Plain text only — no bullet points, "
-            "no headers, no markdown. Be direct and specific."
+        full_prompt = (
+            f"{prompt}\n\n"
+            "Reply in 1-2 sentences maximum. Plain text only — no bullet points, "
+            "no headers, no markdown. Be direct and practical."
         )
-        response = ask(session, whatsapp_question, role="estate_manager", property_slug=property_slug)
-        text = response.text.strip()
-        # Strip any markdown the AI still included
-        text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
-        text = re.sub(r'\*(.*?)\*', r'\1', text)
-        text = re.sub(r'#{1,6}\s*', '', text)
-        text = re.sub(r'[-•]\s+', '', text)
-        text = re.sub(r'\n{2,}', ' ', text).strip()
-        return f"🏠 {text}"
+        response = ask(session, full_prompt, role=role, property_slug=property_slug)
+        text = _strip_markdown(response.text.strip())
+        text = re.sub(r'\n{2,}', ' ', text)
+        return text if text else None
     except Exception:
-        return "🏠 I don't have that information available right now."
+        return None
+
+
+def _issue_expert_reply(session: Session, title: str, description: str | None, property_slug: str | None) -> str | None:
+    """Get a maintenance expert assessment for a logged issue."""
+    context = description or title
+    prompt = (
+        f"A maintenance issue was just reported at a property: '{title}'. "
+        f"Details: {context}. "
+        "As a maintenance expert, give a brief practical assessment: "
+        "what this likely requires and what the immediate next step should be."
+    )
+    return _ai_response(session, prompt, role="maintenance", property_slug=property_slug)
+
+
+def _answer_question(session: Session, question: str, property_slug: str | None) -> str | None:
+    """Answer a home-related question using the estate manager role."""
+    return _ai_response(session, question, role="estate_manager", property_slug=property_slug)
 
 
 def process_and_respond(
@@ -39,8 +58,9 @@ def process_and_respond(
     """
     Analyze messages, create issues/tasks, answer questions.
 
-    - Issues/tasks/supply_needs: log + send '🏠 "title" logged ✓'
-    - Questions about the home: send AI advisory answer
+    - Issues: log + send '🏠 "title" logged ✓\\n\\n[maintenance expert assessment]'
+    - Tasks/supply_needs: log + send '🏠 "title" logged ✓'
+    - Questions about the home: send '🏠 [AI estate manager answer]'
     - Informational/irrelevant: no response
 
     Returns dict with: logged, replied, errors.
@@ -69,16 +89,22 @@ def process_and_respond(
         title = item.get("title", "Unknown")
         prop = item.get("property_slug") or property_slug
 
-        # --- Questions: answer with AI ---
+        # --- Questions: answer with AI estate manager ---
         if category == "question":
             question_text = item.get("description") or title
-            answer = _ask_ai(session, question_text, prop or property_slug)
+            answer = _answer_question(session, question_text, prop or property_slug)
             if answer:
                 try:
-                    client.send_group_message(reply_jid, answer)
+                    client.send_group_message(reply_jid, f"🏠 {answer}")
                     replied += 1
                 except Exception as e:
                     errors.append(f"Failed to send answer: {e}")
+            else:
+                try:
+                    client.send_group_message(reply_jid, "🏠 I don't have that information available right now.")
+                    replied += 1
+                except Exception as e:
+                    errors.append(f"Failed to send fallback answer: {e}")
             continue
 
         # --- Actionable items: log + confirm ---
@@ -107,8 +133,20 @@ def process_and_respond(
             errors.append(f"Failed to create '{title}': {e}")
             continue  # Don't send confirmation if logging failed
 
+        # Build confirmation message
+        if category == "issue":
+            # Issues get logged confirmation + maintenance expert assessment
+            expert_note = _issue_expert_reply(session, title, item.get("description"), prop)
+            if expert_note:
+                confirmation = f'🏠 "{title}" logged ✓\n\n{expert_note}'
+            else:
+                confirmation = f'🏠 "{title}" logged ✓'
+        else:
+            # Tasks and supply needs get simple confirmation only
+            confirmation = f'🏠 "{title}" logged ✓'
+
         try:
-            client.send_group_message(reply_jid, f'🏠 "{title}" logged ✓')
+            client.send_group_message(reply_jid, confirmation)
             replied += 1
         except Exception as e:
             errors.append(f"Failed to send confirmation for '{title}': {e}")

@@ -135,11 +135,38 @@ def send_message(
     phone: str = typer.Argument(..., help="Phone number (with country code)"),
     message: str = typer.Argument(..., help="Message text"),
 ):
-    """Send a WhatsApp message."""
+    """Send a WhatsApp message to a phone number."""
     try:
         client = _get_client()
         client.send_message(phone, message)
         format_success(f"Message sent to {phone}")
+    except WhatsAppBridgeError as e:
+        format_error(str(e))
+        raise typer.Exit(1)
+
+
+@app.command("send-group")
+def send_group_message(
+    group_name: str = typer.Argument(..., help="WhatsApp group name (partial match)"),
+    message: str = typer.Argument(..., help="Message text"),
+):
+    """Send a WhatsApp message to a group."""
+    try:
+        client = _get_client()
+        groups = client.get_groups()
+        match = [g for g in groups if group_name.lower() in g["name"].lower()]
+        if not match:
+            format_error(f"No group matching '{group_name}' found")
+            raise typer.Exit(1)
+        if len(match) > 1:
+            console.print("[yellow]Multiple matches:[/yellow]")
+            for g in match:
+                console.print(f"  - {g['name']} ({g['jid']})")
+            format_error("Be more specific")
+            raise typer.Exit(1)
+        group = match[0]
+        client.send_group_message(group["jid"], message)
+        format_success(f"Message sent to group '{group['name']}'")
     except WhatsAppBridgeError as e:
         format_error(str(e))
         raise typer.Exit(1)

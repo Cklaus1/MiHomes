@@ -9,21 +9,26 @@ from mihomes.services.gateways.whatsapp.review import analyze_messages
 
 
 def _ask_ai(session: Session, question: str, property_slug: str | None) -> str:
-    """Ask the AI advisor and return a WhatsApp-friendly plain-text answer."""
+    """Ask the AI advisor and return a concise WhatsApp-friendly plain-text answer."""
     try:
         from mihomes.services.ai.orchestrator import ask
-        response = ask(session, question, role="estate_manager", property_slug=property_slug)
+        # Instruct the AI to be brief and plain — no markdown, no bullet points
+        whatsapp_question = (
+            f"{question}\n\n"
+            "Reply in 2-3 sentences maximum. Plain text only — no bullet points, "
+            "no headers, no markdown. Be direct and specific."
+        )
+        response = ask(session, whatsapp_question, role="estate_manager", property_slug=property_slug)
         text = response.text.strip()
-        # Strip markdown — WhatsApp doesn't render it well
+        # Strip any markdown the AI still included
         text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
         text = re.sub(r'\*(.*?)\*', r'\1', text)
         text = re.sub(r'#{1,6}\s*', '', text)
-        text = re.sub(r'\n{3,}', '\n\n', text)
-        if len(text) > 600:
-            text = text[:597] + "..."
+        text = re.sub(r'[-•]\s+', '', text)
+        text = re.sub(r'\n{2,}', ' ', text).strip()
         return f"🏠 {text}"
     except Exception:
-        return "🏠 I wasn't able to retrieve that information right now. Please check with your property manager for the latest update."
+        return "🏠 I don't have that information available right now."
 
 
 def process_and_respond(

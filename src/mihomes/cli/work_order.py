@@ -14,6 +14,7 @@ from mihomes.services.slug import EntityNotFoundError
 app = typer.Typer(name="workorder", help="Manage maintenance work orders")
 
 
+@app.command("add")
 @app.command("create")
 def create_work_order(
     title: str = typer.Argument(..., help="Work order title"),

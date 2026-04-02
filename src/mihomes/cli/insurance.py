@@ -42,6 +42,37 @@ def add_policy(
             raise typer.Exit(1)
 
 
+@app.command("show")
+def show_policy(id_or_slug: str = typer.Argument(..., help="Policy ID")):
+    """Show insurance policy details."""
+    from mihomes.cli.formatters import format_panel
+    with get_session() as session:
+        try:
+            policy_id = int(id_or_slug)
+        except ValueError:
+            format_error(f"Policy ID must be a number. Got: '{id_or_slug}'")
+            raise typer.Exit(1)
+        from mihomes.models.insurance import InsurancePolicy
+        p = session.get(InsurancePolicy, policy_id)
+        if not p:
+            format_error(f"Policy #{policy_id} not found")
+            raise typer.Exit(1)
+        content = {
+            "ID": str(p.id),
+            "Carrier": p.carrier,
+            "Type": format_enum(p.insurance_type),
+            "Policy Number": p.policy_number or "-",
+            "Property": p.property.name if p.property else "All Properties",
+            "Coverage Limit": f"{p.currency} {p.coverage_limit:,.0f}" if p.coverage_limit else "-",
+            "Deductible": f"{p.currency} {p.deductible:,.0f}" if p.deductible else "-",
+            "Annual Premium": f"{p.currency} {p.annual_premium:,.0f}" if p.annual_premium else "-",
+            "Renewal Date": str(p.renewal_date) if p.renewal_date else "-",
+            "Agent": p.agent_contact or "-",
+            "Notes": p.notes or "-",
+        }
+        console.print(format_panel(f"Policy: {p.carrier}", content))
+
+
 @app.command("list")
 def list_policies(
     property: Optional[str] = typer.Option(None, "--property", "-p"),

@@ -39,6 +39,36 @@ def add_contract(
             raise typer.Exit(1)
 
 
+@app.command("show")
+def show_contract(id_or_slug: str = typer.Argument(..., help="Contract ID")):
+    """Show contract details."""
+    from mihomes.cli.formatters import format_panel
+    with get_session() as session:
+        try:
+            contract_id = int(id_or_slug)
+        except ValueError:
+            format_error(f"Contract ID must be a number. Got: '{id_or_slug}'")
+            raise typer.Exit(1)
+        from mihomes.models.contract import Contract
+        c = session.get(Contract, contract_id)
+        if not c:
+            format_error(f"Contract #{contract_id} not found")
+            raise typer.Exit(1)
+        content = {
+            "ID": str(c.id),
+            "Vendor": c.vendor.company_name,
+            "Property": c.property.name,
+            "Category": c.service_category or "-",
+            "Start Date": str(c.start_date),
+            "End Date": str(c.end_date) if c.end_date else "Ongoing",
+            "Annual Cost": f"{c.currency} {c.annual_cost:,.0f}" if c.annual_cost else "-",
+            "Auto-Renew": "Yes" if c.auto_renew else "No",
+            "Notice Period": f"{c.notice_period_days} days",
+            "Notes": c.notes or "-",
+        }
+        console.print(format_panel(f"Contract #{c.id}", content))
+
+
 @app.command("list")
 def list_contracts(
     property: Optional[str] = typer.Option(None, "--property", "-p"),

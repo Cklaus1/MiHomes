@@ -39,6 +39,48 @@ def _parse_period(period_str: str) -> tuple[date, date]:
     raise ValueError(f"Cannot parse period: {period_str}")
 
 
+@budget_app.command("list")
+def list_budgets(
+    property: Optional[str] = typer.Option(None, "--property", "-p"),
+):
+    """List all budgets, optionally filtered by property."""
+    from mihomes.models.budget import Budget
+    from mihomes.models.property import Property as PropertyModel
+    with get_session() as session:
+        query = session.query(Budget)
+        if property:
+            try:
+                from mihomes.services.slug import resolve_identifier
+                prop = resolve_identifier(session, PropertyModel, property)
+                query = query.filter(Budget.property_id == prop.id)
+            except Exception as e:
+                format_error(str(e))
+                raise typer.Exit(1)
+        rows = [
+            (b.id, b.property.name, b.category, b.period.value, b.currency, b.amount, b.period_start)
+            for b in query.order_by(Budget.property_id, Budget.category).all()
+        ]
+
+    if not rows:
+        console.print("[dim]No budgets found.[/dim]")
+        return
+
+    table = Table(title="Budgets")
+    table.add_column("ID", style="dim")
+    table.add_column("Property", style="bold")
+    table.add_column("Category")
+    table.add_column("Period")
+    table.add_column("Amount", justify="right")
+    table.add_column("Start")
+    for bid, prop_name, category, period, currency, amount, period_start in rows:
+        table.add_row(
+            str(bid), prop_name, category,
+            period, f"{currency} {amount:,.0f}",
+            str(period_start),
+        )
+    console.print(table)
+
+
 @budget_app.command("set")
 def set_budget(
     property: str = typer.Option(..., "--property", "-p"),

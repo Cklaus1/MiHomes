@@ -8,9 +8,17 @@ from rich import print as rprint
 
 from mihomes import __version__
 
+# Ensure UTF-8 output on Windows (handles emoji and unicode in Rich tables).
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 # Handle SIGPIPE gracefully — prevents data loss when output is piped through
 # head/tail/etc. Without this, piping kills the process before session commits.
-signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+# SIGPIPE is not available on Windows.
+if hasattr(signal, "SIGPIPE"):
+    signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 
 app = typer.Typer(
     name="mihomes",

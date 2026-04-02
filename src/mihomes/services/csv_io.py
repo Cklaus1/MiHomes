@@ -93,7 +93,12 @@ def _create_from_row(session: Session, entity_type: str, row: dict):
     elif entity_type == "staff":
         from mihomes.services.staff import create_staff
         from mihomes.models.staff import StaffRole
-        role = StaffRole(clean.get("role", "other"))
+        role_val = clean.get("role", "other")
+        try:
+            role = StaffRole(role_val)
+        except ValueError:
+            valid = ", ".join(r.value for r in StaffRole)
+            raise ValueError(f"'{role_val}' is not a valid role. Valid roles: {valid}")
         return create_staff(
             session, clean["name"], role=role,
             phone=clean.get("phone"), email=clean.get("email"),

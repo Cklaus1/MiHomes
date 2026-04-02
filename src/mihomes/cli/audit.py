@@ -41,6 +41,7 @@ def show_audit(
         console.print(table)
 
 
+@app.command("list")
 @app.command("recent")
 def recent_audit(
     days: int = typer.Option(7, "--days", "-d", help="Number of days to look back"),

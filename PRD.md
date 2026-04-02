@@ -34,7 +34,7 @@ Managing multiple homes involves coordinating dozens of recurring tasks (weekly 
 | Runtime | Python 3.11+ | Rich CLI ecosystem, strong AI/LLM library support |
 | Database | SQLite | Zero-config, local-first, portable, sufficient for single-user |
 | CLI Framework | Typer + Rich | Modern, type-hinted CLI with rich terminal output |
-| AI Integration | Multi-provider (Claude default, OpenAI, Ollama) | Best reasoning for advisory; abstraction avoids lock-in |
+| AI Integration | Multi-provider (Claude default, OpenAI, Ollama, NVIDIA NIM) | Best reasoning for advisory; abstraction avoids lock-in |
 | WhatsApp | Baileys (@whiskeysockets/baileys) | Free, open-source, no Business API costs, full group/media support |
 | Architecture | Local-first, single-user | Privacy, simplicity, no infrastructure cost |
 
@@ -133,6 +133,7 @@ mihomes/
 │       │   ├── claude.py         # ClaudeProvider
 │       │   ├── openai.py         # OpenAIProvider
 │       │   ├── ollama.py         # OllamaProvider (Phase 3)
+│       │   ├── nim.py            # NIMProvider — NVIDIA NIM (OpenAI-compatible, e.g. Qwen3.5-122B-A10B)
 │       │   ├── router.py         # role routing logic
 │       │   ├── context.py        # context window assembly and management
 │       │   └── roles/            # system prompt templates per AI role
@@ -328,7 +329,7 @@ When a user runs any `mihomes` command for the first time:
 - System settings managed via CLI: `mihomes config set <key> <value>`
 - Key settings:
   - `calendar.provider` — manual | ical | google | outlook
-  - `ai.provider` — claude | openai | ollama
+  - `ai.provider` — claude | openai | ollama | nim
   - `ai.api_key` — stored securely (not in SQLite)
   - `currency.default` — USD, EUR, etc.
   - `notifications.format` — rich | brief | json
@@ -1149,11 +1150,13 @@ Should we support multiple LLM providers or build exclusively on Claude?
 | **Claude-only** | Simpler code, can use Claude-specific features (long context, tool use), consistent behavior, easier to tune prompts | Vendor lock-in, user must have Anthropic API key, no fallback if API is down |
 | **Multi-provider (OpenAI, Claude, local models)** | User choice, cost flexibility, can use local models for privacy, fallback options | Abstraction layer adds complexity, lowest-common-denominator prompts, inconsistent quality across models, harder to test |
 | **Claude-primary with provider abstraction** | Best of both — optimized for Claude but swappable, can add local model support later | Some abstraction overhead, still need to test with each provider |
+| **NVIDIA NIM (e.g. Qwen3.5-122B-A10B)** | OpenAI-compatible API, free tier credits on signup, access to top open-weight models (Qwen, Llama, Mistral), no vendor lock-in on model choice | Cloud dependency (not offline), free tier has usage limits, model availability subject to NVIDIA catalog |
 
 **Decision:** **Multi-provider from the start** behind an `AIProvider` abstraction.
 - **Phase 2:** Ship with Claude as the default and recommended provider. Build an `AIProvider` protocol (`complete()`, `tool_call()`, `structured_output()`) with `ClaudeProvider` and `OpenAIProvider` implementations. Prompts optimized for Claude but functional on OpenAI models.
 - **Phase 3:** Add local model support via Ollama for fully offline AI advisory (useful for privacy-sensitive operations and environments without internet)
-- Configuration: `mihomes config set ai.provider claude|openai|ollama` with per-provider API key management
+- **Phase 3:** Add NVIDIA NIM provider (`NIMProvider`) using the OpenAI-compatible API at `https://integrate.api.nvidia.com/v1`. Recommended model: `qwen/qwen3.5-122b-a10b`. Configured via `NVIDIA_API_KEY` env var or `mihomes ai setup`. Reuses the OpenAI SDK with a custom `base_url` — no additional dependencies required.
+- Configuration: `mihomes config set ai.provider claude|openai|ollama|nim` with per-provider API key management
 - Provider-specific features (Claude's long context, OpenAI's function calling) used opportunistically via capability flags on the provider interface
 
 ### 16.6 Collaboration / Multi-User

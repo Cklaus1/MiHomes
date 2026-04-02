@@ -1,9 +1,30 @@
-"""WhatsApp responder — logs issues/tasks and sends a simple confirmation."""
+"""WhatsApp responder — logs issues/tasks and answers questions via AI."""
+
+import re
 
 from sqlalchemy.orm import Session
 
 from mihomes.services.gateways.whatsapp.client import WhatsAppClient
 from mihomes.services.gateways.whatsapp.review import analyze_messages
+
+
+def _ask_ai(session: Session, question: str, property_slug: str | None) -> str | None:
+    """Ask the AI advisor and return a WhatsApp-friendly plain-text answer."""
+    try:
+        from mihomes.services.ai.orchestrator import ask
+        response = ask(session, question, role="estate_manager", property_slug=property_slug)
+        text = response.text.strip()
+        # Strip markdown formatting — WhatsApp doesn't render it well
+        text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)   # bold
+        text = re.sub(r'\*(.*?)\*', r'\1', text)         # italic
+        text = re.sub(r'#{1,6}\s*', '', text)            # headers
+        text = re.sub(r'\n{3,}', '\n\n', text)           # excess newlines
+        # Keep it concise for WhatsApp
+        if len(text) > 600:
+            text = text[:597] + "..."
+        return f"🏠 {text}"
+    except Exception as e:
+        return None  # Fail silently — don't send a broken error to the group
 
 
 def process_and_respond(
@@ -12,10 +33,11 @@ def process_and_respond(
     property_slug: str | None = None,
 ) -> dict:
     """
-    Analyze messages, create issues/tasks, and send a simple confirmation
-    back to the group for each successfully logged item.
+    Analyze messages, create issues/tasks, answer questions.
 
-    Sends nothing if an item could not be logged.
+    - Issues/tasks/supply_needs: log + send '🏠 "title" logged ✓'
+    - Questions about the home: send AI advisory answer
+    - Informational/irrelevant: no response
 
     Returns dict with: logged, replied, errors.
     """
@@ -34,10 +56,6 @@ def process_and_respond(
     if not reply_jid:
         return {"replied": 0, "logged": 0, "errors": ["No linked group JID found"]}
 
-    # Build a map of original message text by sender for the confirmation quote
-    # Use the last message text as a fallback quote
-    last_text = messages[-1].get("text", "") if messages else ""
-
     logged = 0
     replied = 0
     errors = []
@@ -47,7 +65,19 @@ def process_and_respond(
         title = item.get("title", "Unknown")
         prop = item.get("property_slug") or property_slug
 
-        # Only log actionable categories
+        # --- Questions: answer with AI ---
+        if category == "question":
+            question_text = item.get("description") or title
+            answer = _ask_ai(session, question_text, prop or property_slug)
+            if answer:
+                try:
+                    client.send_group_message(reply_jid, answer)
+                    replied += 1
+                except Exception as e:
+                    errors.append(f"Failed to send answer: {e}")
+            continue
+
+        # --- Actionable items: log + confirm ---
         if category not in ("issue", "task", "supply_need"):
             continue
 
@@ -73,10 +103,8 @@ def process_and_respond(
             errors.append(f"Failed to create '{title}': {e}")
             continue  # Don't send confirmation if logging failed
 
-        # Send simple confirmation — house emoji marks it as AI, not the owner
         try:
-            confirmation = f'🏠 "{title}" logged ✓'
-            client.send_group_message(reply_jid, confirmation)
+            client.send_group_message(reply_jid, f'🏠 "{title}" logged ✓')
             replied += 1
         except Exception as e:
             errors.append(f"Failed to send confirmation for '{title}': {e}")

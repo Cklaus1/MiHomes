@@ -18,7 +18,7 @@ REVIEW_SCHEMA = {
                 "properties": {
                     "category": {
                         "type": "string",
-                        "enum": ["issue", "task", "task_completion", "supply_need", "vendor_activity", "informational"],
+                        "enum": ["issue", "task", "task_completion", "supply_need", "vendor_activity", "question", "informational"],
                     },
                     "title": {"type": "string"},
                     "description": {"type": "string"},
@@ -77,10 +77,13 @@ def analyze_messages(
         "- task_completion: someone confirming work was done\n"
         "- supply_need: something needs purchasing or restocking\n"
         "- vendor_activity: a vendor visit or service happening\n"
-        "- informational: no action needed (skip these)\n\n"
-        "For each actionable item, extract: title, description, severity (if issue), "
-        "who reported it, and any related asset (vehicle, appliance, etc).\n\n"
-        "Also list items you skipped (social chat, personal, food sharing, etc) with brief reasons.\n\n"
+        "- question: someone asking a question about the property, maintenance, schedules, vendors, or estate status\n"
+        "- informational: no action needed — social chat, greetings, personal messages, food, anything unrelated to the home\n\n"
+        "For questions: use 'title' as a concise restatement of the question, and 'description' as the full question text verbatim.\n"
+        "For issues/tasks: extract title, description, severity (if issue), who reported it, and any related asset.\n\n"
+        "Only classify as 'question' if it is genuinely about the home, property, maintenance, staff, vendors, or estate. "
+        "Greetings, nonsensical messages, and off-topic chat are 'informational'.\n\n"
+        "Also list items you skipped with brief reasons.\n\n"
         "Be thorough — even terse messages like 'deer treatment' are task requests.\n"
         "Correlate related messages (e.g., low tire + possible hole = severity upgrade)."
     )

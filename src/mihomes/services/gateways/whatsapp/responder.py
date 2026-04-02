@@ -8,23 +8,22 @@ from mihomes.services.gateways.whatsapp.client import WhatsAppClient
 from mihomes.services.gateways.whatsapp.review import analyze_messages
 
 
-def _ask_ai(session: Session, question: str, property_slug: str | None) -> str | None:
+def _ask_ai(session: Session, question: str, property_slug: str | None) -> str:
     """Ask the AI advisor and return a WhatsApp-friendly plain-text answer."""
     try:
         from mihomes.services.ai.orchestrator import ask
         response = ask(session, question, role="estate_manager", property_slug=property_slug)
         text = response.text.strip()
-        # Strip markdown formatting — WhatsApp doesn't render it well
-        text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)   # bold
-        text = re.sub(r'\*(.*?)\*', r'\1', text)         # italic
-        text = re.sub(r'#{1,6}\s*', '', text)            # headers
-        text = re.sub(r'\n{3,}', '\n\n', text)           # excess newlines
-        # Keep it concise for WhatsApp
+        # Strip markdown — WhatsApp doesn't render it well
+        text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
+        text = re.sub(r'\*(.*?)\*', r'\1', text)
+        text = re.sub(r'#{1,6}\s*', '', text)
+        text = re.sub(r'\n{3,}', '\n\n', text)
         if len(text) > 600:
             text = text[:597] + "..."
         return f"🏠 {text}"
-    except Exception as e:
-        return None  # Fail silently — don't send a broken error to the group
+    except Exception:
+        return "🏠 I wasn't able to retrieve that information right now. Please check with your property manager for the latest update."
 
 
 def process_and_respond(

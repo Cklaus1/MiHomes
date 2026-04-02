@@ -90,6 +90,25 @@ def dashboard(
             expand=True,
         )
 
+        # Calendar / occupancy panel
+        from datetime import date as date_cls
+        today = date_cls.today()
+        cal_lines = []
+        for p in data["properties"]:
+            since = p["occupied_since"]
+            until = p["occupied_until"]
+            if p["occupied"]:
+                until_str = f"until {until}" if until else "ongoing"
+                cal_lines.append(f"  [green]● Occupied[/green]  [bold]{p['name']}[/bold] — {until_str}")
+            elif since and since > today:
+                days_away = (since - today).days
+                cal_lines.append(f"  [yellow]○ Upcoming[/yellow]  [bold]{p['name']}[/bold] — {since} ({days_away}d away)")
+        calendar_panel = Panel(
+            "\n".join(cal_lines) if cal_lines else "[dim]No active or upcoming occupancy[/dim]",
+            title="Calendar / Occupancy",
+            expand=True,
+        )
+
         # Status bar
         status_items = []
         if data["alert_count"] > 0:
@@ -101,8 +120,7 @@ def dashboard(
         status_text = "  " + " | ".join(status_items) if status_items else "  [green]All clear[/green]"
 
         # Render
-        from datetime import date as date_cls
-        today_str = date_cls.today().strftime("%A, %B %d, %Y")
+        today_str = today.strftime("%A, %B %d, %Y")
         title = f"MiHomes Estate Dashboard — {today_str}"
         if property:
             title = f"MiHomes — {property} — {today_str}"
@@ -115,8 +133,9 @@ def dashboard(
             expand=True,
         ))
 
-        # Two-column layout
+        # Layout: properties + tasks | issues + budget | calendar (full width) | status
         console.print(Columns([prop_panel, task_panel], equal=True, expand=True))
         console.print(Columns([issue_panel, budget_panel], equal=True, expand=True))
+        console.print(calendar_panel)
         console.print(Panel(status_text, title="Status", expand=True))
         console.print()

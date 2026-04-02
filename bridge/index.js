@@ -11,7 +11,7 @@
  * Session credentials persist in ../mihomes-data/whatsapp-auth/
  */
 
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, downloadMediaMessage } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, downloadMediaMessage, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
@@ -43,10 +43,17 @@ async function startConnection() {
 
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
 
+  const { version } = await fetchLatestBaileysVersion();
+  console.log(`Using WA version: ${version.join('.')}`);
+
   sock = makeWASocket({
+    version,
     auth: state,
     logger,
     printQRInTerminal: false,
+    syncFullHistory: false,
+    markOnlineOnConnect: false,
+    getMessage: async () => ({ conversation: '' }),
   });
 
   sock.ev.on('creds.update', saveCreds);
@@ -70,11 +77,11 @@ async function startConnection() {
 
     if (connection === 'close') {
       const statusCode = lastDisconnect?.error?.output?.statusCode;
-      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-      connectionStatus = shouldReconnect ? 'reconnecting' : 'logged-out';
-      console.log(`Connection closed. Status: ${statusCode}. Reconnecting: ${shouldReconnect}`);
-      if (shouldReconnect) {
-        setTimeout(startConnection, 5000);
+      const isLoggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401;
+      connectionStatus = isLoggedOut ? 'logged-out' : 'reconnecting';
+      console.log(`Connection closed. Status: ${statusCode}. Reconnecting: ${!isLoggedOut}`);
+      if (!isLoggedOut) {
+        setTimeout(startConnection, 3000);
       }
     }
   });
@@ -155,6 +162,48 @@ app.get('/qr', (req, res) => {
   } else {
     res.json({ qr: null, status: connectionStatus });
   }
+});
+
+app.get('/', (req, res) => {
+  const qrData = app.locals.lastQR || '';
+  const statusMsg = {
+    connected: '✅ Connected to WhatsApp',
+    disconnected: '⏳ Connecting...',
+    'awaiting-qr': '📱 Scan the QR code below with WhatsApp',
+    reconnecting: '🔄 Reconnecting...',
+    'logged-out': '❌ Logged out — restart bridge',
+  }[connectionStatus] || connectionStatus;
+
+  res.send(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MiHomes WhatsApp Bridge</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <style>
+    body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center;
+           justify-content: center; min-height: 100vh; margin: 0; background: #f5f5f5; }
+    h1 { color: #333; }
+    #status { font-size: 1.2em; margin: 16px 0; }
+    #qrbox { background: #fff; padding: 24px; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,.1); }
+    #qrbox canvas, #qrbox img { display: block; }
+    #msg { color: #666; margin-top: 16px; font-size: 0.9em; }
+  </style>
+</head>
+<body>
+  <h1>MiHomes WhatsApp Bridge</h1>
+  <div id="status">${statusMsg}</div>
+  <div id="qrbox">
+    ${qrData ? '<div id="qr"></div>' : '<p style="color:#999">No QR code yet — waiting for bridge to initialise...</p>'}
+  </div>
+  <p id="msg">This page auto-refreshes every 5 seconds.</p>
+  <script>
+    ${qrData ? `new QRCode(document.getElementById('qr'), { text: ${JSON.stringify(qrData)}, width: 256, height: 256 });` : ''}
+    setTimeout(() => location.reload(), 5000);
+  </script>
+</body>
+</html>`);
 });
 
 app.post('/send', async (req, res) => {

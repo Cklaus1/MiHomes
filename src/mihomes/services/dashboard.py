@@ -37,6 +37,8 @@ def get_dashboard_data(session: Session, property_id: int | None = None) -> dict
         prop_summaries.append({
             "name": p.name, "slug": p.slug, "status": p.status.value,
             "type": p.property_type.value, "occupied": p.occupied,
+            "occupied_since": p.occupied_since,
+            "occupied_until": p.occupied_until,
             "open_issues": open_issues,
         })
 

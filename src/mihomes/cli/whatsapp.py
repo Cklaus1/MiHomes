@@ -148,7 +148,8 @@ def send_message(
 @app.command("review")
 def review_messages(
     property: Optional[str] = typer.Option(None, "--property", "-p"),
-    accept: Optional[str] = typer.Option(None, "--accept", help="Comma-separated item numbers to accept"),
+    accept: Optional[str] = typer.Option(None, "--accept", help="Comma-separated item numbers to create (e.g. 1,3)"),
+    auto: bool = typer.Option(False, "--auto", help="Auto-create all actionable items without prompting"),
 ):
     """Review AI-extracted issues/tasks from group conversations."""
     from mihomes.services.gateways.whatsapp.review import analyze_messages
@@ -165,7 +166,6 @@ def review_messages(
         console.print("[dim]No messages to review.[/dim]")
         return
 
-    # Filter by property if specified
     if property:
         messages = [m for m in messages if m.get("propertySlug") == property]
         if not messages:
@@ -180,45 +180,48 @@ def review_messages(
             format_error(str(e))
             raise typer.Exit(1)
 
-    items = result.get("items", [])
-    skipped = result.get("skipped", [])
+        items = result.get("items", [])
+        skipped = result.get("skipped", [])
 
-    if not items:
-        console.print("[green]No actionable items found.[/green]")
-        return
+        if not items:
+            console.print("[green]No actionable items found.[/green]")
+            return
 
-    # Display extracted items
-    table = Table(title=f"WhatsApp Review Queue ({len(items)} items)")
-    table.add_column("#", style="dim")
-    table.add_column("Category")
-    table.add_column("Title", style="bold")
-    table.add_column("Severity")
-    table.add_column("Reported By")
-    for i, item in enumerate(items, 1):
-        sev = item.get("severity", "-")
-        sev_display = f"[{severity_color(sev)}]{sev}[/{severity_color(sev)}]" if sev != "-" else "-"
-        table.add_row(
-            str(i), item.get("category", "-"),
-            item.get("title", "-"), sev_display,
-            item.get("reported_by", "-"),
-        )
-    console.print(table)
+        # Display extracted items
+        table = Table(title=f"WhatsApp Review Queue ({len(items)} items)")
+        table.add_column("#", style="dim")
+        table.add_column("Category")
+        table.add_column("Title", style="bold")
+        table.add_column("Severity")
+        table.add_column("Reported By")
+        for i, item in enumerate(items, 1):
+            sev = item.get("severity", "-")
+            sev_display = f"[{severity_color(sev)}]{sev}[/{severity_color(sev)}]" if sev != "-" else "-"
+            table.add_row(
+                str(i), item.get("category", "-"),
+                item.get("title", "-"), sev_display,
+                item.get("reported_by", "-"),
+            )
+        console.print(table)
 
-    if skipped:
-        console.print(f"\n[dim]Skipped {len(skipped)} non-actionable messages[/dim]")
+        if skipped:
+            console.print(f"\n[dim]Skipped {len(skipped)} non-actionable messages[/dim]")
 
-    # Auto-accept if --accept provided
-    if accept:
-        indices = [int(x.strip()) for x in accept.split(",")]
-        _create_items(session, items, indices, property)
+        if auto:
+            indices = list(range(1, len(items) + 1))
+            _create_items(session, items, indices, property)
+        elif accept:
+            indices = [int(x.strip()) for x in accept.split(",") if x.strip().isdigit()]
+            _create_items(session, items, indices, property)
+        else:
+            console.print("\n[dim]Use --accept 1,2,3 to create specific items, or --auto to create all.[/dim]")
 
 
 def _create_items(session, items: list[dict], indices: list[int], property_slug: str | None):
-    """Create issues/tasks from accepted review items."""
+    """Create issues/tasks from accepted review items. Must be called within an active session."""
     from mihomes.services.issue import create_issue
     from mihomes.services.task import create_task
     from mihomes.models.issue import IssueSeverity
-    from mihomes.models.task import TaskPriority
 
     created = 0
     for idx in indices:
@@ -228,13 +231,20 @@ def _create_items(session, items: list[dict], indices: list[int], property_slug:
         cat = item.get("category", "")
         title = item.get("title", "Unknown")
 
+        if cat in ("informational", "task_completion", "vendor_activity"):
+            continue
+
         if not property_slug:
             console.print(f"[yellow]Skipping '{title}' — no property specified[/yellow]")
             continue
 
         try:
             if cat == "issue":
-                sev = IssueSeverity(item.get("severity", "medium"))
+                sev_val = item.get("severity", "medium")
+                try:
+                    sev = IssueSeverity(sev_val)
+                except ValueError:
+                    sev = IssueSeverity.MEDIUM
                 create_issue(session, title, property_slug, severity=sev, description=item.get("description"))
                 created += 1
             elif cat in ("task", "supply_need"):
@@ -244,4 +254,4 @@ def _create_items(session, items: list[dict], indices: list[int], property_slug:
             console.print(f"[yellow]Failed to create '{title}': {e}[/yellow]")
 
     if created:
-        format_success(f"{created} item(s) created from review")
+        format_success(f"{created} item(s) created from WhatsApp review")

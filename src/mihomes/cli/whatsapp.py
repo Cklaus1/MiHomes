@@ -198,8 +198,8 @@ def monitor(
     console.print(f"[bold green]Monitoring WhatsApp groups[/bold green] (polling every {interval}s) — Ctrl+C to stop\n")
 
     from datetime import timedelta
-    # Look back 5 minutes on startup to catch recent unprocessed messages
-    last_check = datetime.now(timezone.utc) - timedelta(minutes=5)
+    # Look back 15 minutes on startup to catch recent unprocessed messages
+    last_check = datetime.now(timezone.utc) - timedelta(minutes=15)
     processed_ids: set = set()
 
     while True:
@@ -238,12 +238,15 @@ def monitor(
             last_check = now
             time.sleep(interval)
 
-        except WhatsAppBridgeError as e:
-            console.print(f"[yellow]Bridge error: {e} — retrying...[/yellow]")
-            time.sleep(interval)
         except KeyboardInterrupt:
             console.print("\n[dim]Monitor stopped.[/dim]")
             break
+        except WhatsAppBridgeError as e:
+            console.print(f"[yellow]{datetime.now(timezone.utc).strftime('%H:%M:%S')} Bridge error: {e} — retrying...[/yellow]")
+            time.sleep(interval)
+        except Exception as e:
+            console.print(f"[red]{datetime.now(timezone.utc).strftime('%H:%M:%S')} Unexpected error: {e} — continuing...[/red]")
+            time.sleep(interval)
 
 
 @app.command("review")

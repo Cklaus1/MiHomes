@@ -1,11 +1,24 @@
 """WhatsApp responder — logs issues/tasks and answers questions via AI."""
 
 import re
+from datetime import date, datetime
 
 from sqlalchemy.orm import Session
 
 from mihomes.services.gateways.whatsapp.client import WhatsAppClient
 from mihomes.services.gateways.whatsapp.review import analyze_messages
+
+
+def _parse_event_date(timestamp_str: str | None) -> date | None:
+    """Parse an AI-extracted timestamp string into a date, or return None."""
+    if not timestamp_str:
+        return None
+    for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%d", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            return datetime.strptime(timestamp_str, fmt).date()
+        except ValueError:
+            continue
+    return None
 
 
 def _strip_markdown(text: str) -> str:
@@ -23,12 +36,16 @@ def _ai_response(session: Session, prompt: str, role: str, property_slug: str | 
         full_prompt = (
             f"{prompt}\n\n"
             "Reply in 1-2 sentences maximum. Plain text only — no bullet points, "
-            "no headers, no markdown. Be direct and practical."
+            "no headers, no markdown. Be direct and practical. "
+            "If you are not confident in your answer or do not have enough information, "
+            "respond with exactly: NO_RESPONSE"
         )
         response = ask(session, full_prompt, role=role, property_slug=property_slug)
         text = _strip_markdown(response.text.strip())
         text = re.sub(r'\n{2,}', ' ', text)
-        return text if text else None
+        if not text or text.upper() == "NO_RESPONSE":
+            return None
+        return text
     except Exception:
         return None
 
@@ -59,7 +76,9 @@ def process_and_respond(
     Analyze messages, create issues/tasks, answer questions.
 
     - Issues: log + send '🏠 "title" logged ✓\\n\\n[maintenance expert assessment]'
-    - Tasks/supply_needs: log + send '🏠 "title" logged ✓'
+    - Tasks/supply_needs with date: log + create event + send '🏠 scheduled "title" ✓'
+    - Tasks/supply_needs without date: log + send '🏠 "title" logged ✓'
+    - Vendor activity: create event + send '🏠 scheduled "title" ✓'
     - Questions about the home: send '🏠 [AI estate manager answer]'
     - Informational/irrelevant: no response
 
@@ -99,20 +118,17 @@ def process_and_respond(
                     replied += 1
                 except Exception as e:
                     errors.append(f"Failed to send answer: {e}")
-            else:
-                try:
-                    client.send_group_message(reply_jid, "🏠 I don't have that information available right now.")
-                    replied += 1
-                except Exception as e:
-                    errors.append(f"Failed to send fallback answer: {e}")
             continue
 
         # --- Actionable items: log + confirm ---
-        if category not in ("issue", "task", "supply_need"):
+        if category not in ("issue", "task", "supply_need", "vendor_activity"):
             continue
 
         if not prop:
             continue
+
+        event_date = _parse_event_date(item.get("timestamp"))
+        scheduled = event_date is not None
 
         try:
             if category == "issue":
@@ -129,20 +145,30 @@ def process_and_respond(
                 from mihomes.services.task import create_task
                 create_task(session, title, prop, description=item.get("description"))
                 logged += 1
+                if scheduled:
+                    from mihomes.services.event import create_event
+                    create_event(session, title, prop, event_date, description=item.get("description"))
+            elif category == "vendor_activity":
+                if scheduled:
+                    from mihomes.services.event import create_event
+                    create_event(session, title, prop, event_date, description=item.get("description"))
+                    logged += 1
+                else:
+                    continue  # vendor activity without a date — no action needed
         except Exception as e:
             errors.append(f"Failed to create '{title}': {e}")
             continue  # Don't send confirmation if logging failed
 
         # Build confirmation message
         if category == "issue":
-            # Issues get logged confirmation + maintenance expert assessment
             expert_note = _issue_expert_reply(session, title, item.get("description"), prop)
             if expert_note:
                 confirmation = f'🏠 "{title}" logged ✓\n\n{expert_note}'
             else:
                 confirmation = f'🏠 "{title}" logged ✓'
+        elif scheduled:
+            confirmation = f'🏠 scheduled "{title}" ✓'
         else:
-            # Tasks and supply needs get simple confirmation only
             confirmation = f'🏠 "{title}" logged ✓'
 
         try:

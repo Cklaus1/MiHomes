@@ -36,7 +36,9 @@ def _base_prompt(role_desc: str) -> str:
 
 Current date: {date.today().isoformat()}
 
-Respond concisely. Use bullet points for action items. Reference specific properties, tasks, issues, and vendors by name."""
+Respond concisely. Use bullet points for action items. Reference specific properties, tasks, issues, and vendors by name.
+
+If you do not have enough information to answer confidently, say nothing rather than guess. A non-answer is better than a wrong answer."""
 
 
 ROLES: dict[str, AIRole] = {

@@ -21,6 +21,7 @@ def add_issue(
     severity: IssueSeverity = typer.Option(IssueSeverity.MEDIUM, "--severity", "-s"),
     space: Optional[str] = typer.Option(None, "--space", help="Space ID or slug"),
     description: Optional[str] = typer.Option(None, "--desc"),
+    ai_suggest: bool = typer.Option(False, "--ai-suggest", "-a", help="Get AI suggestions for severity and tags"),
 ):
     """Report a new issue."""
     with get_session() as session:
@@ -30,6 +31,11 @@ def add_issue(
                 description=description, space_id_or_slug=space,
             )
             format_success(f"Issue '{issue.title}' created (slug: {issue.slug}, severity: {issue.severity.value})")
+
+            if ai_suggest:
+                from mihomes.cli.task import _apply_ai_suggestions
+                _apply_ai_suggestions(session, "issue", issue.slug, title, description, issue.property.name)
+
         except EntityNotFoundError as e:
             format_error(str(e))
             raise typer.Exit(1)

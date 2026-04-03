@@ -33,6 +33,7 @@ def add_task(
     recurrence: RecurrenceFrequency = typer.Option(RecurrenceFrequency.ONCE, "--recurrence", "-r", help="Recurrence"),
     season: Optional[str] = typer.Option(None, "--season", help="Season spec for seasonal tasks (e.g., spring,fall)"),
     description: Optional[str] = typer.Option(None, "--desc", help="Description"),
+    ai_suggest: bool = typer.Option(False, "--ai-suggest", "-a", help="Get AI suggestions for priority and tags"),
 ):
     """Add a new task."""
     with get_session() as session:
@@ -48,9 +49,64 @@ def add_task(
             if task.schedule:
                 msg += f" [recurrence: {task.schedule.frequency.value}]"
             format_success(msg)
+
+            if ai_suggest:
+                _apply_ai_suggestions(session, "task", task.slug, title, description, task.property.name)
+
         except (EntityNotFoundError, ValueError) as e:
             format_error(str(e))
             raise typer.Exit(1)
+
+
+def _apply_ai_suggestions(session, entity_type: str, slug: str, title: str, description, property_name: str) -> None:
+    """Fetch AI suggestions and interactively apply priority/severity + tags."""
+    from mihomes.services.ai.assessors import suggest_tags_and_priority
+    from mihomes.services.ai.provider import AIAuthError, AIProviderError
+    from mihomes.services.tag import apply_tag
+
+    try:
+        with console.status("[bold blue]Getting AI suggestions...", spinner="dots"):
+            suggestions = suggest_tags_and_priority(session, entity_type, title, description, property_name)
+    except (AIAuthError, AIProviderError) as e:
+        console.print(f"[yellow]AI suggestions unavailable: {e}[/yellow]")
+        return
+
+    if not suggestions:
+        return
+
+    console.print()
+    console.print("[bold]AI Suggestions[/bold]")
+    if suggestions.get("reasoning"):
+        console.print(f"[dim]{suggestions['reasoning']}[/dim]")
+
+    priority_key = "priority" if entity_type == "task" else "severity"
+    suggested_priority = suggestions.get(priority_key)
+    suggested_tags = suggestions.get("tags", [])
+
+    changes_made = []
+
+    if suggested_priority:
+        console.print(f"  {priority_key.capitalize()}: [bold]{suggested_priority}[/bold]")
+        if typer.confirm(f"  Apply {priority_key}?", default=True):
+            if entity_type == "task":
+                from mihomes.services.task import update_task
+                from mihomes.models.task import TaskPriority
+                update_task(session, slug, priority=TaskPriority(suggested_priority))
+            else:
+                from mihomes.services.issue import update_issue
+                from mihomes.models.issue import IssueSeverity
+                update_issue(session, slug, severity=IssueSeverity(suggested_priority))
+            changes_made.append(f"{priority_key}={suggested_priority}")
+
+    if suggested_tags:
+        console.print(f"  Tags: [bold]{', '.join(suggested_tags)}[/bold]")
+        if typer.confirm("  Apply tags?", default=True):
+            for tag in suggested_tags:
+                apply_tag(session, tag, [f"{entity_type}:{slug}"])
+            changes_made.append(f"tags: {', '.join(suggested_tags)}")
+
+    if changes_made:
+        format_success(f"Applied: {', '.join(changes_made)}")
 
 
 @app.command("list")

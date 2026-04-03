@@ -35,3 +35,23 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.coverage.run]
+source = ["mihomes"]
+
+[tool.coverage.report]
+omit = [
+    # AI provider HTTP implementations — require real API credentials
+    "*/services/ai/claude_provider.py",
+    "*/services/ai/openai_provider.py",
+    "*/services/ai/nim_provider.py",
+    "*/services/ai/ollama_provider.py",
+    # Gateway integrations — require real network connections
+    "*/services/gateways/whatsapp/*",
+    "*/services/gateways/calendar/provider.py",
+]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]

@@ -73,6 +73,43 @@ def show_policy(id_or_slug: str = typer.Argument(..., help="Policy ID")):
         console.print(format_panel(f"Policy: {p.carrier}", content))
 
 
+@app.command("gaps")
+def coverage_gaps():
+    """AI review of insurance coverage adequacy across the estate."""
+    from mihomes.services.ai.provider import AIAuthError, AIProviderError
+    from mihomes.services.ai.orchestrator import ask
+    from rich.markdown import Markdown
+    with get_session() as session:
+        policies = ins_svc.list_policies(session)
+        if not policies:
+            console.print("[dim]No insurance policies found. Add policies with: mihomes insurance add[/dim]")
+            return
+
+        policy_summary = "\n".join(
+            f"- {p.carrier} ({p.insurance_type.value}): "
+            f"coverage={p.coverage_limit or 'unknown'}, "
+            f"premium={p.annual_premium or 'unknown'}, "
+            f"renewal={p.renewal_date or 'unknown'}, "
+            f"property={p.property.name if p.property else 'all'}"
+            for p in policies
+        )
+        query = (
+            f"Review these insurance policies for coverage gaps and adequacy:\n\n{policy_summary}\n\n"
+            "Identify: missing coverage types, underinsured properties, policies expiring soon, "
+            "and any coverage gaps given what you know about the estate's properties and assets. "
+            "Use the Compliance and Asset Protection dimensions of SPACE."
+        )
+        try:
+            with console.status("[bold blue]Analyzing coverage...", spinner="dots"):
+                response = ask(session, query, role="compliance")
+            console.print()
+            console.print(Markdown(response.text))
+            console.print()
+        except (AIAuthError, AIProviderError) as e:
+            format_error(str(e))
+            raise typer.Exit(1)
+
+
 @app.command("list")
 def list_policies(
     property: Optional[str] = typer.Option(None, "--property", "-p"),

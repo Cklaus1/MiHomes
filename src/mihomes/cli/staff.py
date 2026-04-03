@@ -143,6 +143,74 @@ def assign_staff(
             raise typer.Exit(1)
 
 
+@app.command("schedule")
+def staff_schedule(
+    id_or_slug: Optional[str] = typer.Argument(None, help="Staff ID or slug (optional)"),
+    property: Optional[str] = typer.Option(None, "--property", "-p", help="Filter by property"),
+):
+    """Show assigned tasks for staff, grouped by person."""
+    from mihomes.models.task import Task, TaskStatus
+    from mihomes.models.property import Property
+    from mihomes.cli.formatters import severity_color as priority_color
+    with get_session() as session:
+        members = staff_svc.list_staff(session)
+        if id_or_slug:
+            try:
+                members = [staff_svc.get_staff(session, id_or_slug)]
+            except Exception as e:
+                format_error(str(e))
+                raise typer.Exit(1)
+
+        if property:
+            prop_obj = session.query(Property).filter(
+                (Property.slug == property) | (Property.id == property)
+            ).first()
+            if not prop_obj:
+                format_error(f"Property '{property}' not found")
+                raise typer.Exit(1)
+            members = [m for m in members if any(p.id == prop_obj.id for p in m.properties)]
+
+        if not members:
+            console.print("[dim]No staff found for that property.[/dim]")
+            return
+
+        any_tasks = False
+        for member in members:
+            query = session.query(Task).filter(
+                Task.assignee_id == member.id,
+                Task.status.in_([TaskStatus.PENDING, TaskStatus.IN_PROGRESS]),
+            )
+            if property and prop_obj:
+                query = query.filter(Task.property_id == prop_obj.id)
+            tasks = query.order_by(Task.due_date.asc().nullslast()).all()
+
+            if not tasks:
+                continue
+
+            any_tasks = True
+            table = Table(title=f"{member.name} ({member.role.value.replace('-', ' ').title()})")
+            table.add_column("Due", style="dim")
+            table.add_column("Task", style="bold")
+            table.add_column("Priority")
+            table.add_column("Status")
+            table.add_column("Property")
+
+            for t in tasks:
+                due = t.due_date.isoformat() if t.due_date else "-"
+                if t.due_date and t.due_date.isoformat() < __import__("datetime").date.today().isoformat():
+                    due = f"[red]{due} (overdue)[/red]"
+                pri = t.priority.value if t.priority else "-"
+                pri_display = f"[{priority_color(pri)}]{pri}[/{priority_color(pri)}]"
+                status = "⏳ Pending" if t.status == TaskStatus.PENDING else "🔄 In Progress"
+                prop_name = t.property.name if t.property else "-"
+                table.add_row(due, t.title, pri_display, status, prop_name)
+
+            console.print(table)
+
+        if not any_tasks:
+            console.print("[dim]No assigned tasks found.[/dim]")
+
+
 @app.command("workload")
 def staff_workload():
     """Show task counts per staff member."""

@@ -273,6 +273,38 @@ def import_cmd(
             raise typer.Exit(1)
 
 
+@app.command("plan")
+def plan_cmd(
+    scenario: str = typer.Argument(..., help="Scenario to plan for (e.g. 'opening for summer')"),
+    property: Optional[str] = typer.Option(None, "--property", "-p", help="Property to plan for"),
+):
+    """Generate an AI action plan for a property scenario."""
+    from mihomes.services.ai.orchestrator import ask
+
+    with get_session() as session:
+        try:
+            query = (
+                f"Create a detailed action plan for the following scenario: '{scenario}'.\n\n"
+                "Include:\n"
+                "1. All tasks that need to be completed, in order\n"
+                "2. Which staff or vendors should handle each task\n"
+                "3. Suggested timeline\n"
+                "4. Any risks or things to watch out for\n"
+                "Use SPACE framework to prioritize. Be specific and practical."
+            )
+            with console.status("[bold blue]Planning...", spinner="dots"):
+                response = ask(session, query, role="estate_manager", property_slug=property)
+
+            console.print()
+            scope = f" — {property}" if property else ""
+            console.print(Panel(f"[bold]Action Plan: {scenario}[/bold]{scope}", expand=False))
+            console.print(Markdown(response.text))
+            console.print()
+        except (AIAuthError, AIProviderError) as e:
+            format_error(str(e))
+            raise typer.Exit(1)
+
+
 @app.command("setup")
 def setup_cmd():
     """Configure AI provider and API key."""

@@ -80,9 +80,18 @@ def _autostart_whatsapp():
     log_dir = Path(os.path.expanduser("~/.mihomes"))
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    # Windows: CREATE_NO_WINDOW suppresses console windows for background processes.
-    # Do NOT combine with DETACHED_PROCESS — they are mutually exclusive on Windows.
-    CREATE_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
+    # Windows: hide all child process windows using STARTUPINFO SW_HIDE.
+    # This is more reliable than CREATE_NO_WINDOW alone, especially for batch
+    # files (.cmd) and any process that creates its own console window.
+    if sys.platform == "win32":
+        def _hidden_si():
+            si = subprocess.STARTUPINFO()
+            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            si.wShowWindow = subprocess.SW_HIDE
+            return si
+        _popen_kwargs = {"creationflags": 0x08000000, "startupinfo": _hidden_si()}
+    else:
+        _popen_kwargs = {}
 
     # Start the watchdog if not already running — it keeps bridge + monitor alive
     watchdog_pid_file = log_dir / "watchdog.pid"
@@ -92,8 +101,7 @@ def _autostart_whatsapp():
             wpid = int(watchdog_pid_file.read_text().strip())
             if sys.platform == "win32":
                 r = subprocess.run(["tasklist", "/FI", f"PID eq {wpid}", "/FO", "CSV"],
-                                   capture_output=True, text=True,
-                                   creationflags=CREATE_NO_WINDOW)
+                                   capture_output=True, text=True, **_popen_kwargs)
                 watchdog_up = str(wpid) in r.stdout
             else:
                 os.kill(wpid, 0)
@@ -107,21 +115,18 @@ def _autostart_whatsapp():
             subprocess.Popen(
                 [sys.executable, str(watchdog_script)],
                 stdout=watchdog_log, stderr=watchdog_log,
-                creationflags=CREATE_NO_WINDOW,
-                close_fds=True,
+                **_popen_kwargs,
             )
 
     if not bridge_up and bridge_dir.exists():
         bridge_log = open(log_dir / "bridge.log", "a")
-        # Use "cmd /c npm.cmd" to suppress the cmd.exe console window on Windows
         npm_args = ["cmd", "/c", "npm.cmd", "start"] if sys.platform == "win32" else ["npm", "start"]
         subprocess.Popen(
             npm_args,
             cwd=str(bridge_dir),
             stdout=bridge_log,
             stderr=bridge_log,
-            creationflags=CREATE_NO_WINDOW,
-            close_fds=True,
+            **_popen_kwargs,
         )
 
     # Check if monitor is already running using a PID file + Windows-safe process check
@@ -133,7 +138,7 @@ def _autostart_whatsapp():
             if sys.platform == "win32":
                 result = subprocess.run(
                     ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV"],
-                    capture_output=True, text=True,
+                    capture_output=True, text=True, **_popen_kwargs,
                 )
                 monitor_up = str(pid) in result.stdout
             else:
@@ -157,8 +162,7 @@ def _autostart_whatsapp():
             cwd=str(project_root),
             stdout=monitor_log,
             stderr=monitor_log,
-            creationflags=CREATE_NO_WINDOW,
-            close_fds=True,
+            **_popen_kwargs,
         )
         lock_file.write_text(str(proc.pid))
 

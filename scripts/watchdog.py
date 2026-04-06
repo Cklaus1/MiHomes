@@ -38,18 +38,24 @@ def _bridge_running() -> bool:
         return False
 
 
+def _hidden_popen_kwargs():
+    """Return Popen kwargs that hide the child process window on Windows."""
+    if sys.platform != "win32":
+        return {}
+    si = subprocess.STARTUPINFO()
+    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    si.wShowWindow = subprocess.SW_HIDE
+    return {"creationflags": 0x08000000, "startupinfo": si}
+
+
 def _start_bridge():
     log = open(LOG_DIR / "bridge.log", "a")
-    # Use "cmd /c npm.cmd" on Windows to suppress the cmd.exe console window.
-    # CREATE_NO_WINDOW (0x08000000) only — do NOT combine with DETACHED_PROCESS.
     npm_args = ["cmd", "/c", "npm.cmd", "start"] if sys.platform == "win32" else ["npm", "start"]
-    CREATE_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
     subprocess.Popen(
         npm_args,
         cwd=str(BRIDGE_DIR),
         stdout=log, stderr=log,
-        creationflags=CREATE_NO_WINDOW,
-        close_fds=True,
+        **_hidden_popen_kwargs(),
     )
     # Wait up to 30s for bridge to come up
     for _ in range(15):
@@ -92,15 +98,13 @@ def _start_monitor():
     env["MIHOMES_MONITOR"] = "1"
 
     monitor_log = open(LOG_DIR / "monitor.log", "a")
-    CREATE_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
     proc = subprocess.Popen(
         [sys.executable, "-c", "from mihomes.cli import app; app()",
          "whatsapp", "monitor", "--property", monitor_property],
         env=env,
         cwd=str(PROJECT_ROOT),
         stdout=monitor_log, stderr=monitor_log,
-        creationflags=CREATE_NO_WINDOW,
-        close_fds=True,
+        **_hidden_popen_kwargs(),
     )
     PID_FILE.write_text(str(proc.pid))
     return proc.pid

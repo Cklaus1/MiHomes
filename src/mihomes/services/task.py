@@ -35,6 +35,7 @@ def create_task(
     recurrence: RecurrenceFrequency = RecurrenceFrequency.ONCE,
     season_spec: str | None = None,
     slug: str | None = None,
+    estimated_hours: float | None = None,
 ) -> Task:
     if len(title) > 300:
         raise ValueError(f"Task title too long (max 300 chars, got {len(title)})")
@@ -54,6 +55,7 @@ def create_task(
         assignee_id=assignee_id,
         priority=priority,
         due_date=due_date,
+        estimated_hours=estimated_hours,
     )
     session.add(task)
     session.flush()

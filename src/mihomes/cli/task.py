@@ -23,6 +23,19 @@ from mihomes.services.slug import EntityNotFoundError
 app = typer.Typer(name="task", help="Manage tasks")
 
 
+def _fmt_hours(h: float | None) -> str:
+    """Format hours as '2h', '30m', or '1h 30m'."""
+    if h is None:
+        return "-"
+    total_mins = round(h * 60)
+    hrs, mins = divmod(total_mins, 60)
+    if hrs and mins:
+        return f"{hrs}h {mins}m"
+    if hrs:
+        return f"{hrs}h"
+    return f"{mins}m"
+
+
 @app.command("add")
 def add_task(
     title: str = typer.Argument(..., help="Task title"),
@@ -33,6 +46,7 @@ def add_task(
     recurrence: RecurrenceFrequency = typer.Option(RecurrenceFrequency.ONCE, "--recurrence", "-r", help="Recurrence"),
     season: Optional[str] = typer.Option(None, "--season", help="Season spec for seasonal tasks (e.g., spring,fall)"),
     description: Optional[str] = typer.Option(None, "--desc", help="Description"),
+    estimate: Optional[float] = typer.Option(None, "--estimate", "-e", help="Estimated hours to complete (e.g. 1.5)"),
     ai_suggest: bool = typer.Option(False, "--ai-suggest", "-a", help="Get AI suggestions for priority and tags"),
 ):
     """Add a new task."""
@@ -44,6 +58,7 @@ def add_task(
                 description=description, priority=priority,
                 assignee_id_or_slug=assignee, due_date=due_date,
                 recurrence=recurrence, season_spec=season,
+                estimated_hours=estimate,
             )
             msg = f"Task '{task.title}' created (slug: {task.slug})"
             if task.schedule:
@@ -147,6 +162,7 @@ def list_tasks(
         table.add_column("Title", style="bold")
         table.add_column("Property")
         table.add_column("Priority")
+        table.add_column("Est.")
         table.add_column("Status")
         table.add_column("Due")
         table.add_column("Recurrence")
@@ -159,6 +175,7 @@ def list_tasks(
             table.add_row(
                 str(t.id), t.title, t.property.name,
                 f"[{prio_style}]{format_enum(t.priority)}[/{prio_style}]",
+                _fmt_hours(t.estimated_hours),
                 f"{status_icon(t.status)} {format_enum(t.status)}",
                 due_str, rec,
             )
@@ -179,6 +196,7 @@ def show_task(id_or_slug: str = typer.Argument(...)):
             "Slug": task.slug,
             "Property": task.property.name,
             "Priority": format_enum(task.priority),
+            "Estimated Time": _fmt_hours(task.estimated_hours),
             "Status": f"{status_icon(task.status)} {format_enum(task.status)}",
             "Due Date": str(task.due_date) if task.due_date else None,
             "Assignee": task.assignee.name if task.assignee else None,
@@ -235,11 +253,13 @@ def upcoming_tasks(
         table.add_column("Title")
         table.add_column("Property")
         table.add_column("Priority")
+        table.add_column("Est.")
         for t in tasks:
             prio_style = severity_color(t.priority.value)
             table.add_row(
                 str(t.due_date), t.title, t.property.name,
                 f"[{prio_style}]{format_enum(t.priority)}[/{prio_style}]",
+                _fmt_hours(t.estimated_hours),
             )
         console.print(table)
 
@@ -252,6 +272,7 @@ def edit_task(
     assignee: Optional[str] = typer.Option(None, "--assignee"),
     due: Optional[str] = typer.Option(None, "--due"),
     status: Optional[TaskStatus] = typer.Option(None, "--status"),
+    estimate: Optional[float] = typer.Option(None, "--estimate", "-e", help="Estimated hours (e.g. 1.5)"),
 ):
     """Edit a task."""
     kwargs = {}
@@ -259,6 +280,7 @@ def edit_task(
     if priority is not None: kwargs["priority"] = priority
     if due is not None: kwargs["due_date"] = date.fromisoformat(due)
     if status is not None: kwargs["status"] = status
+    if estimate is not None: kwargs["estimated_hours"] = estimate
     # Assignee is resolved inside the same session below
     if not kwargs and assignee is None:
         format_error("No fields to update.")

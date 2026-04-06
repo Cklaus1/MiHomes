@@ -50,9 +50,8 @@ def _hidden_popen_kwargs():
 
 def _start_bridge():
     log = open(LOG_DIR / "bridge.log", "a")
-    npm_args = ["cmd", "/c", "npm.cmd", "start"] if sys.platform == "win32" else ["npm", "start"]
     subprocess.Popen(
-        npm_args,
+        ["node", "index.js"],
         cwd=str(BRIDGE_DIR),
         stdout=log, stderr=log,
         **_hidden_popen_kwargs(),

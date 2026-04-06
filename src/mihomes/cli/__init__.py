@@ -120,9 +120,8 @@ def _autostart_whatsapp():
 
     if not bridge_up and bridge_dir.exists():
         bridge_log = open(log_dir / "bridge.log", "a")
-        npm_args = ["cmd", "/c", "npm.cmd", "start"] if sys.platform == "win32" else ["npm", "start"]
         subprocess.Popen(
-            npm_args,
+            ["node", "index.js"],
             cwd=str(bridge_dir),
             stdout=bridge_log,
             stderr=bridge_log,

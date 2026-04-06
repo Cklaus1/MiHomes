@@ -24,15 +24,131 @@ def autostart_cmd(
     enable: bool = typer.Argument(..., help="true to enable, false to disable"),
     property: str = typer.Option("belle-estate", "--property", "-p", help="Property to monitor"),
 ):
-    """Enable or disable auto-start of bridge and monitor on every mihomes command."""
+    """Register (or remove) the MiHomes watchdog as a Windows login startup task.
+
+    When enabled, the watchdog runs silently at every login and keeps the
+    WhatsApp bridge and monitor alive with no terminal popups.
+    """
+    import subprocess
+    import sys
+    from pathlib import Path
+
     from mihomes.services.config_service import set_config
     with get_session() as session:
         set_config(session, "whatsapp.autostart", "true" if enable else "false")
         set_config(session, "whatsapp.monitor_property", property)
-    status = "enabled" if enable else "disabled"
-    format_success(f"WhatsApp autostart {status} (property: {property})")
-    if enable:
-        console.print("[dim]Bridge and monitor will start automatically on the next mihomes command.[/dim]")
+
+    task_name = "MiHomesWatchdog"
+    watchdog_script = Path(__file__).parents[3] / "scripts" / "watchdog.py"
+
+    if sys.platform == "win32":
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = subprocess.SW_HIDE
+        _run = lambda cmd: subprocess.run(cmd, capture_output=True, text=True,
+                                           creationflags=0x08000000, startupinfo=si)
+
+        if enable:
+            # Register Task Scheduler task — runs watchdog at every user login, silently
+            tr = f'"{sys.executable}" "{watchdog_script}"'
+            result = _run([
+                "schtasks", "/create", "/tn", task_name,
+                "/tr", tr,
+                "/sc", "ONLOGON",
+                "/rl", "HIGHEST",
+                "/f",   # overwrite if exists
+            ])
+            if result.returncode != 0:
+                console.print(f"[yellow]Task Scheduler registration failed:[/yellow] {result.stderr.strip()}")
+                console.print("[dim]You can still start manually: mihomes whatsapp watchdog[/dim]")
+            else:
+                format_success(f"Watchdog registered as Windows startup task '{task_name}'")
+
+            # Also start the watchdog right now
+            _start_watchdog_now(watchdog_script, property)
+            console.print("[dim]Watchdog started — bridge and monitor will now run silently in the background.[/dim]")
+        else:
+            result = _run(["schtasks", "/delete", "/tn", task_name, "/f"])
+            if result.returncode == 0:
+                format_success(f"Startup task '{task_name}' removed")
+            else:
+                console.print(f"[dim]Task not found or already removed.[/dim]")
+    else:
+        # Non-Windows: just toggle config, user manages startup themselves
+        status = "enabled" if enable else "disabled"
+        format_success(f"WhatsApp autostart {status} (property: {property})")
+        if enable:
+            console.print(f"[dim]Add to cron or systemd: {sys.executable} {watchdog_script}[/dim]")
+
+
+def _start_watchdog_now(watchdog_script, monitor_property: str = "belle-estate"):
+    """Start the watchdog process immediately, silently."""
+    import subprocess
+    import sys
+    import os
+    from pathlib import Path
+
+    log_dir = Path(os.path.expanduser("~/.mihomes"))
+    log_dir.mkdir(parents=True, exist_ok=True)
+    pid_file = log_dir / "watchdog.pid"
+
+    # Check if already running
+    if pid_file.exists():
+        try:
+            pid = int(pid_file.read_text().strip())
+            si_check = subprocess.STARTUPINFO()
+            si_check.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            si_check.wShowWindow = subprocess.SW_HIDE
+            r = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV"],
+                               capture_output=True, text=True,
+                               creationflags=0x08000000, startupinfo=si_check)
+            if str(pid) in r.stdout:
+                return  # Already running
+        except (ValueError, OSError):
+            pass
+
+    si = subprocess.STARTUPINFO()
+    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    si.wShowWindow = subprocess.SW_HIDE
+
+    env = os.environ.copy()
+    env["MIHOMES_MONITOR_PROPERTY"] = monitor_property
+    try:
+        from mihomes.db import get_session as _gs
+        from mihomes.services.config_service import get_config as _gc
+        with _gs() as s:
+            key = _gc(s, "ai.nim_api_key") or ""
+        if key:
+            env["NVIDIA_API_KEY"] = key
+    except Exception:
+        pass
+
+    log = open(log_dir / "watchdog.log", "a")
+    proc = subprocess.Popen(
+        [sys.executable, str(watchdog_script)],
+        stdout=log, stderr=log,
+        env=env,
+        creationflags=0x08000000,
+        startupinfo=si,
+    )
+    pid_file.write_text(str(proc.pid))
+
+
+@app.command("watchdog")
+def watchdog_cmd():
+    """Start the watchdog now (keeps bridge + monitor alive silently)."""
+    from pathlib import Path
+    watchdog_script = Path(__file__).parents[3] / "scripts" / "watchdog.py"
+    if not watchdog_script.exists():
+        format_error(f"Watchdog script not found: {watchdog_script}")
+        raise typer.Exit(1)
+
+    from mihomes.services.config_service import get_config
+    with get_session() as session:
+        monitor_property = get_config(session, "whatsapp.monitor_property") or "belle-estate"
+
+    _start_watchdog_now(watchdog_script, monitor_property)
+    format_success("Watchdog started — bridge and monitor running silently in background")
 
 
 @app.command("status")

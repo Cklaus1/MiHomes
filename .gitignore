@@ -7,3 +7,17 @@ build/
 *.db
 .mihomes/
 .coverage
+
+# Node
+node_modules/
+bridge/node_modules/
+npm-debug.log*
+
+# Secrets & credentials — never commit these
+*.pem
+*.key
+*credentials*.json
+*_token.json
+*secret*.json
+.env
+.env.*

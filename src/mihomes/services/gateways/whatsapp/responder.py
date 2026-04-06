@@ -149,12 +149,21 @@ def process_and_respond(
                     from mihomes.services.event import create_event
                     create_event(session, title, prop, event_date, description=item.get("description"))
             elif category == "vendor_activity":
+                # Always create a task — vendor visits for maintenance/repairs need tracking.
+                # Also create a dated event if a specific date was mentioned.
+                from mihomes.services.task import create_task
+                new_task = create_task(session, title, prop, description=item.get("description"),
+                                       due_date=event_date)
+                logged += 1
+                # Auto-push vendor tasks to Google Calendar
+                try:
+                    from mihomes.services.calendar_sync import push_task_to_google
+                    push_task_to_google(new_task)
+                except Exception:
+                    pass
                 if scheduled:
                     from mihomes.services.event import create_event
                     create_event(session, title, prop, event_date, description=item.get("description"))
-                    logged += 1
-                else:
-                    continue  # vendor activity without a date — no action needed
         except Exception as e:
             errors.append(f"Failed to create '{title}': {e}")
             continue  # Don't send confirmation if logging failed

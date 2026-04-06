@@ -185,42 +185,131 @@ def load_real_data(session: Session) -> None:
     # TASKS — Marcia (Belle Estate housekeeping)
     # =========================================================================
 
-    # Weekly
-    task_svc.create_task(session, "Full house clean — all floors & common areas",
+    # --- Daily operational tasks (tracked as weekly recurring; performed every day) ---
+
+    task_svc.create_task(session, "Daily: Check all rooms — bedrooms, 2nd floor, closets & lights",
         str(belle.id), priority=TaskPriority.HIGH,
         recurrence=RecurrenceFrequency.WEEKLY,
         assignee_id_or_slug=str(marcia.id),
-        description="All bedrooms, bathrooms, kitchen, butler pantry, family room, library, salon, formal living/dining room")
+        description="Daily: Check all bedrooms/kitchen/family area. Check entire 2nd floor. Clean all areas. Maintain closets — straighten clothes, empty laundry baskets, wipe shelves. Turn off lights, ensure front door is unlocked.")
 
-    task_svc.create_task(session, "Laundry — all household linens",
+    task_svc.create_task(session, "Daily: Bathroom care — clean, disinfect & stock",
+        str(belle.id), priority=TaskPriority.HIGH,
+        recurrence=RecurrenceFrequency.WEEKLY,
+        assignee_id_or_slug=str(marcia.id),
+        description="Daily: Wipe all surfaces/mirrors. Disinfect toilet/face bowl/handles. Empty waste baskets. Stock paper products/cleaners/towels. Sweep floor/mop tile as needed. Check/clean bathroom by Library. Turn lights on/off.")
+
+    task_svc.create_task(session, "Daily: Kitchen & butler pantry maintenance",
+        str(belle.id), priority=TaskPriority.HIGH,
+        recurrence=RecurrenceFrequency.WEEKLY,
+        assignee_id_or_slug=str(marcia.id),
+        description="Daily: Wipe surfaces/counters/ledges/molding/lights. Clean appliances. Wash dishes & put away. Empty trash cans x3. Clean out fridge/freezer as needed. Check for spoiled food. Disinfect phones/handles/switches/countertops. Refill water coolers x2. Check dishwashers x2/put away dishes. Check/clean microwaves x2. Fill paper products/cups/plates/utensils. Add water to hot chocolate machine as needed. Check/stock fridges — kitchen & butler pantry. Turn lights on/off.")
+
+    task_svc.create_task(session, "Daily: Family room & back staircase",
         str(belle.id), priority=TaskPriority.MEDIUM,
         recurrence=RecurrenceFrequency.WEEKLY,
         assignee_id_or_slug=str(marcia.id),
-        description="Sort and wash towels/sheets/darks/lights/delicates. Mon & Wed. Inform of dry cleaning needs.")
+        description="Daily: Dust surfaces/tables/windows/fans. Disinfect handles/remotes/switches. Clean back hidden staircase windows and stairs. Make sure all doors are locked. Turn lights on/off.")
 
-    task_svc.create_task(session, "Restock bathrooms & paper products",
+    task_svc.create_task(session, "Daily: Pet care — dog water & in/out",
         str(belle.id), priority=TaskPriority.MEDIUM,
         recurrence=RecurrenceFrequency.WEEKLY,
-        assignee_id_or_slug=str(marcia.id))
+        assignee_id_or_slug=str(marcia.id),
+        description="Daily: Check and clean dog water bowls. Let dogs in/out as needed.")
 
-    # Biweekly
+    task_svc.create_task(session, "Daily: General checks — packages, lightbulbs, vacuums, deliveries",
+        str(belle.id), priority=TaskPriority.MEDIUM,
+        recurrence=RecurrenceFrequency.WEEKLY,
+        assignee_id_or_slug=str(marcia.id),
+        description="Daily: Check front door for packages. Check for burned out lightbulbs in all areas. Put away Instacart orders. Walls/doors — remove scuffs/scratches as needed. Clean all vacuums/hand vacs. Put dirty rags in proper areas to be washed. Check calendar for Crystal Springs water updates.")
+
+    # --- Laundry days: Mon & Wed ---
+
+    task_svc.create_task(session, "Laundry — all household linens (Mon & Wed)",
+        str(belle.id), priority=TaskPriority.HIGH,
+        recurrence=RecurrenceFrequency.WEEKLY,
+        assignee_id_or_slug=str(marcia.id),
+        description="Bring all laundry from all rooms to laundry room. Sort towels/sheets/darks/lights/delicates/dry clean. Inform of dry cleaning needs. Iron as needed. All laundry except rags & basement laundry.")
+
+    # --- Weekly deep-clean by area ---
+
+    task_svc.create_task(session, "Weekly: Upstairs laundry room deep clean",
+        str(belle.id), priority=TaskPriority.MEDIUM,
+        recurrence=RecurrenceFrequency.WEEKLY,
+        assignee_id_or_slug=str(marcia.id),
+        description="Dust surfaces/baseboards/washer & dryer. Organize supplies. Sweep & mop. Stock. Clean vacuum filters on Friday.")
+
+    task_svc.create_task(session, "Weekly: Bedrooms deep clean",
+        str(belle.id), priority=TaskPriority.HIGH,
+        recurrence=RecurrenceFrequency.WEEKLY,
+        assignee_id_or_slug=str(marcia.id),
+        description="Disinfect doorknobs and light switches. Wipe electronics down with wipes. Vacuum/mop. Deep dust/wipe down all items. Organize/stock.")
+
+    task_svc.create_task(session, "Weekly: Bathrooms deep clean",
+        str(belle.id), priority=TaskPriority.HIGH,
+        recurrence=RecurrenceFrequency.WEEKLY,
+        assignee_id_or_slug=str(marcia.id),
+        description="Vacuum/mop all areas. Clean showers (Wednesday). Organize/stock. Dust all areas.")
+
+    task_svc.create_task(session, "Weekly: Kitchen, butler pantry & back stairwell deep clean",
+        str(belle.id), priority=TaskPriority.HIGH,
+        recurrence=RecurrenceFrequency.WEEKLY,
+        assignee_id_or_slug=str(marcia.id),
+        description="Deep dust/wipe down all items. Vacuum/mop all areas 2x weekly. Check all food dates in kitchen/fridge/freezer.")
+
+    task_svc.create_task(session, "Weekly: Family room deep clean",
+        str(belle.id), priority=TaskPriority.HIGH,
+        recurrence=RecurrenceFrequency.WEEKLY,
+        assignee_id_or_slug=str(marcia.id),
+        description="Deep dust/wipe down all items. Dust baseboards. Vacuum/mop all areas 2x weekly. Mop stone 2x weekly.")
+
+    task_svc.create_task(session, "Weekly: Guest bedroom service",
+        str(belle.id), priority=TaskPriority.MEDIUM,
+        recurrence=RecurrenceFrequency.WEEKLY,
+        assignee_id_or_slug=str(marcia.id),
+        description="Vacuum. Wipe down bathroom/mirror/counters/toilet. Mop floor. Dust. Stock as needed. Change sheets as needed.")
+
+    # --- Biweekly ---
+
     task_svc.create_task(session, "Change bed sheets",
         str(belle.id), priority=TaskPriority.MEDIUM,
         recurrence=RecurrenceFrequency.BIWEEKLY,
         assignee_id_or_slug=str(marcia.id),
         description="All bedrooms. Wednesday.")
 
+    task_svc.create_task(session, "Sanitize toothbrushes",
+        str(belle.id), priority=TaskPriority.LOW,
+        recurrence=RecurrenceFrequency.BIWEEKLY,
+        assignee_id_or_slug=str(marcia.id))
+
     task_svc.create_task(session, "Clean interior windows, sills & shutters",
         str(belle.id), priority=TaskPriority.LOW,
         recurrence=RecurrenceFrequency.BIWEEKLY,
         assignee_id_or_slug=str(marcia.id))
 
-    # Monthly — Marcia
+    # --- Monthly ---
+
+    task_svc.create_task(session, "Clean inside of all windows",
+        str(belle.id), priority=TaskPriority.LOW,
+        recurrence=RecurrenceFrequency.MONTHLY,
+        assignee_id_or_slug=str(marcia.id))
+
     task_svc.create_task(session, "Deep clean all fridges & freezers",
         str(belle.id), priority=TaskPriority.MEDIUM,
         recurrence=RecurrenceFrequency.MONTHLY,
         assignee_id_or_slug=str(marcia.id),
-        description="Pool house, garage, kitchen, nanny suite, butler pantry, basement fridges and freezers")
+        description="Wipe down inside of fridge & freezers x3. Pool house, garage, kitchen, nanny suite, butler pantry, basement fridges and freezers.")
+
+    task_svc.create_task(session, "Clean upstairs washing machine",
+        str(belle.id), priority=TaskPriority.LOW,
+        recurrence=RecurrenceFrequency.MONTHLY,
+        assignee_id_or_slug=str(marcia.id))
+
+    task_svc.create_task(session, "Run unused dishwashers with soap",
+        str(belle.id), priority=TaskPriority.LOW,
+        recurrence=RecurrenceFrequency.MONTHLY,
+        assignee_id_or_slug=str(marcia.id),
+        description="Basement dishwasher and pool house kitchen dishwasher")
 
     task_svc.create_task(session, "Vacuum all upholstered furniture",
         str(belle.id), priority=TaskPriority.LOW,
@@ -232,11 +321,19 @@ def load_real_data(session: Session) -> None:
         recurrence=RecurrenceFrequency.MONTHLY,
         assignee_id_or_slug=str(marcia.id))
 
-    task_svc.create_task(session, "Run unused dishwashers with soap",
+    # --- As-needed ---
+
+    task_svc.create_task(session, "Decorate for holidays",
         str(belle.id), priority=TaskPriority.LOW,
-        recurrence=RecurrenceFrequency.MONTHLY,
+        recurrence=RecurrenceFrequency.ONCE,
         assignee_id_or_slug=str(marcia.id),
-        description="Basement dishwasher and pool house kitchen dishwasher")
+        description="Decorate common areas and relevant rooms for upcoming holidays as needed.")
+
+    task_svc.create_task(session, "Prepare common areas for special events",
+        str(belle.id), priority=TaskPriority.MEDIUM,
+        recurrence=RecurrenceFrequency.ONCE,
+        assignee_id_or_slug=str(marcia.id),
+        description="Set up and prepare all common areas before scheduled special events.")
 
     # =========================================================================
     # TASKS — Diego (Belle Estate grounds/maintenance)

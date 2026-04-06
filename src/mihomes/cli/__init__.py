@@ -40,6 +40,126 @@ def main(ctx: typer.Context):
         rprint("[yellow]MiHomes is not initialized. Run:[/yellow] [bold]mihomes init[/bold]")
         raise typer.Exit(1)
 
+    # Auto-start WhatsApp bridge and monitor if enabled in config.
+    # Skip if we ARE the monitor (prevents recursive spawning).
+    import os as _os
+    if ctx.invoked_subcommand not in ("whatsapp",) and not _os.environ.get("MIHOMES_MONITOR"):
+        _autostart_whatsapp()
+
+
+def _autostart_whatsapp():
+    """Start WhatsApp bridge and monitor in the background if configured and not running."""
+    import subprocess
+    import os
+    import sys
+    from pathlib import Path
+
+    try:
+        from mihomes.db import get_session
+        from mihomes.services.config_service import get_config
+        with get_session() as session:
+            autostart = get_config(session, "whatsapp.autostart")
+            if autostart != "true":
+                return
+            monitor_property = get_config(session, "whatsapp.monitor_property") or "belle-estate"
+            nvidia_key = get_config(session, "ai.nim_api_key") or os.environ.get("NVIDIA_API_KEY", "")
+    except Exception:
+        return
+
+    project_root = Path(__file__).parents[3]
+    bridge_dir = project_root / "bridge"
+
+    # Check if bridge is already running
+    try:
+        import urllib.request
+        urllib.request.urlopen("http://localhost:7867/status", timeout=1)
+        bridge_up = True
+    except Exception:
+        bridge_up = False
+
+    log_dir = Path(os.path.expanduser("~/.mihomes"))
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    # Windows: DETACHED_PROCESS runs silently with no console window
+    DETACHED = subprocess.DETACHED_PROCESS if sys.platform == "win32" else 0
+    CREATE_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
+
+    # Start the watchdog if not already running — it keeps bridge + monitor alive
+    watchdog_pid_file = log_dir / "watchdog.pid"
+    watchdog_up = False
+    if watchdog_pid_file.exists():
+        try:
+            wpid = int(watchdog_pid_file.read_text().strip())
+            if sys.platform == "win32":
+                r = subprocess.run(["tasklist", "/FI", f"PID eq {wpid}", "/FO", "CSV"],
+                                   capture_output=True, text=True)
+                watchdog_up = str(wpid) in r.stdout
+            else:
+                os.kill(wpid, 0)
+                watchdog_up = True
+        except (ValueError, OSError):
+            pass
+    if not watchdog_up:
+        watchdog_script = project_root / "scripts" / "watchdog.py"
+        if watchdog_script.exists():
+            watchdog_log = open(log_dir / "watchdog.log", "a")
+            subprocess.Popen(
+                [sys.executable, str(watchdog_script)],
+                stdout=watchdog_log, stderr=watchdog_log,
+                creationflags=DETACHED | CREATE_NO_WINDOW,
+                close_fds=True,
+            )
+
+    if not bridge_up and bridge_dir.exists():
+        bridge_log = open(log_dir / "bridge.log", "a")
+        npm_cmd = "npm.cmd" if sys.platform == "win32" else "npm"
+        subprocess.Popen(
+            [npm_cmd, "start"],
+            cwd=str(bridge_dir),
+            stdout=bridge_log,
+            stderr=bridge_log,
+            creationflags=DETACHED | CREATE_NO_WINDOW,
+            close_fds=True,
+        )
+
+    # Check if monitor is already running using a PID file + Windows-safe process check
+    lock_file = log_dir / "monitor.pid"
+    monitor_up = False
+    if lock_file.exists():
+        try:
+            pid = int(lock_file.read_text().strip())
+            if sys.platform == "win32":
+                result = subprocess.run(
+                    ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV"],
+                    capture_output=True, text=True,
+                )
+                monitor_up = str(pid) in result.stdout
+            else:
+                os.kill(pid, 0)
+                monitor_up = True
+        except (ValueError, OSError):
+            pass
+        if not monitor_up:
+            lock_file.unlink(missing_ok=True)
+
+    if not monitor_up:
+        env = os.environ.copy()
+        if nvidia_key:
+            env["NVIDIA_API_KEY"] = nvidia_key
+        env["MIHOMES_MONITOR"] = "1"  # Guard: prevents monitor from spawning children
+        monitor_log = open(log_dir / "monitor.log", "a")
+        proc = subprocess.Popen(
+            [sys.executable, "-c", "from mihomes.cli import app; app()",
+             "whatsapp", "monitor", "--property", monitor_property],
+            env=env,
+            cwd=str(project_root),
+            stdout=monitor_log,
+            stderr=monitor_log,
+            creationflags=DETACHED | CREATE_NO_WINDOW,
+            close_fds=True,
+        )
+        lock_file.write_text(str(proc.pid))
+
 
 @app.command("help")
 def help_cmd():

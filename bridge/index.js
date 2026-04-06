@@ -244,6 +244,16 @@ app.post('/send-group', async (req, res) => {
   }
 });
 
+app.delete('/messages', (req, res) => {
+  messageStore.length = 0;
+  try {
+    fs.writeFileSync(MESSAGES_FILE, '');
+  } catch (e) {
+    console.error('Failed to clear messages file:', e.message);
+  }
+  res.json({ success: true, message: 'Message buffer cleared' });
+});
+
 app.get('/messages', (req, res) => {
   const { since, groupJid, limit } = req.query;
   let msgs = [...messageStore];
@@ -280,7 +290,18 @@ app.get('/groups', async (req, res) => {
 app.post('/link-group', (req, res) => {
   const { groupJid, propertySlug } = req.body;
   linkedGroups.set(groupJid, propertySlug);
-  // Persist links atomically — write to temp file then rename
+  persistGroupLinks();
+  res.json({ success: true });
+});
+
+app.post('/unlink-group', (req, res) => {
+  const { groupJid } = req.body;
+  linkedGroups.delete(groupJid);
+  persistGroupLinks();
+  res.json({ success: true });
+});
+
+function persistGroupLinks() {
   const linksFile = path.join(AUTH_DIR, 'group-links.json');
   const tmpFile = linksFile + '.tmp';
   try {
@@ -290,8 +311,7 @@ app.post('/link-group', (req, res) => {
     console.error('Failed to persist group links:', e.message);
     try { fs.unlinkSync(tmpFile); } catch (_) {}
   }
-  res.json({ success: true });
-});
+}
 
 // Load persisted group links on startup
 function loadGroupLinks() {

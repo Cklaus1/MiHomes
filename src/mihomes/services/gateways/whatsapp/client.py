@@ -56,6 +56,22 @@ class WhatsAppClient:
         """Link a WhatsApp group to a property."""
         return self._post("/link-group", {"groupJid": group_jid, "propertySlug": property_slug})
 
+    def unlink_group(self, group_jid: str) -> dict:
+        """Unlink a WhatsApp group from its property."""
+        return self._post("/unlink-group", {"groupJid": group_jid})
+
+    def clear_messages(self) -> dict:
+        """Clear all messages from the buffer."""
+        req = urllib.request.Request(
+            f"{self.base_url}/messages",
+            method="DELETE",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return json.loads(resp.read())
+        except Exception as e:
+            raise WhatsAppBridgeError(f"Failed to clear messages: {e}")
+
     def is_connected(self) -> bool:
         """Check if bridge is running and connected."""
         try:

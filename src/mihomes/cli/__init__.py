@@ -80,8 +80,8 @@ def _autostart_whatsapp():
     log_dir = Path(os.path.expanduser("~/.mihomes"))
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    # Windows: DETACHED_PROCESS runs silently with no console window
-    DETACHED = subprocess.DETACHED_PROCESS if sys.platform == "win32" else 0
+    # Windows: CREATE_NO_WINDOW suppresses console windows for background processes.
+    # Do NOT combine with DETACHED_PROCESS — they are mutually exclusive on Windows.
     CREATE_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 
     # Start the watchdog if not already running — it keeps bridge + monitor alive
@@ -92,7 +92,8 @@ def _autostart_whatsapp():
             wpid = int(watchdog_pid_file.read_text().strip())
             if sys.platform == "win32":
                 r = subprocess.run(["tasklist", "/FI", f"PID eq {wpid}", "/FO", "CSV"],
-                                   capture_output=True, text=True)
+                                   capture_output=True, text=True,
+                                   creationflags=CREATE_NO_WINDOW)
                 watchdog_up = str(wpid) in r.stdout
             else:
                 os.kill(wpid, 0)
@@ -106,19 +107,20 @@ def _autostart_whatsapp():
             subprocess.Popen(
                 [sys.executable, str(watchdog_script)],
                 stdout=watchdog_log, stderr=watchdog_log,
-                creationflags=DETACHED | CREATE_NO_WINDOW,
+                creationflags=CREATE_NO_WINDOW,
                 close_fds=True,
             )
 
     if not bridge_up and bridge_dir.exists():
         bridge_log = open(log_dir / "bridge.log", "a")
-        npm_cmd = "npm.cmd" if sys.platform == "win32" else "npm"
+        # Use "cmd /c npm.cmd" to suppress the cmd.exe console window on Windows
+        npm_args = ["cmd", "/c", "npm.cmd", "start"] if sys.platform == "win32" else ["npm", "start"]
         subprocess.Popen(
-            [npm_cmd, "start"],
+            npm_args,
             cwd=str(bridge_dir),
             stdout=bridge_log,
             stderr=bridge_log,
-            creationflags=DETACHED | CREATE_NO_WINDOW,
+            creationflags=CREATE_NO_WINDOW,
             close_fds=True,
         )
 
@@ -155,7 +157,7 @@ def _autostart_whatsapp():
             cwd=str(project_root),
             stdout=monitor_log,
             stderr=monitor_log,
-            creationflags=DETACHED | CREATE_NO_WINDOW,
+            creationflags=CREATE_NO_WINDOW,
             close_fds=True,
         )
         lock_file.write_text(str(proc.pid))

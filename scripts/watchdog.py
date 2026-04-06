@@ -40,12 +40,15 @@ def _bridge_running() -> bool:
 
 def _start_bridge():
     log = open(LOG_DIR / "bridge.log", "a")
-    npm_cmd = "npm.cmd" if sys.platform == "win32" else "npm"
+    # Use "cmd /c npm.cmd" on Windows to suppress the cmd.exe console window.
+    # CREATE_NO_WINDOW (0x08000000) only — do NOT combine with DETACHED_PROCESS.
+    npm_args = ["cmd", "/c", "npm.cmd", "start"] if sys.platform == "win32" else ["npm", "start"]
+    CREATE_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
     subprocess.Popen(
-        [npm_cmd, "start"],
+        npm_args,
         cwd=str(BRIDGE_DIR),
         stdout=log, stderr=log,
-        creationflags=subprocess.DETACHED_PROCESS | 0x08000000,
+        creationflags=CREATE_NO_WINDOW,
         close_fds=True,
     )
     # Wait up to 30s for bridge to come up
@@ -89,13 +92,14 @@ def _start_monitor():
     env["MIHOMES_MONITOR"] = "1"
 
     monitor_log = open(LOG_DIR / "monitor.log", "a")
+    CREATE_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
     proc = subprocess.Popen(
         [sys.executable, "-c", "from mihomes.cli import app; app()",
          "whatsapp", "monitor", "--property", monitor_property],
         env=env,
         cwd=str(PROJECT_ROOT),
         stdout=monitor_log, stderr=monitor_log,
-        creationflags=subprocess.DETACHED_PROCESS | 0x08000000,
+        creationflags=CREATE_NO_WINDOW,
         close_fds=True,
     )
     PID_FILE.write_text(str(proc.pid))

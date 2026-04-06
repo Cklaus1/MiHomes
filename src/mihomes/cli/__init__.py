@@ -207,9 +207,11 @@ app.add_typer(report_app, name="report")
 # Phase 4: Automation sub-apps
 from mihomes.cli.automation import app as auto_app  # noqa: E402
 from mihomes.cli.calendar_import import app as calendar_app  # noqa: E402
+from mihomes.cli.inventory import app as inventory_app  # noqa: E402
 
 app.add_typer(auto_app, name="auto")
 app.add_typer(calendar_app, name="calendar")
+app.add_typer(inventory_app, name="inventory")
 
 # WhatsApp + CSV
 from mihomes.cli.whatsapp import app as whatsapp_app  # noqa: E402

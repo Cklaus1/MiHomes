@@ -120,8 +120,27 @@ def process_and_respond(
                     errors.append(f"Failed to send answer: {e}")
             continue
 
+        # --- Supply needs: silently update inventory, no group reply ---
+        if category == "supply_need":
+            if not prop:
+                continue
+            try:
+                from mihomes.services.consumable import update_stock
+                reporter = item.get("reported_by") or "WhatsApp"
+                update_stock(
+                    session, title, prop,
+                    quantity_in_stock=item.get("quantity_in_stock"),
+                    quantity_to_order=item.get("quantity_to_order"),
+                    unit=item.get("unit"),
+                    updated_by=reporter,
+                )
+                logged += 1
+            except Exception as e:
+                errors.append(f"Failed to log supply '{title}': {e}")
+            continue  # No group chat reply for supply needs
+
         # --- Actionable items: log + confirm ---
-        if category not in ("issue", "task", "supply_need", "vendor_activity"):
+        if category not in ("issue", "task", "vendor_activity"):
             continue
 
         if not prop:
@@ -141,7 +160,7 @@ def process_and_respond(
                     sev = IssueSeverity.MEDIUM
                 create_issue(session, title, prop, severity=sev, description=item.get("description"))
                 logged += 1
-            elif category in ("task", "supply_need"):
+            elif category == "task":
                 from mihomes.services.task import create_task
                 create_task(session, title, prop, description=item.get("description"))
                 logged += 1

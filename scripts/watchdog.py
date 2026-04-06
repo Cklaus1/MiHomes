@@ -16,6 +16,7 @@ PID_FILE = LOG_DIR / "monitor.pid"
 WATCHDOG_PID_FILE = LOG_DIR / "watchdog.pid"
 CHECK_INTERVAL = 60       # seconds between bridge/monitor health checks
 CALENDAR_SYNC_INTERVAL = 900  # 15 minutes between Google Calendar syncs
+INVENTORY_DIGEST_DAY = 0  # Monday (weekday index)
 
 
 def _pid_running(pid: int) -> bool:
@@ -121,6 +122,7 @@ def run():
     _log("Watchdog started")
 
     last_calendar_sync = 0
+    last_inventory_digest_date = None
 
     while True:
         try:
@@ -166,6 +168,43 @@ def run():
                 except Exception as e:
                     _log(f"Calendar sync failed: {e}")
                     last_calendar_sync = now  # Still update to avoid tight retry loop
+
+            # --- Weekly inventory digest (Monday morning) ---
+            from datetime import date as _date
+            today = _date.today()
+            if (today.weekday() == INVENTORY_DIGEST_DAY
+                    and last_inventory_digest_date != today):
+                try:
+                    sys.path.insert(0, str(PROJECT_ROOT / "src"))
+                    from mihomes.db import get_session
+                    from mihomes.services.consumable import get_reorder_list
+                    from mihomes.services.config_service import get_config
+                    from mihomes.services.gateways.whatsapp.client import WhatsAppClient, WhatsAppBridgeError
+
+                    with get_session() as session:
+                        owner_phone = get_config(session, "owner.whatsapp_phone")
+                        items = get_reorder_list(session)
+
+                    if owner_phone and items:
+                        lines = ["🛒 *Weekly Order List*"]
+                        for item in items:
+                            stock_str = f"{item.quantity_in_stock} {item.unit or ''}".strip() if item.quantity_in_stock is not None else ""
+                            order_str = f"order {item.quantity_to_order} {item.unit or ''}".strip() if item.quantity_to_order else ""
+                            detail = " — ".join(filter(None, [stock_str and f"in stock: {stock_str}", order_str, item.status.value]))
+                            lines.append(f"• {item.name} ({item.property.name}){' — ' + detail if detail else ''}")
+                        message = "\n".join(lines)
+                        client = WhatsAppClient()
+                        client.send_message(owner_phone, message)
+                        _log(f"Inventory digest sent to owner ({len(items)} items)")
+                    elif owner_phone and not items:
+                        _log("Inventory digest: nothing to reorder this week")
+                    else:
+                        _log("Inventory digest skipped: owner.whatsapp_phone not configured")
+
+                    last_inventory_digest_date = today
+                except Exception as e:
+                    _log(f"Inventory digest failed: {e}")
+                    last_inventory_digest_date = today  # Don't retry same day
 
         except Exception as e:
             _log(f"Watchdog error: {e}")

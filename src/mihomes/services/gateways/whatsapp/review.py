@@ -26,6 +26,9 @@ REVIEW_SCHEMA = {
                     "reported_by": {"type": "string"},
                     "timestamp": {"type": "string"},
                     "related_asset": {"type": "string"},
+                    "quantity_in_stock": {"type": "number"},
+                    "quantity_to_order": {"type": "number"},
+                    "unit": {"type": "string"},
                 },
                 "required": ["category", "title"],
             },
@@ -75,7 +78,10 @@ def analyze_messages(
         "- issue: reporting something broken, damaged, malfunctioning, or needing repair (e.g. 'toilet is broken', 'AC not working')\n"
         "- task: requesting a specific action be performed (e.g. 'please clean the pool', 'order more towels')\n"
         "- task_completion: confirming work was completed (e.g. 'done', 'finished the cleaning')\n"
-        "- supply_need: something needs purchasing or restocking\n"
+        "- supply_need: something needs purchasing or restocking. "
+        "Extract quantity_in_stock if the message says how much is left (e.g. '1 bottle left', 'only 2 rolls'). "
+        "Extract quantity_to_order if the message says how much to buy (e.g. 'need to order 3', 'get 2 more'). "
+        "Extract unit if mentioned (bottles, rolls, bags, boxes, etc.).\n"
         "- vendor_activity: a vendor visit or service happening\n"
         "- question: asking for information, status, schedules, or updates (e.g. 'what is the AC status?', 'when is the next pool check?', 'has the plumber been called?', 'check AC repair status')\n"
         "- informational: social chat, greetings, personal messages, or anything unrelated to the home\n\n"

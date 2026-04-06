@@ -158,8 +158,8 @@ def run():
                     from mihomes.services.calendar_sync import auto_sync
                     with get_session() as session:
                         result = auto_sync(session)
-                    if result["pushed"] or result["pulled"]:
-                        _log(f"Calendar sync — pushed: {result['pushed']}, pulled: {result['pulled']}")
+                    if result["pushed"] or result["pulled"] or result.get("tasks_created"):
+                        _log(f"Calendar sync — pushed: {result['pushed']}, pulled: {result['pulled']}, tasks: {result.get('tasks_created', 0)}")
                     for err in result.get("errors", []):
                         _log(f"Calendar sync error: {err}")
                     last_calendar_sync = now

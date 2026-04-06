@@ -14,6 +14,22 @@ VENDOR_CATEGORIES = {
     "pool", "irrigation", "elevator", "roofing", "cleaning",
 }
 
+# Keywords that indicate a Google Calendar event should become a MiHomes task
+_TASK_KEYWORDS = {
+    "irrigation", "maintenance", "repair", "service", "inspection",
+    "hvac", "plumbing", "electrical", "pest", "landscaping", "lawn",
+    "pool", "elevator", "roofing", "roof", "cleaning", "clean",
+    "painting", "paint", "installation", "install", "replace", "check",
+    "fix", "contractor", "vendor", "technician", "delivery", "trim",
+    "pressure wash", "gutter", "filter", "tune-up", "tuneup",
+}
+
+
+def _is_task_event(title: str, description: str = "") -> bool:
+    """Return True if this Google Calendar event looks like a vendor/task activity."""
+    text = (title + " " + description).lower()
+    return any(kw in text for kw in _TASK_KEYWORDS)
+
 
 def is_google_auth_available() -> bool:
     return TOKEN_FILE.exists()
@@ -97,9 +113,10 @@ def pull_from_google(session: Session, days: int = 60) -> dict:
         return {"pulled": 0, "errors": []}
 
     from mihomes.services.property import list_properties, occupy_property
+    from mihomes.models.task import Task
     props = list_properties(session)
 
-    pulled, errors = 0, []
+    pulled, tasks_created, errors = 0, 0, []
 
     for event in events:
         title = event.get("title", "")
@@ -114,16 +131,17 @@ def pull_from_google(session: Session, days: int = 60) -> dict:
 
         start_date = start.date() if isinstance(start, datetime) else start
         end_date = end.date() if isinstance(end, datetime) else (end or start_date)
+        desc = event.get("description") or ""
 
         # Try to match event to a property by name mention in title/description
         matched_prop = None
-        desc = (event.get("description") or "").lower()
         title_lower = title.lower()
+        desc_lower = desc.lower()
         for prop in props:
-            if prop.name.lower() in title_lower or prop.name.lower() in desc:
+            if prop.name.lower() in title_lower or prop.name.lower() in desc_lower:
                 matched_prop = prop
                 break
-        # Default to first property (primary/estate) if no match
+        # Default to primary/estate property if no match
         if not matched_prop and props:
             for prop in props:
                 if prop.property_type and prop.property_type.value in ("estate", "primary"):
@@ -135,13 +153,30 @@ def pull_from_google(session: Session, days: int = 60) -> dict:
         if not matched_prop:
             continue
 
-        try:
-            occupy_property(session, str(matched_prop.id), start_date, end_date)
-            pulled += 1
-        except Exception as e:
-            errors.append(f"{title}: {e}")
+        # Vendor/task events → create a task instead of occupancy
+        if _is_task_event(title, desc):
+            try:
+                # Avoid duplicates: skip if a task with same title + property + due_date exists
+                existing = session.query(Task).filter(
+                    Task.title == title,
+                    Task.property_id == matched_prop.id,
+                    Task.due_date == start_date,
+                ).first()
+                if not existing:
+                    from mihomes.services.task import create_task
+                    create_task(session, title, str(matched_prop.id),
+                                description=desc or None, due_date=start_date)
+                    tasks_created += 1
+            except Exception as e:
+                errors.append(f"{title} (task): {e}")
+        else:
+            try:
+                occupy_property(session, str(matched_prop.id), start_date, end_date)
+                pulled += 1
+            except Exception as e:
+                errors.append(f"{title}: {e}")
 
-    return {"pulled": pulled, "errors": errors}
+    return {"pulled": pulled, "tasks_created": tasks_created, "errors": errors}
 
 
 def auto_sync(session: Session) -> dict:
@@ -151,5 +186,6 @@ def auto_sync(session: Session) -> dict:
     return {
         "pushed": push_result.get("pushed", 0),
         "pulled": pull_result.get("pulled", 0),
+        "tasks_created": pull_result.get("tasks_created", 0),
         "errors": push_result.get("errors", []) + pull_result.get("errors", []),
     }

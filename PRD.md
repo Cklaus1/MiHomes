@@ -234,6 +234,7 @@ When a user runs any `mihomes` command for the first time:
 - Role types: housekeeper, groundskeeper, property manager, driver, chef, security, personal assistant, other
 - Task assignment and workload visibility
 - Availability and scheduling (which staff at which property, when)
+- **PTO tracking:** Log time-off requests per staff member, approval status, and days used per year
 - Performance notes (not ratings — qualitative observations)
 - Certification and license expiration tracking
 
@@ -530,6 +531,57 @@ Staff group chats contain a constant stream of operational signal mixed with soc
 - **Links to assets:** "Rivian" auto-matched to vehicle in asset inventory
 - **Escalates intelligently:** "NO WATER" gets Critical severity; spider infestation gets Low
 - **Preserves context:** Each extracted item links back to the original messages and any associated photos for full traceability
+
+#### 7.16.2 PTO Request Handling
+
+Staff submit time-off requests naturally in the WhatsApp group chat. The bot detects the request, logs it as pending, notifies the approver, and waits for a decision — all without staff needing to learn any special format or command.
+
+**Detection — what triggers a PTO request:**
+- Natural language: "I'd like to take Friday off", "Can I have next Monday?", "Requesting PTO for Dec 24-26", "I need a day off this week"
+- AI classifies these as `pto_request` category (new category added to the conversation intelligence classifier)
+- Requests are **never auto-approved** — always go to pending state
+
+**Request lifecycle:**
+1. Staff sends PTO request in the group chat (or direct message to the bot)
+2. Bot logs the request: staff member, dates requested, property coverage affected
+3. Bot replies in chat: *"🏠 PTO request logged for [name] — [dates]. Pending approval."*
+4. Bot sends a direct WhatsApp message to the configured approver: *"🏠 PTO request from [name]: [dates]. Reply APPROVE [name] [dates] or DENY [name] [dates]."*
+5. Approver replies via WhatsApp to approve or deny
+6. Bot updates request status and notifies the requester: *"🏠 Your PTO request for [dates] has been approved/denied."*
+7. On approval: PTO is blocked on the staff member's schedule and synced to Google Calendar
+
+**Coverage conflict detection:**
+- On logging a request, the bot checks if the staff member has open tasks assigned at any property during the requested dates
+- If conflicts exist, the approver notification includes a warning: *"⚠️ [name] has [N] tasks assigned during this period at [property]."*
+- Admin can still approve — this is advisory only, not a block
+
+**PTO balance tracking:**
+- Days used per staff member tracked per calendar year (no complex accrual — manual/simple)
+- Admin can view with `mihomes staff pto <name>`
+- Balance shown in `mihomes staff show <name>`
+
+**Approver configuration:**
+- Set via `mihomes config set staff.pto_approver_phone <number>`
+- Defaults to `owner.whatsapp_phone` if not set separately
+
+**Data model additions:**
+```
+StaffPTORequest
+  id, staff_id, requested_dates (JSON list of dates), status (pending/approved/denied),
+  requested_at, decided_at, decided_by, notes, property_id (coverage context)
+```
+
+**CLI commands:**
+- `mihomes staff pto <name>` — show PTO history and balance for a staff member
+- `mihomes staff pto-requests` — list all pending PTO requests across all staff
+- `mihomes staff pto-approve <request-id>` — approve via CLI (alternative to WhatsApp)
+- `mihomes staff pto-deny <request-id> [--reason]` — deny via CLI
+
+**What this intentionally does NOT do:**
+- No accrual policies, earned-days math, or rollover tracking — out of scope for estate management
+- No payroll integration
+- No multi-level approval chains — one approver is sufficient
+- Does not block task assignment during PTO — admin retains full control
 
 ### 7.17 Insurance Tracking
 

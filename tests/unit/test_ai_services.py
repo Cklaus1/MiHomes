@@ -150,8 +150,11 @@ class TestGetProvider:
             get_provider("openai", None)
 
     def test_nim_provider_requires_key(self):
-        with pytest.raises(AIAuthError):
-            get_provider("nim", None)
+        import unittest.mock
+        with unittest.mock.patch.dict("os.environ", {}, clear=False) as env:
+            env.pop("NVIDIA_API_KEY", None)
+            with pytest.raises(AIAuthError):
+                get_provider("nim", None)
 
     def test_ollama_no_key_needed(self):
         # Ollama is local — should not raise even without a key

@@ -25,6 +25,7 @@ class TaskStatus(str, enum.Enum):
 
 class RecurrenceFrequency(str, enum.Enum):
     ONCE = "once"
+    DAILY = "daily"
     WEEKLY = "weekly"
     BIWEEKLY = "biweekly"
     MONTHLY = "monthly"

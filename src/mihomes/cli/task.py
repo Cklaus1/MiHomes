@@ -299,6 +299,88 @@ def edit_task(
             raise typer.Exit(1)
 
 
+@app.command("by-frequency")
+def tasks_by_frequency(
+    property: Optional[str] = typer.Option(None, "--property", "-p", help="Filter by property slug"),
+    assignee: Optional[str] = typer.Option(None, "--assignee", "-a", help="Filter by staff slug or name"),
+    frequency: Optional[RecurrenceFrequency] = typer.Option(None, "--frequency", "-f", help="Show only one frequency"),
+):
+    """Show all recurring tasks grouped by frequency (daily, weekly, monthly, etc.)."""
+    from mihomes.models.task import Task, TaskSchedule, TaskStatus
+    from mihomes.models.staff import Staff
+    from mihomes.models.property import Property
+
+    FREQUENCY_ORDER = [
+        RecurrenceFrequency.DAILY,
+        RecurrenceFrequency.WEEKLY,
+        RecurrenceFrequency.BIWEEKLY,
+        RecurrenceFrequency.MONTHLY,
+        RecurrenceFrequency.QUARTERLY,
+        RecurrenceFrequency.SEASONAL,
+        RecurrenceFrequency.ANNUAL,
+        RecurrenceFrequency.ONCE,
+    ]
+
+    with get_session() as session:
+        query = (
+            session.query(Task)
+            .join(TaskSchedule, Task.id == TaskSchedule.task_id)
+            .filter(Task.status.notin_([TaskStatus.COMPLETED, TaskStatus.CANCELLED]))
+        )
+        if property:
+            prop = session.query(Property).filter(
+                (Property.slug == property) | (Property.name.ilike(f"%{property}%"))
+            ).first()
+            if not prop:
+                format_error(f"Property '{property}' not found")
+                raise typer.Exit(1)
+            query = query.filter(Task.property_id == prop.id)
+        if assignee:
+            staff = session.query(Staff).filter(
+                (Staff.slug == assignee) | (Staff.name.ilike(f"%{assignee}%"))
+            ).first()
+            if not staff:
+                format_error(f"Staff '{assignee}' not found")
+                raise typer.Exit(1)
+            query = query.filter(Task.assignee_id == staff.id)
+        if frequency:
+            query = query.filter(TaskSchedule.frequency == frequency)
+
+        tasks = query.all()
+        if not tasks:
+            console.print("[dim]No recurring tasks found.[/dim]")
+            return
+
+        # Group by frequency
+        from collections import defaultdict
+        grouped: dict = defaultdict(list)
+        for t in tasks:
+            grouped[t.schedule.frequency].append(t)
+
+        total = 0
+        for freq in FREQUENCY_ORDER:
+            freq_tasks = grouped.get(freq)
+            if not freq_tasks:
+                continue
+
+            table = Table(title=f"{freq.value.upper()} ({len(freq_tasks)})", show_lines=False)
+            table.add_column("Task", style="bold")
+            table.add_column("Property")
+            table.add_column("Assignee")
+            table.add_column("Due", style="dim")
+
+            for t in sorted(freq_tasks, key=lambda x: (x.property.name, x.title)):
+                assignee_name = t.assignee.name if t.assignee else "[dim]—[/dim]"
+                due = t.due_date.isoformat() if t.due_date else "—"
+                table.add_row(t.title, t.property.name, assignee_name, due)
+
+            console.print(table)
+            console.print()
+            total += len(freq_tasks)
+
+        console.print(f"[dim]Total: {total} recurring task(s)[/dim]")
+
+
 @app.command("delete")
 def delete_task(
     id_or_slug: str = typer.Argument(...),

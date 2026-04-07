@@ -41,19 +41,28 @@ def _get_provider():
 
 
 def push_task_to_google(task) -> bool:
-    """Push a single task to Google Calendar. Returns True if successful."""
+    """Push a single task to Google Calendar. Skips if already exists."""
     if not is_google_auth_available():
         return False
     if not task.due_date:
         return False
     try:
         provider = _get_provider()
+        gcal_title = f"[MiHomes] {task.title}"
+        # Check for existing event on the same day with the same title
+        day_start = datetime(task.due_date.year, task.due_date.month, task.due_date.day,
+                             0, 0, tzinfo=timezone.utc)
+        day_end = datetime(task.due_date.year, task.due_date.month, task.due_date.day,
+                           23, 59, tzinfo=timezone.utc)
+        existing = provider.list_events(day_start, day_end)
+        if any(ev.get("title") == gcal_title for ev in existing):
+            return True  # Already exists
         start = datetime(task.due_date.year, task.due_date.month, task.due_date.day,
                          9, 0, tzinfo=timezone.utc)
         end = datetime(task.due_date.year, task.due_date.month, task.due_date.day,
                        10, 0, tzinfo=timezone.utc)
         provider.create_event(
-            title=f"[MiHomes] {task.title}",
+            title=gcal_title,
             start=start,
             end=end,
             description=task.description or "",
@@ -65,31 +74,48 @@ def push_task_to_google(task) -> bool:
 
 def push_upcoming_to_google(session: Session, days: int = 30,
                              property_id_or_slug: str | None = None) -> dict:
-    """Push all upcoming tasks with due dates to Google Calendar."""
+    """Push all upcoming tasks with due dates to Google Calendar.
+
+    Deduplicates by title: skips any task whose [MiHomes] event already exists.
+    """
     if not is_google_auth_available():
         return {"pushed": 0, "errors": [], "skipped": "not authenticated"}
 
     from mihomes.services.task import get_upcoming_tasks
     tasks = get_upcoming_tasks(session, days=days,
                                property_id_or_slug=property_id_or_slug)
+    tasks = [t for t in tasks if t.due_date]
+    if not tasks:
+        return {"pushed": 0, "errors": []}
 
-    pushed, errors = 0, []
     provider = _get_provider()
 
+    # Fetch existing Google Calendar events for the same window and collect titles
+    try:
+        now = datetime.now(timezone.utc)
+        existing_events = provider.list_events(now, now + timedelta(days=days))
+        existing_titles = {ev.get("title", "") for ev in existing_events}
+    except Exception:
+        existing_titles = set()
+
+    pushed, errors = 0, []
+
     for task in tasks:
-        if not task.due_date:
-            continue
+        gcal_title = f"[MiHomes] {task.title}"
+        if gcal_title in existing_titles:
+            continue  # Already on Google Calendar, skip
         try:
             start = datetime(task.due_date.year, task.due_date.month,
                              task.due_date.day, 9, 0, tzinfo=timezone.utc)
             end = datetime(task.due_date.year, task.due_date.month,
                            task.due_date.day, 10, 0, tzinfo=timezone.utc)
             provider.create_event(
-                title=f"[MiHomes] {task.title}",
+                title=gcal_title,
                 start=start,
                 end=end,
                 description=task.description or "",
             )
+            existing_titles.add(gcal_title)  # Prevent dupes within same run
             pushed += 1
         except Exception as e:
             errors.append(f"{task.title}: {e}")

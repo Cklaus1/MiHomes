@@ -18,7 +18,7 @@ REVIEW_SCHEMA = {
                 "properties": {
                     "category": {
                         "type": "string",
-                        "enum": ["issue", "task", "task_completion", "supply_need", "vendor_activity", "question", "informational"],
+                        "enum": ["issue", "task", "task_completion", "supply_need", "vendor_activity", "question", "pto_request", "informational"],
                     },
                     "title": {"type": "string"},
                     "description": {"type": "string"},
@@ -26,6 +26,7 @@ REVIEW_SCHEMA = {
                     "reported_by": {"type": "string"},
                     "timestamp": {"type": "string"},
                     "assigned_to": {"type": "string"},
+                    "pto_dates": {"type": "array", "items": {"type": "string"}},
                     "related_asset": {"type": "string"},
                     "quantity_in_stock": {"type": "number"},
                     "quantity_to_order": {"type": "number"},
@@ -85,6 +86,7 @@ def analyze_messages(
         "Extract unit if mentioned (bottles, rolls, bags, boxes, etc.).\n"
         "- vendor_activity: a vendor visit or service happening\n"
         "- question: asking for information, status, schedules, or updates (e.g. 'what is the AC status?', 'when is the next pool check?', 'has the plumber been called?', 'check AC repair status')\n"
+        "- pto_request: a staff member requesting time off (e.g. 'can I have Friday off', 'requesting PTO Dec 24-26', 'I need next Monday off'). Extract dates into pto_dates as YYYY-MM-DD strings.\n"
         "- informational: social chat, greetings, personal messages, or anything unrelated to the home\n\n"
         "IMPORTANT DISTINCTION — question vs task:\n"
         "- If the message is asking for INFORMATION or STATUS → question\n"

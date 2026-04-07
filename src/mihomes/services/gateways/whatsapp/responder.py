@@ -78,19 +78,72 @@ def _resolve_staff_slug(session: Session, name: str | None) -> str | None:
     return staff.slug if staff else None
 
 
+def _handle_approval_message(session: Session, message: dict, client) -> bool:
+    """
+    Check if a message from the approver is an APPROVE/DENY command.
+    Returns True if handled, False if it should flow through normal analysis.
+    """
+    import re
+    from mihomes.services.config_service import get_config
+    from mihomes.services.staff_pto import approve_pto, deny_pto, notify_staff
+
+    approver_phone = (
+        get_config(session, "staff.pto_approver_phone")
+        or get_config(session, "owner.whatsapp_phone")
+    )
+    if not approver_phone:
+        return False
+
+    sender_phone = message.get("senderPhone", "")
+    if not sender_phone or approver_phone.replace("+", "").replace("-", "") not in sender_phone.replace("+", "").replace("-", ""):
+        return False
+
+    text = (message.get("text") or "").strip().upper()
+    approve_match = re.match(r"APPROVE\s+(\d+)", text)
+    deny_match = re.match(r"DENY\s+(\d+)(?:\s+(.+))?", text, re.IGNORECASE)
+
+    if approve_match:
+        req_id = int(approve_match.group(1))
+        try:
+            req = approve_pto(session, req_id, decided_by="approver")
+            notify_staff(session, req)
+            reply_jid = message.get("jid")
+            if reply_jid:
+                client.send_group_message(reply_jid, f"🏠 PTO approved for {req.staff.name} — {', '.join(req.dates)} ✓")
+        except Exception:
+            pass
+        return True
+
+    if deny_match:
+        req_id = int(deny_match.group(1))
+        reason = deny_match.group(2) or None
+        try:
+            req = deny_pto(session, req_id, decided_by="approver", reason=reason)
+            notify_staff(session, req)
+            reply_jid = message.get("jid")
+            if reply_jid:
+                client.send_group_message(reply_jid, f"🏠 PTO denied for {req.staff.name} — {', '.join(req.dates)}")
+        except Exception:
+            pass
+        return True
+
+    return False
+
+
 def process_and_respond(
     session: Session,
     messages: list[dict],
     property_slug: str | None = None,
 ) -> dict:
     """
-    Analyze messages, create issues/tasks, answer questions.
+    Analyze messages, create issues/tasks, answer questions, handle PTO.
 
     - Issues: log + send '🏠 "title" logged ✓\\n\\n[maintenance expert assessment]'
     - Tasks/supply_needs with date: log + create event + send '🏠 scheduled "title" ✓'
     - Tasks/supply_needs without date: log + send '🏠 "title" logged ✓'
     - Vendor activity: create event + send '🏠 scheduled "title" ✓'
     - Questions about the home: send '🏠 [AI estate manager answer]'
+    - PTO requests: log as pending + notify approver via direct message
     - Informational/irrelevant: no response
 
     Returns dict with: logged, replied, errors.
@@ -100,6 +153,16 @@ def process_and_respond(
 
     from mihomes.services.ai.provider import AIProviderError
     client = WhatsAppClient()
+
+    # Pre-check: handle APPROVE/DENY replies from the approver before AI analysis
+    remaining_messages = []
+    for msg in messages:
+        if not _handle_approval_message(session, msg, client):
+            remaining_messages.append(msg)
+    messages = remaining_messages
+    if not messages:
+        return {"replied": 0, "logged": 0, "errors": []}
+
     try:
         result = analyze_messages(session, messages, property_name=property_slug)
     except AIProviderError as e:
@@ -135,6 +198,33 @@ def process_and_respond(
                     replied += 1
                 except Exception as e:
                     errors.append(f"Failed to send answer: {e}")
+            continue
+
+        # --- PTO requests: log as pending + notify approver ---
+        if category == "pto_request":
+            reporter = item.get("reported_by") or item.get("assigned_to")
+            pto_dates = item.get("pto_dates") or []
+            if not reporter or not pto_dates:
+                continue
+            try:
+                from mihomes.services.staff_pto import create_pto_request, notify_approver
+                from mihomes.models.staff import Staff
+                staff = session.query(Staff).filter(Staff.name.ilike(f"%{reporter}%")).first()
+                if not staff:
+                    continue
+                req = create_pto_request(session, str(staff.id), pto_dates, notes=item.get("description"))
+                logged += 1
+                notify_approver(session, req)
+                # Confirm in group chat
+                dates_str = ", ".join(pto_dates)
+                warning = f"\n⚠️ {req.coverage_warning}" if req.coverage_warning else ""
+                try:
+                    client.send_group_message(reply_jid, f"🏠 PTO request logged for {staff.name} — {dates_str}. Pending approval.{warning}")
+                    replied += 1
+                except Exception as e:
+                    errors.append(f"Failed to confirm PTO: {e}")
+            except Exception as e:
+                errors.append(f"Failed to log PTO request: {e}")
             continue
 
         # --- Supply needs: silently update inventory, no group reply ---

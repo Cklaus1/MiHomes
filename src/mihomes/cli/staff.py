@@ -211,6 +211,111 @@ def staff_schedule(
             console.print("[dim]No assigned tasks found.[/dim]")
 
 
+@app.command("pto")
+def pto_balance(
+    id_or_slug: str = typer.Argument(..., help="Staff ID or slug"),
+):
+    """Show PTO history and days used for a staff member."""
+    from mihomes.services.staff_pto import get_pto_balance
+    from mihomes.models.staff_pto import PTOStatus
+    with get_session() as session:
+        try:
+            data = get_pto_balance(session, id_or_slug)
+        except Exception as e:
+            format_error(str(e))
+            raise typer.Exit(1)
+
+        staff = data["staff"]
+        console.print(f"\n[bold]{staff.name}[/bold] — PTO {data['year']}")
+        console.print(f"  Approved: [green]{data['approved_days']} day(s)[/green]")
+        console.print(f"  Pending:  [yellow]{data['pending_days']} day(s)[/yellow]\n")
+
+        if not data["requests"]:
+            console.print("[dim]No PTO requests on record.[/dim]")
+            return
+
+        table = Table(title="PTO Requests")
+        table.add_column("ID", style="dim")
+        table.add_column("Dates")
+        table.add_column("Status")
+        table.add_column("Decided By")
+        table.add_column("Warning", style="dim")
+        for req in data["requests"]:
+            status_color = {"approved": "green", "denied": "red", "pending": "yellow"}.get(req.status.value, "white")
+            table.add_row(
+                str(req.id),
+                ", ".join(req.dates) if req.dates else "-",
+                f"[{status_color}]{req.status.value}[/{status_color}]",
+                req.decided_by or "-",
+                req.coverage_warning or "-",
+            )
+        console.print(table)
+
+
+@app.command("pto-requests")
+def pto_requests(
+    status: Optional[str] = typer.Option(None, "--status", "-s", help="Filter: pending, approved, denied"),
+):
+    """List all PTO requests across all staff."""
+    from mihomes.services.staff_pto import list_pto_requests
+    from mihomes.models.staff_pto import PTOStatus
+    with get_session() as session:
+        status_filter = PTOStatus(status) if status else None
+        requests = list_pto_requests(session, status=status_filter)
+        if not requests:
+            console.print("[dim]No PTO requests found.[/dim]")
+            return
+        table = Table(title="PTO Requests")
+        table.add_column("ID", style="dim")
+        table.add_column("Staff", style="bold")
+        table.add_column("Dates")
+        table.add_column("Status")
+        table.add_column("Coverage Warning", style="dim")
+        for req in requests:
+            status_color = {"approved": "green", "denied": "red", "pending": "yellow"}.get(req.status.value, "white")
+            table.add_row(
+                str(req.id),
+                req.staff.name if req.staff else "-",
+                ", ".join(req.dates) if req.dates else "-",
+                f"[{status_color}]{req.status.value}[/{status_color}]",
+                req.coverage_warning or "-",
+            )
+        console.print(table)
+
+
+@app.command("pto-approve")
+def pto_approve(
+    request_id: int = typer.Argument(..., help="PTO request ID"),
+):
+    """Approve a PTO request."""
+    from mihomes.services.staff_pto import approve_pto, notify_staff
+    with get_session() as session:
+        try:
+            req = approve_pto(session, request_id, decided_by="admin")
+            notify_staff(session, req)
+            format_success(f"PTO approved for {req.staff.name} — {', '.join(req.dates)}")
+        except Exception as e:
+            format_error(str(e))
+            raise typer.Exit(1)
+
+
+@app.command("pto-deny")
+def pto_deny(
+    request_id: int = typer.Argument(..., help="PTO request ID"),
+    reason: Optional[str] = typer.Option(None, "--reason", "-r"),
+):
+    """Deny a PTO request."""
+    from mihomes.services.staff_pto import deny_pto, notify_staff
+    with get_session() as session:
+        try:
+            req = deny_pto(session, request_id, decided_by="admin", reason=reason)
+            notify_staff(session, req)
+            format_success(f"PTO denied for {req.staff.name} — {', '.join(req.dates)}")
+        except Exception as e:
+            format_error(str(e))
+            raise typer.Exit(1)
+
+
 @app.command("workload")
 def staff_workload():
     """Show task counts per staff member."""

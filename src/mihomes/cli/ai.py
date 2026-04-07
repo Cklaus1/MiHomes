@@ -273,6 +273,31 @@ def import_cmd(
             raise typer.Exit(1)
 
 
+@app.command("budget-review")
+def budget_review_cmd(
+    property: Optional[str] = typer.Option(None, "--property", "-p", help="Scope to a single property"),
+):
+    """AI financial analysis — variance, anomalies, and cost optimization recommendations."""
+    from mihomes.services.ai.orchestrator import budget_review
+
+    with get_session() as session:
+        try:
+            with console.status("[bold blue]Analyzing financials...", spinner="dots"):
+                response = budget_review(session, property_slug=property)
+
+            console.print()
+            scope = f" — {property}" if property else " — All Properties"
+            console.print(Panel(f"[bold]Budget Review[/bold]{scope}", expand=True))
+            console.print(Markdown(response.text))
+            console.print()
+        except AIAuthError as e:
+            format_error(str(e))
+            raise typer.Exit(1)
+        except AIProviderError as e:
+            format_error(f"AI error: {e}")
+            raise typer.Exit(1)
+
+
 @app.command("plan")
 def plan_cmd(
     scenario: str = typer.Argument(..., help="Scenario to plan for (e.g. 'opening for summer')"),
@@ -306,31 +331,40 @@ def plan_cmd(
 
 
 @app.command("setup")
-def setup_cmd():
+def setup_cmd(
+    provider_arg: Optional[str] = typer.Option(None, "--provider", help="AI provider: claude, openai, nim, ollama"),
+    key_arg: Optional[str] = typer.Option(None, "--key", help="API key (skips interactive prompt)"),
+):
     """Configure AI provider and API key."""
     from mihomes.services.config_service import set_config
 
     console.print("\n[bold]AI Setup[/bold]\n")
 
-    console.print("[dim]Supported providers: claude, openai, nim, ollama[/dim]\n")
-    provider = typer.prompt("AI provider", default="nim", type=str)
+    provider = provider_arg or typer.prompt("AI provider [claude/openai/nim/ollama]", default="nim")
 
-    if provider == "claude":
-        key = typer.prompt("Anthropic API key", hide_input=True)
-        env_var = "ANTHROPIC_API_KEY"
-    elif provider == "openai":
-        key = typer.prompt("OpenAI API key", hide_input=True)
-        env_var = "OPENAI_API_KEY"
-    elif provider == "nim":
-        key = typer.prompt("NVIDIA API key (nvapi-...)", hide_input=True)
-        env_var = "NVIDIA_API_KEY"
-    elif provider == "ollama":
-        console.print("[dim]Ollama runs locally — no API key needed.[/dim]")
-        key = ""
-        env_var = ""
-    else:
+    env_vars = {
+        "claude": "ANTHROPIC_API_KEY",
+        "openai": "OPENAI_API_KEY",
+        "nim": "NVIDIA_API_KEY",
+    }
+
+    if provider not in ("claude", "openai", "nim", "ollama"):
         console.print(f"[yellow]Unknown provider '{provider}'. Supported: claude, openai, nim, ollama[/yellow]")
         raise typer.Exit(1)
+
+    env_var = env_vars.get(provider, "")
+
+    if provider == "ollama":
+        key = ""
+        console.print("[dim]Ollama runs locally — no API key needed.[/dim]")
+    elif key_arg:
+        key = key_arg
+    else:
+        console.print(f"[dim]Tip: you can also run: mihomes ai setup --key <your-key>[/dim]")
+        key = input(f"{env_var}: ").strip()
+        if not key:
+            format_error("No key entered.")
+            raise typer.Exit(1)
 
     with get_session() as session:
         set_config(session, "ai.provider", provider)

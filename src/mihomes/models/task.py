@@ -47,6 +47,7 @@ class Task(Base, TimestampMixin, SlugMixin):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     completion_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     estimated_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
+    gcal_event_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
     property = relationship("Property")
     assignee = relationship("Staff")

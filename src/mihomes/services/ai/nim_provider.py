@@ -38,6 +38,7 @@ class NIMProvider:
         self.client = openai.OpenAI(
             api_key=self.api_key,
             base_url=NIM_BASE_URL,
+            timeout=30.0,
         )
 
     def complete(

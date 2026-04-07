@@ -8,7 +8,7 @@ DEFAULTS = {
     "currency.default": "USD",
     "calendar.provider": "manual",
     "ai.provider": "claude",
-    "ai.model": "claude-sonnet-4-20250514",
+    # ai.model intentionally omitted — get_ai_model() picks the provider-specific default
     "ai.max_context_tokens": "50000",
     "notifications.format": "rich",
     "retention.audit_years": "2",

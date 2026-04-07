@@ -47,10 +47,12 @@ def list_vendors(
         table.add_column("Contact")
         table.add_column("Phone")
         table.add_column("Categories")
+        table.add_column("Properties")
         table.add_column("Slug", style="dim")
         for v in vendors:
             cats = ", ".join(v.service_categories) if v.service_categories else "-"
-            table.add_row(str(v.id), v.company_name, v.contact_name or "-", v.phone or "-", cats, v.slug)
+            props = ", ".join(v.service_areas) if v.service_areas else "-"
+            table.add_row(str(v.id), v.company_name, v.contact_name or "-", v.phone or "-", cats, props, v.slug)
         console.print(table)
 
 
@@ -63,6 +65,9 @@ def show_vendor(id_or_slug: str = typer.Argument(...)):
         except EntityNotFoundError as e:
             format_error(str(e))
             raise typer.Exit(1)
+        data = vendor_svc.get_vendor_ratings(session, id_or_slug)
+        avg = data["averages"]
+        rating_str = f"{avg['overall']:.1f}/5.0 ({avg['count']} rating(s))" if avg else "No ratings yet"
         content = {
             "ID": str(vendor.id),
             "Slug": vendor.slug,
@@ -71,6 +76,7 @@ def show_vendor(id_or_slug: str = typer.Argument(...)):
             "Email": vendor.email,
             "Categories": ", ".join(vendor.service_categories) if vendor.service_categories else None,
             "Service Areas": ", ".join(vendor.service_areas) if vendor.service_areas else None,
+            "Rating": rating_str,
             "Insurance": vendor.insurance_info,
             "Notes": vendor.notes,
             "Active": "Yes" if vendor.active else "No",
@@ -102,6 +108,110 @@ def edit_vendor(
         except EntityNotFoundError as e:
             format_error(str(e))
             raise typer.Exit(1)
+
+
+@app.command("rate")
+def rate_vendor(
+    id_or_slug: str = typer.Argument(..., help="Vendor ID or slug"),
+    quality: int = typer.Option(..., "--quality", "-q", help="Quality of work (1-5)"),
+    reliability: int = typer.Option(..., "--reliability", "-r", help="Reliability / on-time (1-5)"),
+    cost: Optional[int] = typer.Option(None, "--cost", help="Value for money (1-5)"),
+    communication: Optional[int] = typer.Option(None, "--communication", help="Communication (1-5)"),
+    notes: Optional[str] = typer.Option(None, "--notes", "-n", help="Notes on the work"),
+    work_order: Optional[int] = typer.Option(None, "--work-order", help="Work order ID to link"),
+    property: Optional[str] = typer.Option(None, "--property", "-p", help="Property this work was done at"),
+):
+    """Rate a vendor's work (1–5 scale)."""
+    from mihomes.services.slug import EntityNotFoundError
+    from mihomes.models.property import Property
+
+    with get_session() as session:
+        try:
+            prop_id = None
+            if property:
+                prop = vendor_svc.resolve_identifier(session, Property, property) if hasattr(vendor_svc, "resolve_identifier") else None
+                if not prop:
+                    from mihomes.services.slug import resolve_identifier
+                    prop = resolve_identifier(session, Property, property)
+                prop_id = prop.id
+
+            rating = vendor_svc.rate_vendor(
+                session, id_or_slug,
+                quality=quality, reliability=reliability,
+                cost=cost, communication=communication,
+                notes=notes, work_order_id=work_order,
+                property_id=prop_id,
+            )
+            vendor = vendor_svc.get_vendor(session, id_or_slug)
+            format_success(
+                f"Rated '{vendor.company_name}' — overall {rating.overall_score:.1f}/5.0 "
+                f"(quality={quality}, reliability={reliability}"
+                + (f", cost={cost}" if cost else "")
+                + (f", communication={communication}" if communication else "")
+                + ")"
+            )
+        except (EntityNotFoundError, ValueError) as e:
+            format_error(str(e))
+            raise typer.Exit(1)
+
+
+@app.command("ratings")
+def show_ratings(
+    id_or_slug: str = typer.Argument(..., help="Vendor ID or slug"),
+):
+    """Show all ratings and averages for a vendor."""
+    from rich.panel import Panel
+    from mihomes.services.slug import EntityNotFoundError
+
+    with get_session() as session:
+        try:
+            data = vendor_svc.get_vendor_ratings(session, id_or_slug)
+        except EntityNotFoundError as e:
+            format_error(str(e))
+            raise typer.Exit(1)
+
+        vendor = data["vendor"]
+        ratings = data["ratings"]
+        averages = data["averages"]
+
+        if not ratings:
+            console.print(f"[dim]No ratings yet for {vendor.company_name}.[/dim]")
+            return
+
+        # Averages panel
+        def _stars(score: float) -> str:
+            full = int(round(score))
+            return "★" * full + "☆" * (5 - full) + f"  {score:.1f}"
+
+        avg_lines = [
+            f"Overall:       {_stars(averages['overall'])}  ({averages['count']} rating(s))",
+            f"Quality:       {_stars(averages['quality'])}",
+            f"Reliability:   {_stars(averages['reliability'])}",
+            f"Cost/Value:    {_stars(averages['cost'])}",
+            f"Communication: {_stars(averages['communication'])}",
+        ]
+        console.print(Panel("\n".join(avg_lines), title=f"[bold]{vendor.company_name}[/bold] — Ratings", expand=False))
+
+        # Individual ratings table
+        table = Table(title="Rating History")
+        table.add_column("Date")
+        table.add_column("Overall", justify="center")
+        table.add_column("Quality", justify="center")
+        table.add_column("Reliability", justify="center")
+        table.add_column("Cost", justify="center")
+        table.add_column("Comm.", justify="center")
+        table.add_column("Notes", style="dim")
+        for r in ratings:
+            table.add_row(
+                str(r.rated_date),
+                f"{r.overall_score:.1f}",
+                str(r.quality_score),
+                str(r.reliability_score),
+                str(r.cost_score),
+                str(r.communication_score),
+                r.notes or "-",
+            )
+        console.print(table)
 
 
 @app.command("delete")

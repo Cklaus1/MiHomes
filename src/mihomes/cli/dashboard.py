@@ -58,6 +58,11 @@ def dashboard(
             task_lines.append(f"  {prio_icon} {t.title} ({t.property.name}) — {t.due_date}")
         if data["overdue_count"] > 0:
             task_lines.insert(0, f"  [red bold]! {data['overdue_count']} overdue task(s)[/red bold]")
+        if data["unscheduled_count"] > 0:
+            task_lines.append(f"\n  [dim]Unscheduled ({data['unscheduled_count']}):[/dim]")
+            for t in data["unscheduled_tasks"]:
+                assignee = f" → {t.assignee.name}" if t.assignee else ""
+                task_lines.append(f"  [dim]○ {t.title} ({t.property.name}){assignee}[/dim]")
         task_panel = Panel(
             "\n".join(task_lines) if task_lines else "[green]No tasks due this week[/green]",
             title=f"Tasks Due This Week ({len(data['tasks_this_week'])})",

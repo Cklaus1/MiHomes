@@ -1,7 +1,11 @@
 """WhatsApp CLI commands — bridge management, message review, group linking."""
 
+import os
+import subprocess
+import sys
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 import typer
@@ -14,9 +18,72 @@ from mihomes.services.gateways.whatsapp.client import WhatsAppClient, WhatsAppBr
 
 app = typer.Typer(name="whatsapp", help="WhatsApp staff gateway")
 
+_BRIDGE_DIR = Path(__file__).parents[3] / "bridge"
+_LOG_DIR = Path(os.path.expanduser("~/.mihomes"))
+
+
+def _bridge_running() -> bool:
+    try:
+        import urllib.request
+        urllib.request.urlopen("http://localhost:7867/status", timeout=2)
+        return True
+    except Exception:
+        return False
+
+
+def _start_bridge_process() -> bool:
+    """Start the Node bridge in the background. Returns True when it comes up."""
+    _LOG_DIR.mkdir(parents=True, exist_ok=True)
+    log = open(_LOG_DIR / "bridge.log", "a")
+    kwargs: dict = {}
+    if sys.platform == "win32":
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = subprocess.SW_HIDE
+        kwargs = {"creationflags": 0x08000000, "startupinfo": si}
+    subprocess.Popen(
+        ["node", "index.js"],
+        cwd=str(_BRIDGE_DIR),
+        stdout=log, stderr=log,
+        **kwargs,
+    )
+    for _ in range(15):
+        time.sleep(2)
+        if _bridge_running():
+            return True
+    return False
+
+
+def _ensure_bridge_running() -> bool:
+    """Start the bridge if not already running. Returns True if up."""
+    if _bridge_running():
+        return True
+    console.print("[dim]Bridge not running — starting automatically...[/dim]")
+    ok = _start_bridge_process()
+    if ok:
+        format_success("Bridge started")
+    else:
+        format_error("Bridge failed to start. Check ~/.mihomes/bridge.log for details.")
+    return ok
+
 
 def _get_client() -> WhatsAppClient:
     return WhatsAppClient()
+
+
+@app.command("bridge")
+def bridge_cmd():
+    """Start the WhatsApp bridge in the background."""
+    if _bridge_running():
+        format_success("Bridge is already running")
+        return
+    console.print("[dim]Starting bridge...[/dim]")
+    ok = _start_bridge_process()
+    if ok:
+        format_success("Bridge started — running silently in background")
+    else:
+        format_error("Bridge failed to start. Check ~/.mihomes/bridge.log for details.")
+        raise typer.Exit(1)
 
 
 @app.command("autostart")
@@ -441,6 +508,7 @@ def clear_messages(
 @app.command("review")
 def review_messages(
     property: Optional[str] = typer.Option(None, "--property", "-p"),
+    group: Optional[str] = typer.Option(None, "--group", "-g", help="Filter by group name (partial match)"),
     accept: Optional[str] = typer.Option(None, "--accept", help="Comma-separated item numbers to create (e.g. 1,3)"),
     auto: bool = typer.Option(False, "--auto", help="Auto-create all actionable items without prompting"),
 ):
@@ -448,9 +516,28 @@ def review_messages(
     from mihomes.services.gateways.whatsapp.review import analyze_messages
     from mihomes.services.ai.provider import AIAuthError, AIProviderError
 
+    if not _ensure_bridge_running():
+        raise typer.Exit(1)
+
     try:
         client = _get_client()
-        messages = client.get_messages(limit=200)
+
+        group_jid = None
+        if group:
+            groups = client.get_groups()
+            matches = [g for g in groups if group.lower() in g["name"].lower()]
+            if not matches:
+                format_error(f"No group matching '{group}' found. Run: mihomes whatsapp groups")
+                raise typer.Exit(1)
+            if len(matches) > 1:
+                console.print("[yellow]Multiple matches — be more specific:[/yellow]")
+                for g in matches:
+                    console.print(f"  - {g['name']}")
+                raise typer.Exit(1)
+            group_jid = matches[0]["jid"]
+            console.print(f"[dim]Filtering to group: {matches[0]['name']}[/dim]")
+
+        messages = client.get_messages(limit=200, group_jid=group_jid)
     except WhatsAppBridgeError as e:
         format_error(str(e))
         raise typer.Exit(1)

@@ -46,7 +46,9 @@ def _ai_response(session: Session, prompt: str, role: str, property_slug: str | 
         if not text or text.upper() == "NO_RESPONSE":
             return None
         return text
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.getLogger("mihomes.whatsapp").warning("AI response failed: %s", e)
         return None
 
 
@@ -65,6 +67,15 @@ def _issue_expert_reply(session: Session, title: str, description: str | None, p
 def _answer_question(session: Session, question: str, property_slug: str | None) -> str | None:
     """Answer a home-related question using the estate manager role."""
     return _ai_response(session, question, role="estate_manager", property_slug=property_slug)
+
+
+def _resolve_staff_slug(session: Session, name: str | None) -> str | None:
+    """Find a staff member by partial name match, return their slug."""
+    if not name:
+        return None
+    from mihomes.models.staff import Staff
+    staff = session.query(Staff).filter(Staff.name.ilike(f"%{name}%")).first()
+    return staff.slug if staff else None
 
 
 def process_and_respond(
@@ -87,8 +98,14 @@ def process_and_respond(
     if not messages:
         return {"replied": 0, "logged": 0, "errors": []}
 
+    from mihomes.services.ai.provider import AIProviderError
     client = WhatsAppClient()
-    result = analyze_messages(session, messages, property_name=property_slug)
+    try:
+        result = analyze_messages(session, messages, property_name=property_slug)
+    except AIProviderError as e:
+        import logging
+        logging.getLogger("mihomes.whatsapp").error("AI provider error during message analysis: %s", e)
+        return {"replied": 0, "logged": 0, "errors": [f"AI provider error: {e}"]}
     items = result.get("items", [])
 
     # Find the group JID to reply to
@@ -162,7 +179,8 @@ def process_and_respond(
                 logged += 1
             elif category == "task":
                 from mihomes.services.task import create_task
-                create_task(session, title, prop, description=item.get("description"))
+                assignee = _resolve_staff_slug(session, item.get("assigned_to"))
+                create_task(session, title, prop, description=item.get("description"), assignee_id_or_slug=assignee)
                 logged += 1
                 if scheduled:
                     from mihomes.services.event import create_event
@@ -171,13 +189,14 @@ def process_and_respond(
                 # Always create a task — vendor visits for maintenance/repairs need tracking.
                 # Also create a dated event if a specific date was mentioned.
                 from mihomes.services.task import create_task
+                assignee = _resolve_staff_slug(session, item.get("assigned_to"))
                 new_task = create_task(session, title, prop, description=item.get("description"),
-                                       due_date=event_date)
+                                       due_date=event_date, assignee_id_or_slug=assignee)
                 logged += 1
                 # Auto-push vendor tasks to Google Calendar
                 try:
                     from mihomes.services.calendar_sync import push_task_to_google
-                    push_task_to_google(new_task)
+                    push_task_to_google(new_task, session=session)
                 except Exception:
                     pass
                 if scheduled:

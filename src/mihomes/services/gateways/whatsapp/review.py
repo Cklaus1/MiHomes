@@ -25,6 +25,7 @@ REVIEW_SCHEMA = {
                     "severity": {"type": "string", "enum": ["critical", "high", "medium", "low"]},
                     "reported_by": {"type": "string"},
                     "timestamp": {"type": "string"},
+                    "assigned_to": {"type": "string"},
                     "related_asset": {"type": "string"},
                     "quantity_in_stock": {"type": "number"},
                     "quantity_to_order": {"type": "number"},
@@ -91,7 +92,7 @@ def analyze_messages(
         "- If the message is requesting an ACTION to be performed → task\n"
         "'Check X status', 'what is the status of X', 'has X been done', 'when is X scheduled' are ALL questions.\n\n"
         "For questions: 'title' = concise restatement, 'description' = full question text verbatim.\n"
-        "For issues/tasks: extract title, description, severity (if issue), reporter, related asset.\n\n"
+        "For issues/tasks: extract title, description, severity (if issue), reporter, assigned_to (name of person the task is assigned to if mentioned), related asset.\n\n"
         "Only classify as 'question' if genuinely about the home, property, maintenance, staff, vendors, or estate. "
         "Greetings and off-topic chat are 'informational'.\n\n"
         "Also list skipped items with brief reasons.\n"

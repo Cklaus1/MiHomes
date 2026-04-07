@@ -230,7 +230,7 @@ def _fetch_vendors(session: Session) -> str:
     if not vendors:
         lines.append("No vendors.")
     else:
-        for v in vendors[:15]:
+        for v in vendors:
             cats = ", ".join(v.service_categories) if v.service_categories else "general"
             lines.append(f"- {v.company_name} ({cats})")
     return "\n".join(lines)

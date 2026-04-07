@@ -213,6 +213,11 @@ app.add_typer(auto_app, name="auto")
 app.add_typer(calendar_app, name="calendar")
 app.add_typer(inventory_app, name="inventory")
 
+# Archive
+from mihomes.cli.archive import app as archive_app  # noqa: E402
+
+app.add_typer(archive_app, name="archive")
+
 # WhatsApp + CSV
 from mihomes.cli.whatsapp import app as whatsapp_app  # noqa: E402
 from mihomes.cli.csv_cmd import export_app, import_app  # noqa: E402

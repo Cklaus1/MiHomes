@@ -106,7 +106,7 @@ def show_asset(id_or_slug: str = typer.Argument(...)):
         except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
-            lc = asset_svc.get_lifecycle_data(asset)
+        lc = asset_svc.get_lifecycle_data(asset)
         content = {
             "ID": str(asset.id),
             "Slug": asset.slug,

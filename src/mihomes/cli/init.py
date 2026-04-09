@@ -4,7 +4,7 @@ import typer
 from rich import print as rprint
 from rich.panel import Panel
 
-from mihomes.cli.formatters import console, format_success
+from mihomes.cli.formatters import format_success
 from mihomes.config import MIHOMES_DIR, DB_DIR, is_initialized
 from mihomes.db import init_db, get_session
 
@@ -18,7 +18,7 @@ def register_init(app: typer.Typer):
 
     @app.command("init")
     def init_cmd(
-        demo: bool = typer.Option(False, "--demo", help="Launch an isolated demo (uses demo.db, never touches your real data)"),
+        demo: bool = typer.Option(False, "--demo", help="Launch MiHomes with isolated demo data"),
     ):
         """Initialize MiHomes — create database and directories."""
         if demo:
@@ -27,14 +27,13 @@ def register_init(app: typer.Typer):
 
         if is_initialized():
             rprint(f"[yellow]MiHomes is already initialized at {MIHOMES_DIR}[/yellow]")
-            rprint("Run [bold]mihomes init --demo[/bold] to explore with sample data in an isolated database.")
+            rprint("Run [bold]mihomes init --demo[/bold] to explore with sample data.")
             return
 
         rprint(f"\n[bold]Initializing MiHomes...[/bold]")
         init_db()
         format_success(f"Database created at {MIHOMES_DIR}")
 
-        # Interactive setup
         add_prop = typer.confirm("\nWould you like to add your first property?", default=False)
         if add_prop:
             name = typer.prompt("Property name")
@@ -57,36 +56,34 @@ def register_init(app: typer.Typer):
 
 
 def _run_demo():
-    """Load and explore demo data in an isolated demo.db — never touches mihomes.db."""
+    """Seed demo.db if needed, point the engine at it, then launch the dashboard."""
     from sqlalchemy import create_engine
     from sqlalchemy.orm import Session
     from mihomes.models import Base
+    import mihomes.db as db_module
 
     DB_DIR.mkdir(parents=True, exist_ok=True)
 
-    fresh = not DEMO_DB_PATH.exists()
-    engine = create_engine(DEMO_DB_URL, connect_args={"check_same_thread": False})
-    Base.metadata.create_all(engine)
+    # Build / reuse demo engine
+    demo_engine = create_engine(DEMO_DB_URL, connect_args={"check_same_thread": False})
+    Base.metadata.create_all(demo_engine)
 
-    with Session(engine) as session:
-        if fresh:
-            rprint("\n[bold]Loading demo data into demo.db...[/bold]")
+    fresh = True
+    with Session(demo_engine) as session:
+        from mihomes.models.property import Property
+        fresh = session.query(Property).count() == 0
+
+    if fresh:
+        rprint("[dim]Setting up demo data...[/dim]")
+        with Session(demo_engine) as session:
             from mihomes.services.demo import load_demo_data
             load_demo_data(session)
-            format_success("Demo data loaded: 3 properties, 3 staff, 3 vendors, tasks, issues, budgets")
-        else:
-            rprint(f"[dim]Using existing demo database at {DEMO_DB_PATH}[/dim]")
+            session.commit()
 
-    rprint(Panel(
-        f"[bold]Demo database:[/bold] {DEMO_DB_PATH}\n"
-        "[dim]This is completely isolated from your real data.[/dim]\n\n"
-        "To explore the demo, run:\n\n"
-        "  [bold]MIHOMES_DB_PATH={path} mihomes dashboard[/bold]\n"
-        "  [bold]MIHOMES_DB_PATH={path} mihomes property list[/bold]\n"
-        "  [bold]MIHOMES_DB_PATH={path} mihomes task list[/bold]\n\n"
-        "To reset the demo:\n"
-        "  [bold]del {path}[/bold]  (Windows)  or  [bold]rm {path}[/bold]  (Mac/Linux)\n"
-        "  Then run [bold]mihomes init --demo[/bold] again".format(path=DEMO_DB_PATH),
-        title="MiHomes Demo",
-        expand=False,
-    ))
+    # Redirect all subsequent DB calls to demo.db for this process
+    db_module._engine = demo_engine
+    db_module._SessionLocal = None  # force rebuild against demo engine
+
+    # Launch the dashboard directly
+    from mihomes.cli.dashboard import app as dashboard_app
+    dashboard_app(standalone_mode=False, args=[])

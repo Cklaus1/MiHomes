@@ -84,6 +84,10 @@ def _run_demo():
     db_module._engine = demo_engine
     db_module._SessionLocal = None  # force rebuild against demo engine
 
+    # Signal demo mode so dashboard skips real integrations (e.g. Google Calendar)
+    import os
+    os.environ["MIHOMES_DEMO"] = "1"
+
     # Launch the dashboard directly
     from mihomes.cli.dashboard import app as dashboard_app
     dashboard_app(standalone_mode=False, args=[])

@@ -112,20 +112,22 @@ def dashboard(
                 cal_lines.append(f"  [yellow]○ Upcoming[/yellow]  [bold]{p['name']}[/bold] — {since} ({days_away}d away)")
 
         # Google Calendar events (next 30 days, excluding MiHomes-pushed ones)
-        try:
-            from mihomes.services.calendar_sync import is_google_auth_available, _get_provider
-            if is_google_auth_available():
-                now_dt = datetime.now(timezone.utc)
-                gcal_events = _get_provider().list_events(now_dt, now_dt + timedelta(days=30))
-                for ev in gcal_events:
-                    title = ev.get("title", "")
-                    if title.startswith("[MiHomes]"):
-                        continue
-                    start = ev.get("start")
-                    start_str = start.strftime("%b %d") if start else "-"
-                    cal_lines.append(f"  [cyan]◆ Google[/cyan]  {title} — {start_str}")
-        except Exception:
-            pass
+        import os
+        if not os.environ.get("MIHOMES_DEMO"):
+            try:
+                from mihomes.services.calendar_sync import is_google_auth_available, _get_provider
+                if is_google_auth_available():
+                    now_dt = datetime.now(timezone.utc)
+                    gcal_events = _get_provider().list_events(now_dt, now_dt + timedelta(days=30))
+                    for ev in gcal_events:
+                        title = ev.get("title", "")
+                        if title.startswith("[MiHomes]"):
+                            continue
+                        start = ev.get("start")
+                        start_str = start.strftime("%b %d") if start else "-"
+                        cal_lines.append(f"  [cyan]◆ Google[/cyan]  {title} — {start_str}")
+            except Exception:
+                pass
 
         calendar_panel = Panel(
             "\n".join(cal_lines) if cal_lines else "[dim]No active or upcoming occupancy[/dim]",

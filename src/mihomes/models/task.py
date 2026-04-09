@@ -3,7 +3,7 @@
 import enum
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Enum, ForeignKey, Integer, String, Text, Float
+from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Integer, String, Text, Float
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mihomes.models import Base, SlugMixin, TimestampMixin
@@ -49,9 +49,11 @@ class Task(Base, TimestampMixin, SlugMixin):
     completion_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     estimated_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
     gcal_event_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    zone_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("zones.id"), nullable=True)
 
     property = relationship("Property")
     assignee = relationship("Staff")
+    zone = relationship("Zone", back_populates="tasks")
     schedule = relationship("TaskSchedule", back_populates="task", uselist=False, cascade="all, delete-orphan")
 
 

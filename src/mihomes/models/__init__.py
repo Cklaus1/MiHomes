@@ -37,6 +37,7 @@ class SlugMixin:
 # Add new model imports here as they are created.
 from mihomes.models.audit_log import AuditLog  # noqa: E402, F401
 from mihomes.models.property import Property  # noqa: E402, F401
+from mihomes.models.zone import Zone  # noqa: E402, F401
 from mihomes.models.space import Space  # noqa: E402, F401
 from mihomes.models.staff import Staff  # noqa: E402, F401
 from mihomes.models.vendor import Vendor  # noqa: E402, F401

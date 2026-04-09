@@ -98,6 +98,7 @@ _SINGULARS = {
     "tasks": "task",
     "issues": "issue",
     "spaces": "space",
+    "zones": "zone",
     "assets": "asset",
     "templates": "template",
     "events": "event",

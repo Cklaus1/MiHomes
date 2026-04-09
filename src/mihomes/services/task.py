@@ -36,6 +36,7 @@ def create_task(
     season_spec: str | None = None,
     slug: str | None = None,
     estimated_hours: float | None = None,
+    zone_id: int | None = None,
 ) -> Task:
     if len(title) > 300:
         raise ValueError(f"Task title too long (max 300 chars, got {len(title)})")
@@ -56,6 +57,7 @@ def create_task(
         priority=priority,
         due_date=due_date,
         estimated_hours=estimated_hours,
+        zone_id=zone_id,
     )
     session.add(task)
     session.flush()

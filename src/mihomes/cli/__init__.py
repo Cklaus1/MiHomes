@@ -136,6 +136,7 @@ def version_cmd():
 # Register sub-apps
 from mihomes.cli.property import app as property_app  # noqa: E402
 from mihomes.cli.space import app as space_app  # noqa: E402
+from mihomes.cli.zone import app as zone_app  # noqa: E402
 from mihomes.cli.staff import app as staff_app  # noqa: E402
 from mihomes.cli.vendor import app as vendor_app  # noqa: E402
 from mihomes.cli.task import app as task_app  # noqa: E402
@@ -147,6 +148,7 @@ from mihomes.cli.alerts import app as alerts_app  # noqa: E402
 
 app.add_typer(property_app, name="property")
 app.add_typer(space_app, name="space")
+app.add_typer(zone_app, name="zone")
 app.add_typer(staff_app, name="staff")
 app.add_typer(vendor_app, name="vendor")
 app.add_typer(task_app, name="task")

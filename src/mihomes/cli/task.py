@@ -47,18 +47,25 @@ def add_task(
     season: Optional[str] = typer.Option(None, "--season", help="Season spec for seasonal tasks (e.g., spring,fall)"),
     description: Optional[str] = typer.Option(None, "--desc", help="Description"),
     estimate: Optional[float] = typer.Option(None, "--estimate", "-e", help="Estimated hours to complete (e.g. 1.5)"),
+    zone: Optional[str] = typer.Option(None, "--zone", "-z", help="Zone ID or slug"),
     ai_suggest: bool = typer.Option(False, "--ai-suggest", "-a", help="Get AI suggestions for priority and tags"),
 ):
     """Add a new task."""
+    from mihomes.models.zone import Zone
+    from mihomes.services.slug import resolve_identifier
     with get_session() as session:
         try:
             due_date = date.fromisoformat(due) if due else None
+            zone_id = None
+            if zone:
+                z = resolve_identifier(session, Zone, zone)
+                zone_id = z.id
             task = task_svc.create_task(
                 session, title, property,
                 description=description, priority=priority,
                 assignee_id_or_slug=assignee, due_date=due_date,
                 recurrence=recurrence, season_spec=season,
-                estimated_hours=estimate,
+                estimated_hours=estimate, zone_id=zone_id,
             )
             msg = f"Task '{task.title}' created (slug: {task.slug})"
             if task.schedule:
@@ -130,10 +137,13 @@ def list_tasks(
     status: Optional[TaskStatus] = typer.Option(None, "--status"),
     priority: Optional[TaskPriority] = typer.Option(None, "--priority"),
     assignee: Optional[str] = typer.Option(None, "--assignee"),
+    zone: Optional[str] = typer.Option(None, "--zone", "-z", help="Filter by zone ID or slug"),
     overdue: bool = typer.Option(False, "--overdue", help="Show only overdue tasks"),
     recent: bool = typer.Option(False, "--recent", help="Show recently completed tasks (last 7 days)"),
 ):
     """List tasks."""
+    from mihomes.models.zone import Zone
+    from mihomes.services.slug import resolve_identifier
     with get_session() as session:
         try:
             if recent:
@@ -149,6 +159,9 @@ def list_tasks(
                     session, property_id_or_slug=property, status=status,
                     priority=priority, assignee_id_or_slug=assignee, overdue=overdue,
                 )
+                if zone:
+                    z = resolve_identifier(session, Zone, zone)
+                    tasks = [t for t in tasks if t.zone_id == z.id]
         except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
@@ -273,6 +286,7 @@ def edit_task(
     due: Optional[str] = typer.Option(None, "--due"),
     status: Optional[TaskStatus] = typer.Option(None, "--status"),
     estimate: Optional[float] = typer.Option(None, "--estimate", "-e", help="Estimated hours (e.g. 1.5)"),
+    zone: Optional[str] = typer.Option(None, "--zone", "-z", help="Zone ID or slug"),
 ):
     """Edit a task."""
     kwargs = {}
@@ -281,8 +295,7 @@ def edit_task(
     if due is not None: kwargs["due_date"] = date.fromisoformat(due)
     if status is not None: kwargs["status"] = status
     if estimate is not None: kwargs["estimated_hours"] = estimate
-    # Assignee is resolved inside the same session below
-    if not kwargs and assignee is None:
+    if not kwargs and assignee is None and zone is None:
         format_error("No fields to update.")
         raise typer.Exit(1)
     with get_session() as session:
@@ -291,6 +304,11 @@ def edit_task(
             from mihomes.services.slug import resolve_identifier as resolve_id
             staff = resolve_id(session, Staff, assignee)
             kwargs["assignee_id"] = staff.id
+        if zone is not None:
+            from mihomes.models.zone import Zone
+            from mihomes.services.slug import resolve_identifier as resolve_id
+            z = resolve_id(session, Zone, zone)
+            kwargs["zone_id"] = z.id
         try:
             task = task_svc.update_task(session, id_or_slug, **kwargs)
             format_success(f"Task '{task.title}' updated")

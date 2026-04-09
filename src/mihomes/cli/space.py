@@ -61,16 +61,22 @@ def edit_space(
     name: Optional[str] = typer.Option(None, "--name", "-n"),
     space_type: Optional[str] = typer.Option(None, "--type", "-t", help="Space type (bedroom, kitchen, outdoor, etc.)"),
     description: Optional[str] = typer.Option(None, "--desc"),
+    zone: Optional[str] = typer.Option(None, "--zone", "-z", help="Zone ID or slug"),
 ):
     """Edit a space."""
     kwargs = {}
     if name is not None: kwargs["name"] = name
     if space_type is not None: kwargs["space_type"] = space_type
     if description is not None: kwargs["description"] = description
-    if not kwargs:
+    if not kwargs and zone is None:
         format_error("No fields to update.")
         raise typer.Exit(1)
     with get_session() as session:
+        if zone is not None:
+            from mihomes.models.zone import Zone
+            from mihomes.services.slug import resolve_identifier
+            z = resolve_identifier(session, Zone, zone)
+            kwargs["zone_id"] = z.id
         try:
             space = space_svc.update_space(session, id_or_slug, **kwargs)
             format_success(f"Space '{space.name}' updated")

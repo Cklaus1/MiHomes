@@ -431,6 +431,58 @@ def spending_report(
             raise typer.Exit(1)
 
 
+@app.command("vendors")
+def vendors_report(
+    property: Optional[str] = typer.Option(None, "--property", "-p", help="Filter by property slug"),
+    start: Optional[str] = typer.Option(None, "--start", help="Start date YYYY-MM-DD"),
+    end: Optional[str] = typer.Option(None, "--end", help="End date YYYY-MM-DD"),
+    year: Optional[int] = typer.Option(None, "--year", "-y", help="Shortcut: filter to a full year"),
+):
+    """Vendor spending report — expenses + work order costs combined."""
+    if year:
+        period_start = date(year, 1, 1)
+        period_end = date(year, 12, 31)
+    else:
+        period_start = date.fromisoformat(start) if start else date(date.today().year, 1, 1)
+        period_end = date.fromisoformat(end) if end else date.today()
+
+    with get_session() as session:
+        try:
+            rows = report_svc.vendor_spending_report(session, period_start, period_end, property_id_or_slug=property)
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
+            format_error(str(e))
+            raise typer.Exit(1)
+
+        if not rows:
+            console.print("[dim]No vendor spending found for this period.[/dim]")
+            console.print("[dim]Tip: link expenses to vendors with: mihomes expense add <amount> --vendor <slug>[/dim]")
+            return
+
+        period_label = f"{period_start} to {period_end}"
+        table = Table(title=f"Vendor Spending — {period_label}")
+        table.add_column("Vendor", style="bold")
+        table.add_column("Expenses", justify="right")
+        table.add_column("Exp. $", justify="right")
+        table.add_column("Work Orders", justify="right")
+        table.add_column("WO $", justify="right")
+        table.add_column("Combined Total", justify="right", style="green bold")
+
+        grand_total = sum(r["combined_total"] for r in rows)
+        for r in rows:
+            pct = r["combined_total"] / grand_total * 100 if grand_total else 0
+            tx_str = str(r["tx_count"]) if r["tx_count"] else "-"
+            tx_amt = f"${r['tx_total']:,.0f}" if r["tx_total"] else "-"
+            wo_str = str(r["wo_count"]) if r["wo_count"] else "-"
+            wo_amt = f"${r['wo_total']:,.0f}" if r["wo_total"] else "-"
+            table.add_row(
+                r["vendor"], tx_str, tx_amt, wo_str, wo_amt,
+                f"${r['combined_total']:,.0f}  ({pct:.0f}%)",
+            )
+
+        console.print(table)
+        console.print(f"\n[bold]Total vendor spend {period_label}: ${grand_total:,.0f}[/bold]")
+
+
 @app.command("compare")
 def compare_properties(
     start: Optional[str] = typer.Option(None, "--start", help="Start date YYYY-MM-DD"),

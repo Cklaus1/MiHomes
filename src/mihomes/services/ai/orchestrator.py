@@ -120,6 +120,25 @@ def review(
     return ask(session, query, role="estate_manager", property_slug=property_slug)
 
 
+def dashboard_summary(
+    session: Session,
+    *,
+    property_slug: str | None = None,
+) -> AIResponse:
+    """Compact 3-5 bullet summary for the dashboard AI panel."""
+    query = (
+        "Give me exactly 3 to 5 prioritized action items for the estate right now. "
+        "Each item must be a single line, starting with its SPACE priority letter (S, P, A, C, or E) "
+        "followed by a dash and the recommendation. Example: 'A - Beach House: roof leak worsening, "
+        "schedule inspection before Thursday rain forecast.' "
+        "Focus on what needs attention this week: overdue tasks, open critical/high issues, "
+        "upcoming deadlines within 30 days, budget overruns, and seasonal preparations. "
+        "Be specific — name the property and the issue. "
+        "Output only the bullet lines, no headers, no extra commentary."
+    )
+    return ask(session, query, role="estate_manager", property_slug=property_slug)
+
+
 def budget_review(
     session: Session,
     *,

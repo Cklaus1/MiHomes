@@ -135,6 +135,32 @@ def dashboard(
             expand=True,
         )
 
+        # AI Recommendations panel
+        ai_lines = []
+        if not os.environ.get("MIHOMES_DEMO"):
+            try:
+                from mihomes.services.ai.orchestrator import dashboard_summary
+                from mihomes.services.ai.provider import AIAuthError, AIProviderError
+                with console.status("[dim]Fetching AI recommendations...[/dim]", spinner="dots"):
+                    ai_resp = dashboard_summary(session, property_slug=property)
+                space_colors = {"S": "bold red", "P": "bold yellow", "A": "yellow", "C": "cyan", "E": "cyan"}
+                for line in ai_resp.text.strip().splitlines():
+                    line = line.strip("•- ").strip()
+                    if not line:
+                        continue
+                    first = line[0].upper() if line else ""
+                    color = space_colors.get(first)
+                    ai_lines.append(f"  [{color}]{line}[/{color}]" if color else f"  {line}")
+                ai_lines.append("\n  [dim]Run `mihomes ai review` for full analysis[/dim]")
+            except Exception:
+                ai_lines = ["  [dim]AI recommendations unavailable. Run `mihomes config set ai.provider claude` to configure.[/dim]"]
+
+        ai_panel = Panel(
+            "\n".join(ai_lines) if ai_lines else "[dim]AI not configured[/dim]",
+            title="AI Recommendations",
+            expand=True,
+        )
+
         # Status bar
         status_items = []
         if data["alert_count"] > 0:
@@ -163,5 +189,7 @@ def dashboard(
         console.print(Columns([prop_panel, task_panel], equal=True, expand=True))
         console.print(Columns([issue_panel, budget_panel], equal=True, expand=True))
         console.print(calendar_panel)
+        if not os.environ.get("MIHOMES_DEMO"):
+            console.print(ai_panel)
         console.print(Panel(status_text, title="Status", expand=True))
         console.print()

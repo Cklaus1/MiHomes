@@ -9,6 +9,7 @@ from mihomes.models.staff import Staff
 from mihomes.models.task import (
     RecurrenceFrequency,
     Task,
+    TaskCategory,
     TaskPriority,
     TaskSchedule,
     TaskStatus,
@@ -37,6 +38,7 @@ def create_task(
     slug: str | None = None,
     estimated_hours: float | None = None,
     zone_id: int | None = None,
+    category: TaskCategory | None = None,
 ) -> Task:
     if len(title) > 300:
         raise ValueError(f"Task title too long (max 300 chars, got {len(title)})")
@@ -58,6 +60,7 @@ def create_task(
         due_date=due_date,
         estimated_hours=estimated_hours,
         zone_id=zone_id,
+        category=category,
     )
     session.add(task)
     session.flush()
@@ -105,6 +108,7 @@ def list_tasks(
     priority: TaskPriority | None = None,
     assignee_id_or_slug: str | None = None,
     overdue: bool = False,
+    category: TaskCategory | None = None,
 ) -> list[Task]:
     query = session.query(Task)
     if property_id_or_slug:
@@ -117,6 +121,8 @@ def list_tasks(
     if assignee_id_or_slug:
         assignee = resolve_identifier(session, Staff, assignee_id_or_slug)
         query = query.filter(Task.assignee_id == assignee.id)
+    if category:
+        query = query.filter(Task.category == category)
     if overdue:
         query = query.filter(
             Task.due_date < date.today(),

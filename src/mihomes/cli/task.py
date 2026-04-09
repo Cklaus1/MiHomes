@@ -16,7 +16,7 @@ from mihomes.cli.formatters import (
     status_icon,
 )
 from mihomes.db import get_session
-from mihomes.models.task import RecurrenceFrequency, TaskPriority, TaskStatus
+from mihomes.models.task import RecurrenceFrequency, TaskCategory, TaskPriority, TaskStatus
 from mihomes.services import task as task_svc
 from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
 
@@ -48,6 +48,7 @@ def add_task(
     description: Optional[str] = typer.Option(None, "--desc", help="Description"),
     estimate: Optional[float] = typer.Option(None, "--estimate", "-e", help="Estimated hours to complete (e.g. 1.5)"),
     zone: Optional[str] = typer.Option(None, "--zone", "-z", help="Zone ID or slug"),
+    category: Optional[TaskCategory] = typer.Option(None, "--category", "-c", help="Task category"),
     ai_suggest: bool = typer.Option(False, "--ai-suggest", "-a", help="Get AI suggestions for priority and tags"),
 ):
     """Add a new task."""
@@ -66,6 +67,7 @@ def add_task(
                 assignee_id_or_slug=assignee, due_date=due_date,
                 recurrence=recurrence, season_spec=season,
                 estimated_hours=estimate, zone_id=zone_id,
+                category=category,
             )
             msg = f"Task '{task.title}' created (slug: {task.slug})"
             if task.schedule:
@@ -138,6 +140,7 @@ def list_tasks(
     priority: Optional[TaskPriority] = typer.Option(None, "--priority"),
     assignee: Optional[str] = typer.Option(None, "--assignee"),
     zone: Optional[str] = typer.Option(None, "--zone", "-z", help="Filter by zone ID or slug"),
+    category: Optional[TaskCategory] = typer.Option(None, "--category", "-c", help="Filter by category"),
     overdue: bool = typer.Option(False, "--overdue", help="Show only overdue tasks"),
     recent: bool = typer.Option(False, "--recent", help="Show recently completed tasks (last 7 days)"),
 ):
@@ -158,6 +161,7 @@ def list_tasks(
                 tasks = task_svc.list_tasks(
                     session, property_id_or_slug=property, status=status,
                     priority=priority, assignee_id_or_slug=assignee, overdue=overdue,
+                    category=category,
                 )
                 if zone:
                     z = resolve_identifier(session, Zone, zone)
@@ -173,6 +177,7 @@ def list_tasks(
         table = Table(title="Tasks")
         table.add_column("ID", style="dim")
         table.add_column("Title", style="bold")
+        table.add_column("Category", style="dim")
         table.add_column("Property")
         table.add_column("Priority")
         table.add_column("Est.")
@@ -186,7 +191,9 @@ def list_tasks(
             if t.due_date and t.due_date < date.today() and t.status not in (TaskStatus.COMPLETED, TaskStatus.CANCELLED):
                 due_str = f"[red]{due_str} (overdue)[/red]"
             table.add_row(
-                str(t.id), t.title, t.property.name,
+                str(t.id), t.title,
+                t.category.value if t.category else "-",
+                t.property.name,
                 f"[{prio_style}]{format_enum(t.priority)}[/{prio_style}]",
                 _fmt_hours(t.estimated_hours),
                 f"{status_icon(t.status)} {format_enum(t.status)}",
@@ -208,6 +215,7 @@ def show_task(id_or_slug: str = typer.Argument(...)):
             "ID": str(task.id),
             "Slug": task.slug,
             "Property": task.property.name,
+            "Category": task.category.value if task.category else None,
             "Priority": format_enum(task.priority),
             "Estimated Time": _fmt_hours(task.estimated_hours),
             "Status": f"{status_icon(task.status)} {format_enum(task.status)}",
@@ -287,6 +295,7 @@ def edit_task(
     status: Optional[TaskStatus] = typer.Option(None, "--status"),
     estimate: Optional[float] = typer.Option(None, "--estimate", "-e", help="Estimated hours (e.g. 1.5)"),
     zone: Optional[str] = typer.Option(None, "--zone", "-z", help="Zone ID or slug"),
+    category: Optional[TaskCategory] = typer.Option(None, "--category", "-c", help="Task category"),
 ):
     """Edit a task."""
     kwargs = {}
@@ -295,6 +304,7 @@ def edit_task(
     if due is not None: kwargs["due_date"] = date.fromisoformat(due)
     if status is not None: kwargs["status"] = status
     if estimate is not None: kwargs["estimated_hours"] = estimate
+    if category is not None: kwargs["category"] = category
     if not kwargs and assignee is None and zone is None:
         format_error("No fields to update.")
         raise typer.Exit(1)
@@ -397,6 +407,98 @@ def tasks_by_frequency(
             total += len(freq_tasks)
 
         console.print(f"[dim]Total: {total} recurring task(s)[/dim]")
+
+
+@app.command("by-category")
+def tasks_by_category(
+    property: Optional[str] = typer.Option(None, "--property", "-p", help="Filter by property slug"),
+    category: Optional[TaskCategory] = typer.Option(None, "--category", "-c", help="Show only one category"),
+):
+    """Show open tasks grouped by category."""
+    from collections import defaultdict
+    from mihomes.models.task import Task as TaskModel, TaskStatus as TS
+    from mihomes.models.property import Property
+
+    # Emoji labels per category
+    CATEGORY_LABELS = {
+        TaskCategory.PLUMBING:    "🔧 Plumbing",
+        TaskCategory.HVAC:        "❄️  HVAC",
+        TaskCategory.ELECTRICAL:  "⚡ Electrical",
+        TaskCategory.FUEL_GAS:    "🔥 Fuel / Gas",
+        TaskCategory.FIRE_SAFETY: "🛡️  Fire Safety",
+        TaskCategory.SECURITY:    "🔒 Security",
+        TaskCategory.HEALTH_ENV:  "🌿 Health / Environmental",
+        TaskCategory.EXTERIOR:    "🏡 Exterior",
+        TaskCategory.LANDSCAPING: "🌳 Landscaping",
+        TaskCategory.INTERIOR:    "🧼 Interior",
+        TaskCategory.APPLIANCES:  "🧊 Appliances",
+        TaskCategory.OPERATIONS:  "🧠 Operations",
+        TaskCategory.STRATEGIC:   "🔁 Strategic",
+        TaskCategory.GENERAL:     "📋 General",
+        None:                     "— Uncategorized",
+    }
+
+    with get_session() as session:
+        query = session.query(TaskModel).filter(
+            TaskModel.status.notin_([TS.COMPLETED, TS.CANCELLED])
+        )
+        if property:
+            prop = session.query(Property).filter(
+                (Property.slug == property) | (Property.name.ilike(f"%{property}%"))
+            ).first()
+            if not prop:
+                format_error(f"Property '{property}' not found")
+                raise typer.Exit(1)
+            query = query.filter(TaskModel.property_id == prop.id)
+        if category:
+            query = query.filter(TaskModel.category == category)
+
+        tasks = query.order_by(TaskModel.category, TaskModel.due_date).all()
+
+        if not tasks:
+            console.print("[dim]No open tasks found.[/dim]")
+            return
+
+        grouped: dict = defaultdict(list)
+        for t in tasks:
+            grouped[t.category].append(t)
+
+        # Order: defined categories first, then None (uncategorized)
+        ordered_keys = [c for c in TaskCategory if c in grouped]
+        if None in grouped:
+            ordered_keys.append(None)
+
+        tables = []
+        total = 0
+        for cat in ordered_keys:
+            cat_tasks = grouped[cat]
+            label = CATEGORY_LABELS.get(cat, str(cat))
+            table = Table(title=f"{label} ({len(cat_tasks)})", show_lines=False)
+            table.add_column("Task", style="bold")
+            table.add_column("Property")
+            table.add_column("Priority")
+            table.add_column("Due", style="dim")
+            table.add_column("Recurrence")
+
+            for t in cat_tasks:
+                prio_style = severity_color(t.priority.value)
+                rec = t.schedule.frequency.value if t.schedule else "once"
+                due_str = str(t.due_date) if t.due_date else "—"
+                if t.due_date and t.due_date < date.today():
+                    due_str = f"[red]{due_str}[/red]"
+                table.add_row(
+                    t.title, t.property.name,
+                    f"[{prio_style}]{format_enum(t.priority)}[/{prio_style}]",
+                    due_str, rec,
+                )
+
+            tables.append(table)
+            total += len(cat_tasks)
+
+    for table in tables:
+        console.print(table)
+        console.print()
+    console.print(f"[dim]Total: {total} open task(s)[/dim]")
 
 
 @app.command("delete")

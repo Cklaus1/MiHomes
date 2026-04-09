@@ -9,7 +9,7 @@ from rich.table import Table
 from mihomes.cli.formatters import console, format_error, format_success
 from mihomes.db import get_session
 from mihomes.services import contract as contract_svc
-from mihomes.services.slug import EntityNotFoundError
+from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
 
 app = typer.Typer(name="contract", help="Manage vendor contracts")
 
@@ -34,7 +34,7 @@ def add_contract(
                 service_category=category,
             )
             format_success(f"Contract #{c.id} created ({c.vendor.company_name} → {c.property.name})")
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -78,7 +78,7 @@ def list_contracts(
     with get_session() as session:
         try:
             contracts = contract_svc.list_contracts(session, property_id_or_slug=property, expiring_days=expiring)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
         if not contracts:

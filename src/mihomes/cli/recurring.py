@@ -10,7 +10,7 @@ from mihomes.cli.formatters import console, format_error, format_success
 from mihomes.db import get_session
 from mihomes.models.recurring_expense import ExpenseFrequency
 from mihomes.services import recurring as recurring_svc
-from mihomes.services.slug import EntityNotFoundError
+from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
 
 app = typer.Typer(name="recurring", help="Manage recurring expenses")
 
@@ -34,7 +34,7 @@ def add_recurring(
                 vendor_id_or_slug=vendor,
             )
             format_success(f"Recurring expense '{exp.name}' added (${exp.amount:,.2f} {exp.frequency.value})")
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 

@@ -8,7 +8,7 @@ from rich.table import Table
 from mihomes.cli.formatters import console, format_error, format_success
 from mihomes.db import get_session
 from mihomes.models.consumable import ConsumableStatus
-from mihomes.services.slug import EntityNotFoundError
+from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
 
 app = typer.Typer(name="inventory", help="Manage consumable inventory and reorder lists")
 
@@ -150,7 +150,7 @@ def mark_ordered(
         try:
             item = svc_mark(session, id_or_slug)
             format_success(f"'{item.name}' marked as ordered")
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -166,6 +166,6 @@ def mark_restocked(
         try:
             item = svc_restock(session, id_or_slug, quantity=quantity)
             format_success(f"'{item.name}' restocked — status: {item.status.value}")
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)

@@ -111,7 +111,7 @@ def assess_issue_cmd(
     """AI assessment of an issue's severity and recommended actions."""
     from mihomes.services.ai.orchestrator import ask
     from mihomes.services.issue import get_issue
-    from mihomes.services.slug import EntityNotFoundError
+    from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
 
     with get_session() as session:
         try:
@@ -133,7 +133,7 @@ def assess_issue_cmd(
             console.print(Panel(f"[bold]Issue Assessment: {issue.title}[/bold]", expand=False))
             console.print(Markdown(response.text))
             console.print()
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
         except (AIAuthError, AIProviderError) as e:

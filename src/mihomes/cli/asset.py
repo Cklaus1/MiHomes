@@ -9,7 +9,7 @@ from mihomes.cli.formatters import console, format_enum, format_error, format_pa
 from mihomes.db import get_session
 from mihomes.models.asset import AssetCondition, AssetType
 from mihomes.services import asset as asset_svc
-from mihomes.services.slug import EntityNotFoundError
+from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
 
 app = typer.Typer(name="asset", help="Track and manage property assets")
 
@@ -43,7 +43,7 @@ def add_asset(
                 condition=condition, notes=notes,
             )
             format_success(f"Asset '{asset.name}' added (slug: {asset.slug}, type: {asset.asset_type.value})")
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -63,7 +63,7 @@ def list_assets(
                 assets = asset_svc.list_assets(
                     session, property_id_or_slug=property, asset_type=asset_type,
                 )
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -95,7 +95,7 @@ def show_asset(id_or_slug: str = typer.Argument(...)):
     with get_session() as session:
         try:
             asset = asset_svc.get_asset(session, id_or_slug)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
         content = {
@@ -139,7 +139,7 @@ def edit_asset(
         try:
             asset = asset_svc.update_asset(session, id_or_slug, **kwargs)
             format_success(f"Asset '{asset.name}' updated")
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -153,7 +153,7 @@ def delete_asset(
     with get_session() as session:
         try:
             asset = asset_svc.get_asset(session, id_or_slug)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
         if not force:

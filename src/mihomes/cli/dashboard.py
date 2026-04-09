@@ -11,7 +11,7 @@ from rich.text import Text
 from mihomes.cli.formatters import console, format_enum, severity_color, status_icon
 from mihomes.db import get_session
 from mihomes.services.dashboard import get_dashboard_data
-from mihomes.services.slug import EntityNotFoundError, resolve_identifier
+from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError, resolve_identifier
 from mihomes.models.property import Property
 
 app = typer.Typer(name="dashboard", help="Estate overview dashboard", invoke_without_command=True)
@@ -32,7 +32,7 @@ def dashboard(
             try:
                 prop = resolve_identifier(session, Property, property)
                 prop_id = prop.id
-            except EntityNotFoundError as e:
+            except (AmbiguousIdentifierError, EntityNotFoundError) as e:
                 console.print(f"[red]{e}[/red]")
                 raise typer.Exit(1)
 

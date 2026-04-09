@@ -9,7 +9,7 @@ from mihomes.cli.formatters import console, format_enum, format_error, format_pa
 from mihomes.db import get_session
 from mihomes.models.staff import StaffRole
 from mihomes.services import staff as staff_svc
-from mihomes.services.slug import EntityNotFoundError
+from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
 
 app = typer.Typer(name="staff", help="Manage household staff")
 
@@ -31,7 +31,7 @@ def add_staff(
                 whatsapp_phone=whatsapp, property_id_or_slug=property,
             )
             format_success(f"Staff '{member.name}' added (slug: {member.slug})")
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -61,11 +61,14 @@ def list_staff(
 
 @app.command("show")
 def show_staff(id_or_slug: str = typer.Argument(..., help="Staff ID or slug")):
-    """Show staff member details."""
+    """Show staff member details and assigned tasks."""
+    import datetime
+    from mihomes.models.task import Task, TaskStatus
+    from mihomes.cli.formatters import severity_color as priority_color
     with get_session() as session:
         try:
             member = staff_svc.get_staff(session, id_or_slug)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
         content = {
@@ -80,6 +83,33 @@ def show_staff(id_or_slug: str = typer.Argument(..., help="Staff ID or slug")):
             "Active": "Yes" if member.active else "No",
         }
         console.print(format_panel(f"Staff: {member.name}", content))
+
+        tasks = session.query(Task).filter(
+            Task.assignee_id == member.id,
+            Task.status.in_([TaskStatus.PENDING, TaskStatus.IN_PROGRESS]),
+        ).order_by(Task.due_date.asc().nullslast()).all()
+
+        if tasks:
+            table = Table(title=f"Assigned Tasks ({len(tasks)})")
+            table.add_column("ID", style="dim")
+            table.add_column("Task", style="bold")
+            table.add_column("Property")
+            table.add_column("Priority")
+            table.add_column("Due", style="dim")
+            today = datetime.date.today().isoformat()
+            for t in tasks:
+                due = t.due_date.isoformat() if t.due_date else "-"
+                due_display = f"[red]{due}[/red]" if t.due_date and due < today else due
+                pri = t.priority.value if t.priority else "-"
+                table.add_row(
+                    str(t.id), t.title,
+                    t.property.name if t.property else "-",
+                    f"[{priority_color(pri)}]{pri}[/{priority_color(pri)}]",
+                    due_display,
+                )
+            console.print(table)
+        else:
+            console.print("[dim]No open tasks assigned.[/dim]")
 
 
 @app.command("edit")
@@ -105,7 +135,7 @@ def edit_staff(
         try:
             member = staff_svc.update_staff(session, id_or_slug, **kwargs)
             format_success(f"Staff '{member.name}' updated")
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -119,7 +149,7 @@ def delete_staff(
     with get_session() as session:
         try:
             member = staff_svc.get_staff(session, id_or_slug)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
         if not force:
@@ -138,7 +168,7 @@ def assign_staff(
         try:
             member = staff_svc.assign_to_property(session, id_or_slug, property)
             format_success(f"'{member.name}' assigned to property")
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 

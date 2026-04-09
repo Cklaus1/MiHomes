@@ -10,7 +10,7 @@ from mihomes.cli.formatters import console, format_error, format_success
 from mihomes.db import get_session
 from mihomes.models.budget import BudgetPeriod
 from mihomes.services import budget as budget_svc
-from mihomes.services.slug import EntityNotFoundError
+from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
 
 budget_app = typer.Typer(name="budget", help="Manage budgets")
 expense_app = typer.Typer(name="expense", help="Track expenses")
@@ -114,7 +114,7 @@ def budget_report(
                 year = date.today().year
                 start, end = date(year, 1, 1), date(year + 1, 1, 1)
             report = budget_svc.get_budget_report(session, property, start, end)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -162,7 +162,7 @@ def add_expense(
                 vendor_id_or_slug=vendor, description=description, notes=notes,
             )
             format_success(f"Expense ${tx.amount:,.2f} added ({tx.category})")
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -176,7 +176,7 @@ def list_expenses(
     with get_session() as session:
         try:
             txs = budget_svc.list_transactions(session, property_id_or_slug=property, category=category)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 

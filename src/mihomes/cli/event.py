@@ -9,7 +9,7 @@ from mihomes.cli.formatters import console, format_enum, format_error, format_pa
 from mihomes.db import get_session
 from mihomes.models.event import EventStatus
 from mihomes.services import event as event_svc
-from mihomes.services.slug import EntityNotFoundError
+from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
 
 app = typer.Typer(name="event", help="Manage events and hospitality")
 
@@ -37,7 +37,7 @@ def add_event(
                 description=description, notes=notes,
             )
             format_success(f"Event '{event.title}' created (slug: {event.slug}, date: {event.event_date})")
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -51,7 +51,7 @@ def list_events(
     with get_session() as session:
         try:
             events = event_svc.list_events(session, property_id_or_slug=property, status=status)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -86,7 +86,7 @@ def show_event(id_or_slug: str = typer.Argument(...)):
     with get_session() as session:
         try:
             event = event_svc.get_event(session, id_or_slug)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
         content = {

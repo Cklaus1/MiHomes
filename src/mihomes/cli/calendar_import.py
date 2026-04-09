@@ -199,11 +199,11 @@ def import_ical(
 
     with get_session() as session:
         if property:
-            from mihomes.services.slug import resolve_identifier, EntityNotFoundError
+            from mihomes.services.slug import resolve_identifier, AmbiguousIdentifierError, EntityNotFoundError
             from mihomes.models.property import Property
             try:
                 prop = resolve_identifier(session, Property, property)
-            except EntityNotFoundError as e:
+            except (AmbiguousIdentifierError, EntityNotFoundError) as e:
                 format_error(str(e))
                 raise typer.Exit(1)
 

@@ -9,7 +9,7 @@ from rich.table import Table
 from mihomes.cli.formatters import console, format_error
 from mihomes.db import get_session
 from mihomes.services import financial_report as report_svc
-from mihomes.services.slug import EntityNotFoundError
+from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
 
 app = typer.Typer(name="report", help="Financial reports and analytics")
 
@@ -37,7 +37,7 @@ def property_report(
     with get_session() as session:
         try:
             prop = resolve_identifier(session, Property, id_or_slug)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -358,7 +358,7 @@ def vendor_report(
     with get_session() as session:
         try:
             vendor = resolve_identifier(session, Vendor, id_or_slug)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -426,7 +426,7 @@ def spending_report(
                 for r in rows:
                     table.add_row(r["category"], str(r["transaction_count"]), f"{r['total']:,.2f}")
             console.print(table)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -466,7 +466,7 @@ def forecast_spending(
     with get_session() as session:
         try:
             result = report_svc.forecast(session, property, months=months)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 

@@ -18,7 +18,7 @@ from mihomes.cli.formatters import (
 from mihomes.db import get_session
 from mihomes.models.task import RecurrenceFrequency, TaskPriority, TaskStatus
 from mihomes.services import task as task_svc
-from mihomes.services.slug import EntityNotFoundError
+from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
 
 app = typer.Typer(name="task", help="Manage tasks")
 
@@ -149,7 +149,7 @@ def list_tasks(
                     session, property_id_or_slug=property, status=status,
                     priority=priority, assignee_id_or_slug=assignee, overdue=overdue,
                 )
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -188,7 +188,7 @@ def show_task(id_or_slug: str = typer.Argument(...)):
     with get_session() as session:
         try:
             task = task_svc.get_task(session, id_or_slug)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
         content = {
@@ -240,7 +240,7 @@ def upcoming_tasks(
     with get_session() as session:
         try:
             tasks = task_svc.get_upcoming_tasks(session, days=days, property_id_or_slug=property)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -294,7 +294,7 @@ def edit_task(
         try:
             task = task_svc.update_task(session, id_or_slug, **kwargs)
             format_success(f"Task '{task.title}' updated")
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -390,7 +390,7 @@ def delete_task(
     with get_session() as session:
         try:
             task = task_svc.get_task(session, id_or_slug)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
         if not force:

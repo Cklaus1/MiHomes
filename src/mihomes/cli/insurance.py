@@ -10,7 +10,7 @@ from mihomes.cli.formatters import console, format_enum, format_error, format_su
 from mihomes.db import get_session
 from mihomes.models.insurance import InsuranceType
 from mihomes.services import insurance as ins_svc
-from mihomes.services.slug import EntityNotFoundError
+from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
 
 app = typer.Typer(name="insurance", help="Track insurance policies")
 
@@ -37,7 +37,7 @@ def add_policy(
                 renewal_date=date.fromisoformat(renewal) if renewal else None,
             )
             format_success(f"Insurance policy added: {policy.carrier} ({format_enum(policy.insurance_type)})")
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -119,7 +119,7 @@ def list_policies(
     with get_session() as session:
         try:
             policies = ins_svc.list_policies(session, property_id_or_slug=property, expiring_days=expiring)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
         if not policies:

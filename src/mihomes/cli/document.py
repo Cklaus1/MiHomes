@@ -9,7 +9,7 @@ from mihomes.cli.formatters import console, format_enum, format_error, format_pa
 from mihomes.db import get_session
 from mihomes.models.document import DocumentType
 from mihomes.services import document as doc_svc
-from mihomes.services.slug import EntityNotFoundError
+from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
 
 app = typer.Typer(name="document", help="Manage documents and files")
 
@@ -108,7 +108,7 @@ def show_document(id_or_slug: str = typer.Argument(...)):
     with get_session() as session:
         try:
             doc = doc_svc.get_document(session, id_or_slug)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
         content = {
@@ -132,7 +132,7 @@ def delete_document(
     with get_session() as session:
         try:
             doc = doc_svc.get_document(session, id_or_slug)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
         if not force:

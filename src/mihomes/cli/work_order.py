@@ -9,7 +9,7 @@ from mihomes.cli.formatters import console, format_enum, format_error, format_pa
 from mihomes.db import get_session
 from mihomes.models.work_order import WorkOrderStatus
 from mihomes.services import work_order as wo_svc
-from mihomes.services.slug import EntityNotFoundError
+from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
 
 app = typer.Typer(name="workorder", help="Manage maintenance work orders")
 
@@ -55,7 +55,7 @@ def create_work_order(
                 source_type=source_type, source_id=source_id, due_date=due_date,
             )
             format_success(f"Work order '{wo.title}' created (slug: {wo.slug})")
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -64,12 +64,23 @@ def create_work_order(
 def list_work_orders(
     property: Optional[str] = typer.Option(None, "--property", "-p"),
     status: Optional[WorkOrderStatus] = typer.Option(None, "--status", "-s"),
+    vendor: Optional[str] = typer.Option(None, "--vendor", "-v", help="Filter by vendor ID or slug"),
+    assignee: Optional[str] = typer.Option(None, "--assignee", help="Filter by staff ID or slug"),
 ):
     """List work orders."""
+    from mihomes.models.vendor import Vendor
+    from mihomes.models.staff import Staff
+    from mihomes.services.slug import resolve_identifier
     with get_session() as session:
         try:
             orders = wo_svc.list_work_orders(session, property_id_or_slug=property, status=status)
-        except EntityNotFoundError as e:
+            if vendor:
+                v = resolve_identifier(session, Vendor, vendor)
+                orders = [wo for wo in orders if wo.vendor_id == v.id]
+            if assignee:
+                s = resolve_identifier(session, Staff, assignee)
+                orders = [wo for wo in orders if wo.assignee_id == s.id]
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -83,6 +94,7 @@ def list_work_orders(
         table.add_column("Property")
         table.add_column("Status")
         table.add_column("Vendor")
+        table.add_column("Assignee")
         table.add_column("Est. Cost", justify="right")
         table.add_column("Slug", style="dim")
         for wo in orders:
@@ -90,6 +102,7 @@ def list_work_orders(
                 str(wo.id), wo.title, wo.property.name,
                 f"{status_icon(wo.status)} {format_enum(wo.status)}",
                 wo.vendor.company_name if wo.vendor else "-",
+                wo.assignee.name if wo.assignee else "-",
                 f"{wo.currency} {wo.estimated_cost:,.0f}" if wo.estimated_cost else "-",
                 wo.slug,
             )
@@ -102,7 +115,7 @@ def show_work_order(id_or_slug: str = typer.Argument(...)):
     with get_session() as session:
         try:
             wo = wo_svc.get_work_order(session, id_or_slug)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
         content = {
@@ -132,7 +145,7 @@ def approve_work_order(id_or_slug: str = typer.Argument(...)):
         try:
             wo = wo_svc.approve(session, id_or_slug)
             format_success(f"Work order '{wo.title}' approved")
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
         except ValueError as e:
@@ -153,7 +166,7 @@ def complete_work_order(
             format_success(f"Work order '{wo.title}' completed")
             if wo.actual_cost:
                 console.print(f"  Actual cost: {wo.currency} {wo.actual_cost:,.2f}")
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
         except ValueError as e:
@@ -168,7 +181,7 @@ def verify_work_order(id_or_slug: str = typer.Argument(...)):
         try:
             wo = wo_svc.verify(session, id_or_slug)
             format_success(f"Work order '{wo.title}' verified")
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
         except ValueError as e:

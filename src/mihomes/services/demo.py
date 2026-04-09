@@ -12,6 +12,7 @@ from mihomes.services import task as task_svc
 from mihomes.services import issue as issue_svc
 from mihomes.services import budget as budget_svc
 from mihomes.services import note as note_svc
+from mihomes.services import event as event_svc
 from mihomes.models.property import PropertyType, PropertyStatus
 from mihomes.models.staff import StaffRole
 from mihomes.models.task import TaskPriority, RecurrenceFrequency
@@ -40,6 +41,44 @@ def load_demo_data(session: Session) -> None:
     city = prop_svc.create_property(
         session, "City Apartment", address="789 Park Ave, New York, NY",
         property_type=PropertyType.PRIMARY, climate_zone="northeast", sqft=1800,
+    )
+
+    # === Occupancy ===
+    # Beach House: currently occupied by family (checking out in 5 days)
+    prop_svc.occupy_property(
+        session, str(beach.id),
+        from_date=today - timedelta(days=3),
+        until_date=today + timedelta(days=5),
+    )
+    # City Apartment: upcoming stay next week
+    prop_svc.occupy_property(
+        session, str(city.id),
+        from_date=today + timedelta(days=9),
+        until_date=today + timedelta(days=14),
+    )
+    # Mountain Lodge: closed for the season — no occupancy
+
+    # === Events ===
+    event_svc.create_event(
+        session, "Family Summer Stay", str(beach.id),
+        event_date=today - timedelta(days=3),
+        end_date=today + timedelta(days=5),
+        expected_guests=6,
+        description="Annual family vacation — master + 2 guest rooms",
+    )
+    event_svc.create_event(
+        session, "Business Trip Stopover", str(city.id),
+        event_date=today + timedelta(days=9),
+        end_date=today + timedelta(days=14),
+        expected_guests=2,
+        description="Owner and spouse — short city stay",
+    )
+    event_svc.create_event(
+        session, "Ski Season Opening Weekend", str(mountain.id),
+        event_date=today + timedelta(days=45),
+        end_date=today + timedelta(days=48),
+        expected_guests=8,
+        description="Extended family ski trip — full house",
     )
 
     # === Spaces ===

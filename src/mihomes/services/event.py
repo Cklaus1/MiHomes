@@ -108,6 +108,19 @@ def create_guest(
     return guest
 
 
+def update_guest(session: Session, id_or_slug: str, **kwargs) -> Guest:
+    guest = resolve_identifier(session, Guest, id_or_slug)
+    old_snap = snapshot_instance(guest)
+    if "name" in kwargs and "slug" not in kwargs:
+        kwargs["slug"] = ensure_unique_slug(session, Guest, generate_slug(kwargs["name"]), exclude_id=guest.id)
+    safe_update(guest, kwargs)
+    session.flush()
+    changes = diff_instance(old_snap, snapshot_instance(guest))
+    if changes:
+        record_change(session, "guest", guest.id, "update", changes)
+    return guest
+
+
 def list_guests(session: Session) -> list[Guest]:
     return session.query(Guest).order_by(Guest.name).all()
 

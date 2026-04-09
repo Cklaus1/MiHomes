@@ -55,6 +55,30 @@ def list_spaces(
         console.print(table)
 
 
+@app.command("edit")
+def edit_space(
+    id_or_slug: str = typer.Argument(..., help="Space ID or slug"),
+    name: Optional[str] = typer.Option(None, "--name", "-n"),
+    space_type: Optional[str] = typer.Option(None, "--type", "-t", help="Space type (bedroom, kitchen, outdoor, etc.)"),
+    description: Optional[str] = typer.Option(None, "--desc"),
+):
+    """Edit a space."""
+    kwargs = {}
+    if name is not None: kwargs["name"] = name
+    if space_type is not None: kwargs["space_type"] = space_type
+    if description is not None: kwargs["description"] = description
+    if not kwargs:
+        format_error("No fields to update.")
+        raise typer.Exit(1)
+    with get_session() as session:
+        try:
+            space = space_svc.update_space(session, id_or_slug, **kwargs)
+            format_success(f"Space '{space.name}' updated")
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
+            format_error(str(e))
+            raise typer.Exit(1)
+
+
 @app.command("delete")
 def delete_space(
     id_or_slug: str = typer.Argument(..., help="Space ID or slug"),

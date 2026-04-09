@@ -7,8 +7,9 @@ from sqlalchemy.orm import Session
 from mihomes.models.contract import Contract
 from mihomes.models.property import Property
 from mihomes.models.vendor import Vendor
-from mihomes.services.audit import record_change, snapshot_instance
+from mihomes.services.audit import diff_instance, record_change, snapshot_instance
 from mihomes.services.slug import resolve_identifier
+from mihomes.services.update_helpers import safe_update
 
 
 def create_contract(
@@ -53,6 +54,19 @@ def list_contracts(
         cutoff = date.today() + timedelta(days=expiring_days)
         query = query.filter(Contract.end_date != None, Contract.end_date <= cutoff)
     return query.order_by(Contract.end_date.asc().nullslast()).all()
+
+
+def update_contract(session: Session, contract_id: int, **kwargs) -> Contract:
+    contract = session.get(Contract, contract_id)
+    if contract is None:
+        raise ValueError(f"Contract {contract_id} not found")
+    old_snap = snapshot_instance(contract)
+    safe_update(contract, kwargs)
+    session.flush()
+    changes = diff_instance(old_snap, snapshot_instance(contract))
+    if changes:
+        record_change(session, "contract", contract.id, "update", changes)
+    return contract
 
 
 def delete_contract(session: Session, contract_id: int) -> None:

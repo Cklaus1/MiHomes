@@ -8,9 +8,10 @@ from mihomes.models.budget import Transaction
 from mihomes.models.property import Property
 from mihomes.models.recurring_expense import ExpenseFrequency, RecurringExpense
 from mihomes.models.vendor import Vendor
-from mihomes.services.audit import record_change, snapshot_instance
+from mihomes.services.audit import diff_instance, record_change, snapshot_instance
 from mihomes.services.recurrence import add_months
 from mihomes.services.slug import resolve_identifier
+from mihomes.services.update_helpers import safe_update
 
 
 def create_recurring_expense(
@@ -41,6 +42,24 @@ def create_recurring_expense(
     session.flush()
     record_change(session, "recurring_expense", expense.id, "create", snapshot_instance(expense))
     return expense
+
+
+def get_recurring_expense(session: Session, expense_id: int) -> RecurringExpense:
+    exp = session.get(RecurringExpense, expense_id)
+    if exp is None:
+        raise ValueError(f"Recurring expense {expense_id} not found")
+    return exp
+
+
+def update_recurring_expense(session: Session, expense_id: int, **kwargs) -> RecurringExpense:
+    exp = get_recurring_expense(session, expense_id)
+    old_snap = snapshot_instance(exp)
+    safe_update(exp, kwargs)
+    session.flush()
+    changes = diff_instance(old_snap, snapshot_instance(exp))
+    if changes:
+        record_change(session, "recurring_expense", exp.id, "update", changes)
+    return exp
 
 
 def list_recurring_expenses(session: Session, *, active_only: bool = True) -> list[RecurringExpense]:

@@ -69,6 +69,34 @@ def show_contract(id_or_slug: str = typer.Argument(..., help="Contract ID")):
         console.print(format_panel(f"Contract #{c.id}", content))
 
 
+@app.command("edit")
+def edit_contract(
+    contract_id: int = typer.Argument(..., help="Contract ID"),
+    end: Optional[str] = typer.Option(None, "--end", help="End date YYYY-MM-DD"),
+    annual: Optional[float] = typer.Option(None, "--annual", help="Annual cost"),
+    auto_renew: Optional[bool] = typer.Option(None, "--auto-renew/--no-auto-renew"),
+    category: Optional[str] = typer.Option(None, "--category"),
+    notes: Optional[str] = typer.Option(None, "--notes"),
+):
+    """Edit a contract."""
+    kwargs = {}
+    if end is not None: kwargs["end_date"] = date.fromisoformat(end)
+    if annual is not None: kwargs["annual_cost"] = annual
+    if auto_renew is not None: kwargs["auto_renew"] = auto_renew
+    if category is not None: kwargs["service_category"] = category
+    if notes is not None: kwargs["notes"] = notes
+    if not kwargs:
+        format_error("No fields to update.")
+        raise typer.Exit(1)
+    with get_session() as session:
+        try:
+            c = contract_svc.update_contract(session, contract_id, **kwargs)
+            format_success(f"Contract #{c.id} updated")
+        except ValueError as e:
+            format_error(str(e))
+            raise typer.Exit(1)
+
+
 @app.command("list")
 def list_contracts(
     property: Optional[str] = typer.Option(None, "--property", "-p"),

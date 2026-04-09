@@ -80,6 +80,39 @@ def list_events(
         console.print(table)
 
 
+@app.command("edit")
+def edit_event(
+    id_or_slug: str = typer.Argument(..., help="Event ID or slug"),
+    title: Optional[str] = typer.Option(None, "--title"),
+    event_date: Optional[str] = typer.Option(None, "--date", help="Event date YYYY-MM-DD"),
+    end_date: Optional[str] = typer.Option(None, "--end", help="End date YYYY-MM-DD"),
+    expected_guests: Optional[int] = typer.Option(None, "--guests"),
+    budget: Optional[float] = typer.Option(None, "--budget"),
+    status: Optional[EventStatus] = typer.Option(None, "--status", "-s"),
+    notes: Optional[str] = typer.Option(None, "--notes"),
+):
+    """Edit an event."""
+    from datetime import date
+    kwargs = {}
+    if title is not None: kwargs["title"] = title
+    if event_date is not None: kwargs["event_date"] = date.fromisoformat(event_date)
+    if end_date is not None: kwargs["end_date"] = date.fromisoformat(end_date)
+    if expected_guests is not None: kwargs["expected_guests"] = expected_guests
+    if budget is not None: kwargs["budget"] = budget
+    if status is not None: kwargs["status"] = status
+    if notes is not None: kwargs["notes"] = notes
+    if not kwargs:
+        format_error("No fields to update.")
+        raise typer.Exit(1)
+    with get_session() as session:
+        try:
+            event = event_svc.update_event(session, id_or_slug, **kwargs)
+            format_success(f"Event '{event.title}' updated")
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
+            format_error(str(e))
+            raise typer.Exit(1)
+
+
 @app.command("show")
 def show_event(id_or_slug: str = typer.Argument(...)):
     """Show event details."""

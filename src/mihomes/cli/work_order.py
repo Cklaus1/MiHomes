@@ -138,6 +138,52 @@ def show_work_order(id_or_slug: str = typer.Argument(...)):
         console.print(format_panel(f"Work Order: {wo.title}", content))
 
 
+@app.command("edit")
+def edit_work_order(
+    id_or_slug: str = typer.Argument(...),
+    title: Optional[str] = typer.Option(None, "--title"),
+    description: Optional[str] = typer.Option(None, "--desc"),
+    vendor: Optional[str] = typer.Option(None, "--vendor", "-v", help="Vendor ID or slug"),
+    assignee: Optional[str] = typer.Option(None, "--assignee", help="Staff ID or slug"),
+    estimated_cost: Optional[float] = typer.Option(None, "--estimate"),
+    due: Optional[str] = typer.Option(None, "--due", help="Due date YYYY-MM-DD"),
+):
+    """Edit a work order."""
+    from datetime import datetime
+    from mihomes.models.vendor import Vendor
+    from mihomes.models.staff import Staff
+    from mihomes.services.slug import resolve_identifier
+    kwargs: dict = {}
+    if title is not None: kwargs["title"] = title
+    if description is not None: kwargs["description"] = description
+    if estimated_cost is not None: kwargs["estimated_cost"] = estimated_cost
+    if due is not None: kwargs["due_date"] = datetime.fromisoformat(due)
+    with get_session() as session:
+        if vendor is not None:
+            try:
+                v = resolve_identifier(session, Vendor, vendor)
+                kwargs["vendor_id"] = v.id
+            except (AmbiguousIdentifierError, EntityNotFoundError) as e:
+                format_error(str(e))
+                raise typer.Exit(1)
+        if assignee is not None:
+            try:
+                s = resolve_identifier(session, Staff, assignee)
+                kwargs["assignee_id"] = s.id
+            except (AmbiguousIdentifierError, EntityNotFoundError) as e:
+                format_error(str(e))
+                raise typer.Exit(1)
+        if not kwargs:
+            format_error("No fields to update.")
+            raise typer.Exit(1)
+        try:
+            wo = wo_svc.update_work_order(session, id_or_slug, **kwargs)
+            format_success(f"Work order '{wo.title}' updated")
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
+            format_error(str(e))
+            raise typer.Exit(1)
+
+
 @app.command("approve")
 def approve_work_order(id_or_slug: str = typer.Argument(...)):
     """Approve a work order."""

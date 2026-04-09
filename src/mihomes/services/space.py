@@ -10,6 +10,7 @@ from mihomes.services.slug import (
     generate_slug,
     resolve_identifier,
 )
+from mihomes.services.update_helpers import safe_update
 
 
 def create_space(
@@ -48,6 +49,19 @@ def list_spaces(session: Session, property_id_or_slug: str) -> list[Space]:
 
 def get_space(session: Session, id_or_slug: str) -> Space:
     return resolve_identifier(session, Space, id_or_slug)
+
+
+def update_space(session: Session, id_or_slug: str, **kwargs) -> Space:
+    space = resolve_identifier(session, Space, id_or_slug)
+    old_snap = snapshot_instance(space)
+    if "name" in kwargs and "slug" not in kwargs:
+        kwargs["slug"] = ensure_unique_slug(session, Space, generate_slug(kwargs["name"]), exclude_id=space.id)
+    safe_update(space, kwargs)
+    session.flush()
+    changes = diff_instance(old_snap, snapshot_instance(space))
+    if changes:
+        record_change(session, "space", space.id, "update", changes)
+    return space
 
 
 def delete_space(session: Session, id_or_slug: str) -> str:

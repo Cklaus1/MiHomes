@@ -73,6 +73,39 @@ def show_policy(id_or_slug: str = typer.Argument(..., help="Policy ID")):
         console.print(format_panel(f"Policy: {p.carrier}", content))
 
 
+@app.command("edit")
+def edit_policy(
+    policy_id: int = typer.Argument(..., help="Policy ID"),
+    carrier: Optional[str] = typer.Option(None, "--carrier"),
+    coverage: Optional[float] = typer.Option(None, "--coverage"),
+    deductible: Optional[float] = typer.Option(None, "--deductible"),
+    premium: Optional[float] = typer.Option(None, "--premium"),
+    renewal: Optional[str] = typer.Option(None, "--renewal", help="Renewal date YYYY-MM-DD"),
+    policy_number: Optional[str] = typer.Option(None, "--policy-number"),
+    notes: Optional[str] = typer.Option(None, "--notes"),
+):
+    """Edit an insurance policy."""
+    from datetime import date
+    kwargs = {}
+    if carrier is not None: kwargs["carrier"] = carrier
+    if coverage is not None: kwargs["coverage_limit"] = coverage
+    if deductible is not None: kwargs["deductible"] = deductible
+    if premium is not None: kwargs["annual_premium"] = premium
+    if renewal is not None: kwargs["renewal_date"] = date.fromisoformat(renewal)
+    if policy_number is not None: kwargs["policy_number"] = policy_number
+    if notes is not None: kwargs["notes"] = notes
+    if not kwargs:
+        format_error("No fields to update.")
+        raise typer.Exit(1)
+    with get_session() as session:
+        try:
+            p = ins_svc.update_policy(session, policy_id, **kwargs)
+            format_success(f"Policy #{p.id} ({p.carrier}) updated")
+        except ValueError as e:
+            format_error(str(e))
+            raise typer.Exit(1)
+
+
 @app.command("gaps")
 def coverage_gaps():
     """AI review of insurance coverage adequacy across the estate."""

@@ -54,6 +54,36 @@ def list_guests():
         console.print(table)
 
 
+@app.command("edit")
+def edit_guest(
+    id_or_slug: str = typer.Argument(..., help="Guest ID or slug"),
+    name: Optional[str] = typer.Option(None, "--name", "-n"),
+    email: Optional[str] = typer.Option(None, "--email"),
+    phone: Optional[str] = typer.Option(None, "--phone"),
+    dietary: Optional[str] = typer.Option(None, "--dietary"),
+    room: Optional[str] = typer.Option(None, "--room"),
+    notes: Optional[str] = typer.Option(None, "--notes"),
+):
+    """Edit a guest."""
+    kwargs = {}
+    if name is not None: kwargs["name"] = name
+    if email is not None: kwargs["email"] = email
+    if phone is not None: kwargs["phone"] = phone
+    if dietary is not None: kwargs["dietary_preferences"] = dietary
+    if room is not None: kwargs["room_preference"] = room
+    if notes is not None: kwargs["notes"] = notes
+    if not kwargs:
+        format_error("No fields to update.")
+        raise typer.Exit(1)
+    with get_session() as session:
+        try:
+            guest = event_svc.update_guest(session, id_or_slug, **kwargs)
+            format_success(f"Guest '{guest.name}' updated")
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
+            format_error(str(e))
+            raise typer.Exit(1)
+
+
 @app.command("invite")
 def invite_guest(
     guest: str = typer.Argument(..., help="Guest ID or slug"),

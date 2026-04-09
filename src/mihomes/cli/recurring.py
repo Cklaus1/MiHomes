@@ -39,6 +39,32 @@ def add_recurring(
             raise typer.Exit(1)
 
 
+@app.command("edit")
+def edit_recurring(
+    expense_id: int = typer.Argument(..., help="Recurring expense ID"),
+    name: Optional[str] = typer.Option(None, "--name", "-n"),
+    amount: Optional[float] = typer.Option(None, "--amount", "-a"),
+    frequency: Optional[ExpenseFrequency] = typer.Option(None, "--frequency", "-f"),
+    category: Optional[str] = typer.Option(None, "--category", "-c"),
+):
+    """Edit a recurring expense."""
+    kwargs = {}
+    if name is not None: kwargs["name"] = name
+    if amount is not None: kwargs["amount"] = amount
+    if frequency is not None: kwargs["frequency"] = frequency
+    if category is not None: kwargs["category"] = category
+    if not kwargs:
+        format_error("No fields to update.")
+        raise typer.Exit(1)
+    with get_session() as session:
+        try:
+            exp = recurring_svc.update_recurring_expense(session, expense_id, **kwargs)
+            format_success(f"Recurring expense '{exp.name}' updated")
+        except ValueError as e:
+            format_error(str(e))
+            raise typer.Exit(1)
+
+
 @app.command("list")
 def list_recurring():
     """List all recurring expenses."""

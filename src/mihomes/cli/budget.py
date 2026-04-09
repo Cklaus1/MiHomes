@@ -167,6 +167,34 @@ def add_expense(
             raise typer.Exit(1)
 
 
+@expense_app.command("edit")
+def edit_expense(
+    expense_id: int = typer.Argument(..., help="Expense ID"),
+    amount: Optional[float] = typer.Option(None, "--amount", "-a"),
+    category: Optional[str] = typer.Option(None, "--category", "-c"),
+    description: Optional[str] = typer.Option(None, "--desc"),
+    tx_date: Optional[str] = typer.Option(None, "--date", help="Date YYYY-MM-DD"),
+    notes: Optional[str] = typer.Option(None, "--notes"),
+):
+    """Edit an expense."""
+    kwargs = {}
+    if amount is not None: kwargs["amount"] = amount
+    if category is not None: kwargs["category"] = category
+    if description is not None: kwargs["description"] = description
+    if tx_date is not None: kwargs["date"] = date.fromisoformat(tx_date)
+    if notes is not None: kwargs["notes"] = notes
+    if not kwargs:
+        format_error("No fields to update.")
+        raise typer.Exit(1)
+    with get_session() as session:
+        try:
+            tx = budget_svc.update_transaction(session, expense_id, **kwargs)
+            format_success(f"Expense #{tx.id} updated")
+        except ValueError as e:
+            format_error(str(e))
+            raise typer.Exit(1)
+
+
 @expense_app.command("list")
 def list_expenses(
     property: Optional[str] = typer.Option(None, "--property", "-p"),

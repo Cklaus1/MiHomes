@@ -14,6 +14,7 @@ def generate_alerts(session: Session) -> int:
     count = 0
     count += _check_overdue_tasks(session)
     count += _check_critical_issues(session)
+    count += _check_low_inventory(session)
     # Also check expirations (contracts, insurance, warranties)
     from mihomes.services.automation import generate_expiration_alerts
     count += generate_expiration_alerts(session, days_ahead=30)
@@ -85,6 +86,63 @@ def _check_critical_issues(session: Session) -> int:
         )
         session.add(alert)
         count += 1
+
+    session.flush()
+    return count
+
+
+def _check_low_inventory(session: Session) -> int:
+    """Create alerts for consumables that are low or out of stock."""
+    from mihomes.models.consumable import Consumable, ConsumableStatus
+
+    items = session.query(Consumable).filter(
+        Consumable.status.in_([ConsumableStatus.LOW, ConsumableStatus.OUT])
+    ).all()
+
+    count = 0
+    for item in items:
+        existing = session.query(Alert).filter(
+            Alert.source_entity_type == "consumable",
+            Alert.source_entity_id == item.id,
+            Alert.alert_type == "low_inventory",
+            Alert.status != AlertStatus.RESOLVED,
+        ).first()
+        if existing:
+            continue
+
+        severity = AlertSeverity.HIGH if item.status == ConsumableStatus.OUT else AlertSeverity.MEDIUM
+        status_label = "out of stock" if item.status == ConsumableStatus.OUT else "running low"
+        alert = Alert(
+            alert_type="low_inventory",
+            source_entity_type="consumable",
+            source_entity_id=item.id,
+            severity=severity,
+            message=f"Consumable '{item.name}' is {status_label} — reorder needed",
+        )
+        session.add(alert)
+        count += 1
+
+    # Auto-resolve stale inventory alerts for items that are back in stock
+    stale_ids = session.query(Alert.source_entity_id).filter(
+        Alert.alert_type == "low_inventory",
+        Alert.source_entity_type == "consumable",
+        Alert.status != AlertStatus.RESOLVED,
+    ).all()
+    stale_consumable_ids = {row[0] for row in stale_ids}
+    if stale_consumable_ids:
+        restocked = session.query(Consumable).filter(
+            Consumable.id.in_(stale_consumable_ids),
+            Consumable.status == ConsumableStatus.OK,
+        ).all()
+        for item in restocked:
+            stale_alerts = session.query(Alert).filter(
+                Alert.alert_type == "low_inventory",
+                Alert.source_entity_type == "consumable",
+                Alert.source_entity_id == item.id,
+                Alert.status != AlertStatus.RESOLVED,
+            ).all()
+            for alert in stale_alerts:
+                alert.status = AlertStatus.RESOLVED
 
     session.flush()
     return count

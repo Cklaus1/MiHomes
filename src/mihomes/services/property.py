@@ -116,20 +116,35 @@ def occupy_property(
     from_date: date | None = None,
     until_date: date | None = None,
 ) -> Property:
-    return update_property(
+    prop = update_property(
         session,
         id_or_slug,
         occupied=True,
         occupied_since=from_date or date.today(),
         occupied_until=until_date,
     )
+    # Auto-generate guest turnover tasks on occupancy
+    _run_occupancy_template(session, prop, "guest-turnover")
+    return prop
 
 
 def vacate_property(session: Session, id_or_slug: str) -> Property:
-    return update_property(
+    prop = update_property(
         session,
         id_or_slug,
         occupied=False,
         occupied_since=None,
         occupied_until=None,
     )
+    # Auto-generate post-departure turnover tasks on vacate
+    _run_occupancy_template(session, prop, "guest-turnover")
+    return prop
+
+
+def _run_occupancy_template(session: Session, prop: Property, template_slug: str) -> None:
+    """Silently run a template for a property if the template exists."""
+    from mihomes.models.template import Template
+    from mihomes.services.template import run_template
+    tmpl = session.query(Template).filter(Template.slug == template_slug).first()
+    if tmpl:
+        run_template(session, template_slug, str(prop.id))

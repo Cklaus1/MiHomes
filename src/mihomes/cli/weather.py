@@ -11,6 +11,25 @@ from mihomes.db import get_session
 
 app = typer.Typer(name="weather", help="Weather forecasts and alerts for your properties")
 
+_TIMEZONE_NAMES = {
+    "America/New_York":    "Eastern Time",
+    "America/Chicago":     "Central Time",
+    "America/Denver":      "Mountain Time",
+    "America/Phoenix":     "Mountain Time (no DST)",
+    "America/Los_Angeles": "Pacific Time",
+    "America/Anchorage":   "Alaska Time",
+    "America/Honolulu":    "Hawaii Time",
+    "Europe/London":       "GMT / London",
+    "Europe/Paris":        "Central European Time",
+    "Europe/Berlin":       "Central European Time",
+    "Asia/Tokyo":          "Japan Time",
+    "Asia/Dubai":          "Gulf Time",
+    "Australia/Sydney":    "Australian Eastern Time",
+}
+
+def _friendly_timezone(tz: str) -> str:
+    return _TIMEZONE_NAMES.get(tz, tz)
+
 
 @app.command("show")
 def show_weather(
@@ -50,7 +69,7 @@ def show_weather(
         f"Humidity: {c.humidity}%   Wind: {c.wind_speed:.0f} mph   Gusts: {c.wind_gusts:.0f} mph\n"
         f"Precipitation: {c.precipitation:.2f}\"",
         title=f"Current — {forecast.property_name}",
-        subtitle=f"{forecast.latitude:.4f}, {forecast.longitude:.4f}  |  {forecast.timezone}",
+        subtitle=f"{forecast.latitude:.4f}, {forecast.longitude:.4f}  |  {_friendly_timezone(forecast.timezone)}",
     ))
 
     table = Table(title=f"{days}-Day Forecast", show_header=True, header_style="bold")

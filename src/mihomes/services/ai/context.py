@@ -83,6 +83,12 @@ def assemble_context(
             sections.append(text)
             token_est += len(text) // 4
 
+    if token_est < max_tokens:
+        text = _fetch_weather(session, property_slug)
+        if text:
+            sections.append(text)
+            token_est += len(text) // 4
+
     # Conversation history
     if session_id and token_est < max_tokens:
         text = _fetch_conversation_history(session, session_id)
@@ -290,6 +296,33 @@ def _fetch_work_orders(session: Session, property_slug: str | None) -> str:
         cost = f"${wo.estimated_cost:,.0f}" if wo.estimated_cost else "no estimate"
         lines.append(f"- [{wo.status.value}] {wo.title} @ {wo.property.name} — {vendor}, {cost}")
     return "\n".join(lines)
+
+
+def _fetch_weather(session: Session, property_slug: str | None) -> str:
+    from mihomes.models.property import Property
+    from mihomes.services.weather import get_forecast_for_property, forecast_summary
+
+    query = session.query(Property)
+    if property_slug:
+        from mihomes.services.slug import resolve_identifier
+        try:
+            prop = resolve_identifier(session, Property, property_slug)
+            props = [prop]
+        except Exception:
+            props = []
+    else:
+        props = query.all()
+
+    summaries = []
+    for prop in props:
+        try:
+            forecast = get_forecast_for_property(session, prop)
+            if forecast:
+                summaries.append(forecast_summary(forecast))
+        except Exception:
+            pass
+
+    return "\n\n".join(summaries) if summaries else ""
 
 
 def _fetch_conversation_history(session: Session, session_id: str) -> str:

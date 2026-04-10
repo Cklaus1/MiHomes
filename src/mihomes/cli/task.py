@@ -243,10 +243,10 @@ def complete_task(
     """Mark a task as completed."""
     with get_session() as session:
         try:
-            task = task_svc.complete_task(session, id_or_slug, notes=notes)
+            task, next_task = task_svc.complete_task(session, id_or_slug, notes=notes)
             format_success(f"Task '{task.title}' completed")
-            if task.schedule and task.schedule.frequency != RecurrenceFrequency.ONCE:
-                console.print("[dim]Next occurrence has been created.[/dim]")
+            if next_task:
+                console.print(f"[dim]Next occurrence created: due {next_task.due_date}[/dim]")
         except (EntityNotFoundError, ValueError) as e:
             format_error(str(e))
             raise typer.Exit(1)

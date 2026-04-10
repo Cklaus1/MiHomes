@@ -105,9 +105,18 @@ def resolve_issue(session: Session, id_or_slug: str, notes: str | None = None) -
 
 
 def delete_issue(session: Session, id_or_slug: str) -> str:
+    from mihomes.models.alert import Alert, AlertStatus
     issue = resolve_identifier(session, Issue, id_or_slug)
     name = issue.title
     record_change(session, "issue", issue.id, "delete", snapshot_instance(issue))
+    # Resolve any alerts referencing this issue before deleting it
+    stale_alerts = session.query(Alert).filter(
+        Alert.source_entity_type == "issue",
+        Alert.source_entity_id == issue.id,
+        Alert.status != AlertStatus.RESOLVED,
+    ).all()
+    for alert in stale_alerts:
+        alert.status = AlertStatus.RESOLVED
     session.delete(issue)
     session.flush()
     return name

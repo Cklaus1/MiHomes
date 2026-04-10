@@ -2,7 +2,7 @@
 
 import csv
 import io
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -13,7 +13,12 @@ EXPORT_FIELDS = {
     "property": ["id", "slug", "name", "address", "property_type", "status", "climate_zone", "sqft", "currency"],
     "staff": ["id", "slug", "name", "role", "phone", "email", "whatsapp_phone", "active"],
     "vendor": ["id", "slug", "company_name", "contact_name", "phone", "email", "service_categories"],
-    "task": ["id", "slug", "title", "property_id", "priority", "status", "due_date", "assignee_id"],
+    "task": [
+        "id", "slug", "title", "property_id", "priority", "status", "due_date", "assignee_id",
+        "description", "category", "estimated_hours", "zone_id",
+        "completed_at", "completion_notes",
+        "recurrence_frequency", "recurrence_next_due", "recurrence_last_generated", "recurrence_cron", "recurrence_season",
+    ],
     "issue": ["id", "slug", "title", "property_id", "severity", "status", "description"],
 }
 
@@ -33,12 +38,25 @@ def export_csv(session: Session, entity_type: str) -> str:
     for entity in entities:
         row = {}
         for field in fields:
-            val = getattr(entity, field, None)
+            # Flatten TaskSchedule relationship into recurrence_* columns
+            if field.startswith("recurrence_") and entity_type == "task":
+                schedule = getattr(entity, "schedule", None)
+                suffix = field[len("recurrence_"):]
+                attr_map = {
+                    "frequency": "frequency",
+                    "next_due": "next_due",
+                    "last_generated": "last_generated",
+                    "cron": "custom_cron",
+                    "season": "season_spec",
+                }
+                val = getattr(schedule, attr_map.get(suffix, suffix), None) if schedule else None
+            else:
+                val = getattr(entity, field, None)
             if hasattr(val, "value"):  # Enum
                 val = val.value
             if isinstance(val, list):
                 val = "|".join(str(v) for v in val)
-            if isinstance(val, date):
+            if isinstance(val, (date, datetime)):
                 val = val.isoformat()
             row[field] = val if val is not None else ""
         writer.writerow(row)

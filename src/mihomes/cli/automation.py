@@ -115,10 +115,15 @@ def run_all():
         except Exception:
             pass
 
+        weather_alerts = auto_svc.run_weather_alerts(session)
+        weather_suggestions = auto_svc.run_weather_task_suggestions(session)
+
         console.print("[bold]Automation run complete:[/bold]")
         console.print(f"  - {escalated} task(s) escalated")
         console.print(f"  - {expiration_alerts} expiration alert(s) generated")
         console.print(f"  - {task_alerts} task/issue alert(s) generated")
+        console.print(f"  - {weather_alerts} weather alert(s) generated")
+        console.print(f"  - {weather_suggestions} propert(ies) with AI weather task suggestions")
         console.print(f"  - WhatsApp: {wa_status}")
 
         digest = auto_svc.generate_daily_digest(session)

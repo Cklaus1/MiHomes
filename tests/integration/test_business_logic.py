@@ -227,7 +227,7 @@ class TestTaskServiceEdgeCases:
         task = create_task(session, "Weekly Lawn Mow", prop.slug,
                            recurrence=RecurrenceFrequency.WEEKLY,
                            due_date=date.today())
-        result = complete_task(session, task.slug)
+        result, _ = complete_task(session, task.slug)
         assert result.status == TaskStatus.COMPLETED
 
     def test_complete_already_completed_raises(self, session, prop):

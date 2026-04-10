@@ -14,6 +14,8 @@ DEFAULTS = {
     "retention.audit_years": "2",
     "retention.whatsapp_years": "1",
     "retention.ai_years": "1",
+    # weather.default_location is used for properties that have no address set
+    "weather.default_location": "Atlanta, GA",
 }
 
 

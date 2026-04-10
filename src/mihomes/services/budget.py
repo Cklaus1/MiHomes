@@ -36,7 +36,7 @@ def set_budget(
         existing.amount = amount
         existing.currency = currency
         session.flush()
-        record_change(session, "budget", existing.id, "update", {"amount": {"old": None, "new": amount}})
+        record_change(session, "budget", existing.id, "update", {"amount": {"old": existing.amount, "new": amount}})
         return existing
     budget = Budget(
         property_id=prop.id, category=category, period=period,

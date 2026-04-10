@@ -108,7 +108,7 @@ class TestTaskRecurrence:
         assert t.schedule is not None
         assert t.schedule.next_due == date(2026, 7, 1)
 
-        completed = complete_task(session, str(t.id), notes="Done")
+        completed, _ = complete_task(session, str(t.id), notes="Done")
         assert completed.status == TaskStatus.COMPLETED
 
         next_task = session.query(Task).filter(
@@ -125,7 +125,7 @@ class TestTaskRecurrence:
                         recurrence=RecurrenceFrequency.SEASONAL, season_spec="spring,fall")
         assert t.schedule.season_spec == "spring,fall"
 
-        completed = complete_task(session, str(t.id))
+        completed, _ = complete_task(session, str(t.id))
         next_task = session.query(Task).filter(
             Task.property_id == p.id, Task.status == TaskStatus.PENDING
         ).first()

@@ -210,10 +210,12 @@ app.add_typer(report_app, name="report")
 from mihomes.cli.automation import app as auto_app  # noqa: E402
 from mihomes.cli.calendar_import import app as calendar_app  # noqa: E402
 from mihomes.cli.inventory import app as inventory_app  # noqa: E402
+from mihomes.cli.weather import app as weather_app  # noqa: E402
 
 app.add_typer(auto_app, name="auto")
 app.add_typer(calendar_app, name="calendar")
 app.add_typer(inventory_app, name="inventory")
+app.add_typer(weather_app, name="weather")
 
 # Archive
 from mihomes.cli.archive import app as archive_app  # noqa: E402

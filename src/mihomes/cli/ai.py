@@ -330,6 +330,201 @@ def plan_cmd(
             raise typer.Exit(1)
 
 
+@app.command("rank-resumes")
+def rank_resumes_cmd(
+    folder: str = typer.Argument(..., help="Path to folder containing resumes (.pdf, .txt, .md)"),
+    role: str = typer.Option(..., "--role", "-r", help="Role slug matching a job description file (e.g. housekeeper)"),
+    top: int = typer.Option(10, "--top", "-n", help="Number of top candidates to return"),
+    save_notes: bool = typer.Option(True, "--save-notes/--no-save-notes", help="Save per-candidate markdown notes to knowledge/staff/candidates/"),
+    format: str = typer.Option("rich", "--format", "-f", help="Output format: rich or markdown"),
+):
+    """
+    AI force-ranks candidates from a folder of resumes against a job description.
+
+    Drop resumes (.pdf, .txt, .md) into a folder, then run:
+
+        mihomes ai rank-resumes ./resumes --role housekeeper
+
+    Requires the job description at: knowledge/staff/job-descriptions/<role>.md
+    Saves per-candidate notes to: knowledge/staff/candidates/
+    """
+    from pathlib import Path
+    from mihomes.services import resume_ranker as ranker
+    from mihomes.services.ai.provider import AIAuthError, AIProviderError
+    from rich import box
+    from rich.table import Table
+
+    resume_dir = Path(folder).expanduser().resolve()
+    if not resume_dir.exists():
+        format_error(f"Folder not found: {resume_dir}")
+        raise typer.Exit(1)
+
+    # Load resumes
+    with console.status("[dim]Loading resumes...[/dim]"):
+        resumes = ranker.load_resumes(resume_dir)
+
+    if not resumes:
+        format_error(f"No .pdf, .txt, or .md files found in {resume_dir}")
+        raise typer.Exit(1)
+
+    # Report any load errors
+    errors = [r for r in resumes if r.get("error")]
+    readable = [r for r in resumes if not r.get("error")]
+    console.print(f"\n  Loaded [bold]{len(readable)}[/bold] resume(s)", end="")
+    if errors:
+        console.print(f" [yellow]({len(errors)} could not be read)[/yellow]", end="")
+    console.print()
+
+    # Load job description
+    try:
+        jd = ranker.load_job_description(role)
+    except FileNotFoundError as e:
+        format_error(str(e))
+        raise typer.Exit(1)
+
+    console.print(f"  Job description: [cyan]{role}[/cyan]")
+    console.print(f"  Ranking top [bold]{min(top, len(readable))}[/bold] of {len(readable)} candidate(s)\n")
+
+    # Run AI ranking
+    try:
+        with console.status("[bold blue]AI is ranking candidates...[/bold blue]", spinner="dots"):
+            result = ranker.rank_resumes(resumes, jd, top_n=top)
+    except AIAuthError as e:
+        format_error(str(e))
+        raise typer.Exit(1)
+    except AIProviderError as e:
+        format_error(f"AI error: {e}")
+        raise typer.Exit(1)
+
+    rankings = result.get("rankings", [])
+    hiring_notes = result.get("hiring_notes", "")
+
+    if format == "markdown":
+        _print_rankings_markdown(rankings, hiring_notes, role)
+    else:
+        _print_rankings_rich(rankings, hiring_notes)
+
+    # Save candidate notes
+    if save_notes and rankings:
+        saved = []
+        for r in rankings:
+            try:
+                path = ranker.save_candidate_notes(r, role)
+                saved.append(path)
+            except Exception:
+                pass
+        if saved:
+            console.print(f"\n[dim]  Saved {len(saved)} candidate note(s) to knowledge/staff/candidates/[/dim]")
+
+
+def _print_rankings_rich(rankings: list[dict], hiring_notes: str) -> None:
+    from rich import box
+    from rich.table import Table
+
+    action_style = {"phone_screen": "green", "hold": "yellow", "decline": "red dim"}
+
+    # Summary table
+    t = Table(box=box.SIMPLE, show_header=True, header_style="bold dim", pad_edge=False)
+    t.add_column("#", style="dim", justify="right", width=3)
+    t.add_column("Candidate", style="bold", min_width=20)
+    t.add_column("Score", justify="center", width=7)
+    t.add_column("Action", width=14)
+    t.add_column("Summary")
+
+    for r in rankings:
+        action = r.get("recommended_action", "hold")
+        style = action_style.get(action, "")
+        t.add_row(
+            str(r["rank"]),
+            r["candidate_name"],
+            f"{r['overall_score']}/100",
+            f"[{style}]{action.replace('_', ' ')}[/{style}]",
+            r.get("one_line_summary", "")[:70],
+        )
+
+    console.print()
+    console.print(t)
+
+    # Detail cards for phone_screen candidates
+    phone_screen = [r for r in rankings if r.get("recommended_action") == "phone_screen"]
+    if phone_screen:
+        console.print(f"\n[bold green]── Phone Screen Candidates ({len(phone_screen)}) ─────────────────[/bold green]\n")
+        for r in phone_screen:
+            scores = r.get("scores", {})
+            score_line = "  ".join(
+                f"{k.replace('_',' ').title()}: {v}"
+                for k, v in scores.items()
+            )
+            console.print(f"[bold]#{r['rank']} {r['candidate_name']}[/bold]  [dim]{r['overall_score']}/100[/dim]")
+            console.print(f"  [dim]{score_line}[/dim]")
+            if r.get("strengths"):
+                console.print(f"  [green]✓[/green] " + "  ·  ".join(r["strengths"][:3]))
+            if r.get("concerns"):
+                console.print(f"  [yellow]?[/yellow] " + "  ·  ".join(r["concerns"][:2]))
+            if r.get("red_flags"):
+                console.print(f"  [red]⚠[/red] " + "  ·  ".join(r["red_flags"]))
+            console.print()
+
+    if hiring_notes:
+        console.print(f"[bold dim]── Hiring Notes ───────────────────────────────────────────[/bold dim]")
+        console.print(f"[dim]{hiring_notes}[/dim]\n")
+
+
+def _print_rankings_markdown(rankings: list[dict], hiring_notes: str, role: str) -> None:
+    from datetime import date
+    lines = [
+        f"# Resume Rankings — {role.replace('-', ' ').title()}",
+        f"**Date**: {date.today()}  ",
+        f"**Candidates evaluated**: {len(rankings)}",
+        "",
+        "## Summary",
+        "",
+        "| Rank | Candidate | Score | Action |",
+        "|------|-----------|-------|--------|",
+    ]
+    for r in rankings:
+        action = r.get("recommended_action", "hold").replace("_", " ").title()
+        lines.append(f"| #{r['rank']} | {r['candidate_name']} | {r['overall_score']}/100 | {action} |")
+
+    lines += [""]
+    for r in rankings:
+        if r.get("recommended_action") != "phone_screen":
+            continue
+        lines += [
+            f"## #{r['rank']} {r['candidate_name']} — {r['overall_score']}/100",
+            "",
+            f"_{r.get('one_line_summary', '')}_",
+            "",
+        ]
+        scores = r.get("scores", {})
+        if scores:
+            lines += ["**Scores**", ""]
+            for k, v in scores.items():
+                lines.append(f"- {k.replace('_', ' ').title()}: {v}")
+            lines.append("")
+        if r.get("strengths"):
+            lines += ["**Strengths**", ""]
+            for s in r["strengths"]:
+                lines.append(f"- {s}")
+            lines.append("")
+        if r.get("concerns"):
+            lines += ["**Concerns**", ""]
+            for c in r["concerns"]:
+                lines.append(f"- {c}")
+            lines.append("")
+        if r.get("red_flags"):
+            lines += ["**⚠ Red Flags**", ""]
+            for rf in r["red_flags"]:
+                lines.append(f"- {rf}")
+            lines.append("")
+
+    if hiring_notes:
+        lines += ["## Hiring Notes", "", hiring_notes, ""]
+
+    print("\n".join(lines))
+>>>>>>> origin/main
+
+
 @app.command("setup")
 def setup_cmd(
     provider_arg: Optional[str] = typer.Option(None, "--provider", help="AI provider: claude, openai, nim, ollama"),

@@ -230,6 +230,10 @@ app.add_typer(whatsapp_app, name="whatsapp")
 app.add_typer(export_app, name="export")
 app.add_typer(import_app, name="import-csv")
 
+# Playbooks
+from mihomes.cli.playbook import app as playbook_app  # noqa: E402
+app.add_typer(playbook_app, name="playbook")
+
 # Register init command directly on root app
 from mihomes.cli.init import register_init  # noqa: E402
 register_init(app)

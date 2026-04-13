@@ -4,7 +4,11 @@ from datetime import date
 from typing import Optional
 
 import typer
+from rich import box
+from rich.console import Console
+from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 
 from mihomes.cli.formatters import console, format_error
 from mihomes.db import get_session
@@ -823,3 +827,265 @@ def forecast_spending(
                     f"{cat['forecast_total']:,.2f}",
                 )
             console.print(table)
+
+
+@app.command("weekly")
+def weekly_report(
+    property: Optional[str] = typer.Option(None, "--property", "-p", help="Property slug or 'all' (default: all)"),
+    format: str = typer.Option("terminal", "--format", "-f", help="Output format: terminal or markdown"),
+):
+    """Weekly operational report — tasks, issues, budget, flags. Designed for EA Monday review."""
+    with get_session() as session:
+        try:
+            data = weekly_svc.generate(session, property_slug=property)
+        except ValueError as e:
+            format_error(str(e))
+            raise typer.Exit(1)
+
+    if format == "markdown":
+        _print_markdown(data)
+    else:
+        _print_terminal(data)
+
+
+# ── Terminal renderer ─────────────────────────────────────────────────────────
+
+def _print_terminal(data: dict) -> None:
+    from datetime import date
+    today = date.today()
+    prop_names = ", ".join(p["name"] for p in data["properties"]) or "All Properties"
+    console.print()
+    console.print(Panel(
+        f"[bold]Weekly Report[/bold]  ·  {data['period']['from']} → {data['period']['to']}\n"
+        f"[dim]{prop_names}[/dim]",
+        box=box.ROUNDED,
+    ))
+
+    # ── Flags ────────────────────────────────────────────────────────────────
+    if data["flags"]:
+        console.print("\n[bold red]⚠  Flags[/bold red]")
+        for f in data["flags"]:
+            console.print(f"  [red]•[/red] {f}")
+
+    # ── Done this week ───────────────────────────────────────────────────────
+    console.print(f"\n[bold green]✅  Done This Week[/bold green]")
+    if data["completed_tasks"] or data["resolved_issues"] or data["completed_work_orders"]:
+        if data["completed_tasks"]:
+            t = Table(box=box.SIMPLE, show_header=True, header_style="dim")
+            t.add_column("Task", style="green")
+            t.add_column("Property", style="dim")
+            t.add_column("Assignee", style="dim")
+            t.add_column("Done", style="dim", justify="right")
+            for task in data["completed_tasks"]:
+                t.add_row(
+                    task["title"],
+                    task["property"],
+                    task["assignee"] or "—",
+                    task["completed_at"] or "—",
+                )
+            console.print(t)
+        if data["resolved_issues"]:
+            console.print(f"  [dim]Issues resolved:[/dim]")
+            for i in data["resolved_issues"]:
+                console.print(f"    • [{i['severity']}] {i['title']} ({i['property']})")
+        if data["completed_work_orders"]:
+            console.print(f"  [dim]Work orders completed:[/dim]")
+            for w in data["completed_work_orders"]:
+                console.print(f"    • {w['title']}")
+    else:
+        console.print("  [dim]No completed tasks or resolved issues.[/dim]")
+
+    # ── In progress ──────────────────────────────────────────────────────────
+    console.print(f"\n[bold yellow]🔨  In Progress[/bold yellow]")
+    if data["in_progress_tasks"]:
+        t = Table(box=box.SIMPLE, show_header=True, header_style="dim")
+        t.add_column("Task")
+        t.add_column("Property", style="dim")
+        t.add_column("Priority", style="dim")
+        t.add_column("Due", style="dim", justify="right")
+        t.add_column("Assignee", style="dim")
+        for task in data["in_progress_tasks"]:
+            due = task["due_date"] or "—"
+            overdue = task["due_date"] and task["due_date"] < today.isoformat()
+            due_style = "red" if overdue else ""
+            t.add_row(
+                task["title"],
+                task["property"],
+                task["priority"],
+                f"[{due_style}]{due}[/{due_style}]" if due_style else due,
+                task["assignee"] or "—",
+            )
+        console.print(t)
+    else:
+        console.print("  [dim]Nothing actively in progress.[/dim]")
+
+    # ── Overdue ──────────────────────────────────────────────────────────────
+    if data["overdue_tasks"]:
+        console.print(f"\n[bold red]🚨  Overdue ({len(data['overdue_tasks'])})[/bold red]")
+        t = Table(box=box.SIMPLE, show_header=True, header_style="dim")
+        t.add_column("Task", style="red")
+        t.add_column("Property", style="dim")
+        t.add_column("Due", style="red", justify="right")
+        t.add_column("Assignee", style="dim")
+        for task in data["overdue_tasks"]:
+            t.add_row(task["title"], task["property"], task["due_date"] or "—", task["assignee"] or "—")
+        console.print(t)
+
+    # ── Open issues ──────────────────────────────────────────────────────────
+    if data["open_issues"]:
+        console.print(f"\n[bold]🔴  Open Issues ({len(data['open_issues'])})[/bold]")
+        t = Table(box=box.SIMPLE, show_header=True, header_style="dim")
+        t.add_column("Issue")
+        t.add_column("Property", style="dim")
+        t.add_column("Severity", justify="center")
+        t.add_column("Status", style="dim")
+        sev_colors = {"critical": "red", "high": "yellow", "medium": "blue", "low": "dim"}
+        for issue in data["open_issues"]:
+            color = sev_colors.get(issue["severity"], "")
+            t.add_row(
+                issue["title"],
+                issue["property"],
+                f"[{color}]{issue['severity']}[/{color}]",
+                issue["status"],
+            )
+        console.print(t)
+
+    # ── Upcoming ─────────────────────────────────────────────────────────────
+    console.print(f"\n[bold]📅  Upcoming (next 7 days)[/bold]")
+    if data["upcoming_tasks"]:
+        t = Table(box=box.SIMPLE, show_header=True, header_style="dim")
+        t.add_column("Task")
+        t.add_column("Property", style="dim")
+        t.add_column("Due", justify="right")
+        t.add_column("Priority", style="dim")
+        t.add_column("Assignee", style="dim")
+        pri_colors = {"urgent": "red", "high": "yellow", "medium": "", "low": "dim"}
+        for task in data["upcoming_tasks"]:
+            color = pri_colors.get(task["priority"], "")
+            t.add_row(
+                task["title"],
+                task["property"],
+                task["due_date"] or "—",
+                f"[{color}]{task['priority']}[/{color}]" if color else task["priority"],
+                task["assignee"] or "—",
+            )
+        console.print(t)
+    else:
+        console.print("  [dim]No tasks due in the next 7 days.[/dim]")
+
+    # ── Budget MTD ───────────────────────────────────────────────────────────
+    console.print(f"\n[bold]💰  Budget MTD[/bold]")
+    if any(b["budgeted_mtd"] > 0 for b in data["budget"]):
+        t = Table(box=box.SIMPLE, show_header=True, header_style="dim")
+        t.add_column("Property", style="bold")
+        t.add_column("Budgeted", justify="right")
+        t.add_column("Spent MTD", justify="right")
+        t.add_column("This Week", justify="right", style="dim")
+        t.add_column("Used", justify="right")
+        for b in data["budget"]:
+            if b["budgeted_mtd"] == 0:
+                continue
+            pct = f"{b['pct_used']}%" if b["pct_used"] is not None else "—"
+            style = "red" if b["over_budget"] else ""
+            t.add_row(
+                b["property"],
+                f"{b['budgeted_mtd']:,.0f}",
+                f"[{style}]{b['spent_mtd']:,.0f}[/{style}]" if style else f"{b['spent_mtd']:,.0f}",
+                f"{b['spent_this_week']:,.0f}",
+                f"[{style}]{pct}[/{style}]" if style else pct,
+            )
+        console.print(t)
+    else:
+        console.print("  [dim]No budget data for this period.[/dim]")
+
+    # ── New this week ─────────────────────────────────────────────────────────
+    new_count = len(data["new_issues"]) + len(data["new_work_orders"])
+    if new_count:
+        console.print(f"\n[bold dim]New This Week[/bold dim]")
+        if data["new_issues"]:
+            console.print(f"  Issues opened: {len(data['new_issues'])}")
+            for i in data["new_issues"]:
+                console.print(f"    • [{i['severity']}] {i['title']} ({i['property']})")
+        if data["new_work_orders"]:
+            console.print(f"  Work orders opened: {len(data['new_work_orders'])}")
+
+    console.print()
+
+
+# ── Markdown renderer ─────────────────────────────────────────────────────────
+
+def _print_markdown(data: dict) -> None:
+    from datetime import date
+    today = date.today()
+    prop_names = ", ".join(p["name"] for p in data["properties"]) or "All Properties"
+
+    lines = [
+        f"# Weekly Report — {data['period']['from']} to {data['period']['to']}",
+        f"**Properties**: {prop_names}  ",
+        f"**Generated**: {data['generated_at'][:16].replace('T', ' ')}",
+        "",
+    ]
+
+    if data["flags"]:
+        lines += ["## ⚠ Flags", ""]
+        for f in data["flags"]:
+            lines.append(f"- {f}")
+        lines.append("")
+
+    lines += ["## ✅ Done This Week", ""]
+    if data["completed_tasks"]:
+        for t in data["completed_tasks"]:
+            assignee = f" — {t['assignee']}" if t["assignee"] else ""
+            lines.append(f"- **{t['title']}** ({t['property']}){assignee}")
+    if data["resolved_issues"]:
+        for i in data["resolved_issues"]:
+            lines.append(f"- Issue resolved: [{i['severity']}] {i['title']} ({i['property']})")
+    if data["completed_work_orders"]:
+        for w in data["completed_work_orders"]:
+            lines.append(f"- Work order closed: {w['title']}")
+    if not (data["completed_tasks"] or data["resolved_issues"] or data["completed_work_orders"]):
+        lines.append("_No completions this week._")
+    lines.append("")
+
+    lines += ["## 🔨 In Progress", ""]
+    for t in data["in_progress_tasks"]:
+        due = f", due {t['due_date']}" if t["due_date"] else ""
+        overdue = " ⚠ OVERDUE" if t["due_date"] and t["due_date"] < today.isoformat() else ""
+        lines.append(f"- **{t['title']}** ({t['property']}){due}{overdue}")
+    if not data["in_progress_tasks"]:
+        lines.append("_Nothing actively in progress._")
+    lines.append("")
+
+    if data["overdue_tasks"]:
+        lines += [f"## 🚨 Overdue ({len(data['overdue_tasks'])})", ""]
+        for t in data["overdue_tasks"]:
+            assignee = f" — {t['assignee']}" if t["assignee"] else ""
+            lines.append(f"- **{t['title']}** ({t['property']}) — due {t['due_date']}{assignee}")
+        lines.append("")
+
+    if data["open_issues"]:
+        lines += [f"## 🔴 Open Issues ({len(data['open_issues'])})", ""]
+        for i in data["open_issues"]:
+            lines.append(f"- [{i['severity'].upper()}] **{i['title']}** ({i['property']}) — {i['status']}")
+        lines.append("")
+
+    lines += ["## 📅 Upcoming (next 7 days)", ""]
+    for t in data["upcoming_tasks"]:
+        assignee = f" — {t['assignee']}" if t["assignee"] else ""
+        lines.append(f"- **{t['title']}** ({t['property']}) — due {t['due_date']}{assignee}")
+    if not data["upcoming_tasks"]:
+        lines.append("_No tasks due in the next 7 days._")
+    lines.append("")
+
+    lines += ["## 💰 Budget MTD", ""]
+    for b in data["budget"]:
+        if b["budgeted_mtd"] == 0:
+            continue
+        over = " ⚠ OVER BUDGET" if b["over_budget"] else ""
+        lines.append(
+            f"- **{b['property']}**: {b['spent_mtd']:,.0f} / {b['budgeted_mtd']:,.0f} {b['currency']} "
+            f"({b['pct_used']}%){over}"
+        )
+    lines.append("")
+
+    print("\n".join(lines))

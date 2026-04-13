@@ -26,6 +26,8 @@ mihomes report weekly --format 15-5
 
 Copy the output. Fill in:
 - **🎯 My priorities** — what you're personally focused on next week
+- **🚩 Flags / Blockers** — anything blocking you or the team (system flags show as `[auto]`, add yours below)
+- **❓ Needs decision from Chris** — anything you need a call or answer on before you can move forward
 - **⏱ Time split** — rough % breakdown of how your time went
 
 Send to Chris via Slack or email. He reads it Monday morning.

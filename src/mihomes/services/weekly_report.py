@@ -2,7 +2,7 @@
 
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from mihomes.models.budget import Budget, BudgetPeriod, Transaction
@@ -52,13 +52,20 @@ def generate(session: Session, property_slug: str | None = None) -> dict:
     )
 
     # ── Tasks in progress ─────────────────────────────────────────────────────
+    _priority_rank = case(
+        (Task.priority == "urgent", 0),
+        (Task.priority == "high", 1),
+        (Task.priority == "medium", 2),
+        (Task.priority == "low", 3),
+        else_=99,
+    )
     in_progress_tasks = (
         session.query(Task)
         .filter(
             Task.property_id.in_(prop_filter_ids),
             Task.status == TaskStatus.IN_PROGRESS,
         )
-        .order_by(Task.priority, Task.due_date)
+        .order_by(_priority_rank, Task.due_date)
         .all()
     )
 
@@ -83,7 +90,7 @@ def generate(session: Session, property_slug: str | None = None) -> dict:
             Task.due_date >= today,
             Task.due_date <= week_ahead,
         )
-        .order_by(Task.due_date, Task.priority)
+        .order_by(Task.due_date, _priority_rank)
         .all()
     )
 

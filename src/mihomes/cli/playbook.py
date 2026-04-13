@@ -62,7 +62,7 @@ def show_playbook(
             if item["section"] != current_section:
                 current_section = item["section"]
                 console.print(f"  [dim bold]{current_section}[/dim bold]")
-            console.print(f"    [dim]☐[/dim] {item['title']}")
+            console.print(f"    [dim]☐[/dim] {escape(item['title'])}")
         console.print()
         return
 
@@ -151,7 +151,7 @@ def search_knowledge(
         console.print(f"[dim]No matches for '{query}' in knowledge base.[/dim]")
         return
 
-    console.print(f"\n[bold]Knowledge base search: '{query}'[/bold] — {len(results)} file(s)\n")
+    console.print(f"\n[bold]Knowledge base search: '{escape(query)}'[/bold] — {len(results)} file(s)\n")
     for r in results:
         console.print(f"  [cyan]{r['file']}[/cyan]  [dim]{r['title']}[/dim]")
         for lineno, line in r["matches"]:

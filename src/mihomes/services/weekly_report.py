@@ -150,7 +150,6 @@ def generate(session: Session, property_slug: str | None = None) -> dict:
             .filter(
                 Budget.property_id == prop.id,
                 Budget.period_start <= today,
-                Budget.period_end >= month_start,
             )
             .scalar() or 0.0
         )
@@ -201,7 +200,7 @@ def generate(session: Session, property_slug: str | None = None) -> dict:
         flags.append(f"{b['property']} over budget MTD: spent {b['spent_mtd']:,.0f} vs {b['budgeted_mtd']:,.0f} ({b['currency']})")
 
     return {
-        "generated_at": datetime.now().isoformat(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "period": {"from": week_ago.isoformat(), "to": today.isoformat()},
         "properties": [{"name": p.name, "slug": p.slug} for p in properties],
 

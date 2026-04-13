@@ -335,7 +335,7 @@ def _print_markdown(data: dict) -> None:
     lines += ["## 🔨 In Progress", ""]
     for t in data["in_progress_tasks"]:
         due = f", due {t['due_date']}" if t["due_date"] else ""
-        overdue = " ⚠ OVERDUE" if t["due_date"] and t["due_date"] < today.isoformat() else ""
+        overdue = " ⚠ OVERDUE" if t["due_date"] and date.fromisoformat(t["due_date"]) < today else ""
         lines.append(f"- **{t['title']}** ({t['property']}){due}{overdue}")
     if not data["in_progress_tasks"]:
         lines.append("_Nothing actively in progress._")
@@ -424,7 +424,7 @@ def _print_15_5(data: dict) -> None:
     for t in data["in_progress_tasks"]:
         prop = f" [{t['property']}]" if len(data["properties"]) > 1 else ""
         due = f", due {t['due_date']}" if t["due_date"] else ""
-        overdue = " ⚠ OVERDUE" if t["due_date"] and t["due_date"] < today.isoformat() else ""
+        overdue = " ⚠ OVERDUE" if t["due_date"] and date.fromisoformat(t["due_date"]) < today else ""
         assignee = f" — {t['assignee']}" if t["assignee"] else ""
         ip_items.append(f"- {t['title']}{prop}{due}{overdue}{assignee}")
     for t in data["overdue_tasks"]:

@@ -5,6 +5,7 @@ from typing import Optional
 import typer
 from rich.console import Console
 from rich.markdown import Markdown
+from rich.markup import escape
 from rich.panel import Panel
 from rich.spinner import Spinner
 from rich.live import Live
@@ -379,10 +380,10 @@ def _print_rankings_rich(rankings: list[dict], hiring_notes: str) -> None:
         style = action_style.get(action, "")
         t.add_row(
             str(r["rank"]),
-            r["candidate_name"],
+            escape(r["candidate_name"]),
             f"{r['overall_score']}/100",
             f"[{style}]{action.replace('_', ' ')}[/{style}]",
-            r.get("one_line_summary", "")[:70],
+            escape(r.get("one_line_summary", "")[:70]),
         )
 
     console.print()
@@ -398,19 +399,19 @@ def _print_rankings_rich(rankings: list[dict], hiring_notes: str) -> None:
                 f"{k.replace('_',' ').title()}: {v}"
                 for k, v in scores.items()
             )
-            console.print(f"[bold]#{r['rank']} {r['candidate_name']}[/bold]  [dim]{r['overall_score']}/100[/dim]")
-            console.print(f"  [dim]{score_line}[/dim]")
+            console.print(f"[bold]#{r['rank']} {escape(r['candidate_name'])}[/bold]  [dim]{r['overall_score']}/100[/dim]")
+            console.print(f"  [dim]{escape(score_line)}[/dim]")
             if r.get("strengths"):
-                console.print(f"  [green]✓[/green] " + "  ·  ".join(r["strengths"][:3]))
+                console.print(f"  [green]✓[/green] " + escape("  ·  ".join(r["strengths"][:3])))
             if r.get("concerns"):
-                console.print(f"  [yellow]?[/yellow] " + "  ·  ".join(r["concerns"][:2]))
+                console.print(f"  [yellow]?[/yellow] " + escape("  ·  ".join(r["concerns"][:2])))
             if r.get("red_flags"):
-                console.print(f"  [red]⚠[/red] " + "  ·  ".join(r["red_flags"]))
+                console.print(f"  [red]⚠[/red] " + escape("  ·  ".join(r["red_flags"])))
             console.print()
 
     if hiring_notes:
         console.print(f"[bold dim]── Hiring Notes ───────────────────────────────────────────[/bold dim]")
-        console.print(f"[dim]{hiring_notes}[/dim]\n")
+        console.print(f"[dim]{escape(hiring_notes)}[/dim]\n")
 
 
 def _print_rankings_markdown(rankings: list[dict], hiring_notes: str, role: str) -> None:

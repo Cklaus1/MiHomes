@@ -149,6 +149,7 @@ def generate(session: Session, property_slug: str | None = None) -> dict:
             session.query(func.sum(Budget.amount))
             .filter(
                 Budget.property_id == prop.id,
+                Budget.period_start >= month_start,
                 Budget.period_start <= today,
             )
             .scalar() or 0.0

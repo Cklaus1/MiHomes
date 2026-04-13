@@ -1,6 +1,6 @@
 """Playbook CLI commands — markdown-first operational playbooks."""
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional
 
 import typer
@@ -120,7 +120,7 @@ def run_playbook(
         t.add_column("Section", style="dim")
         t.add_column("Due", style="dim", justify="right")
         for i, item in enumerate(pb["checklist"], 1):
-            due = start_date.isoformat()
+            due = (start_date + timedelta(days=item.get("day_offset", 0))).isoformat()
             t.add_row(str(i), item["title"], item["section"], due)
         console.print(t)
         console.print(f"\n[dim]{len(pb['checklist'])} tasks would be created.[/dim]\n")

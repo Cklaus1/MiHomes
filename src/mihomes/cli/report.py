@@ -6,6 +6,7 @@ from typing import Optional
 import typer
 from rich import box
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -172,7 +173,7 @@ def _print_terminal(data: dict) -> None:
         if data["resolved_issues"]:
             console.print(f"  [dim]Issues resolved:[/dim]")
             for i in data["resolved_issues"]:
-                console.print(f"    • [{i['severity']}] {i['title']} ({i['property']})")
+                console.print(f"    • [[{i['severity']}]] {escape(i['title'])} ({escape(i['property'])})")
         if data["completed_work_orders"]:
             console.print(f"  [dim]Work orders completed:[/dim]")
             for w in data["completed_work_orders"]:
@@ -290,7 +291,7 @@ def _print_terminal(data: dict) -> None:
         if data["new_issues"]:
             console.print(f"  Issues opened: {len(data['new_issues'])}")
             for i in data["new_issues"]:
-                console.print(f"    • [{i['severity']}] {i['title']} ({i['property']})")
+                console.print(f"    • [[{i['severity']}]] {escape(i['title'])} ({escape(i['property'])})")
         if data["new_work_orders"]:
             console.print(f"  Work orders opened: {len(data['new_work_orders'])}")
 

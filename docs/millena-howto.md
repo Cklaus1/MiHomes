@@ -45,6 +45,71 @@ Chris reads it Monday morning. The Monday sync should only cover the Flags and N
 
 > **Tip**: The report is easy to fill out if you've been logging tasks and issues throughout the week. The system does the work — you just add your perspective.
 
+### What a good 15-5 looks like
+
+Here's an example of a completed report — this is what you're aiming for:
+
+---
+
+📍 Miami, Aspen  
+📅 Week of Apr 14 – Apr 18, 2026  
+👤 Millena
+
+✅ Done this week:  
+- Deep clean completed — master bedroom and both guest bathrooms [Miami]  
+- Pool filter replacement scheduled and confirmed with AquaFix for Tuesday  
+- Coordinated AC service — technician came Wednesday, filters replaced, unit running well  
+- Onboarding started for Rosa (new housekeeper) — Day 1 and 2 complete  
+- Issue resolved: kitchen faucet drip — plumber came Thursday, fixed same day  
+
+🔨 In progress:  
+- Rosa onboarding — Week 1 shadowing in progress, on track  
+- Vendor quote for Aspen gutter cleaning — waiting on 2nd quote from Alpine Services  
+- Appliance warranty check — started, not finished, will complete next week  
+
+📅 Plan for next week:  
+- Rosa: Week 2 independent work begins Monday  
+- Gutter cleaning decision once 2nd quote comes in (expected Wed)  
+- Aspen spring walkthrough — scheduling with property manager  
+- HVAC filter check at Miami (overdue by 2 weeks)  
+
+🎯 My priorities:  
+- Get Rosa fully independent by end of week — she's doing well but needs one more round of supervision  
+- Close the Aspen gutter situation — been open 3 weeks  
+- Catch up on Miami maintenance backlog before end of month  
+
+🚩 Flags / Blockers:  
+- [auto] HVAC filter task is 2 weeks overdue — scheduling now  
+- Aspen caretaker called in sick twice this week — coverage is thin, may need backup plan  
+- Rosa still needs her alarm code set up — I don't have access to do this myself  
+
+❓ Needs decision from Chris:  
+- Gutter cleaning: Alpine quote is $400 more than first vendor but has better reviews — which do you want me to go with?  
+- Rosa's alarm code — who do I contact to get this set up?  
+- Aspen caretaker reliability — worth having a conversation or too early?  
+
+💰 Budget MTD:  
+- Miami: $3,200 / $5,000 USD (64%)  
+- Aspen: $1,800 / $3,000 USD (60%)  
+
+⏱ Time split (rough %):  
+- Operations / staff oversight: 45%  
+- Vendor coordination: 25%  
+- Admin / reporting: 15%  
+- Other: 15%  
+
+---
+
+**A few things to notice in this example:**
+
+- **Done** is specific — names the vendor, the room, the outcome. Not just "cleaned house."
+- **In progress** says where things stand, not just that they exist — "waiting on 2nd quote" tells Chris it's moving.
+- **My priorities** reflects her judgment — she's decided Rosa and Aspen gutters are the focus, not just listing what's scheduled.
+- **Flags** includes both auto-generated items and her own observation about the caretaker.
+- **Needs decision** are actual questions with context — not "what should I do about Aspen?" but "quote A vs quote B, here's the difference, which one?"
+
+The ❓ section is the most important one for your Monday sync. If it's empty, Chris has nothing to decide and the meeting can be short.
+
 ---
 
 ## Daily: Checking What Needs to Get Done

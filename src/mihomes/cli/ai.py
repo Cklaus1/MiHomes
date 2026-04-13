@@ -302,6 +302,9 @@ def rank_resumes_cmd(
     if not resume_dir.exists():
         format_error(f"Folder not found: {resume_dir}")
         raise typer.Exit(1)
+    if not resume_dir.is_dir():
+        format_error(f"Path is a file, not a folder: {resume_dir}")
+        raise typer.Exit(1)
 
     # Load resumes
     with console.status("[dim]Loading resumes...[/dim]"):

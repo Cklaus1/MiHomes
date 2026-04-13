@@ -196,20 +196,22 @@ def save_candidate_notes(ranking: dict, role: str) -> Path:
     notes_dir = kb_path() / "staff" / "candidates"
     notes_dir.mkdir(parents=True, exist_ok=True)
 
-    name = ranking["candidate_name"].replace(" ", "-").lower()
+    candidate_name = ranking.get("candidate_name") or "unknown"
+    name = candidate_name.replace(" ", "-").lower()
     filename = notes_dir / f"{name}-{date.today()}.md"
 
+    action = (ranking.get("recommended_action") or "unknown").replace("_", " ").title()
     lines = [
-        f"# Candidate: {ranking['candidate_name']}",
+        f"# Candidate: {candidate_name}",
         f"",
         f"**Role**: {role}  ",
-        f"**Rank**: #{ranking['rank']}  ",
-        f"**Overall Score**: {ranking['overall_score']}/100  ",
-        f"**Recommended Action**: {ranking['recommended_action'].replace('_', ' ').title()}  ",
+        f"**Rank**: #{ranking.get('rank', '?')}  ",
+        f"**Overall Score**: {ranking.get('overall_score', '?')}/100  ",
+        f"**Recommended Action**: {action}  ",
         f"",
         f"## Summary",
         f"",
-        f"{ranking['one_line_summary']}",
+        f"{ranking.get('one_line_summary', '')}",
         f"",
         f"## Scores",
         f"",

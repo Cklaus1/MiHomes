@@ -6,6 +6,7 @@ from typing import Optional
 import typer
 from rich import box
 from rich.markdown import Markdown
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
@@ -154,5 +155,5 @@ def search_knowledge(
     for r in results:
         console.print(f"  [cyan]{r['file']}[/cyan]  [dim]{r['title']}[/dim]")
         for lineno, line in r["matches"]:
-            console.print(f"    [dim]{lineno:>4}:[/dim] {line[:100]}")
+            console.print(f"    [dim]{lineno:>4}:[/dim] {escape(line[:100])}")
         console.print()

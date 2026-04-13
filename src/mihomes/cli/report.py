@@ -151,7 +151,7 @@ def _print_terminal(data: dict) -> None:
     if data["flags"]:
         console.print("\n[bold red]⚠  Flags[/bold red]")
         for f in data["flags"]:
-            console.print(f"  [red]•[/red] {f}")
+            console.print(f"  [red]•[/red] {escape(f)}")
 
     # ── Done this week ───────────────────────────────────────────────────────
     console.print(f"\n[bold green]✅  Done This Week[/bold green]")

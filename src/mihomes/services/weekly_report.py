@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from mihomes.models.budget import Budget, Transaction
+from mihomes.models.budget import Budget, BudgetPeriod, Transaction
 from mihomes.models.issue import Issue, IssueSeverity, IssueStatus
 from mihomes.models.property import Property
 from mihomes.models.staff import Staff
@@ -145,14 +145,10 @@ def generate(session: Session, property_slug: str | None = None) -> dict:
     month_start = today.replace(day=1)
     budget_rows = []
     for prop in properties:
-        budgeted_mtd = (
-            session.query(func.sum(Budget.amount))
-            .filter(
-                Budget.property_id == prop.id,
-                Budget.period_start >= month_start,
-                Budget.period_start <= today,
-            )
-            .scalar() or 0.0
+        prop_budgets = session.query(Budget).filter(Budget.property_id == prop.id).all()
+        budgeted_mtd = sum(
+            b.amount for b in prop_budgets
+            if _budget_covers_month(b.period_start, b.period, month_start)
         )
         spent_mtd = (
             session.query(func.sum(Transaction.amount))
@@ -281,3 +277,22 @@ def _serialize_wo(wo: WorkOrder) -> dict:
         "title": wo.title,
         "status": wo.status.value,
     }
+
+
+def _budget_covers_month(period_start: date, period: BudgetPeriod, month_start: date) -> bool:
+    """True if this budget period includes the month identified by month_start.
+
+    Uses months_elapsed so monthly/quarterly/annual budgets are all handled:
+    - MONTHLY: covers only its own month (months_elapsed == 0)
+    - QUARTERLY: covers 3 months from period_start
+    - ANNUAL: covers 12 months from period_start
+    """
+    months_elapsed = (month_start.year - period_start.year) * 12 + (month_start.month - period_start.month)
+    if months_elapsed < 0:
+        return False  # budget hasn't started yet
+    if period == BudgetPeriod.MONTHLY:
+        return months_elapsed == 0
+    elif period == BudgetPeriod.QUARTERLY:
+        return months_elapsed < 3
+    else:  # ANNUAL
+        return months_elapsed < 12

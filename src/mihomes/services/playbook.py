@@ -56,7 +56,7 @@ def get_playbook(slug: str) -> Optional[dict]:
             return None
         path = matches[0]
     meta = _parse_frontmatter(path)
-    content = path.read_text()
+    content = path.read_text(encoding="utf-8")
     checklist = _extract_checklist_items(content)
     return {
         "slug": path.stem,
@@ -156,7 +156,7 @@ def _parse_frontmatter(path: Path) -> dict:
     or a second `##` heading is encountered.
     """
     meta = {}
-    lines = path.read_text().splitlines()
+    lines = path.read_text(encoding="utf-8").splitlines()
     past_title = False
     for line in lines:
         stripped = line.strip()

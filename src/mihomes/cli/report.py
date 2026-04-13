@@ -509,6 +509,289 @@ def compare_properties(
         console.print(table)
 
 
+@app.command("weekly")
+def weekly_report(
+    property: Optional[str] = typer.Option(None, "--property", "-p", help="Scope to one property (slug or ID)"),
+    format: str = typer.Option("rich", "--format", "-f", help="Output format: rich or markdown"),
+):
+    """Weekly estate status report — flags, done, in-progress, overdue, issues, upcoming, budget MTD.
+
+    Examples:\n
+      mihomes report weekly\n
+      mihomes report weekly --property miami\n
+      mihomes report weekly --format markdown
+    """
+    from datetime import timedelta
+    from mihomes.models.property import Property
+    from mihomes.models.task import Task, TaskStatus
+    from mihomes.models.issue import Issue, IssueStatus, IssueSeverity
+    from mihomes.models.budget import Budget, Transaction
+    from mihomes.cli.formatters import severity_color
+    from mihomes.services.budget import get_budget_report
+
+    today = date.today()
+    week_ago = today - timedelta(days=7)
+    week_ahead = today + timedelta(days=7)
+    month_start = date(today.year, today.month, 1)
+    md = format.lower() == "markdown"
+
+    with get_session() as session:
+        # Resolve properties to report on
+        if property:
+            from mihomes.services.slug import resolve_identifier
+            try:
+                props = [resolve_identifier(session, Property, property)]
+            except Exception:
+                format_error(f"Property not found: {property}")
+                raise typer.Exit(1)
+        else:
+            props = session.query(Property).order_by(Property.name).all()
+
+        if not props:
+            console.print("[dim]No properties found.[/dim]")
+            return
+
+        prop_ids = [p.id for p in props]
+
+        # ── Gather data ──────────────────────────────────────────────────
+        all_tasks = session.query(Task).filter(Task.property_id.in_(prop_ids)).all()
+        pending   = [t for t in all_tasks if t.status == TaskStatus.PENDING]
+        overdue   = [t for t in pending if t.due_date and t.due_date < today]
+        upcoming  = [t for t in pending if t.due_date and today <= t.due_date <= week_ahead]
+        in_prog   = [t for t in pending if t.due_date is None or t.due_date >= today]
+        done_week = [t for t in all_tasks
+                     if t.status == TaskStatus.COMPLETED
+                     and t.updated_at and t.updated_at.date() >= week_ago]
+
+        open_issues = session.query(Issue).filter(
+            Issue.property_id.in_(prop_ids),
+            Issue.status.notin_([IssueStatus.RESOLVED, IssueStatus.VERIFIED]),
+        ).order_by(Issue.severity).all()
+        resolved_week = session.query(Issue).filter(
+            Issue.property_id.in_(prop_ids),
+            Issue.status.in_([IssueStatus.RESOLVED, IssueStatus.VERIFIED]),
+            Issue.updated_at >= week_ago,
+        ).all()
+
+        critical_issues = [i for i in open_issues if i.severity == IssueSeverity.CRITICAL]
+        high_issues     = [i for i in open_issues if i.severity == IssueSeverity.HIGH]
+
+        # Budget MTD per property
+        budget_by_prop = {}
+        for prop in props:
+            rows = get_budget_report(session, str(prop.id), month_start, today)
+            budget_by_prop[prop.id] = (prop.name, rows)
+
+        # ── Flags (only shown if there are problems) ─────────────────────
+        flags = []
+        if overdue:
+            flags.append(f"{len(overdue)} overdue task(s)")
+        if critical_issues:
+            flags.append(f"{len(critical_issues)} critical issue(s)")
+        if high_issues:
+            flags.append(f"{len(high_issues)} high-priority issue(s)")
+        for prop_name, rows in budget_by_prop.values():
+            for r in rows:
+                if r.get("pct_used", 0) > 100:
+                    flags.append(f"{prop_name} over budget: {r['category']} ({r['pct_used']:.0f}%)")
+
+        # ── Render ───────────────────────────────────────────────────────
+        report_title = f"Weekly Estate Report — {today}"
+        if property and props:
+            report_title = f"Weekly Report: {props[0].name} — {today}"
+
+        if md:
+            _weekly_markdown(
+                report_title, flags, done_week, resolved_week,
+                in_prog, overdue, open_issues, upcoming, budget_by_prop, today,
+            )
+        else:
+            _weekly_rich(
+                report_title, flags, done_week, resolved_week,
+                in_prog, overdue, open_issues, upcoming, budget_by_prop, today,
+            )
+
+
+def _weekly_rich(title, flags, done_week, resolved_week, in_prog, overdue, open_issues, upcoming, budget_by_prop, today):
+    """Render the weekly report using Rich tables/panels."""
+    from rich.panel import Panel
+    from mihomes.cli.formatters import severity_color
+
+    console.print(f"\n[bold]{title}[/bold]\n")
+
+    # ⚠ Flags
+    if flags:
+        flag_lines = "\n".join(f"  • {f}" for f in flags)
+        console.print(Panel(flag_lines, title="[bold yellow]⚠ Flags[/bold yellow]", expand=False))
+
+    # ✅ Done this week
+    done_all = done_week + resolved_week
+    if done_all:
+        table = Table(title=f"✅ Done This Week ({len(done_all)})", show_header=True)
+        table.add_column("Type", style="dim", width=8)
+        table.add_column("Title", style="bold")
+        table.add_column("Property")
+        for t in done_week:
+            prop_name = t.property.name if t.property else "-"
+            table.add_row("Task", t.title, prop_name)
+        for i in resolved_week:
+            prop_name = i.property.name if i.property else "-"
+            table.add_row("Issue", i.title, prop_name)
+        console.print(table)
+
+    # 🔨 In Progress
+    if in_prog:
+        table = Table(title=f"🔨 In Progress ({len(in_prog)})", show_header=True)
+        table.add_column("Title", style="bold")
+        table.add_column("Property")
+        table.add_column("Due")
+        for t in sorted(in_prog, key=lambda x: x.due_date or date.max)[:20]:
+            prop_name = t.property.name if t.property else "-"
+            due = str(t.due_date) if t.due_date else "-"
+            table.add_row(t.title, prop_name, due)
+        console.print(table)
+
+    # 🚨 Overdue
+    if overdue:
+        table = Table(title=f"[red]🚨 Overdue ({len(overdue)})[/red]", show_header=True)
+        table.add_column("Title", style="bold")
+        table.add_column("Property")
+        table.add_column("Due", style="red")
+        table.add_column("Days", justify="right", style="red")
+        for t in sorted(overdue, key=lambda x: x.due_date):
+            prop_name = t.property.name if t.property else "-"
+            days = (today - t.due_date).days
+            table.add_row(t.title, prop_name, str(t.due_date), f"{days}d")
+        console.print(table)
+
+    # 🔴 Open Issues
+    if open_issues:
+        table = Table(title=f"🔴 Open Issues ({len(open_issues)})", show_header=True)
+        table.add_column("Severity", width=10)
+        table.add_column("Title", style="bold")
+        table.add_column("Property")
+        table.add_column("Status")
+        for i in open_issues[:20]:
+            sc = severity_color(i.severity.value)
+            prop_name = i.property.name if i.property else "-"
+            table.add_row(
+                f"[{sc}]{i.severity.value}[/{sc}]",
+                i.title, prop_name, i.status.value,
+            )
+        console.print(table)
+
+    # 📅 Upcoming (next 7 days)
+    if upcoming:
+        table = Table(title=f"📅 Upcoming — Next 7 Days ({len(upcoming)})", show_header=True)
+        table.add_column("Title", style="bold")
+        table.add_column("Property")
+        table.add_column("Due")
+        for t in sorted(upcoming, key=lambda x: x.due_date):
+            prop_name = t.property.name if t.property else "-"
+            table.add_row(t.title, prop_name, str(t.due_date))
+        console.print(table)
+
+    # 💰 Budget MTD
+    for prop_id, (prop_name, rows) in budget_by_prop.items():
+        if not rows:
+            continue
+        table = Table(title=f"💰 Budget MTD — {prop_name}", show_header=True)
+        table.add_column("Category", style="bold")
+        table.add_column("Budgeted", justify="right")
+        table.add_column("Spent", justify="right")
+        table.add_column("Remaining", justify="right")
+        table.add_column("%", justify="right")
+        for r in rows:
+            pct = r.get("pct_used", 0)
+            pct_color = "red" if pct > 100 else ("yellow" if pct > 75 else "green")
+            table.add_row(
+                r["category"],
+                f"${r['budgeted']:,.0f}",
+                f"${r['spent']:,.0f}",
+                f"${r['remaining']:,.0f}",
+                f"[{pct_color}]{pct:.0f}%[/{pct_color}]",
+            )
+        console.print(table)
+
+
+def _weekly_markdown(title, flags, done_week, resolved_week, in_prog, overdue, open_issues, upcoming, budget_by_prop, today):
+    """Render the weekly report as plain markdown."""
+    from mihomes.cli.formatters import severity_color
+
+    lines = [f"# {title}", ""]
+
+    # ⚠ Flags
+    if flags:
+        lines += ["## ⚠ Flags", ""]
+        for f in flags:
+            lines.append(f"- {f}")
+        lines.append("")
+
+    # ✅ Done
+    done_all = done_week + resolved_week
+    if done_all:
+        lines += [f"## ✅ Done This Week ({len(done_all)})", ""]
+        for t in done_week:
+            prop_name = t.property.name if t.property else "-"
+            lines.append(f"- **[Task]** {t.title} — {prop_name}")
+        for i in resolved_week:
+            prop_name = i.property.name if i.property else "-"
+            lines.append(f"- **[Issue]** {i.title} — {prop_name}")
+        lines.append("")
+
+    # 🔨 In Progress
+    if in_prog:
+        lines += [f"## 🔨 In Progress ({len(in_prog)})", ""]
+        for t in sorted(in_prog, key=lambda x: x.due_date or date.max)[:20]:
+            prop_name = t.property.name if t.property else "-"
+            due = f" _(due {t.due_date})_" if t.due_date else ""
+            lines.append(f"- {t.title} — {prop_name}{due}")
+        lines.append("")
+
+    # 🚨 Overdue
+    if overdue:
+        lines += [f"## 🚨 Overdue ({len(overdue)})", ""]
+        for t in sorted(overdue, key=lambda x: x.due_date):
+            prop_name = t.property.name if t.property else "-"
+            days = (today - t.due_date).days
+            lines.append(f"- **{t.title}** — {prop_name} _(was due {t.due_date}, {days}d ago)_")
+        lines.append("")
+
+    # 🔴 Open Issues
+    if open_issues:
+        lines += [f"## 🔴 Open Issues ({len(open_issues)})", ""]
+        for i in open_issues[:20]:
+            prop_name = i.property.name if i.property else "-"
+            lines.append(f"- **[{i.severity.value.upper()}]** {i.title} — {prop_name} _{i.status.value}_")
+        lines.append("")
+
+    # 📅 Upcoming
+    if upcoming:
+        lines += [f"## 📅 Upcoming — Next 7 Days ({len(upcoming)})", ""]
+        for t in sorted(upcoming, key=lambda x: x.due_date):
+            prop_name = t.property.name if t.property else "-"
+            lines.append(f"- {t.title} — {prop_name} _(due {t.due_date})_")
+        lines.append("")
+
+    # 💰 Budget MTD
+    for prop_id, (prop_name, rows) in budget_by_prop.items():
+        if not rows:
+            continue
+        lines += [f"## 💰 Budget MTD — {prop_name}", ""]
+        lines.append("| Category | Budgeted | Spent | Remaining | % |")
+        lines.append("|---|---:|---:|---:|---:|")
+        for r in rows:
+            pct = r.get("pct_used", 0)
+            flag = " 🔴" if pct > 100 else (" 🟡" if pct > 75 else "")
+            lines.append(
+                f"| {r['category']} | ${r['budgeted']:,.0f} | ${r['spent']:,.0f} "
+                f"| ${r['remaining']:,.0f} | {pct:.0f}%{flag} |"
+            )
+        lines.append("")
+
+    console.print("\n".join(lines))
+
+
 @app.command("forecast")
 def forecast_spending(
     property: str = typer.Option(..., "--property", "-p", help="Property ID or slug"),

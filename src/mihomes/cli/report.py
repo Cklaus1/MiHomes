@@ -626,7 +626,7 @@ def _print_terminal(data: dict) -> None:
         t.add_column("Assignee", style="dim")
         for task in data["in_progress_tasks"]:
             due = task["due_date"] or "—"
-            overdue = task["due_date"] and task["due_date"] < today.isoformat()
+            overdue = task["due_date"] and date.fromisoformat(task["due_date"]) < today
             due_style = "red" if overdue else ""
             t.add_row(
                 task["title"],

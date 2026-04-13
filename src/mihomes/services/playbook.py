@@ -194,8 +194,7 @@ def _extract_checklist_items(content: str) -> list[dict]:
             # Increment day offset when we enter a new top-level section
             if line.startswith("## ") and current_section not in seen_sections:
                 seen_sections.append(current_section)
-                if seen_sections:
-                    day_offset = len(seen_sections) - 1
+                day_offset = len(seen_sections) - 1
 
         # Checklist items
         checklist_match = re.match(r'\s*-\s+\[\s*\]\s+(.+)', line)

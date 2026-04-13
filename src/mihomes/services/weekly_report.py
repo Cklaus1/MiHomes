@@ -1,6 +1,6 @@
 """Weekly report service — operational summary for EA review."""
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -45,7 +45,7 @@ def generate(session: Session, property_slug: str | None = None) -> dict:
         .filter(
             Task.property_id.in_(prop_filter_ids),
             Task.status == TaskStatus.COMPLETED,
-            Task.completed_at >= datetime.combine(week_ago, datetime.min.time()),
+            Task.completed_at >= datetime.combine(week_ago, datetime.min.time(), tzinfo=timezone.utc),
         )
         .order_by(Task.completed_at.desc())
         .all()
@@ -92,7 +92,7 @@ def generate(session: Session, property_slug: str | None = None) -> dict:
         session.query(Issue)
         .filter(
             Issue.property_id.in_(prop_filter_ids),
-            Issue.created_at >= datetime.combine(week_ago, datetime.min.time()),
+            Issue.created_at >= datetime.combine(week_ago, datetime.min.time(), tzinfo=timezone.utc),
         )
         .order_by(Issue.severity, Issue.created_at.desc())
         .all()
@@ -104,7 +104,7 @@ def generate(session: Session, property_slug: str | None = None) -> dict:
         .filter(
             Issue.property_id.in_(prop_filter_ids),
             Issue.status.in_([IssueStatus.RESOLVED, IssueStatus.VERIFIED]),
-            Issue.resolved_at >= datetime.combine(week_ago, datetime.min.time()),
+            Issue.resolved_at >= datetime.combine(week_ago, datetime.min.time(), tzinfo=timezone.utc),
         )
         .order_by(Issue.resolved_at.desc())
         .all()
@@ -126,7 +126,7 @@ def generate(session: Session, property_slug: str | None = None) -> dict:
         session.query(WorkOrder)
         .filter(
             WorkOrder.property_id.in_(prop_filter_ids),
-            WorkOrder.created_at >= datetime.combine(week_ago, datetime.min.time()),
+            WorkOrder.created_at >= datetime.combine(week_ago, datetime.min.time(), tzinfo=timezone.utc),
         )
         .all()
     )
@@ -136,7 +136,7 @@ def generate(session: Session, property_slug: str | None = None) -> dict:
         .filter(
             WorkOrder.property_id.in_(prop_filter_ids),
             WorkOrder.status.in_([WorkOrderStatus.COMPLETED, WorkOrderStatus.VERIFIED]),
-            WorkOrder.updated_at >= datetime.combine(week_ago, datetime.min.time()),
+            WorkOrder.updated_at >= datetime.combine(week_ago, datetime.min.time(), tzinfo=timezone.utc),
         )
         .all()
     )
@@ -172,7 +172,7 @@ def generate(session: Session, property_slug: str | None = None) -> dict:
             )
             .scalar() or 0.0
         )
-        variance = spent_mtd - budgeted_mtd if budgeted_mtd else None
+        variance = round(spent_mtd - budgeted_mtd, 2) if budgeted_mtd else None
         over_budget = budgeted_mtd > 0 and spent_mtd > budgeted_mtd
         budget_rows.append({
             "property": prop.name,
@@ -180,7 +180,7 @@ def generate(session: Session, property_slug: str | None = None) -> dict:
             "budgeted_mtd": round(budgeted_mtd, 2),
             "spent_mtd": round(spent_mtd, 2),
             "spent_this_week": round(spent_this_week, 2),
-            "variance": round(variance, 2) if variance is not None else None,
+            "variance": variance,
             "pct_used": round(spent_mtd / budgeted_mtd * 100, 1) if budgeted_mtd else None,
             "over_budget": over_budget,
             "currency": prop.currency,

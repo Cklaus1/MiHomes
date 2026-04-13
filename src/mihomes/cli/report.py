@@ -115,7 +115,7 @@ def forecast_spending(
 @app.command("weekly")
 def weekly_report(
     property: Optional[str] = typer.Option(None, "--property", "-p", help="Property slug or 'all' (default: all)"),
-    format: str = typer.Option("terminal", "--format", "-f", help="Output format: terminal or markdown"),
+    format: str = typer.Option("terminal", "--format", "-f", help="Output format: terminal, markdown, or 15-5"),
 ):
     """Weekly operational report — tasks, issues, budget, flags. Designed for EA Monday review."""
     with get_session() as session:
@@ -127,6 +127,8 @@ def weekly_report(
 
     if format == "markdown":
         _print_markdown(data)
+    elif format == "15-5":
+        _print_15_5(data)
     else:
         _print_terminal(data)
 
@@ -370,5 +372,132 @@ def _print_markdown(data: dict) -> None:
             f"({b['pct_used']}%){over}"
         )
     lines.append("")
+
+    print("\n".join(lines))
+
+
+# ── 15-5 renderer ─────────────────────────────────────────────────────────────
+
+def _print_15_5(data: dict) -> None:
+    """
+    Outputs a pre-filled 15-5 report draft in the exact template format.
+    Millena reviews, adds narrative/flags, and sends to Chris.
+    """
+    from datetime import date, timedelta
+    today = date.today()
+    # Find the Monday of this week for the header
+    monday = today - timedelta(days=today.weekday())
+    friday = monday + timedelta(days=4)
+    prop_names = ", ".join(p["name"] for p in data["properties"]) or "All Properties"
+
+    lines = [
+        f"📍 {prop_names}",
+        f"📅 Week of {monday.strftime('%b %d')} – {friday.strftime('%b %d, %Y')}",
+        f"👤 Millena",
+        "",
+    ]
+
+    # ── ✅ Done this week ─────────────────────────────────────────────────────
+    lines += ["✅ Done this week:"]
+
+    done_items = []
+    for t in data["completed_tasks"]:
+        prop = f" [{t['property']}]" if len(data["properties"]) > 1 else ""
+        assignee = f" — {t['assignee']}" if t["assignee"] else ""
+        done_items.append(f"- {t['title']}{prop}{assignee}")
+    for i in data["resolved_issues"]:
+        prop = f" [{i['property']}]" if len(data["properties"]) > 1 else ""
+        done_items.append(f"- Issue resolved: {i['title']}{prop}")
+    for w in data["completed_work_orders"]:
+        done_items.append(f"- Work order closed: {w['title']}")
+
+    if done_items:
+        lines += done_items
+    else:
+        lines.append("- (nothing completed this week — add context if needed)")
+    lines.append("")
+
+    # ── 🔨 In progress ────────────────────────────────────────────────────────
+    lines += ["🔨 In progress:"]
+
+    ip_items = []
+    for t in data["in_progress_tasks"]:
+        prop = f" [{t['property']}]" if len(data["properties"]) > 1 else ""
+        due = f", due {t['due_date']}" if t["due_date"] else ""
+        overdue = " ⚠ OVERDUE" if t["due_date"] and t["due_date"] < today.isoformat() else ""
+        assignee = f" — {t['assignee']}" if t["assignee"] else ""
+        ip_items.append(f"- {t['title']}{prop}{due}{overdue}{assignee}")
+    for t in data["overdue_tasks"]:
+        prop = f" [{t['property']}]" if len(data["properties"]) > 1 else ""
+        assignee = f" — {t['assignee']}" if t["assignee"] else ""
+        ip_items.append(f"- ⚠ OVERDUE: {t['title']}{prop} (was due {t['due_date']}){assignee}")
+
+    if ip_items:
+        lines += ip_items
+    else:
+        lines.append("- (nothing actively in progress)")
+    lines.append("")
+
+    # ── 📅 Plan for next week ─────────────────────────────────────────────────
+    lines += ["📅 Plan for next week:"]
+
+    upcoming = data["upcoming_tasks"]
+    if upcoming:
+        for t in upcoming[:7]:  # cap at 7 to keep it readable
+            prop = f" [{t['property']}]" if len(data["properties"]) > 1 else ""
+            assignee = f" — {t['assignee']}" if t["assignee"] else ""
+            lines.append(f"- {t['title']}{prop} (due {t['due_date']}){assignee}")
+        if len(upcoming) > 7:
+            lines.append(f"- ...and {len(upcoming) - 7} more")
+    else:
+        lines.append("- (no tasks scheduled — add any planned work here)")
+    lines.append("")
+
+    # ── 🚩 Flags ──────────────────────────────────────────────────────────────
+    all_flags = list(data["flags"])
+
+    # Add open issues as flags if critical/high
+    critical_high = [i for i in data["open_issues"] if i["severity"] in ("critical", "high")]
+    for i in critical_high:
+        prop = f" [{i['property']}]" if len(data["properties"]) > 1 else ""
+        flag = f"[{i['severity'].upper()}] Open issue: {i['title']}{prop} — {i['status']}"
+        if flag not in all_flags:
+            all_flags.append(flag)
+
+    lines += ["🚩 Flags:"]
+    if all_flags:
+        for f in all_flags:
+            lines.append(f"- {f}")
+    else:
+        lines.append("- None")
+    lines.append("")
+
+    # ── 💰 Budget snapshot ────────────────────────────────────────────────────
+    budget_lines = [
+        b for b in data["budget"]
+        if b["budgeted_mtd"] > 0 or b["spent_mtd"] > 0
+    ]
+    if budget_lines:
+        lines += ["💰 Budget MTD:"]
+        for b in budget_lines:
+            pct = f"{b['pct_used']}%" if b["pct_used"] is not None else "—"
+            over = " ⚠ OVER" if b["over_budget"] else ""
+            spent_wk = f"  (this week: {b['spent_this_week']:,.0f})" if b["spent_this_week"] else ""
+            lines.append(
+                f"- {b['property']}: {b['spent_mtd']:,.0f} / {b['budgeted_mtd']:,.0f} {b['currency']} ({pct}){over}{spent_wk}"
+            )
+        lines.append("")
+
+    # ── ⏱ Time split ──────────────────────────────────────────────────────────
+    lines += [
+        "⏱ Time split (rough %):",
+        "- Operations / staff oversight: __%",
+        "- Vendor coordination: __%",
+        "- Admin / reporting: __%",
+        "- Other: __%",
+        "",
+        "---",
+        f"_Generated {data['generated_at'][:16].replace('T', ' ')} · mihomes report weekly --format 15-5_",
+    ]
 
     print("\n".join(lines))

@@ -164,9 +164,9 @@ def _print_terminal(data: dict) -> None:
             t.add_column("Done", style="dim", justify="right")
             for task in data["completed_tasks"]:
                 t.add_row(
-                    task["title"],
-                    task["property"],
-                    task["assignee"] or "—",
+                    escape(task["title"]),
+                    escape(task["property"]),
+                    escape(task["assignee"]) if task["assignee"] else "—",
                     task["completed_at"] or "—",
                 )
             console.print(t)
@@ -177,7 +177,7 @@ def _print_terminal(data: dict) -> None:
         if data["completed_work_orders"]:
             console.print(f"  [dim]Work orders completed:[/dim]")
             for w in data["completed_work_orders"]:
-                console.print(f"    • {w['title']}")
+                console.print(f"    • {escape(w['title'])}")
     else:
         console.print("  [dim]No completed tasks or resolved issues.[/dim]")
 
@@ -195,11 +195,11 @@ def _print_terminal(data: dict) -> None:
             overdue = task["due_date"] and date.fromisoformat(task["due_date"]) < today
             due_style = "red" if overdue else ""
             t.add_row(
-                task["title"],
-                task["property"],
+                escape(task["title"]),
+                escape(task["property"]),
                 task["priority"],
                 f"[{due_style}]{due}[/{due_style}]" if due_style else due,
-                task["assignee"] or "—",
+                escape(task["assignee"]) if task["assignee"] else "—",
             )
         console.print(t)
     else:
@@ -214,7 +214,7 @@ def _print_terminal(data: dict) -> None:
         t.add_column("Due", style="red", justify="right")
         t.add_column("Assignee", style="dim")
         for task in data["overdue_tasks"]:
-            t.add_row(task["title"], task["property"], task["due_date"] or "—", task["assignee"] or "—")
+            t.add_row(escape(task["title"]), escape(task["property"]), task["due_date"] or "—", escape(task["assignee"]) if task["assignee"] else "—")
         console.print(t)
 
     # ── Open issues ──────────────────────────────────────────────────────────
@@ -229,8 +229,8 @@ def _print_terminal(data: dict) -> None:
         for issue in data["open_issues"]:
             color = sev_colors.get(issue["severity"], "")
             t.add_row(
-                issue["title"],
-                issue["property"],
+                escape(issue["title"]),
+                escape(issue["property"]),
                 f"[{color}]{issue['severity']}[/{color}]",
                 issue["status"],
             )
@@ -249,11 +249,11 @@ def _print_terminal(data: dict) -> None:
         for task in data["upcoming_tasks"]:
             color = pri_colors.get(task["priority"], "")
             t.add_row(
-                task["title"],
-                task["property"],
+                escape(task["title"]),
+                escape(task["property"]),
                 task["due_date"] or "—",
                 f"[{color}]{task['priority']}[/{color}]" if color else task["priority"],
-                task["assignee"] or "—",
+                escape(task["assignee"]) if task["assignee"] else "—",
             )
         console.print(t)
     else:
@@ -368,9 +368,10 @@ def _print_markdown(data: dict) -> None:
         if b["budgeted_mtd"] == 0:
             continue
         over = " ⚠ OVER BUDGET" if b["over_budget"] else ""
+        pct = f"{b['pct_used']}%" if b["pct_used"] is not None else "—"
         lines.append(
             f"- **{b['property']}**: {b['spent_mtd']:,.0f} / {b['budgeted_mtd']:,.0f} {b['currency']} "
-            f"({b['pct_used']}%){over}"
+            f"({pct}){over}"
         )
     lines.append("")
 

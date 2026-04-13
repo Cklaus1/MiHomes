@@ -136,7 +136,7 @@ def generate(session: Session, property_slug: str | None = None) -> dict:
         .filter(
             WorkOrder.property_id.in_(prop_filter_ids),
             WorkOrder.status.in_([WorkOrderStatus.COMPLETED, WorkOrderStatus.VERIFIED]),
-            WorkOrder.updated_at >= datetime.combine(week_ago, datetime.min.time(), tzinfo=timezone.utc),
+            WorkOrder.completed_at >= datetime.combine(week_ago, datetime.min.time(), tzinfo=timezone.utc),
         )
         .all()
     )

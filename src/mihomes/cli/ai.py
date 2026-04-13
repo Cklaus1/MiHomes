@@ -522,7 +522,6 @@ def _print_rankings_markdown(rankings: list[dict], hiring_notes: str, role: str)
         lines += ["## Hiring Notes", "", hiring_notes, ""]
 
     print("\n".join(lines))
->>>>>>> origin/main
 
 
 @app.command("setup")

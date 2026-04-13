@@ -6,13 +6,15 @@ Everything you need to run the household system day-to-day. You don't need to be
 
 ## First: How to Open MiHomes
 
-MiHomes runs in the **Terminal** app on your Mac.
+MiHomes runs in the **Command Prompt** on your PC.
 
-1. Press **⌘ + Space** to open Spotlight
-2. Type **Terminal** and press Enter
+1. Press the **Windows key** (⊞) on your keyboard
+2. Type **cmd** and press Enter — a black window will open
 3. Type `mihomes` and press Enter — you'll see the full list of commands
 
 You'll use this same window for everything in this guide. After each command, press **Enter** to run it.
+
+> **Tip**: Right-click the Command Prompt icon in the taskbar and select **Pin to taskbar** so you can open it quickly every day.
 
 ---
 
@@ -210,17 +212,17 @@ mihomes playbook run onboarding-new-hire --property miami --dry-run
 
 When you're hiring for a role, use the AI to rank resumes automatically.
 
-**Step 1**: Create a folder on your computer and put all the resumes in it (PDF files work best). For example: a folder called `resumes` on your Desktop.
+**Step 1**: Create a folder on your Desktop and put all the resumes in it (PDF files work best). For example, name the folder `resumes`.
 
 **Step 2**: Make sure there's a job description file saved at:
 `knowledge/staff/job-descriptions/<role>.md`
 
 If there isn't one yet, create a plain text file there with the job description — copy it from Indeed or wherever you posted the role.
 
-**Step 3**: Run the ranker:
+**Step 3**: Run the ranker (replace `YourName` with your Windows username):
 
 ```
-mihomes ai rank-resumes ~/Desktop/resumes --role housekeeper
+mihomes ai rank-resumes C:\Users\YourName\Desktop\resumes --role housekeeper
 ```
 
 The AI reads every resume, scores each person on experience, reliability, household fit, and more — then gives you a ranked list showing who to phone screen, hold, or decline. Notes for each candidate are saved automatically so you have a record.

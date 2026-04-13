@@ -57,6 +57,11 @@ def load_resumes(folder: Path) -> list[dict]:
 def load_job_description(role: str) -> str:
     """Load a job description from knowledge/staff/job-descriptions/<role>.md"""
     jd_dir = kb_path() / "staff" / "job-descriptions"
+    if not jd_dir.exists():
+        raise FileNotFoundError(
+            f"Job descriptions directory not found: {jd_dir}\n"
+            f"Create it and add a file: knowledge/staff/job-descriptions/{role}.md"
+        )
     # Try exact match first, then partial
     candidates = list(jd_dir.glob(f"{role}*.md")) + list(jd_dir.glob(f"*{role}*.md"))
     if not candidates:
@@ -135,10 +140,10 @@ def rank_resumes(
     # Build resume block — truncate very long resumes to ~2000 chars to manage tokens
     resume_blocks = []
     for i, r in enumerate(resumes, 1):
-        if r.get("error"):
-            resume_blocks.append(f"=== CANDIDATE {i}: {r['name']} ===\n[Could not extract text: {r['error']}]\n")
+        if r.get("error") or not r.get("text"):
+            resume_blocks.append(f"=== CANDIDATE {i}: {r['name']} ===\n[Could not extract text: {r.get('error', 'empty file')}]\n")
         else:
-            text = r["text"] or ""
+            text = r["text"]
             if len(text) > 2500:
                 text = text[:2500] + "\n... [truncated]"
             resume_blocks.append(f"=== CANDIDATE {i}: {r['name']} ===\n{text}\n")

@@ -1,93 +1,146 @@
-# MiHomes — How-To Guide for Millena
+# MiHomes — Millena's Guide
 
-Your quick reference for everything you'll do day-to-day in MiHomes.
+Everything you need to run the household system day-to-day. You don't need to be technical — just follow the steps.
 
 ---
 
-## Getting Started
+## First: How to Open MiHomes
 
-Open your terminal and type `mihomes` to see all available commands. If you ever get stuck on a specific command, add `--help`:
+MiHomes runs in the **Terminal** app on your Mac.
 
-```bash
-mihomes --help
-mihomes task --help
-mihomes report weekly --help
+1. Press **⌘ + Space** to open Spotlight
+2. Type **Terminal** and press Enter
+3. Type `mihomes` and press Enter — you'll see the full list of commands
+
+You'll use this same window for everything in this guide. After each command, press **Enter** to run it.
+
+---
+
+## Your Most Important Weekly Task
+
+### Every Friday afternoon — send Chris his weekly report
+
+Type this and press Enter:
+
 ```
-
----
-
-## Your Weekly Workflow
-
-### Friday afternoon — send the weekly report to Chris
-
-```bash
 mihomes report weekly --format 15-5
 ```
 
-Copy the output. Fill in:
-- **🎯 My priorities** — what you're personally focused on next week
-- **🚩 Flags / Blockers** — anything blocking you or the team (system flags show as `[auto]`, add yours below)
-- **❓ Needs decision from Chris** — anything you need a call or answer on before you can move forward
-- **⏱ Time split** — rough % breakdown of how your time went
+You'll see a report pre-filled with everything that happened this week — tasks completed, issues, upcoming work, budget. 
 
-Send to Chris via Slack or email. He reads it Monday morning.
+**Select all the text, copy it, and paste it into Slack or email to Chris.**
+
+Before you send it, fill in the four blank sections:
+
+| Section | What to write |
+|---------|--------------|
+| 🎯 My priorities | What YOU are personally focused on next week — your judgment, not just the calendar |
+| 🚩 Flags / Blockers | Anything slowing you or the team down. System-generated flags show as `[auto]` — add yours below |
+| ❓ Needs decision from Chris | Anything you're waiting on him for — a decision, approval, or answer — before you can move forward |
+| ⏱ Time split | Rough guess at how your time was split (doesn't need to be exact) |
+
+Chris reads it Monday morning. The Monday sync should only cover the Flags and Needs Decision sections — everything else is already in the report.
+
+> **Tip**: The report is easy to fill out if you've been logging tasks and issues throughout the week. The system does the work — you just add your perspective.
 
 ---
 
-## Daily Tasks
+## Daily: Checking What Needs to Get Done
 
-### See what needs to be done
+### See everything open across all properties
 
-```bash
-mihomes task list                        # all open tasks
-mihomes task list --overdue              # overdue only
-mihomes task list --property miami       # one property
+```
+mihomes task list
 ```
 
-### Mark a task done
+### See only what's overdue
 
-```bash
-mihomes task complete <id>
+```
+mihomes task list --overdue
 ```
 
-### Add a task
+### See tasks for one specific property
 
-```bash
-mihomes task add "Clean pool filters" --property miami --priority high --due 2026-04-18
+```
+mihomes task list --property miami
 ```
 
-### See alerts (overdue tasks, critical issues, expiring contracts)
+Each task has an **ID number** on the left (like `12` or `47`). You'll use that number to mark things done.
 
-```bash
+### Mark a task as done
+
+```
+mihomes task complete 12
+```
+
+(Replace `12` with the actual task ID.)
+
+### Add a new task
+
+```
+mihomes task add "Replace HVAC filters" --property miami --priority high --due 2026-04-20
+```
+
+Priority options: `urgent`, `high`, `medium`, `low`
+
+### Check for alerts (overdue tasks, critical issues, expiring contracts)
+
+```
 mihomes alerts
 ```
+
+If an alert isn't urgent right now, you can snooze it:
+
+```
+mihomes alerts snooze 5 --days 7
+```
+
+(Replace `5` with the alert ID, `7` with how many days to snooze.)
 
 ---
 
 ## Logging Issues
 
-When something is broken, damaged, or needs attention — log it immediately.
+When something is broken, damaged, or needs attention — **log it the same hour it happens.** Don't wait until the end of the day.
 
-```bash
+### Log an issue
+
+```
 mihomes issue add "Kitchen faucet dripping" --property miami --severity medium
+```
+
+```
 mihomes issue add "Water leak under sink" --property miami --severity critical
 ```
 
-**Severity guide:**
-- `critical` — immediate risk (water, electrical, security)
-- `high` — affects operations today
-- `medium` — needs scheduling, not urgent
-- `low` — cosmetic or minor
+**Which severity to pick:**
 
-### Resolve an issue
+| Severity | When to use | Examples |
+|----------|-------------|---------|
+| `critical` | Immediate risk to people or the property | Water leak, electrical issue, security breach |
+| `high` | Affects operations today | Appliance broken, pest sighting |
+| `medium` | Needs to be scheduled, not today | Damaged furniture, broken fixture |
+| `low` | Cosmetic, no urgency | Scuff on wall, loose handle |
 
-```bash
-mihomes issue resolve <id>
+**When in doubt, go one level higher.** Critical issues automatically flag in the weekly report.
+
+### Add a note or update to an issue
+
+```
+mihomes note add --entity issue --id 8 --text "Plumber coming Thursday 2pm, Marco from AquaFix"
+```
+
+(Replace `8` with the issue ID.)
+
+### Mark an issue resolved
+
+```
+mihomes issue resolve 8
 ```
 
 ### See all open issues
 
-```bash
+```
 mihomes issue list
 ```
 
@@ -95,82 +148,108 @@ mihomes issue list
 
 ## Playbooks
 
-Playbooks are the step-by-step guides for how everything gets done.
+Playbooks are your step-by-step guides for every important situation. **Search here before asking someone** — the answer is usually already written.
 
-### See all playbooks
+### See all available playbooks
 
-```bash
+```
 mihomes playbook list
 ```
 
+You'll see:
+- `daily-operations` — the daily house routine
+- `housekeeper` — cleaning standards, laundry, deep clean
+- `emergency` — fire, water leak, power outage, security
+- `hiring` — posting, phone screening, trial day, offer
+- `onboarding-new-hire` — first 2 weeks for a new staff member
+- `communication` — what goes in WhatsApp vs MiHomes vs reports
+- `separation-offboarding` — resignations and terminations
+
 ### Read a playbook
 
-```bash
-mihomes playbook show housekeeper
+```
 mihomes playbook show emergency
+mihomes playbook show housekeeper
 mihomes playbook show hiring
 ```
 
-### See just the checklist
+### See just the checklist (great for printing)
 
-```bash
+```
 mihomes playbook show daily-operations --checklist
 ```
 
-### Run a playbook (creates tasks in the system)
+### Search across all playbooks
 
-Use this when you're starting a recurring process — like onboarding a new hire — and want all the steps to show up as tasks:
+Not sure which playbook has what you need? Search:
 
-```bash
-mihomes playbook run onboarding-new-hire --property miami --start 2026-04-21
-mihomes playbook run daily-operations --property miami
 ```
-
-Preview first without creating anything:
-
-```bash
-mihomes playbook run daily-operations --property miami --dry-run
-```
-
-### Search across all playbooks and guides
-
-```bash
 mihomes playbook search "water shutoff"
-mihomes playbook search "termination"
+mihomes playbook search "resignation"
 mihomes playbook search "background check"
+mihomes playbook search "phone screen"
+```
+
+### Run a playbook (turns it into tasks in the system)
+
+When you're starting a process — like onboarding a new hire — you can turn the entire checklist into tasks automatically:
+
+```
+mihomes playbook run onboarding-new-hire --property miami --start 2026-04-21
+```
+
+Want to preview what tasks it would create before committing?
+
+```
+mihomes playbook run onboarding-new-hire --property miami --dry-run
 ```
 
 ---
 
 ## Hiring
 
-When you're hiring for a role:
+When you're hiring for a role, use the AI to rank resumes automatically.
 
-1. Put all resumes (PDF or text files) into a folder — e.g. `~/resumes/housekeeper/`
-2. Make sure there's a job description in `knowledge/staff/job-descriptions/<role>.md`
-3. Run:
+**Step 1**: Create a folder on your computer and put all the resumes in it (PDF files work best). For example: a folder called `resumes` on your Desktop.
 
-```bash
-mihomes ai rank-resumes ~/resumes/housekeeper --role housekeeper
+**Step 2**: Make sure there's a job description file saved at:
+`knowledge/staff/job-descriptions/<role>.md`
+
+If there isn't one yet, create a plain text file there with the job description — copy it from Indeed or wherever you posted the role.
+
+**Step 3**: Run the ranker:
+
+```
+mihomes ai rank-resumes ~/Desktop/resumes --role housekeeper
 ```
 
-The AI reads every resume, scores each candidate on 5 dimensions, and gives you a ranked list with a recommended action (phone screen / hold / decline) for each person. Notes for each candidate are saved automatically to `knowledge/staff/candidates/`.
+The AI reads every resume, scores each person on experience, reliability, household fit, and more — then gives you a ranked list showing who to phone screen, hold, or decline. Notes for each candidate are saved automatically so you have a record.
+
+Follow the rest of the process in:
+```
+mihomes playbook show hiring
+```
 
 ---
 
-## Tracking Expenses
+## Logging Expenses
 
-### Log an expense
+### Add an expense
 
-```bash
+```
 mihomes expense add --property miami --amount 250 --category maintenance --description "Pool chemical restock"
 ```
 
-### See spending this month
+### See spending this month for one property
 
-```bash
+```
 mihomes report spending --property miami
-mihomes report compare              # all properties side by side
+```
+
+### Compare spending across all properties
+
+```
+mihomes report compare
 ```
 
 ---
@@ -179,62 +258,79 @@ mihomes report compare              # all properties side by side
 
 ### See all staff
 
-```bash
+```
 mihomes staff list
 ```
 
-### See who has what tasks
+### See who has what tasks assigned to them
 
-```bash
+```
 mihomes staff workload
 ```
 
 ### See all vendors
 
-```bash
+```
 mihomes vendor list
 ```
 
 ---
 
-## The Dashboard (quick overview)
+## Quick Overview of Everything
 
-```bash
+```
 mihomes dashboard
 ```
 
-Shows: all properties, open issues, tasks due this week, overdue count, budget status, open work orders.
+Shows all properties at a glance: open issues, tasks due this week, overdue tasks, budget status, open work orders.
 
 ---
 
-## Tips
+## When You're Unsure What to Do
 
-**Log issues the same hour they happen.** A photo description in the notes is better than a perfect entry tomorrow.
-
-**Use playbook search before asking someone.** If you're unsure how to handle something — a resignation, a leak, a vendor dispute — search first:
-```bash
-mihomes playbook search "resignation"
-mihomes playbook search "leak"
+**1. Search the playbooks first:**
+```
+mihomes playbook search "your question"
 ```
 
-**The 15-5 report only takes 5 minutes** if you've been logging tasks and issues throughout the week. The DB does the work — you just fill in your priorities and time split.
+**2. Check the alerts — something may already be flagged:**
+```
+mihomes alerts
+```
 
-**Severity matters on issues.** Critical issues trigger alerts automatically and show up in Chris's weekly report flags. When in doubt, go one level higher.
+**3. Add `--help` to any command to see how it works:**
+```
+mihomes issue --help
+mihomes task --help
+```
+
+**4. If it's urgent** — follow the emergency playbook:
+```
+mihomes playbook show emergency
+```
 
 ---
 
 ## Quick Reference Card
 
+Cut this out and keep it handy.
+
 | What | Command |
 |------|---------|
 | Weekly report for Chris | `mihomes report weekly --format 15-5` |
-| What's overdue | `mihomes task list --overdue` |
-| Log an issue | `mihomes issue add "title" --property X --severity Y` |
-| Mark task done | `mihomes task complete <id>` |
+| See all open tasks | `mihomes task list` |
+| See overdue tasks | `mihomes task list --overdue` |
+| Mark a task done | `mihomes task complete <id>` |
+| Add a task | `mihomes task add "title" --property X --priority Y --due YYYY-MM-DD` |
 | Check alerts | `mihomes alerts` |
+| Snooze an alert | `mihomes alerts snooze <id> --days 7` |
+| Log an issue | `mihomes issue add "title" --property X --severity Y` |
+| Add note to issue | `mihomes note add --entity issue --id X --text "..."` |
+| Resolve an issue | `mihomes issue resolve <id>` |
 | Read a playbook | `mihomes playbook show <name>` |
+| Search playbooks | `mihomes playbook search "term"` |
 | Run a playbook | `mihomes playbook run <name> --property X` |
 | Rank resumes | `mihomes ai rank-resumes <folder> --role <role>` |
+| Log an expense | `mihomes expense add --property X --amount Y --category Z --description "..."` |
 | Dashboard | `mihomes dashboard` |
-| Search everything | `mihomes playbook search "term"` |
 | Help on any command | `mihomes <command> --help` |

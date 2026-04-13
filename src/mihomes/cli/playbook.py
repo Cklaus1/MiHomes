@@ -114,7 +114,7 @@ def run_playbook(
 
     if dry_run:
         console.print(f"\n[dim]Dry run — no tasks will be created[/dim]")
-        console.print(f"[bold]{pb['name']}[/bold] → {property} (from {start_date})\n")
+        console.print(f"[bold]{pb['name']}[/bold] → {escape(property)} (from {start_date})\n")
         t = Table(box=box.SIMPLE, show_header=True, header_style="dim")
         t.add_column("#", style="dim", justify="right")
         t.add_column("Task")
@@ -138,7 +138,7 @@ def run_playbook(
             raise typer.Exit(1)
 
     format_success(f"Created {len(tasks)} tasks from '{pb['name']}' for {property}")
-    console.print(f"[dim]  Run 'mihomes task list --property {property}' to see them.[/dim]")
+    console.print(f"[dim]  Run 'mihomes task list --property {escape(property)}' to see them.[/dim]")
 
 
 @app.command("search")

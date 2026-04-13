@@ -121,7 +121,10 @@ def knowledge_search(query: str) -> list[dict]:
     if not kb.exists():
         return results
     for f in sorted(kb.rglob("*.md")):
-        content = f.read_text(errors="ignore")
+        try:
+            content = f.read_text(errors="ignore")
+        except OSError:
+            continue
         if query_lower in content.lower():
             # Find surrounding context for each match
             lines = content.splitlines()

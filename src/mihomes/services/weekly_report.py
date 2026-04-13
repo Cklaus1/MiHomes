@@ -94,6 +94,14 @@ def generate(session: Session, property_slug: str | None = None) -> dict:
         .all()
     )
 
+    _severity_rank = case(
+        (Issue.severity == "critical", 0),
+        (Issue.severity == "high", 1),
+        (Issue.severity == "medium", 2),
+        (Issue.severity == "low", 3),
+        else_=99,
+    )
+
     # ── Issues opened this week ───────────────────────────────────────────────
     new_issues = (
         session.query(Issue)
@@ -101,7 +109,7 @@ def generate(session: Session, property_slug: str | None = None) -> dict:
             Issue.property_id.in_(prop_filter_ids),
             Issue.created_at >= datetime.combine(week_ago, datetime.min.time(), tzinfo=timezone.utc),
         )
-        .order_by(Issue.severity, Issue.created_at.desc())
+        .order_by(_severity_rank, Issue.created_at.desc())
         .all()
     )
 
@@ -124,7 +132,7 @@ def generate(session: Session, property_slug: str | None = None) -> dict:
             Issue.property_id.in_(prop_filter_ids),
             Issue.status.notin_([IssueStatus.RESOLVED, IssueStatus.VERIFIED]),
         )
-        .order_by(Issue.severity, Issue.created_at)
+        .order_by(_severity_rank, Issue.created_at)
         .all()
     )
 

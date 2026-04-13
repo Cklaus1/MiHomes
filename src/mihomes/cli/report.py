@@ -453,6 +453,15 @@ def _print_15_5(data: dict) -> None:
         lines.append("- (no tasks scheduled — add any planned work here)")
     lines.append("")
 
+    # ── 🎯 My priorities ──────────────────────────────────────────────────────
+    lines += [
+        "🎯 My priorities:",
+        "- ",
+        "- ",
+        "- ",
+        "",
+    ]
+
     # ── 🚩 Flags ──────────────────────────────────────────────────────────────
     all_flags = list(data["flags"])
 

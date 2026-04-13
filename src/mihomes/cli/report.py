@@ -464,6 +464,7 @@ def _print_15_5(data: dict) -> None:
 
     # ── 🚩 Flags ──────────────────────────────────────────────────────────────
     all_flags = list(data["flags"])
+    # Millena's own flags/blockers added below the auto-generated ones
 
     # Add open issues as flags if critical/high
     critical_high = [i for i in data["open_issues"] if i["severity"] in ("critical", "high")]
@@ -473,13 +474,21 @@ def _print_15_5(data: dict) -> None:
         if flag not in all_flags:
             all_flags.append(flag)
 
-    lines += ["🚩 Flags:"]
+    lines += ["🚩 Flags / Blockers:"]
     if all_flags:
         for f in all_flags:
-            lines.append(f"- {f}")
-    else:
-        lines.append("- None")
+            lines.append(f"- [auto] {f}")
+    lines += [
+        "- ",
+        "- ",
+    ]
     lines.append("")
+
+    lines += [
+        "❓ Needs decision from Chris:",
+        "- ",
+        "",
+    ]
 
     # ── 💰 Budget snapshot ────────────────────────────────────────────────────
     budget_lines = [

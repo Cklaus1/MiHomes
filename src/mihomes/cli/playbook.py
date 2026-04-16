@@ -1,11 +1,12 @@
 """Playbook CLI commands — markdown-first operational playbooks."""
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional
 
 import typer
 from rich import box
 from rich.markdown import Markdown
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
@@ -61,7 +62,7 @@ def show_playbook(
             if item["section"] != current_section:
                 current_section = item["section"]
                 console.print(f"  [dim bold]{current_section}[/dim bold]")
-            console.print(f"    [dim]☐[/dim] {item['title']}")
+            console.print(f"    [dim]☐[/dim] {escape(item['title'])}")
         console.print()
         return
 
@@ -113,14 +114,14 @@ def run_playbook(
 
     if dry_run:
         console.print(f"\n[dim]Dry run — no tasks will be created[/dim]")
-        console.print(f"[bold]{pb['name']}[/bold] → {property} (from {start_date})\n")
+        console.print(f"[bold]{pb['name']}[/bold] → {escape(property)} (from {start_date})\n")
         t = Table(box=box.SIMPLE, show_header=True, header_style="dim")
         t.add_column("#", style="dim", justify="right")
         t.add_column("Task")
         t.add_column("Section", style="dim")
         t.add_column("Due", style="dim", justify="right")
         for i, item in enumerate(pb["checklist"], 1):
-            due = start_date.isoformat()
+            due = (start_date + timedelta(days=item.get("day_offset", 0))).isoformat()
             t.add_row(str(i), item["title"], item["section"], due)
         console.print(t)
         console.print(f"\n[dim]{len(pb['checklist'])} tasks would be created.[/dim]\n")
@@ -137,7 +138,7 @@ def run_playbook(
             raise typer.Exit(1)
 
     format_success(f"Created {len(tasks)} tasks from '{pb['name']}' for {property}")
-    console.print(f"[dim]  Run 'mihomes task list --property {property}' to see them.[/dim]")
+    console.print(f"[dim]  Run 'mihomes task list --property {escape(property)}' to see them.[/dim]")
 
 
 @app.command("search")
@@ -150,9 +151,9 @@ def search_knowledge(
         console.print(f"[dim]No matches for '{query}' in knowledge base.[/dim]")
         return
 
-    console.print(f"\n[bold]Knowledge base search: '{query}'[/bold] — {len(results)} file(s)\n")
+    console.print(f"\n[bold]Knowledge base search: '{escape(query)}'[/bold] — {len(results)} file(s)\n")
     for r in results:
         console.print(f"  [cyan]{r['file']}[/cyan]  [dim]{r['title']}[/dim]")
         for lineno, line in r["matches"]:
-            console.print(f"    [dim]{lineno:>4}:[/dim] {line[:100]}")
+            console.print(f"    [dim]{lineno:>4}:[/dim] {escape(line[:100])}")
         console.print()

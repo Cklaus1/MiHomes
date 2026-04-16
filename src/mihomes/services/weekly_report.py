@@ -2,10 +2,10 @@
 
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
-from mihomes.models.budget import Budget, Transaction
+from mihomes.models.budget import Budget, BudgetPeriod, Transaction
 from mihomes.models.issue import Issue, IssueSeverity, IssueStatus
 from mihomes.models.property import Property
 from mihomes.models.staff import Staff
@@ -52,13 +52,20 @@ def generate(session: Session, property_slug: str | None = None) -> dict:
     )
 
     # ── Tasks in progress ─────────────────────────────────────────────────────
+    _priority_rank = case(
+        (Task.priority == "urgent", 0),
+        (Task.priority == "high", 1),
+        (Task.priority == "medium", 2),
+        (Task.priority == "low", 3),
+        else_=99,
+    )
     in_progress_tasks = (
         session.query(Task)
         .filter(
             Task.property_id.in_(prop_filter_ids),
             Task.status == TaskStatus.IN_PROGRESS,
         )
-        .order_by(Task.priority, Task.due_date)
+        .order_by(_priority_rank, Task.due_date)
         .all()
     )
 
@@ -83,8 +90,16 @@ def generate(session: Session, property_slug: str | None = None) -> dict:
             Task.due_date >= today,
             Task.due_date <= week_ahead,
         )
-        .order_by(Task.due_date, Task.priority)
+        .order_by(Task.due_date, _priority_rank)
         .all()
+    )
+
+    _severity_rank = case(
+        (Issue.severity == "critical", 0),
+        (Issue.severity == "high", 1),
+        (Issue.severity == "medium", 2),
+        (Issue.severity == "low", 3),
+        else_=99,
     )
 
     # ── Issues opened this week ───────────────────────────────────────────────
@@ -94,7 +109,7 @@ def generate(session: Session, property_slug: str | None = None) -> dict:
             Issue.property_id.in_(prop_filter_ids),
             Issue.created_at >= datetime.combine(week_ago, datetime.min.time(), tzinfo=timezone.utc),
         )
-        .order_by(Issue.severity, Issue.created_at.desc())
+        .order_by(_severity_rank, Issue.created_at.desc())
         .all()
     )
 
@@ -117,7 +132,7 @@ def generate(session: Session, property_slug: str | None = None) -> dict:
             Issue.property_id.in_(prop_filter_ids),
             Issue.status.notin_([IssueStatus.RESOLVED, IssueStatus.VERIFIED]),
         )
-        .order_by(Issue.severity, Issue.created_at)
+        .order_by(_severity_rank, Issue.created_at)
         .all()
     )
 
@@ -136,7 +151,7 @@ def generate(session: Session, property_slug: str | None = None) -> dict:
         .filter(
             WorkOrder.property_id.in_(prop_filter_ids),
             WorkOrder.status.in_([WorkOrderStatus.COMPLETED, WorkOrderStatus.VERIFIED]),
-            WorkOrder.updated_at >= datetime.combine(week_ago, datetime.min.time(), tzinfo=timezone.utc),
+            WorkOrder.completed_at >= datetime.combine(week_ago, datetime.min.time(), tzinfo=timezone.utc),
         )
         .all()
     )
@@ -145,14 +160,10 @@ def generate(session: Session, property_slug: str | None = None) -> dict:
     month_start = today.replace(day=1)
     budget_rows = []
     for prop in properties:
-        budgeted_mtd = (
-            session.query(func.sum(Budget.amount))
-            .filter(
-                Budget.property_id == prop.id,
-                Budget.period_start >= month_start,
-                Budget.period_start <= today,
-            )
-            .scalar() or 0.0
+        prop_budgets = session.query(Budget).filter(Budget.property_id == prop.id).all()
+        budgeted_mtd = sum(
+            b.amount for b in prop_budgets
+            if _budget_covers_month(b.period_start, b.period, month_start)
         )
         spent_mtd = (
             session.query(func.sum(Transaction.amount))
@@ -201,7 +212,7 @@ def generate(session: Session, property_slug: str | None = None) -> dict:
         flags.append(f"{b['property']} over budget MTD: spent {b['spent_mtd']:,.0f} vs {b['budgeted_mtd']:,.0f} ({b['currency']})")
 
     return {
-        "generated_at": datetime.now().isoformat(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "period": {"from": week_ago.isoformat(), "to": today.isoformat()},
         "properties": [{"name": p.name, "slug": p.slug} for p in properties],
 
@@ -281,3 +292,22 @@ def _serialize_wo(wo: WorkOrder) -> dict:
         "title": wo.title,
         "status": wo.status.value,
     }
+
+
+def _budget_covers_month(period_start: date, period: BudgetPeriod, month_start: date) -> bool:
+    """True if this budget period includes the month identified by month_start.
+
+    Uses months_elapsed so monthly/quarterly/annual budgets are all handled:
+    - MONTHLY: covers only its own month (months_elapsed == 0)
+    - QUARTERLY: covers 3 months from period_start
+    - ANNUAL: covers 12 months from period_start
+    """
+    months_elapsed = (month_start.year - period_start.year) * 12 + (month_start.month - period_start.month)
+    if months_elapsed < 0:
+        return False  # budget hasn't started yet
+    if period == BudgetPeriod.MONTHLY:
+        return months_elapsed == 0
+    elif period == BudgetPeriod.QUARTERLY:
+        return months_elapsed < 3
+    else:  # ANNUAL
+        return months_elapsed < 12

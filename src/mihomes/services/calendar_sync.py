@@ -180,10 +180,19 @@ def pull_from_google(session: Session, days: int = 60) -> dict:
                     Task.property_id == matched_prop.id,
                     Task.due_date == start_date,
                 ).first()
-                if not existing:
+                if existing:
+                    # If re-discovered and still missing the event ID, backfill it
+                    if not existing.gcal_event_id and event.get("id"):
+                        existing.gcal_event_id = event["id"]
+                        session.flush()
+                else:
                     from mihomes.services.task import create_task
-                    create_task(session, title, str(matched_prop.id),
-                                description=desc or None, due_date=start_date)
+                    new_task = create_task(session, title, str(matched_prop.id),
+                                           description=desc or None, due_date=start_date)
+                    # Store the Google Calendar event ID so push never re-pushes this task
+                    if event.get("id"):
+                        new_task.gcal_event_id = event["id"]
+                        session.flush()
                     tasks_created += 1
             except Exception as e:
                 errors.append(f"{title} (task): {e}")

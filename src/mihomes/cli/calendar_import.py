@@ -95,7 +95,6 @@ def google_push(
     days: int = typer.Option(14, "--days", "-d", help="Push items due in next N days"),
 ):
     """Push upcoming MiHomes tasks and events to Google Calendar."""
-    from datetime import datetime, timezone, timedelta, date
     from pathlib import Path
 
     token_file = Path.home() / ".mihomes" / "google_token.json"
@@ -104,47 +103,25 @@ def google_push(
         raise typer.Exit(1)
 
     with get_session() as session:
-        from mihomes.services.task import get_upcoming_tasks as list_upcoming_tasks
-        from mihomes.services.event import list_events as list_mihomes_events
+        from mihomes.services.calendar_sync import push_upcoming_to_google
+        result = push_upcoming_to_google(session, days=days, property_id_or_slug=property)
 
-        tasks = list_upcoming_tasks(session, days=days,
-                                    property_id_or_slug=property)
+    pushed = result.get("pushed", 0)
+    errors = result.get("errors", [])
+    skipped = result.get("skipped")
 
-        items = []
-        for t in tasks:
-            if t.due_date:
-                items.append({
-                    "title": f"[MiHomes] {t.title}",
-                    "start": t.due_date,
-                    "end": t.due_date,
-                    "description": t.description or "",
-                })
-
-    if not items:
-        console.print(f"[dim]No upcoming tasks with due dates in the next {days} days.[/dim]")
-        return
-
-    console.print(f"[bold]{len(items)} item(s) to push to Google Calendar:[/bold]")
-    for item in items:
-        console.print(f"  • {item['title']} — {item['start']}")
-
-    if not typer.confirm("\nPush to Google Calendar?"):
-        console.print("[dim]Cancelled.[/dim]")
-        return
-
-    try:
-        from mihomes.services.gateways.calendar.google import GoogleCalendarProvider
-        provider = GoogleCalendarProvider()
-        results = provider.sync_from_mihomes(items)
-    except Exception as e:
-        format_error(f"Failed to push to Google Calendar: {e}")
+    if skipped:
+        format_error(skipped)
         raise typer.Exit(1)
 
-    created = sum(1 for r in results if r["status"] == "created")
-    errors = [r for r in results if r["status"] == "error"]
-    format_success(f"{created} item(s) pushed to Google Calendar")
+    if pushed == 0 and not errors:
+        console.print(f"[dim]No new tasks to push (all already synced or no due dates in next {days} days).[/dim]")
+        return
+
+    if pushed:
+        format_success(f"{pushed} task(s) pushed to Google Calendar")
     for err in errors:
-        console.print(f"  [yellow]⚠[/yellow] {err['title']}: {err['error']}")
+        console.print(f"  [yellow]⚠[/yellow] {err}")
 
 
 @app.command("sync")
@@ -153,12 +130,37 @@ def google_sync(
     days: int = typer.Option(30, "--days", "-d"),
 ):
     """Two-way sync — pull from Google Calendar and push upcoming tasks."""
+    from pathlib import Path
+
+    token_file = Path.home() / ".mihomes" / "google_token.json"
+    if not token_file.exists():
+        format_error("Not authenticated. Run: mihomes calendar auth")
+        raise typer.Exit(1)
+
     console.print("[bold]Syncing with Google Calendar...[/bold]\n")
-    console.print("[dim]Step 1/2 — Pulling events from Google Calendar[/dim]")
-    ctx = typer.Context(google_sync)
-    google_pull.callback(days=days, property=property)
-    console.print("\n[dim]Step 2/2 — Pushing upcoming tasks to Google Calendar[/dim]")
-    google_push.callback(property=property, days=days)
+    with get_session() as session:
+        from mihomes.services.calendar_sync import push_upcoming_to_google, pull_from_google
+        pull_result = pull_from_google(session, days=days)
+        push_result = push_upcoming_to_google(session, days=days, property_id_or_slug=property)
+
+    pulled = pull_result.get("pulled", 0)
+    tasks_created = pull_result.get("tasks_created", 0)
+    pushed = push_result.get("pushed", 0)
+    errors = pull_result.get("errors", []) + push_result.get("errors", [])
+
+    lines = []
+    if pulled:
+        lines.append(f"{pulled} occupancy period(s) pulled")
+    if tasks_created:
+        lines.append(f"{tasks_created} task(s) created from calendar")
+    if pushed:
+        lines.append(f"{pushed} task(s) pushed to Google Calendar")
+    if not lines:
+        console.print("[dim]Already up to date — nothing new to sync.[/dim]")
+    else:
+        format_success(", ".join(lines))
+    for err in errors:
+        console.print(f"  [yellow]⚠[/yellow] {err}")
 
 
 @app.command("import")

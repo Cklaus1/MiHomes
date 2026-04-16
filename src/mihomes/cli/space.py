@@ -8,7 +8,7 @@ from rich.table import Table
 from mihomes.cli.formatters import console, format_error, format_success
 from mihomes.db import get_session
 from mihomes.services import space as space_svc
-from mihomes.services.slug import EntityNotFoundError
+from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
 
 app = typer.Typer(name="space", help="Manage spaces (rooms/areas) within properties")
 
@@ -25,7 +25,7 @@ def add_space(
         try:
             space = space_svc.create_space(session, name, property, space_type=space_type, description=description)
             format_success(f"Space '{space.name}' added to property (slug: {space.slug})")
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -38,7 +38,7 @@ def list_spaces(
     with get_session() as session:
         try:
             spaces = space_svc.list_spaces(session, property)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -55,6 +55,36 @@ def list_spaces(
         console.print(table)
 
 
+@app.command("edit")
+def edit_space(
+    id_or_slug: str = typer.Argument(..., help="Space ID or slug"),
+    name: Optional[str] = typer.Option(None, "--name", "-n"),
+    space_type: Optional[str] = typer.Option(None, "--type", "-t", help="Space type (bedroom, kitchen, outdoor, etc.)"),
+    description: Optional[str] = typer.Option(None, "--desc"),
+    zone: Optional[str] = typer.Option(None, "--zone", "-z", help="Zone ID or slug"),
+):
+    """Edit a space."""
+    kwargs = {}
+    if name is not None: kwargs["name"] = name
+    if space_type is not None: kwargs["space_type"] = space_type
+    if description is not None: kwargs["description"] = description
+    if not kwargs and zone is None:
+        format_error("No fields to update.")
+        raise typer.Exit(1)
+    with get_session() as session:
+        if zone is not None:
+            from mihomes.models.zone import Zone
+            from mihomes.services.slug import resolve_identifier
+            z = resolve_identifier(session, Zone, zone)
+            kwargs["zone_id"] = z.id
+        try:
+            space = space_svc.update_space(session, id_or_slug, **kwargs)
+            format_success(f"Space '{space.name}' updated")
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
+            format_error(str(e))
+            raise typer.Exit(1)
+
+
 @app.command("delete")
 def delete_space(
     id_or_slug: str = typer.Argument(..., help="Space ID or slug"),
@@ -64,7 +94,7 @@ def delete_space(
     with get_session() as session:
         try:
             space = space_svc.get_space(session, id_or_slug)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 

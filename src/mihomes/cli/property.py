@@ -10,7 +10,7 @@ from mihomes.cli.formatters import console, format_enum, format_panel, format_su
 from mihomes.db import get_session
 from mihomes.models.property import PropertyStatus, PropertyType
 from mihomes.services import property as prop_svc
-from mihomes.services.slug import EntityNotFoundError
+from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
 
 app = typer.Typer(name="property", help="Manage properties")
 
@@ -84,7 +84,7 @@ def show_property(
     with get_session() as session:
         try:
             prop = prop_svc.get_property(session, id_or_slug)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -215,7 +215,7 @@ def edit_property(
         try:
             prop = prop_svc.update_property(session, id_or_slug, **kwargs)
             format_success(f"Property '{prop.name}' updated")
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -229,7 +229,7 @@ def delete_property(
     with get_session() as session:
         try:
             prop = prop_svc.get_property(session, id_or_slug)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -253,7 +253,7 @@ def occupy_property(
             ud = date.fromisoformat(until_date) if until_date else None
             prop = prop_svc.occupy_property(session, id_or_slug, fd, ud)
             format_success(f"Property '{prop.name}' marked as occupied")
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -267,7 +267,7 @@ def vacate_property(
         try:
             prop = prop_svc.vacate_property(session, id_or_slug)
             format_success(f"Property '{prop.name}' marked as unoccupied")
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 

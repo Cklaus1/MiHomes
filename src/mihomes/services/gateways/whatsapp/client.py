@@ -1,6 +1,7 @@
 """WhatsApp bridge client — Python HTTP client for the Node.js Baileys bridge."""
 
 import json
+import urllib.parse
 import urllib.request
 import urllib.error
 from datetime import datetime
@@ -36,13 +37,13 @@ class WhatsAppClient:
         self, since: datetime | None = None, group_jid: str | None = None, limit: int = 100
     ) -> list[dict]:
         """Fetch messages from the bridge."""
-        params = []
+        params: dict = {"limit": limit}
         if since:
-            params.append(f"since={since.isoformat()}")
+            # Format as UTC Z-suffix to avoid + encoding issues in query strings
+            params["since"] = since.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
         if group_jid:
-            params.append(f"groupJid={group_jid}")
-        params.append(f"limit={limit}")
-        query = "&".join(params)
+            params["groupJid"] = group_jid
+        query = urllib.parse.urlencode(params)
         result = self._get(f"/messages?{query}")
         return result.get("messages", [])
 
@@ -54,6 +55,22 @@ class WhatsAppClient:
     def link_group(self, group_jid: str, property_slug: str) -> dict:
         """Link a WhatsApp group to a property."""
         return self._post("/link-group", {"groupJid": group_jid, "propertySlug": property_slug})
+
+    def unlink_group(self, group_jid: str) -> dict:
+        """Unlink a WhatsApp group from its property."""
+        return self._post("/unlink-group", {"groupJid": group_jid})
+
+    def clear_messages(self) -> dict:
+        """Clear all messages from the buffer."""
+        req = urllib.request.Request(
+            f"{self.base_url}/messages",
+            method="DELETE",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return json.loads(resp.read())
+        except Exception as e:
+            raise WhatsAppBridgeError(f"Failed to clear messages: {e}")
 
     def is_connected(self) -> bool:
         """Check if bridge is running and connected."""

@@ -1,8 +1,12 @@
 """Vendor service — CRUD operations."""
 
+from datetime import date
+
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from mihomes.models.vendor import Vendor
+from mihomes.models.vendor_rating import VendorRating
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
 from mihomes.services.update_helpers import safe_update
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
@@ -70,6 +74,83 @@ def update_vendor(session: Session, id_or_slug: str, **kwargs) -> Vendor:
     if changes:
         record_change(session, "vendor", vendor.id, "update", changes)
     return vendor
+
+
+def rate_vendor(
+    session: Session,
+    id_or_slug: str,
+    *,
+    quality: int,
+    reliability: int,
+    cost: int | None = None,
+    communication: int | None = None,
+    notes: str | None = None,
+    work_order_id: int | None = None,
+    property_id: int | None = None,
+) -> VendorRating:
+    """Add a rating for a vendor. Scores are 1–5."""
+    for name, val in [("quality", quality), ("reliability", reliability)]:
+        if not 1 <= val <= 5:
+            raise ValueError(f"{name} score must be between 1 and 5")
+    for name, val in [("cost", cost), ("communication", communication)]:
+        if val is not None and not 1 <= val <= 5:
+            raise ValueError(f"{name} score must be between 1 and 5")
+
+    vendor = resolve_identifier(session, Vendor, id_or_slug)
+    scores = [quality, reliability]
+    if cost is not None:
+        scores.append(cost)
+    if communication is not None:
+        scores.append(communication)
+    overall = round(sum(scores) / len(scores), 2)
+
+    rating = VendorRating(
+        vendor_id=vendor.id,
+        quality_score=quality,
+        reliability_score=reliability,
+        cost_score=cost if cost is not None else quality,
+        communication_score=communication if communication is not None else reliability,
+        overall_score=overall,
+        notes=notes,
+        rated_date=date.today(),
+        work_order_id=work_order_id,
+        property_id=property_id,
+    )
+    session.add(rating)
+    session.flush()
+    return rating
+
+
+def get_vendor_ratings(session: Session, id_or_slug: str) -> dict:
+    """Return all ratings and aggregate averages for a vendor."""
+    vendor = resolve_identifier(session, Vendor, id_or_slug)
+    ratings = (
+        session.query(VendorRating)
+        .filter(VendorRating.vendor_id == vendor.id)
+        .order_by(VendorRating.rated_date.desc())
+        .all()
+    )
+    if not ratings:
+        return {"vendor": vendor, "ratings": [], "averages": None}
+
+    avg_quality = round(sum(r.quality_score for r in ratings) / len(ratings), 1)
+    avg_reliability = round(sum(r.reliability_score for r in ratings) / len(ratings), 1)
+    avg_cost = round(sum(r.cost_score for r in ratings) / len(ratings), 1)
+    avg_communication = round(sum(r.communication_score for r in ratings) / len(ratings), 1)
+    avg_overall = round(sum(r.overall_score for r in ratings) / len(ratings), 1)
+
+    return {
+        "vendor": vendor,
+        "ratings": ratings,
+        "averages": {
+            "quality": avg_quality,
+            "reliability": avg_reliability,
+            "cost": avg_cost,
+            "communication": avg_communication,
+            "overall": avg_overall,
+            "count": len(ratings),
+        },
+    }
 
 
 def delete_vendor(session: Session, id_or_slug: str) -> str:

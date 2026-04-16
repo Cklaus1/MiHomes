@@ -72,6 +72,16 @@ def list_notes(session: Session, entity_ref: str) -> list[Note]:
     ).order_by(Note.created_at.desc()).all()
 
 
+def update_note(session: Session, note_id: int, content: str) -> Note:
+    note = session.get(Note, note_id)
+    if note is None:
+        raise ValueError(f"Note {note_id} not found")
+    note.content = content
+    session.flush()
+    record_change(session, "note", note.id, "update", {"content": content})
+    return note
+
+
 def delete_note(session: Session, note_id: int) -> None:
     note = session.get(Note, note_id)
     if note is None:

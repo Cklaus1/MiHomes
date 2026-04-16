@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wc -l /c/Users/MillenaLim/Desktop/MiHomes-OS/src/mihomes/cli/*.py)",
+      "Bash(xargs wc:*)",
+      "Read(//c/Users/MillenaLim/AppData/Local/Python/pythoncore-3.14-64/Scripts/**)",
+      "Bash(M=\"C:\\\\Users\\\\MillenaLim\\\\AppData\\\\Local\\\\Python\\\\pythoncore-3.14-64\\\\Scripts\\\\mihomes.exe\")",
+      "Bash(PYTHONUTF8=1 \"$M\" staff list)",
+      "Bash(PYTHONUTF8=1 \"$M\" staff workload)",
+      "Bash(PYTHONUTF8=1 \"$M\" vendor list)",
+      "Bash(python -m mihomes --help)",
+      "Bash(mihomes --help)",
+      "Bash(python -c \":*)",
+      "Bash(python:*)"
+    ]
+  }
+}

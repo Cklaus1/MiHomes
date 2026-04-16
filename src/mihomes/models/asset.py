@@ -44,6 +44,11 @@ class Asset(Base, TimestampMixin, SlugMixin):
     vehicle_info: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     valuable_info: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     equipment_info: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Lifecycle / capital planning
+    install_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    expected_lifespan_years: Mapped[float | None] = mapped_column(Float, nullable=True)
+    replacement_cost_estimate: Mapped[float | None] = mapped_column(Float, nullable=True)
+    last_serviced: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     property = relationship("Property")
     space = relationship("Space")

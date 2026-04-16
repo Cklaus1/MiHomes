@@ -50,6 +50,21 @@ def list_notes(
         console.print(table)
 
 
+@app.command("edit")
+def edit_note(
+    note_id: int = typer.Argument(..., help="Note ID"),
+    content: str = typer.Argument(..., help="New note content"),
+):
+    """Edit a note's content."""
+    with get_session() as session:
+        try:
+            note_svc.update_note(session, note_id, content)
+            format_success(f"Note {note_id} updated")
+        except ValueError as e:
+            format_error(str(e))
+            raise typer.Exit(1)
+
+
 @app.command("delete")
 def delete_note(
     note_id: int = typer.Argument(..., help="Note ID"),

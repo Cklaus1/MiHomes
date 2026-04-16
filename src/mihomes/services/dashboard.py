@@ -37,6 +37,8 @@ def get_dashboard_data(session: Session, property_id: int | None = None) -> dict
         prop_summaries.append({
             "name": p.name, "slug": p.slug, "status": p.status.value,
             "type": p.property_type.value, "occupied": p.occupied,
+            "occupied_since": p.occupied_since,
+            "occupied_until": p.occupied_until,
             "open_issues": open_issues,
         })
 
@@ -48,6 +50,16 @@ def get_dashboard_data(session: Session, property_id: int | None = None) -> dict
     if property_id:
         task_query = task_query.filter(Task.property_id == property_id)
     tasks_this_week = task_query.order_by(Task.due_date).all()
+
+    # Unscheduled tasks (no due date, not completed)
+    unscheduled_query = session.query(Task).filter(
+        Task.due_date.is_(None),
+        Task.status.notin_([TaskStatus.COMPLETED, TaskStatus.CANCELLED]),
+    )
+    if property_id:
+        unscheduled_query = unscheduled_query.filter(Task.property_id == property_id)
+    unscheduled_tasks = unscheduled_query.order_by(Task.created_at.desc()).limit(5).all()
+    unscheduled_count = unscheduled_query.count()
 
     # Overdue count
     overdue_query = session.query(func.count(Task.id)).filter(
@@ -110,6 +122,8 @@ def get_dashboard_data(session: Session, property_id: int | None = None) -> dict
     return {
         "properties": prop_summaries,
         "tasks_this_week": tasks_this_week,
+        "unscheduled_tasks": unscheduled_tasks,
+        "unscheduled_count": unscheduled_count,
         "overdue_count": overdue_count,
         "open_issues": open_issues,
         "budget_summaries": budget_summaries,

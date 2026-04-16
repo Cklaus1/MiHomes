@@ -11,7 +11,7 @@ from rich.text import Text
 from mihomes.cli.formatters import console, format_enum, severity_color, status_icon
 from mihomes.db import get_session
 from mihomes.services.dashboard import get_dashboard_data
-from mihomes.services.slug import EntityNotFoundError, resolve_identifier
+from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError, resolve_identifier
 from mihomes.models.property import Property
 
 app = typer.Typer(name="dashboard", help="Estate overview dashboard", invoke_without_command=True)
@@ -32,7 +32,7 @@ def dashboard(
             try:
                 prop = resolve_identifier(session, Property, property)
                 prop_id = prop.id
-            except EntityNotFoundError as e:
+            except (AmbiguousIdentifierError, EntityNotFoundError) as e:
                 console.print(f"[red]{e}[/red]")
                 raise typer.Exit(1)
 
@@ -58,6 +58,11 @@ def dashboard(
             task_lines.append(f"  {prio_icon} {t.title} ({t.property.name}) — {t.due_date}")
         if data["overdue_count"] > 0:
             task_lines.insert(0, f"  [red bold]! {data['overdue_count']} overdue task(s)[/red bold]")
+        if data["unscheduled_count"] > 0:
+            task_lines.append(f"\n  [dim]Unscheduled ({data['unscheduled_count']}):[/dim]")
+            for t in data["unscheduled_tasks"]:
+                assignee = f" → {t.assignee.name}" if t.assignee else ""
+                task_lines.append(f"  [dim]○ {t.title} ({t.property.name}){assignee}[/dim]")
         task_panel = Panel(
             "\n".join(task_lines) if task_lines else "[green]No tasks due this week[/green]",
             title=f"Tasks Due This Week ({len(data['tasks_this_week'])})",
@@ -90,6 +95,72 @@ def dashboard(
             expand=True,
         )
 
+        # Calendar / occupancy panel
+        from datetime import date as date_cls, datetime, timezone, timedelta
+        today = date_cls.today()
+        cal_lines = []
+
+        # Occupancy from MiHomes
+        for p in data["properties"]:
+            since = p["occupied_since"]
+            until = p["occupied_until"]
+            if p["occupied"]:
+                until_str = f"until {until}" if until else "ongoing"
+                cal_lines.append(f"  [green]● Occupied[/green]  [bold]{p['name']}[/bold] — {until_str}")
+            elif since and since > today:
+                days_away = (since - today).days
+                cal_lines.append(f"  [yellow]○ Upcoming[/yellow]  [bold]{p['name']}[/bold] — {since} ({days_away}d away)")
+
+        # Google Calendar events (next 30 days, excluding MiHomes-pushed ones)
+        import os
+        if not os.environ.get("MIHOMES_DEMO"):
+            try:
+                from mihomes.services.calendar_sync import is_google_auth_available, _get_provider
+                if is_google_auth_available():
+                    now_dt = datetime.now(timezone.utc)
+                    gcal_events = _get_provider().list_events(now_dt, now_dt + timedelta(days=30))
+                    for ev in gcal_events:
+                        title = ev.get("title", "")
+                        if title.startswith("[MiHomes]"):
+                            continue
+                        start = ev.get("start")
+                        start_str = start.strftime("%b %d") if start else "-"
+                        cal_lines.append(f"  [cyan]◆ Google[/cyan]  {title} — {start_str}")
+            except Exception:
+                pass
+
+        calendar_panel = Panel(
+            "\n".join(cal_lines) if cal_lines else "[dim]No active or upcoming occupancy[/dim]",
+            title="Calendar / Occupancy",
+            expand=True,
+        )
+
+        # AI Recommendations panel
+        ai_lines = []
+        if not os.environ.get("MIHOMES_DEMO"):
+            try:
+                from mihomes.services.ai.orchestrator import dashboard_summary
+                from mihomes.services.ai.provider import AIAuthError, AIProviderError
+                with console.status("[dim]Fetching AI recommendations...[/dim]", spinner="dots"):
+                    ai_resp = dashboard_summary(session, property_slug=property)
+                space_colors = {"S": "bold red", "P": "bold yellow", "A": "yellow", "C": "cyan", "E": "cyan"}
+                for line in ai_resp.text.strip().splitlines():
+                    line = line.strip("•- ").strip()
+                    if not line:
+                        continue
+                    first = line[0].upper() if line else ""
+                    color = space_colors.get(first)
+                    ai_lines.append(f"  [{color}]{line}[/{color}]" if color else f"  {line}")
+                ai_lines.append("\n  [dim]Run `mihomes ai review` for full analysis[/dim]")
+            except Exception:
+                ai_lines = ["  [dim]AI recommendations unavailable. Run `mihomes config set ai.provider claude` to configure.[/dim]"]
+
+        ai_panel = Panel(
+            "\n".join(ai_lines) if ai_lines else "[dim]AI not configured[/dim]",
+            title="AI Recommendations",
+            expand=True,
+        )
+
         # Status bar
         status_items = []
         if data["alert_count"] > 0:
@@ -101,8 +172,7 @@ def dashboard(
         status_text = "  " + " | ".join(status_items) if status_items else "  [green]All clear[/green]"
 
         # Render
-        from datetime import date as date_cls
-        today_str = date_cls.today().strftime("%A, %B %d, %Y")
+        today_str = today.strftime("%A, %B %d, %Y")
         title = f"MiHomes Estate Dashboard — {today_str}"
         if property:
             title = f"MiHomes — {property} — {today_str}"
@@ -115,8 +185,11 @@ def dashboard(
             expand=True,
         ))
 
-        # Two-column layout
+        # Layout: properties + tasks | issues + budget | calendar (full width) | status
         console.print(Columns([prop_panel, task_panel], equal=True, expand=True))
         console.print(Columns([issue_panel, budget_panel], equal=True, expand=True))
+        console.print(calendar_panel)
+        if not os.environ.get("MIHOMES_DEMO"):
+            console.print(ai_panel)
         console.print(Panel(status_text, title="Status", expand=True))
         console.print()

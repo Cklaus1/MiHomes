@@ -112,7 +112,7 @@ def assess_issue_cmd(
     """AI assessment of an issue's severity and recommended actions."""
     from mihomes.services.ai.orchestrator import ask
     from mihomes.services.issue import get_issue
-    from mihomes.services.slug import EntityNotFoundError
+    from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
 
     with get_session() as session:
         try:
@@ -134,7 +134,7 @@ def assess_issue_cmd(
             console.print(Panel(f"[bold]Issue Assessment: {issue.title}[/bold]", expand=False))
             console.print(Markdown(response.text))
             console.print()
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
         except (AIAuthError, AIProviderError) as e:
@@ -270,6 +270,63 @@ def import_cmd(
             format_error(str(e))
             raise typer.Exit(1)
         except ValueError as e:
+            format_error(str(e))
+            raise typer.Exit(1)
+
+
+@app.command("budget-review")
+def budget_review_cmd(
+    property: Optional[str] = typer.Option(None, "--property", "-p", help="Scope to a single property"),
+):
+    """AI financial analysis — variance, anomalies, and cost optimization recommendations."""
+    from mihomes.services.ai.orchestrator import budget_review
+
+    with get_session() as session:
+        try:
+            with console.status("[bold blue]Analyzing financials...", spinner="dots"):
+                response = budget_review(session, property_slug=property)
+
+            console.print()
+            scope = f" — {property}" if property else " — All Properties"
+            console.print(Panel(f"[bold]Budget Review[/bold]{scope}", expand=True))
+            console.print(Markdown(response.text))
+            console.print()
+        except AIAuthError as e:
+            format_error(str(e))
+            raise typer.Exit(1)
+        except AIProviderError as e:
+            format_error(f"AI error: {e}")
+            raise typer.Exit(1)
+
+
+@app.command("plan")
+def plan_cmd(
+    scenario: str = typer.Argument(..., help="Scenario to plan for (e.g. 'opening for summer')"),
+    property: Optional[str] = typer.Option(None, "--property", "-p", help="Property to plan for"),
+):
+    """Generate an AI action plan for a property scenario."""
+    from mihomes.services.ai.orchestrator import ask
+
+    with get_session() as session:
+        try:
+            query = (
+                f"Create a detailed action plan for the following scenario: '{scenario}'.\n\n"
+                "Include:\n"
+                "1. All tasks that need to be completed, in order\n"
+                "2. Which staff or vendors should handle each task\n"
+                "3. Suggested timeline\n"
+                "4. Any risks or things to watch out for\n"
+                "Use SPACE framework to prioritize. Be specific and practical."
+            )
+            with console.status("[bold blue]Planning...", spinner="dots"):
+                response = ask(session, query, role="estate_manager", property_slug=property)
+
+            console.print()
+            scope = f" — {property}" if property else ""
+            console.print(Panel(f"[bold]Action Plan: {scenario}[/bold]{scope}", expand=False))
+            console.print(Markdown(response.text))
+            console.print()
+        except (AIAuthError, AIProviderError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -472,26 +529,45 @@ def _print_rankings_markdown(rankings: list[dict], hiring_notes: str, role: str)
 
 
 @app.command("setup")
-def setup_cmd():
+def setup_cmd(
+    provider_arg: Optional[str] = typer.Option(None, "--provider", help="AI provider: claude, openai, nim, ollama"),
+    key_arg: Optional[str] = typer.Option(None, "--key", help="API key (skips interactive prompt)"),
+):
     """Configure AI provider and API key."""
     from mihomes.services.config_service import set_config
 
     console.print("\n[bold]AI Setup[/bold]\n")
 
-    provider = typer.prompt("AI provider", default="claude", type=str)
+    provider = provider_arg or typer.prompt("AI provider [claude/openai/nim/ollama]", default="nim")
 
-    if provider == "claude":
-        key = typer.prompt("Anthropic API key", hide_input=True)
-        env_var = "ANTHROPIC_API_KEY"
-    elif provider == "openai":
-        key = typer.prompt("OpenAI API key", hide_input=True)
-        env_var = "OPENAI_API_KEY"
-    else:
-        console.print(f"[yellow]Unknown provider '{provider}'. Supported: claude, openai[/yellow]")
+    env_vars = {
+        "claude": "ANTHROPIC_API_KEY",
+        "openai": "OPENAI_API_KEY",
+        "nim": "NVIDIA_API_KEY",
+    }
+
+    if provider not in ("claude", "openai", "nim", "ollama"):
+        console.print(f"[yellow]Unknown provider '{provider}'. Supported: claude, openai, nim, ollama[/yellow]")
         raise typer.Exit(1)
+
+    env_var = env_vars.get(provider, "")
+
+    if provider == "ollama":
+        key = ""
+        console.print("[dim]Ollama runs locally — no API key needed.[/dim]")
+    elif key_arg:
+        key = key_arg
+    else:
+        console.print(f"[dim]Tip: you can also run: mihomes ai setup --key <your-key>[/dim]")
+        key = input(f"{env_var}: ").strip()
+        if not key:
+            format_error("No key entered.")
+            raise typer.Exit(1)
 
     with get_session() as session:
         set_config(session, "ai.provider", provider)
-        set_config(session, f"ai.{provider}_api_key", key)
+        if key:
+            set_config(session, f"ai.{provider}_api_key", key)
         format_success(f"AI configured: provider={provider}")
-        console.print(f"[dim]Tip: You can also set {env_var} environment variable instead.[/dim]")
+        if env_var:
+            console.print(f"[dim]Tip: You can also set {env_var} environment variable instead.[/dim]")

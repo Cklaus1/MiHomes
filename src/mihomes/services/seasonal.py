@@ -142,36 +142,70 @@ def recommend_seasonal(session: Session, property_slug: str) -> list[dict]:
     month = today.month
     recommendations = []
 
-    # Season-based recommendations
-    if month in (3, 4):  # March-April
-        recommendations.append({
-            "template": "spring-opening",
-            "reason": "Spring season — time to open and prepare the property",
-        })
-    elif month in (9, 10):  # September-October
-        recommendations.append({
-            "template": "fall-closing",
-            "reason": "Fall season — time to winterize the property",
-        })
-    elif month in (6, 7, 8):  # June-August
-        recommendations.append({
-            "template": "summer-maintenance",
-            "reason": "Summer season — regular maintenance recommended",
-        })
-        # Hurricane prep for coastal/tropical zones
-        if prop.climate_zone and any(
-            z in (prop.climate_zone or "").lower()
-            for z in ("tropical", "coastal", "subtropical", "hurricane")
-        ):
+    # Detect hemisphere from cached latitude (negative = Southern Hemisphere)
+    southern = prop.latitude is not None and prop.latitude < 0
+
+    if southern:
+        # Southern Hemisphere: seasons are flipped
+        # Mar-Apr = fall, Sep-Oct = spring, Jun-Aug = winter, Dec-Feb = summer
+        if month in (9, 10):  # SH spring
             recommendations.append({
-                "template": "hurricane-prep",
-                "reason": f"Hurricane season for {prop.climate_zone} climate zone",
+                "template": "spring-opening",
+                "reason": "Spring season (Southern Hemisphere) — time to open and prepare the property",
             })
-    elif month in (12, 1, 2):  # December-February
-        recommendations.append({
-            "template": "winter-check",
-            "reason": "Winter — check unoccupied property status",
-        })
+        elif month in (3, 4):  # SH fall
+            recommendations.append({
+                "template": "fall-closing",
+                "reason": "Fall season (Southern Hemisphere) — time to winterize the property",
+            })
+        elif month in (12, 1, 2):  # SH summer
+            recommendations.append({
+                "template": "summer-maintenance",
+                "reason": "Summer season (Southern Hemisphere) — regular maintenance recommended",
+            })
+            if prop.climate_zone and any(
+                z in (prop.climate_zone or "").lower()
+                for z in ("tropical", "coastal", "subtropical", "cyclone")
+            ):
+                recommendations.append({
+                    "template": "hurricane-prep",
+                    "reason": f"Cyclone season for {prop.climate_zone} climate zone",
+                })
+        elif month in (6, 7, 8):  # SH winter
+            recommendations.append({
+                "template": "winter-check",
+                "reason": "Winter (Southern Hemisphere) — check unoccupied property status",
+            })
+    else:
+        # Northern Hemisphere (default)
+        if month in (3, 4):  # NH spring
+            recommendations.append({
+                "template": "spring-opening",
+                "reason": "Spring season — time to open and prepare the property",
+            })
+        elif month in (9, 10):  # NH fall
+            recommendations.append({
+                "template": "fall-closing",
+                "reason": "Fall season — time to winterize the property",
+            })
+        elif month in (6, 7, 8):  # NH summer
+            recommendations.append({
+                "template": "summer-maintenance",
+                "reason": "Summer season — regular maintenance recommended",
+            })
+            if prop.climate_zone and any(
+                z in (prop.climate_zone or "").lower()
+                for z in ("tropical", "coastal", "subtropical", "hurricane")
+            ):
+                recommendations.append({
+                    "template": "hurricane-prep",
+                    "reason": f"Hurricane season for {prop.climate_zone} climate zone",
+                })
+        elif month in (12, 1, 2):  # NH winter
+            recommendations.append({
+                "template": "winter-check",
+                "reason": "Winter — check unoccupied property status",
+            })
 
     # Annual inspection is always a good idea
     recommendations.append({
@@ -179,8 +213,9 @@ def recommend_seasonal(session: Session, property_slug: str) -> list[dict]:
         "reason": "Annual inspection recommended for all properties",
     })
 
-    # Fire safety in dry months
-    if month in (5, 6, 7, 8, 9):
+    # Fire safety in dry months (NH: May-Sep, SH: Nov-Mar)
+    dry_months = (11, 12, 1, 2, 3) if southern else (5, 6, 7, 8, 9)
+    if month in dry_months:
         recommendations.append({
             "template": "fire-safety",
             "reason": "Fire season — safety audit recommended",

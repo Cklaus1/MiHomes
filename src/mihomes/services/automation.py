@@ -176,6 +176,53 @@ def format_digest_brief(digest: dict) -> str:
     return "\n".join(lines)
 
 
+def run_weather_alerts(session: Session) -> int:
+    """Generate weather alerts for all properties. Returns count of new alerts."""
+    try:
+        from mihomes.services.weather import generate_weather_alerts
+        return generate_weather_alerts(session)
+    except Exception:
+        return 0
+
+
+def run_weather_task_suggestions(session: Session) -> int:
+    """
+    Generate AI weather task suggestions for all properties with notable forecasts.
+    Stores pending suggestions as alerts so the user can review them via
+    'mihomes weather suggest <property>'.
+    Returns count of properties that received suggestions.
+    """
+    try:
+        from mihomes.services.weather_tasks import generate_suggestions_all_properties
+        from mihomes.models.alert import Alert, AlertSeverity, AlertStatus
+
+        results = generate_suggestions_all_properties(session)
+        for slug, suggestions in results.items():
+            summary = ", ".join(s.title for s in suggestions[:3])
+            if len(suggestions) > 3:
+                summary += f" (+{len(suggestions) - 3} more)"
+            # Avoid duplicate nudge alerts
+            exists = session.query(Alert).filter(
+                Alert.alert_type == "weather_suggestions",
+                Alert.message.like(f"%{slug}%"),
+                Alert.status != AlertStatus.RESOLVED,
+            ).first()
+            if not exists:
+                session.add(Alert(
+                    alert_type="weather_suggestions",
+                    source_entity_type="property",
+                    severity=AlertSeverity.LOW,
+                    message=(
+                        f"Weather task suggestions ready for {slug}: {summary}. "
+                        f"Run: mihomes weather suggest {slug}"
+                    ),
+                ))
+        session.flush()
+        return len(results)
+    except Exception:
+        return 0
+
+
 def _alert_exists(session: Session, alert_type: str, source_id: int) -> bool:
     return session.query(Alert).filter(
         Alert.alert_type == alert_type,

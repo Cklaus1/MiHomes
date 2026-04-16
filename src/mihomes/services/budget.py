@@ -8,8 +8,9 @@ from sqlalchemy.orm import Session
 from mihomes.models.budget import Budget, BudgetPeriod, Transaction
 from mihomes.models.property import Property
 from mihomes.models.vendor import Vendor
-from mihomes.services.audit import record_change, snapshot_instance
+from mihomes.services.audit import diff_instance, record_change, snapshot_instance
 from mihomes.services.slug import resolve_identifier
+from mihomes.services.update_helpers import safe_update
 
 
 def set_budget(
@@ -35,7 +36,7 @@ def set_budget(
         existing.amount = amount
         existing.currency = currency
         session.flush()
-        record_change(session, "budget", existing.id, "update", {"amount": {"old": None, "new": amount}})
+        record_change(session, "budget", existing.id, "update", {"amount": {"old": existing.amount, "new": amount}})
         return existing
     budget = Budget(
         property_id=prop.id, category=category, period=period,
@@ -73,6 +74,19 @@ def add_transaction(
     session.add(tx)
     session.flush()
     record_change(session, "transaction", tx.id, "create", snapshot_instance(tx))
+    return tx
+
+
+def update_transaction(session: Session, transaction_id: int, **kwargs) -> Transaction:
+    tx = session.get(Transaction, transaction_id)
+    if tx is None:
+        raise ValueError(f"Expense {transaction_id} not found")
+    old_snap = snapshot_instance(tx)
+    safe_update(tx, kwargs)
+    session.flush()
+    changes = diff_instance(old_snap, snapshot_instance(tx))
+    if changes:
+        record_change(session, "transaction", tx.id, "update", changes)
     return tx
 
 

@@ -42,8 +42,25 @@ def ensure_unique_slug(
         suffix += 1
 
 
+class AmbiguousIdentifierError(Exception):
+    """Raised when a partial slug matches multiple entities."""
+
+    def __init__(self, entity_type: str, identifier: str, matches: list):
+        self.entity_type = entity_type
+        self.identifier = identifier
+        self.matches = matches
+        slugs = ", ".join(m.slug for m in matches[:5])
+        super().__init__(f"'{identifier}' is ambiguous — matches: {slugs}")
+
+
 def resolve_identifier(session: Session, model_class, id_or_slug: str):
-    """Resolve an ID or slug to an ORM instance. Raises EntityNotFoundError if not found."""
+    """Resolve an ID or slug to an ORM instance. Raises EntityNotFoundError if not found.
+
+    Supports:
+    - Integer ID
+    - Exact slug match
+    - Prefix slug match (unambiguous only)
+    """
     # Try as integer ID first
     try:
         pk = int(id_or_slug)
@@ -53,12 +70,22 @@ def resolve_identifier(session: Session, model_class, id_or_slug: str):
     except (ValueError, TypeError):
         pass
 
-    # Try as slug
+    # Try as exact slug
     instance = (
         session.query(model_class).filter(model_class.slug == id_or_slug).first()
     )
     if instance is not None:
         return instance
+
+    # Try as prefix match (e.g., "a-j-land" → "a-j-landscaping-tree-service-llc")
+    matches = (
+        session.query(model_class).filter(model_class.slug.like(f"{id_or_slug}%")).all()
+    )
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        entity_type = _singularize(model_class.__tablename__)
+        raise AmbiguousIdentifierError(entity_type, id_or_slug, matches)
 
     entity_type = _singularize(model_class.__tablename__)
     raise EntityNotFoundError(entity_type, id_or_slug)
@@ -71,6 +98,7 @@ _SINGULARS = {
     "tasks": "task",
     "issues": "issue",
     "spaces": "space",
+    "zones": "zone",
     "assets": "asset",
     "templates": "template",
     "events": "event",

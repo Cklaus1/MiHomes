@@ -9,7 +9,7 @@ from rich.table import Table
 from mihomes.cli.formatters import console, format_error, format_success
 from mihomes.db import get_session
 from mihomes.services import contract as contract_svc
-from mihomes.services.slug import EntityNotFoundError
+from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
 
 app = typer.Typer(name="contract", help="Manage vendor contracts")
 
@@ -34,7 +34,65 @@ def add_contract(
                 service_category=category,
             )
             format_success(f"Contract #{c.id} created ({c.vendor.company_name} → {c.property.name})")
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
+            format_error(str(e))
+            raise typer.Exit(1)
+
+
+@app.command("show")
+def show_contract(id_or_slug: str = typer.Argument(..., help="Contract ID")):
+    """Show contract details."""
+    from mihomes.cli.formatters import format_panel
+    with get_session() as session:
+        try:
+            contract_id = int(id_or_slug)
+        except ValueError:
+            format_error(f"Contract ID must be a number. Got: '{id_or_slug}'")
+            raise typer.Exit(1)
+        from mihomes.models.contract import Contract
+        c = session.get(Contract, contract_id)
+        if not c:
+            format_error(f"Contract #{contract_id} not found")
+            raise typer.Exit(1)
+        content = {
+            "ID": str(c.id),
+            "Vendor": c.vendor.company_name,
+            "Property": c.property.name,
+            "Category": c.service_category or "-",
+            "Start Date": str(c.start_date),
+            "End Date": str(c.end_date) if c.end_date else "Ongoing",
+            "Annual Cost": f"{c.currency} {c.annual_cost:,.0f}" if c.annual_cost else "-",
+            "Auto-Renew": "Yes" if c.auto_renew else "No",
+            "Notice Period": f"{c.notice_period_days} days",
+            "Notes": c.notes or "-",
+        }
+        console.print(format_panel(f"Contract #{c.id}", content))
+
+
+@app.command("edit")
+def edit_contract(
+    contract_id: int = typer.Argument(..., help="Contract ID"),
+    end: Optional[str] = typer.Option(None, "--end", help="End date YYYY-MM-DD"),
+    annual: Optional[float] = typer.Option(None, "--annual", help="Annual cost"),
+    auto_renew: Optional[bool] = typer.Option(None, "--auto-renew/--no-auto-renew"),
+    category: Optional[str] = typer.Option(None, "--category"),
+    notes: Optional[str] = typer.Option(None, "--notes"),
+):
+    """Edit a contract."""
+    kwargs = {}
+    if end is not None: kwargs["end_date"] = date.fromisoformat(end)
+    if annual is not None: kwargs["annual_cost"] = annual
+    if auto_renew is not None: kwargs["auto_renew"] = auto_renew
+    if category is not None: kwargs["service_category"] = category
+    if notes is not None: kwargs["notes"] = notes
+    if not kwargs:
+        format_error("No fields to update.")
+        raise typer.Exit(1)
+    with get_session() as session:
+        try:
+            c = contract_svc.update_contract(session, contract_id, **kwargs)
+            format_success(f"Contract #{c.id} updated")
+        except ValueError as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -48,7 +106,7 @@ def list_contracts(
     with get_session() as session:
         try:
             contracts = contract_svc.list_contracts(session, property_id_or_slug=property, expiring_days=expiring)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
         if not contracts:

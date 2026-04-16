@@ -10,7 +10,7 @@ from mihomes.cli.formatters import console, format_error, format_success
 from mihomes.db import get_session
 from mihomes.models.task import TaskPriority
 from mihomes.services import template as tmpl_svc
-from mihomes.services.slug import EntityNotFoundError
+from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
 
 app = typer.Typer(name="template", help="Manage reusable task templates")
 
@@ -53,7 +53,7 @@ def show_template(id_or_slug: str = typer.Argument(...)):
     with get_session() as session:
         try:
             tmpl = tmpl_svc.get_template(session, id_or_slug)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
         console.print(f"\n[bold]{tmpl.name}[/bold]")
@@ -80,7 +80,7 @@ def run_template(
             format_success(f"{len(tasks)} tasks created from template")
             for t in tasks:
                 console.print(f"  - {t.title} (due: {t.due_date})")
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -111,7 +111,7 @@ def delete_template(
     with get_session() as session:
         try:
             tmpl = tmpl_svc.get_template(session, id_or_slug)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
         if not force:

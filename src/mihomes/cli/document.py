@@ -9,7 +9,7 @@ from mihomes.cli.formatters import console, format_enum, format_error, format_pa
 from mihomes.db import get_session
 from mihomes.models.document import DocumentType
 from mihomes.services import document as doc_svc
-from mihomes.services.slug import EntityNotFoundError
+from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
 
 app = typer.Typer(name="document", help="Manage documents and files")
 
@@ -108,7 +108,7 @@ def show_document(id_or_slug: str = typer.Argument(...)):
     with get_session() as session:
         try:
             doc = doc_svc.get_document(session, id_or_slug)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
         content = {
@@ -123,6 +123,31 @@ def show_document(id_or_slug: str = typer.Argument(...)):
         console.print(format_panel(f"Document: {doc.title}", content))
 
 
+@app.command("edit")
+def edit_document(
+    id_or_slug: str = typer.Argument(...),
+    title: Optional[str] = typer.Option(None, "--title"),
+    expires: Optional[str] = typer.Option(None, "--expires", help="Expiry date YYYY-MM-DD"),
+    notes: Optional[str] = typer.Option(None, "--notes"),
+):
+    """Edit a document."""
+    from datetime import date
+    kwargs = {}
+    if title is not None: kwargs["title"] = title
+    if expires is not None: kwargs["expires_at"] = date.fromisoformat(expires)
+    if notes is not None: kwargs["notes"] = notes
+    if not kwargs:
+        format_error("No fields to update.")
+        raise typer.Exit(1)
+    with get_session() as session:
+        try:
+            doc = doc_svc.update_document(session, id_or_slug, **kwargs)
+            format_success(f"Document '{doc.title}' updated")
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
+            format_error(str(e))
+            raise typer.Exit(1)
+
+
 @app.command("delete")
 def delete_document(
     id_or_slug: str = typer.Argument(...),
@@ -132,7 +157,7 @@ def delete_document(
     with get_session() as session:
         try:
             doc = doc_svc.get_document(session, id_or_slug)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
         if not force:

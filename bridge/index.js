@@ -11,7 +11,7 @@
  * Session credentials persist in ../mihomes-data/whatsapp-auth/
  */
 
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, downloadMediaMessage } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, downloadMediaMessage, fetchLatestBaileysVersion, Browsers } = require('@whiskeysockets/baileys');
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
@@ -43,10 +43,18 @@ async function startConnection() {
 
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
 
+  const { version } = await fetchLatestBaileysVersion();
+  console.log(`Using WA version: ${version.join('.')}`);
+
   sock = makeWASocket({
+    version,
     auth: state,
     logger,
+    browser: Browsers.macOS('Desktop'),
     printQRInTerminal: false,
+    syncFullHistory: false,
+    markOnlineOnConnect: false,
+    getMessage: async () => ({ conversation: '' }),
   });
 
   sock.ev.on('creds.update', saveCreds);
@@ -70,11 +78,11 @@ async function startConnection() {
 
     if (connection === 'close') {
       const statusCode = lastDisconnect?.error?.output?.statusCode;
-      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-      connectionStatus = shouldReconnect ? 'reconnecting' : 'logged-out';
-      console.log(`Connection closed. Status: ${statusCode}. Reconnecting: ${shouldReconnect}`);
-      if (shouldReconnect) {
-        setTimeout(startConnection, 5000);
+      const isLoggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401;
+      connectionStatus = isLoggedOut ? 'logged-out' : 'reconnecting';
+      console.log(`Connection closed. Status: ${statusCode}. Reconnecting: ${!isLoggedOut}`);
+      if (!isLoggedOut) {
+        setTimeout(startConnection, 3000);
       }
     }
   });
@@ -157,6 +165,48 @@ app.get('/qr', (req, res) => {
   }
 });
 
+app.get('/', (req, res) => {
+  const qrData = app.locals.lastQR || '';
+  const statusMsg = {
+    connected: '✅ Connected to WhatsApp',
+    disconnected: '⏳ Connecting...',
+    'awaiting-qr': '📱 Scan the QR code below with WhatsApp',
+    reconnecting: '🔄 Reconnecting...',
+    'logged-out': '❌ Logged out — restart bridge',
+  }[connectionStatus] || connectionStatus;
+
+  res.send(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MiHomes WhatsApp Bridge</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <style>
+    body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center;
+           justify-content: center; min-height: 100vh; margin: 0; background: #f5f5f5; }
+    h1 { color: #333; }
+    #status { font-size: 1.2em; margin: 16px 0; }
+    #qrbox { background: #fff; padding: 24px; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,.1); }
+    #qrbox canvas, #qrbox img { display: block; }
+    #msg { color: #666; margin-top: 16px; font-size: 0.9em; }
+  </style>
+</head>
+<body>
+  <h1>MiHomes WhatsApp Bridge</h1>
+  <div id="status">${statusMsg}</div>
+  <div id="qrbox">
+    ${qrData ? '<div id="qr"></div>' : '<p style="color:#999">No QR code yet — waiting for bridge to initialise...</p>'}
+  </div>
+  <p id="msg">This page auto-refreshes every 5 seconds.</p>
+  <script>
+    ${qrData ? `new QRCode(document.getElementById('qr'), { text: ${JSON.stringify(qrData)}, width: 256, height: 256 });` : ''}
+    setTimeout(() => location.reload(), 5000);
+  </script>
+</body>
+</html>`);
+});
+
 app.post('/send', async (req, res) => {
   const { phone, text, mediaPath } = req.body;
   if (!sock || connectionStatus !== 'connected') {
@@ -192,6 +242,16 @@ app.post('/send-group', async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+app.delete('/messages', (req, res) => {
+  messageStore.length = 0;
+  try {
+    fs.writeFileSync(MESSAGES_FILE, '');
+  } catch (e) {
+    console.error('Failed to clear messages file:', e.message);
+  }
+  res.json({ success: true, message: 'Message buffer cleared' });
 });
 
 app.get('/messages', (req, res) => {
@@ -230,7 +290,18 @@ app.get('/groups', async (req, res) => {
 app.post('/link-group', (req, res) => {
   const { groupJid, propertySlug } = req.body;
   linkedGroups.set(groupJid, propertySlug);
-  // Persist links atomically — write to temp file then rename
+  persistGroupLinks();
+  res.json({ success: true });
+});
+
+app.post('/unlink-group', (req, res) => {
+  const { groupJid } = req.body;
+  linkedGroups.delete(groupJid);
+  persistGroupLinks();
+  res.json({ success: true });
+});
+
+function persistGroupLinks() {
   const linksFile = path.join(AUTH_DIR, 'group-links.json');
   const tmpFile = linksFile + '.tmp';
   try {
@@ -240,8 +311,7 @@ app.post('/link-group', (req, res) => {
     console.error('Failed to persist group links:', e.message);
     try { fs.unlinkSync(tmpFile); } catch (_) {}
   }
-  res.json({ success: true });
-});
+}
 
 // Load persisted group links on startup
 function loadGroupLinks() {

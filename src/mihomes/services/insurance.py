@@ -6,8 +6,9 @@ from sqlalchemy.orm import Session
 
 from mihomes.models.insurance import InsurancePolicy, InsuranceType
 from mihomes.models.property import Property
-from mihomes.services.audit import record_change, snapshot_instance
+from mihomes.services.audit import diff_instance, record_change, snapshot_instance
 from mihomes.services.slug import resolve_identifier
+from mihomes.services.update_helpers import safe_update
 
 
 def create_policy(
@@ -56,6 +57,19 @@ def list_policies(
         cutoff = date.today() + timedelta(days=expiring_days)
         query = query.filter(InsurancePolicy.renewal_date != None, InsurancePolicy.renewal_date <= cutoff)
     return query.order_by(InsurancePolicy.renewal_date.asc().nullslast()).all()
+
+
+def update_policy(session: Session, policy_id: int, **kwargs) -> InsurancePolicy:
+    policy = session.get(InsurancePolicy, policy_id)
+    if policy is None:
+        raise ValueError(f"Insurance policy {policy_id} not found")
+    old_snap = snapshot_instance(policy)
+    safe_update(policy, kwargs)
+    session.flush()
+    changes = diff_instance(old_snap, snapshot_instance(policy))
+    if changes:
+        record_change(session, "insurance", policy.id, "update", changes)
+    return policy
 
 
 def delete_policy(session: Session, policy_id: int) -> None:

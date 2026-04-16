@@ -52,6 +52,8 @@ def severity_color(severity: str) -> str:
         "low": "green",
         "urgent": "red bold",
     }
+    if severity is None:
+        return "white"
     return colors.get(severity.lower() if isinstance(severity, str) else severity.value.lower(), "white")
 
 

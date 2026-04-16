@@ -9,6 +9,7 @@ from mihomes.models.staff import Staff
 from mihomes.models.task import (
     RecurrenceFrequency,
     Task,
+    TaskCategory,
     TaskPriority,
     TaskSchedule,
     TaskStatus,
@@ -35,6 +36,9 @@ def create_task(
     recurrence: RecurrenceFrequency = RecurrenceFrequency.ONCE,
     season_spec: str | None = None,
     slug: str | None = None,
+    estimated_hours: float | None = None,
+    zone_id: int | None = None,
+    category: TaskCategory | None = None,
 ) -> Task:
     if len(title) > 300:
         raise ValueError(f"Task title too long (max 300 chars, got {len(title)})")
@@ -54,6 +58,9 @@ def create_task(
         assignee_id=assignee_id,
         priority=priority,
         due_date=due_date,
+        estimated_hours=estimated_hours,
+        zone_id=zone_id,
+        category=category,
     )
     session.add(task)
     session.flush()
@@ -101,6 +108,7 @@ def list_tasks(
     priority: TaskPriority | None = None,
     assignee_id_or_slug: str | None = None,
     overdue: bool = False,
+    category: TaskCategory | None = None,
 ) -> list[Task]:
     query = session.query(Task)
     if property_id_or_slug:
@@ -113,6 +121,8 @@ def list_tasks(
     if assignee_id_or_slug:
         assignee = resolve_identifier(session, Staff, assignee_id_or_slug)
         query = query.filter(Task.assignee_id == assignee.id)
+    if category:
+        query = query.filter(Task.category == category)
     if overdue:
         query = query.filter(
             Task.due_date < date.today(),
@@ -139,8 +149,12 @@ def update_task(session: Session, id_or_slug: str, **kwargs) -> Task:
     return task
 
 
-def complete_task(session: Session, id_or_slug: str, notes: str | None = None) -> Task:
-    """Complete a task and create the next occurrence if recurring."""
+def complete_task(session: Session, id_or_slug: str, notes: str | None = None) -> tuple[Task, Task | None]:
+    """Complete a task and create the next occurrence if recurring.
+
+    Returns (completed_task, next_task) where next_task is None for
+    non-recurring tasks or when no future occurrence could be calculated.
+    """
     task = resolve_identifier(session, Task, id_or_slug)
     if task.status in (TaskStatus.COMPLETED, TaskStatus.CANCELLED):
         raise ValueError(f"Task is already {task.status.value}. Cannot complete again.")
@@ -168,10 +182,11 @@ def complete_task(session: Session, id_or_slug: str, notes: str | None = None) -
         session.flush()
 
     # Advance recurring task
+    next_task = None
     if task.schedule and task.schedule.frequency != RecurrenceFrequency.ONCE:
-        _advance_recurring_task(session, task)
+        next_task = _advance_recurring_task(session, task)
 
-    return task
+    return task, next_task
 
 
 def _advance_recurring_task(session: Session, completed_task: Task) -> Task | None:
@@ -200,6 +215,8 @@ def _advance_recurring_task(session: Session, completed_task: Task) -> Task | No
         assignee_id=completed_task.assignee_id,
         priority=completed_task.priority,
         due_date=next_due,
+        category=completed_task.category,
+        zone_id=completed_task.zone_id,
     )
     session.add(new_task)
     session.flush()

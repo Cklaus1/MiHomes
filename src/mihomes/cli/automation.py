@@ -93,24 +93,39 @@ def check_expirations(
 
 @app.command("run-all")
 def run_all():
-    """Run all automation checks (digest, escalation, expiration alerts)."""
+    """Run all automation checks (digest, escalation, expiration alerts, WhatsApp extraction)."""
     with get_session() as session:
-        # Escalate overdue tasks
         escalated = auto_svc.escalate_overdue_tasks(session)
-
-        # Check expirations
         expiration_alerts = auto_svc.generate_expiration_alerts(session)
 
-        # Generate and refresh alerts
         from mihomes.services.alerts import generate_alerts
         task_alerts = generate_alerts(session)
+
+        # WhatsApp extraction — silently skips if bridge is not running
+        wa_issues = 0
+        wa_tasks = 0
+        wa_status = "bridge not running"
+        try:
+            from mihomes.services.gateways.whatsapp.extractor import extract_and_create
+            from mihomes.services.gateways.whatsapp.client import WhatsAppBridgeError
+            wa_result = extract_and_create(session)
+            wa_issues = wa_result["issues_created"]
+            wa_tasks = wa_result["tasks_created"]
+            wa_status = f"{wa_issues} issue(s), {wa_tasks} task(s) from {wa_result['messages_processed']} messages"
+        except Exception:
+            pass
+
+        weather_alerts = auto_svc.run_weather_alerts(session)
+        weather_suggestions = auto_svc.run_weather_task_suggestions(session)
 
         console.print("[bold]Automation run complete:[/bold]")
         console.print(f"  - {escalated} task(s) escalated")
         console.print(f"  - {expiration_alerts} expiration alert(s) generated")
         console.print(f"  - {task_alerts} task/issue alert(s) generated")
+        console.print(f"  - {weather_alerts} weather alert(s) generated")
+        console.print(f"  - {weather_suggestions} propert(ies) with AI weather task suggestions")
+        console.print(f"  - WhatsApp: {wa_status}")
 
-        # Show digest
         digest = auto_svc.generate_daily_digest(session)
         console.print()
         print(auto_svc.format_digest_brief(digest))

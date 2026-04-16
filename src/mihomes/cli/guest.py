@@ -8,7 +8,7 @@ from rich.table import Table
 from mihomes.cli.formatters import console, format_error, format_success
 from mihomes.db import get_session
 from mihomes.services import event as event_svc
-from mihomes.services.slug import EntityNotFoundError
+from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
 
 app = typer.Typer(name="guest", help="Manage guests")
 
@@ -54,6 +54,36 @@ def list_guests():
         console.print(table)
 
 
+@app.command("edit")
+def edit_guest(
+    id_or_slug: str = typer.Argument(..., help="Guest ID or slug"),
+    name: Optional[str] = typer.Option(None, "--name", "-n"),
+    email: Optional[str] = typer.Option(None, "--email"),
+    phone: Optional[str] = typer.Option(None, "--phone"),
+    dietary: Optional[str] = typer.Option(None, "--dietary"),
+    room: Optional[str] = typer.Option(None, "--room"),
+    notes: Optional[str] = typer.Option(None, "--notes"),
+):
+    """Edit a guest."""
+    kwargs = {}
+    if name is not None: kwargs["name"] = name
+    if email is not None: kwargs["email"] = email
+    if phone is not None: kwargs["phone"] = phone
+    if dietary is not None: kwargs["dietary_preferences"] = dietary
+    if room is not None: kwargs["room_preference"] = room
+    if notes is not None: kwargs["notes"] = notes
+    if not kwargs:
+        format_error("No fields to update.")
+        raise typer.Exit(1)
+    with get_session() as session:
+        try:
+            guest = event_svc.update_guest(session, id_or_slug, **kwargs)
+            format_success(f"Guest '{guest.name}' updated")
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
+            format_error(str(e))
+            raise typer.Exit(1)
+
+
 @app.command("invite")
 def invite_guest(
     guest: str = typer.Argument(..., help="Guest ID or slug"),
@@ -72,7 +102,7 @@ def invite_guest(
         try:
             eg = event_svc.invite_guest(session, event_ref, guest, notes=notes)
             format_success(f"Guest '{eg.guest.name}' invited to event '{eg.event.title}' (RSVP: {eg.rsvp_status})")
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
         except ValueError as e:
@@ -91,7 +121,7 @@ def update_rsvp(
         try:
             eg = event_svc.update_rsvp(session, event, guest, status)
             format_success(f"RSVP for '{eg.guest.name}' updated to '{eg.rsvp_status}'")
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
         except ValueError as e:

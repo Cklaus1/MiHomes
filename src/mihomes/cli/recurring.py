@@ -10,7 +10,7 @@ from mihomes.cli.formatters import console, format_error, format_success
 from mihomes.db import get_session
 from mihomes.models.recurring_expense import ExpenseFrequency
 from mihomes.services import recurring as recurring_svc
-from mihomes.services.slug import EntityNotFoundError
+from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
 
 app = typer.Typer(name="recurring", help="Manage recurring expenses")
 
@@ -34,7 +34,33 @@ def add_recurring(
                 vendor_id_or_slug=vendor,
             )
             format_success(f"Recurring expense '{exp.name}' added (${exp.amount:,.2f} {exp.frequency.value})")
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
+            format_error(str(e))
+            raise typer.Exit(1)
+
+
+@app.command("edit")
+def edit_recurring(
+    expense_id: int = typer.Argument(..., help="Recurring expense ID"),
+    name: Optional[str] = typer.Option(None, "--name", "-n"),
+    amount: Optional[float] = typer.Option(None, "--amount", "-a"),
+    frequency: Optional[ExpenseFrequency] = typer.Option(None, "--frequency", "-f"),
+    category: Optional[str] = typer.Option(None, "--category", "-c"),
+):
+    """Edit a recurring expense."""
+    kwargs = {}
+    if name is not None: kwargs["name"] = name
+    if amount is not None: kwargs["amount"] = amount
+    if frequency is not None: kwargs["frequency"] = frequency
+    if category is not None: kwargs["category"] = category
+    if not kwargs:
+        format_error("No fields to update.")
+        raise typer.Exit(1)
+    with get_session() as session:
+        try:
+            exp = recurring_svc.update_recurring_expense(session, expense_id, **kwargs)
+            format_success(f"Recurring expense '{exp.name}' updated")
+        except ValueError as e:
             format_error(str(e))
             raise typer.Exit(1)
 

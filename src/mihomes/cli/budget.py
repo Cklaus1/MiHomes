@@ -10,7 +10,7 @@ from mihomes.cli.formatters import console, format_error, format_success
 from mihomes.db import get_session
 from mihomes.models.budget import BudgetPeriod
 from mihomes.services import budget as budget_svc
-from mihomes.services.slug import EntityNotFoundError
+from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
 
 budget_app = typer.Typer(name="budget", help="Manage budgets")
 expense_app = typer.Typer(name="expense", help="Track expenses")
@@ -37,6 +37,48 @@ def _parse_period(period_str: str) -> tuple[date, date]:
         end = date(int(year), m + 1, 1) if m < 12 else date(int(year) + 1, 1, 1)
         return start, end
     raise ValueError(f"Cannot parse period: {period_str}")
+
+
+@budget_app.command("list")
+def list_budgets(
+    property: Optional[str] = typer.Option(None, "--property", "-p"),
+):
+    """List all budgets, optionally filtered by property."""
+    from mihomes.models.budget import Budget
+    from mihomes.models.property import Property as PropertyModel
+    with get_session() as session:
+        query = session.query(Budget)
+        if property:
+            try:
+                from mihomes.services.slug import resolve_identifier
+                prop = resolve_identifier(session, PropertyModel, property)
+                query = query.filter(Budget.property_id == prop.id)
+            except Exception as e:
+                format_error(str(e))
+                raise typer.Exit(1)
+        rows = [
+            (b.id, b.property.name, b.category, b.period.value, b.currency, b.amount, b.period_start)
+            for b in query.order_by(Budget.property_id, Budget.category).all()
+        ]
+
+    if not rows:
+        console.print("[dim]No budgets found.[/dim]")
+        return
+
+    table = Table(title="Budgets")
+    table.add_column("ID", style="dim")
+    table.add_column("Property", style="bold")
+    table.add_column("Category")
+    table.add_column("Period")
+    table.add_column("Amount", justify="right")
+    table.add_column("Start")
+    for bid, prop_name, category, period, currency, amount, period_start in rows:
+        table.add_row(
+            str(bid), prop_name, category,
+            period, f"{currency} {amount:,.0f}",
+            str(period_start),
+        )
+    console.print(table)
 
 
 @budget_app.command("set")
@@ -72,7 +114,7 @@ def budget_report(
                 year = date.today().year
                 start, end = date(year, 1, 1), date(year + 1, 1, 1)
             report = budget_svc.get_budget_report(session, property, start, end)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -120,7 +162,35 @@ def add_expense(
                 vendor_id_or_slug=vendor, description=description, notes=notes,
             )
             format_success(f"Expense ${tx.amount:,.2f} added ({tx.category})")
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
+            format_error(str(e))
+            raise typer.Exit(1)
+
+
+@expense_app.command("edit")
+def edit_expense(
+    expense_id: int = typer.Argument(..., help="Expense ID"),
+    amount: Optional[float] = typer.Option(None, "--amount", "-a"),
+    category: Optional[str] = typer.Option(None, "--category", "-c"),
+    description: Optional[str] = typer.Option(None, "--desc"),
+    tx_date: Optional[str] = typer.Option(None, "--date", help="Date YYYY-MM-DD"),
+    notes: Optional[str] = typer.Option(None, "--notes"),
+):
+    """Edit an expense."""
+    kwargs = {}
+    if amount is not None: kwargs["amount"] = amount
+    if category is not None: kwargs["category"] = category
+    if description is not None: kwargs["description"] = description
+    if tx_date is not None: kwargs["date"] = date.fromisoformat(tx_date)
+    if notes is not None: kwargs["notes"] = notes
+    if not kwargs:
+        format_error("No fields to update.")
+        raise typer.Exit(1)
+    with get_session() as session:
+        try:
+            tx = budget_svc.update_transaction(session, expense_id, **kwargs)
+            format_success(f"Expense #{tx.id} updated")
+        except ValueError as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -134,7 +204,7 @@ def list_expenses(
     with get_session() as session:
         try:
             txs = budget_svc.list_transactions(session, property_id_or_slug=property, category=category)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 

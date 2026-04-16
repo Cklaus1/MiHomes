@@ -187,11 +187,12 @@ A trial day shows more than any interview. You're watching standards, pace, init
 ## Phase 6: Background Check
 
 - [ ] Get signed background check authorization before running (required by law)
-- [ ] Run check via: [your preferred service — e.g., Checkr, HireRight, Sterling]
+- [ ] Run check through the payroll company (annual background checks are handled there)
 - [ ] Check includes: criminal history, identity verification, SSN validation
 - [ ] For driving roles: motor vehicle record (MVR)
 - [ ] Review results — anything requiring a decision goes to Chris
 - [ ] Do not make an offer until check is returned clean
+- [ ] Note: all existing staff are subject to annual re-checks through the payroll company — calendar this on hire date each year
 
 ---
 

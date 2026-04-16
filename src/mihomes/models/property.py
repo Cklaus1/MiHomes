@@ -3,7 +3,7 @@
 import enum
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, Enum, Integer, String, Text
+from sqlalchemy import Boolean, Date, DateTime, Enum, Float, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mihomes.models import Base, SlugMixin, TimestampMixin
@@ -45,5 +45,7 @@ class Property(Base, TimestampMixin, SlugMixin):
     occupied: Mapped[bool] = mapped_column(Boolean, default=False)
     occupied_since: Mapped[date | None] = mapped_column(Date, nullable=True)
     occupied_until: Mapped[date | None] = mapped_column(Date, nullable=True)
+    latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     spaces = relationship("Space", back_populates="property", cascade="all, delete-orphan")

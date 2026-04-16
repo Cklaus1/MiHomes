@@ -9,7 +9,7 @@ from mihomes.cli.formatters import console, format_enum, format_error, format_pa
 from mihomes.db import get_session
 from mihomes.models.event import EventStatus
 from mihomes.services import event as event_svc
-from mihomes.services.slug import EntityNotFoundError
+from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
 
 app = typer.Typer(name="event", help="Manage events and hospitality")
 
@@ -37,7 +37,7 @@ def add_event(
                 description=description, notes=notes,
             )
             format_success(f"Event '{event.title}' created (slug: {event.slug}, date: {event.event_date})")
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -51,7 +51,7 @@ def list_events(
     with get_session() as session:
         try:
             events = event_svc.list_events(session, property_id_or_slug=property, status=status)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -80,13 +80,46 @@ def list_events(
         console.print(table)
 
 
+@app.command("edit")
+def edit_event(
+    id_or_slug: str = typer.Argument(..., help="Event ID or slug"),
+    title: Optional[str] = typer.Option(None, "--title"),
+    event_date: Optional[str] = typer.Option(None, "--date", help="Event date YYYY-MM-DD"),
+    end_date: Optional[str] = typer.Option(None, "--end", help="End date YYYY-MM-DD"),
+    expected_guests: Optional[int] = typer.Option(None, "--guests"),
+    budget: Optional[float] = typer.Option(None, "--budget"),
+    status: Optional[EventStatus] = typer.Option(None, "--status", "-s"),
+    notes: Optional[str] = typer.Option(None, "--notes"),
+):
+    """Edit an event."""
+    from datetime import date
+    kwargs = {}
+    if title is not None: kwargs["title"] = title
+    if event_date is not None: kwargs["event_date"] = date.fromisoformat(event_date)
+    if end_date is not None: kwargs["end_date"] = date.fromisoformat(end_date)
+    if expected_guests is not None: kwargs["expected_guests"] = expected_guests
+    if budget is not None: kwargs["budget"] = budget
+    if status is not None: kwargs["status"] = status
+    if notes is not None: kwargs["notes"] = notes
+    if not kwargs:
+        format_error("No fields to update.")
+        raise typer.Exit(1)
+    with get_session() as session:
+        try:
+            event = event_svc.update_event(session, id_or_slug, **kwargs)
+            format_success(f"Event '{event.title}' updated")
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
+            format_error(str(e))
+            raise typer.Exit(1)
+
+
 @app.command("show")
 def show_event(id_or_slug: str = typer.Argument(...)):
     """Show event details."""
     with get_session() as session:
         try:
             event = event_svc.get_event(session, id_or_slug)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
         content = {

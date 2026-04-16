@@ -8,9 +8,17 @@ from rich import print as rprint
 
 from mihomes import __version__
 
+# Ensure UTF-8 output on Windows (handles emoji and unicode in Rich tables).
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 # Handle SIGPIPE gracefully — prevents data loss when output is piped through
 # head/tail/etc. Without this, piping kills the process before session commits.
-signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+# SIGPIPE is not available on Windows.
+if hasattr(signal, "SIGPIPE"):
+    signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 
 app = typer.Typer(
     name="mihomes",
@@ -128,6 +136,7 @@ def version_cmd():
 # Register sub-apps
 from mihomes.cli.property import app as property_app  # noqa: E402
 from mihomes.cli.space import app as space_app  # noqa: E402
+from mihomes.cli.zone import app as zone_app  # noqa: E402
 from mihomes.cli.staff import app as staff_app  # noqa: E402
 from mihomes.cli.vendor import app as vendor_app  # noqa: E402
 from mihomes.cli.task import app as task_app  # noqa: E402
@@ -139,6 +148,7 @@ from mihomes.cli.alerts import app as alerts_app  # noqa: E402
 
 app.add_typer(property_app, name="property")
 app.add_typer(space_app, name="space")
+app.add_typer(zone_app, name="zone")
 app.add_typer(staff_app, name="staff")
 app.add_typer(vendor_app, name="vendor")
 app.add_typer(task_app, name="task")
@@ -199,9 +209,18 @@ app.add_typer(report_app, name="report")
 # Phase 4: Automation sub-apps
 from mihomes.cli.automation import app as auto_app  # noqa: E402
 from mihomes.cli.calendar_import import app as calendar_app  # noqa: E402
+from mihomes.cli.inventory import app as inventory_app  # noqa: E402
+from mihomes.cli.weather import app as weather_app  # noqa: E402
 
 app.add_typer(auto_app, name="auto")
 app.add_typer(calendar_app, name="calendar")
+app.add_typer(inventory_app, name="inventory")
+app.add_typer(weather_app, name="weather")
+
+# Archive
+from mihomes.cli.archive import app as archive_app  # noqa: E402
+
+app.add_typer(archive_app, name="archive")
 
 # WhatsApp + CSV
 from mihomes.cli.whatsapp import app as whatsapp_app  # noqa: E402

@@ -9,7 +9,7 @@ from mihomes.cli.formatters import console, format_enum, format_error, format_pa
 from mihomes.db import get_session
 from mihomes.models.issue import IssueSeverity, IssueStatus
 from mihomes.services import issue as issue_svc
-from mihomes.services.slug import EntityNotFoundError
+from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
 
 app = typer.Typer(name="issue", help="Track and manage issues")
 
@@ -21,6 +21,7 @@ def add_issue(
     severity: IssueSeverity = typer.Option(IssueSeverity.MEDIUM, "--severity", "-s"),
     space: Optional[str] = typer.Option(None, "--space", help="Space ID or slug"),
     description: Optional[str] = typer.Option(None, "--desc"),
+    ai_suggest: bool = typer.Option(False, "--ai-suggest", "-a", help="Get AI suggestions for severity and tags"),
 ):
     """Report a new issue."""
     with get_session() as session:
@@ -30,7 +31,12 @@ def add_issue(
                 description=description, space_id_or_slug=space,
             )
             format_success(f"Issue '{issue.title}' created (slug: {issue.slug}, severity: {issue.severity.value})")
-        except EntityNotFoundError as e:
+
+            if ai_suggest:
+                from mihomes.cli.task import _apply_ai_suggestions
+                _apply_ai_suggestions(session, "issue", issue.slug, title, description, issue.property.name)
+
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -50,7 +56,7 @@ def list_issues(
                 session, property_id_or_slug=property, severity=severity,
                 open_only=open_only, resolved_only=resolved,
             )
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -80,7 +86,7 @@ def show_issue(id_or_slug: str = typer.Argument(...)):
     with get_session() as session:
         try:
             issue = issue_svc.get_issue(session, id_or_slug)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
         content = {
@@ -118,7 +124,7 @@ def edit_issue(
         try:
             issue = issue_svc.update_issue(session, id_or_slug, **kwargs)
             format_success(f"Issue '{issue.title}' updated")
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -133,7 +139,7 @@ def resolve_issue(
         try:
             issue = issue_svc.resolve_issue(session, id_or_slug, notes=notes)
             format_success(f"Issue '{issue.title}' resolved")
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
 
@@ -147,7 +153,7 @@ def delete_issue(
     with get_session() as session:
         try:
             issue = issue_svc.get_issue(session, id_or_slug)
-        except EntityNotFoundError as e:
+        except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
         if not force:

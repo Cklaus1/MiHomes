@@ -18,14 +18,19 @@ REVIEW_SCHEMA = {
                 "properties": {
                     "category": {
                         "type": "string",
-                        "enum": ["issue", "task", "task_completion", "supply_need", "vendor_activity", "informational"],
+                        "enum": ["issue", "task", "task_completion", "supply_need", "vendor_activity", "question", "pto_request", "informational"],
                     },
                     "title": {"type": "string"},
                     "description": {"type": "string"},
                     "severity": {"type": "string", "enum": ["critical", "high", "medium", "low"]},
                     "reported_by": {"type": "string"},
                     "timestamp": {"type": "string"},
+                    "assigned_to": {"type": "string"},
+                    "pto_dates": {"type": "array", "items": {"type": "string"}},
                     "related_asset": {"type": "string"},
+                    "quantity_in_stock": {"type": "number"},
+                    "quantity_to_order": {"type": "number"},
+                    "unit": {"type": "string"},
                 },
                 "required": ["category", "title"],
             },
@@ -72,15 +77,27 @@ def analyze_messages(
         "You are analyzing a WhatsApp staff group chat for a property management system. "
         "Extract ALL actionable items from the conversation.\n\n"
         "Classify each message or message cluster into:\n"
-        "- issue: something broken, damaged, malfunctioning, or needing repair\n"
-        "- task: someone requesting something to be done\n"
-        "- task_completion: someone confirming work was done\n"
-        "- supply_need: something needs purchasing or restocking\n"
+        "- issue: reporting something broken, damaged, malfunctioning, or needing repair (e.g. 'toilet is broken', 'AC not working')\n"
+        "- task: requesting a specific action be performed (e.g. 'please clean the pool', 'order more towels')\n"
+        "- task_completion: confirming work was completed (e.g. 'done', 'finished the cleaning')\n"
+        "- supply_need: something needs purchasing or restocking. "
+        "Extract quantity_in_stock if the message says how much is left (e.g. '1 bottle left', 'only 2 rolls'). "
+        "Extract quantity_to_order if the message says how much to buy (e.g. 'need to order 3', 'get 2 more'). "
+        "Extract unit if mentioned (bottles, rolls, bags, boxes, etc.).\n"
         "- vendor_activity: a vendor visit or service happening\n"
-        "- informational: no action needed (skip these)\n\n"
-        "For each actionable item, extract: title, description, severity (if issue), "
-        "who reported it, and any related asset (vehicle, appliance, etc).\n\n"
-        "Also list items you skipped (social chat, personal, food sharing, etc) with brief reasons.\n\n"
+        "- question: asking for information, status, schedules, or updates (e.g. 'what is the AC status?', 'when is the next pool check?', 'has the plumber been called?', 'check AC repair status')\n"
+        "- pto_request: a staff member requesting time off (e.g. 'can I have Friday off', 'requesting PTO Dec 24-26', 'I need next Monday off'). Extract dates into pto_dates as YYYY-MM-DD strings.\n"
+        "- informational: social chat, greetings, personal messages, or anything unrelated to the home\n\n"
+        "IMPORTANT DISTINCTION — question vs task:\n"
+        "- If the message is asking for INFORMATION or STATUS → question\n"
+        "- If the message is reporting a PROBLEM → issue\n"
+        "- If the message is requesting an ACTION to be performed → task\n"
+        "'Check X status', 'what is the status of X', 'has X been done', 'when is X scheduled' are ALL questions.\n\n"
+        "For questions: 'title' = concise restatement, 'description' = full question text verbatim.\n"
+        "For issues/tasks: extract title, description, severity (if issue), reporter, assigned_to (name of person the task is assigned to if mentioned), related asset.\n\n"
+        "Only classify as 'question' if genuinely about the home, property, maintenance, staff, vendors, or estate. "
+        "Greetings and off-topic chat are 'informational'.\n\n"
+        "Also list skipped items with brief reasons.\n"
         "Be thorough — even terse messages like 'deer treatment' are task requests.\n"
         "Correlate related messages (e.g., low tire + possible hole = severity upgrade)."
     )

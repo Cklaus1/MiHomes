@@ -57,6 +57,19 @@ AI-first multi-home estate management system.
 - Zero context switching required from the user
 - Go fix failing CI tests without being told how
 
+## Task Management
+- **Plan First**: Write plan to `tasks/todo.md` with checkable items before starting
+- **Verify Plan**: Check in with user before starting implementation on non-trivial work
+- **Track Progress**: Mark items complete as you go
+- **Explain Changes**: High-level summary at each step — what changed and why
+- **Document Results**: Add review notes to `tasks/todo.md` when done
+- **Capture Lessons**: Update `tasks/lessons.md` after any correction
+
+## Core Principles
+- **Simplicity First**: Make every change as simple as possible. Minimal code impact.
+- **No Laziness**: Find root causes. No temporary fixes. Senior developer standards.
+- **Minimal Impact**: Only touch what's necessary. Avoid introducing unrelated changes or bugs.
+
 ## Phase Tracking
 - Phase 1a (Core MVP) — current focus
 - See PRD.md Section 10 for full phase breakdown

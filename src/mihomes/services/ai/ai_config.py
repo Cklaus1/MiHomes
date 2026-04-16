@@ -13,6 +13,7 @@ def get_ai_api_key(session: Session, provider: str = "claude") -> str:
     env_vars = {
         "claude": "ANTHROPIC_API_KEY",
         "openai": "OPENAI_API_KEY",
+        "nim": "NVIDIA_API_KEY",
     }
 
     # Try env var first
@@ -47,5 +48,6 @@ def get_ai_model(session: Session, provider: str = "claude") -> str:
         "claude": "claude-sonnet-4-20250514",
         "openai": "gpt-4o",
         "ollama": "llama3.1",
+        "nim": "qwen/qwen3.5-122b-a10b",
     }
     return defaults.get(provider, "claude-sonnet-4-20250514")

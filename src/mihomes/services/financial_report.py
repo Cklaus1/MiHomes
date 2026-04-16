@@ -121,6 +121,85 @@ def forecast(
     }
 
 
+def vendor_spending_report(
+    session: Session,
+    start: date,
+    end: date,
+    property_id_or_slug: str | None = None,
+) -> list[dict]:
+    """Combined vendor spending from transactions + work order actual costs."""
+    from mihomes.models.work_order import WorkOrder
+    from sqlalchemy import case
+
+    prop_id = None
+    if property_id_or_slug:
+        prop = resolve_identifier(session, Property, property_id_or_slug)
+        prop_id = prop.id
+
+    # --- Transactions with vendor_id ---
+    tx_q = session.query(
+        Transaction.vendor_id,
+        Vendor.company_name,
+        func.sum(Transaction.amount).label("tx_total"),
+        func.count(Transaction.id).label("tx_count"),
+    ).outerjoin(Vendor, Transaction.vendor_id == Vendor.id).filter(
+        Transaction.vendor_id.isnot(None),
+        Transaction.date >= start,
+        Transaction.date <= end,
+    )
+    if prop_id:
+        tx_q = tx_q.filter(Transaction.property_id == prop_id)
+    tx_rows = tx_q.group_by(Transaction.vendor_id, Vendor.company_name).all()
+
+    # --- Work orders with actual_cost ---
+    wo_q = session.query(
+        WorkOrder.vendor_id,
+        Vendor.company_name,
+        func.sum(WorkOrder.actual_cost).label("wo_total"),
+        func.count(WorkOrder.id).label("wo_count"),
+    ).join(Vendor, WorkOrder.vendor_id == Vendor.id).filter(
+        WorkOrder.vendor_id.isnot(None),
+        WorkOrder.actual_cost.isnot(None),
+        WorkOrder.updated_at >= start,
+        WorkOrder.updated_at <= end,
+    )
+    if prop_id:
+        wo_q = wo_q.filter(WorkOrder.property_id == prop_id)
+    wo_rows = wo_q.group_by(WorkOrder.vendor_id, Vendor.company_name).all()
+
+    # Merge by vendor_id
+    merged: dict[int, dict] = {}
+    for r in tx_rows:
+        merged[r.vendor_id] = {
+            "vendor_id": r.vendor_id,
+            "vendor": r.company_name or "Unknown",
+            "tx_total": round(r.tx_total or 0, 2),
+            "tx_count": r.tx_count or 0,
+            "wo_total": 0.0,
+            "wo_count": 0,
+        }
+    for r in wo_rows:
+        if r.vendor_id in merged:
+            merged[r.vendor_id]["wo_total"] = round(r.wo_total or 0, 2)
+            merged[r.vendor_id]["wo_count"] = r.wo_count or 0
+        else:
+            merged[r.vendor_id] = {
+                "vendor_id": r.vendor_id,
+                "vendor": r.company_name or "Unknown",
+                "tx_total": 0.0,
+                "tx_count": 0,
+                "wo_total": round(r.wo_total or 0, 2),
+                "wo_count": r.wo_count or 0,
+            }
+
+    results = []
+    for v in merged.values():
+        v["combined_total"] = round(v["tx_total"] + v["wo_total"], 2)
+        results.append(v)
+
+    return sorted(results, key=lambda r: r["combined_total"], reverse=True)
+
+
 def property_comparison(
     session: Session,
     period_start: date,

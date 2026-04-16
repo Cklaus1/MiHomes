@@ -31,6 +31,10 @@ def create_asset(
     valuable_info: dict | None = None,
     equipment_info: dict | None = None,
     slug: str | None = None,
+    install_date: date | None = None,
+    expected_lifespan_years: float | None = None,
+    replacement_cost_estimate: float | None = None,
+    last_serviced: date | None = None,
 ) -> Asset:
     prop = resolve_identifier(session, Property, property_id_or_slug)
     space_id = None
@@ -46,6 +50,10 @@ def create_asset(
         warranty_expires=warranty_expires, condition=condition, notes=notes,
         vehicle_info=vehicle_info, valuable_info=valuable_info,
         equipment_info=equipment_info,
+        install_date=install_date,
+        expected_lifespan_years=expected_lifespan_years,
+        replacement_cost_estimate=replacement_cost_estimate,
+        last_serviced=last_serviced,
     )
     session.add(asset)
     session.flush()
@@ -107,6 +115,72 @@ def list_by_warranty_expiring(session: Session, days: int = 30) -> list[Asset]:
         Asset.warranty_expires >= date.today(),
         Asset.active == True,  # noqa: E712
     ).order_by(Asset.warranty_expires).all()
+
+
+def get_lifecycle_data(asset: Asset) -> dict:
+    """Return computed lifecycle fields for an asset."""
+    from datetime import date as date_cls
+    today = date_cls.today()
+
+    ref_date = asset.install_date or asset.purchase_date
+    if ref_date is None or asset.expected_lifespan_years is None:
+        return {"age_years": None, "remaining_years": None, "pct_life_used": None, "expected_eol": None}
+
+    age_days = (today - ref_date).days
+    age_years = age_days / 365.25
+    remaining_years = asset.expected_lifespan_years - age_years
+    pct_life_used = age_years / asset.expected_lifespan_years * 100
+    from datetime import timedelta
+    expected_eol = ref_date.replace(year=ref_date.year + int(asset.expected_lifespan_years))
+
+    return {
+        "age_years": round(age_years, 1),
+        "remaining_years": round(remaining_years, 1),
+        "pct_life_used": round(pct_life_used, 1),
+        "expected_eol": expected_eol,
+    }
+
+
+def list_lifecycle_assets(
+    session: Session,
+    property_id_or_slug: str | None = None,
+) -> list[Asset]:
+    """Return active assets that have lifecycle data (lifespan set), sorted by pct life used desc."""
+    query = session.query(Asset).filter(
+        Asset.active.is_(True),
+        Asset.expected_lifespan_years.isnot(None),
+    )
+    if property_id_or_slug:
+        prop = resolve_identifier(session, Property, property_id_or_slug)
+        query = query.filter(Asset.property_id == prop.id)
+    assets = query.all()
+
+    def sort_key(a):
+        lc = get_lifecycle_data(a)
+        return lc["pct_life_used"] if lc["pct_life_used"] is not None else -1
+
+    return sorted(assets, key=sort_key, reverse=True)
+
+
+def list_capital_plan(
+    session: Session,
+    years: int = 5,
+    property_id_or_slug: str | None = None,
+) -> list[tuple[Asset, dict]]:
+    """Return assets expected to reach end-of-life within `years`, sorted by EOL date."""
+    from datetime import date as date_cls, timedelta
+    today = date_cls.today()
+    horizon = today.replace(year=today.year + years)
+
+    assets = list_lifecycle_assets(session, property_id_or_slug=property_id_or_slug)
+    results = []
+    for a in assets:
+        lc = get_lifecycle_data(a)
+        if lc["expected_eol"] and lc["expected_eol"] <= horizon:
+            results.append((a, lc))
+
+    results.sort(key=lambda x: x[1]["expected_eol"])
+    return results
 
 
 def list_by_type(session: Session, asset_type: AssetType) -> list[Asset]:

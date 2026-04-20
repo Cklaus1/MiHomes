@@ -49,28 +49,23 @@ Move forward with: anyone who clears the above and has a coherent work history.
 - Introduce yourself, explain the role briefly
 - Confirm they're still interested and available on the proposed schedule
 
-### Experience (8 min)
-- [ ] "Walk me through your last two positions in private homes."
-- [ ] "What was the size of the household — how many people, how many staff?"
+### Experience
+- [ ] "Walk me through your last two positions in residential cleaning."
 - [ ] "What were your main responsibilities day-to-day?"
-- [ ] "What did a typical week look like?"
-- [ ] "Have you worked across multiple properties for the same employer? How did that work?"
 
-### Standards & Work Style (8 min)
+### Standards & Work Style
 - [ ] "How do you know when a room is actually clean — what's your standard?"
-- [ ] "Walk me through how you'd do a full bathroom clean."
 - [ ] "When you find something broken or damaged, what do you do?"
-- [ ] "How do you handle running low on supplies?"
 - [ ] "What does a good day look like for you? A hard day?"
 - [ ] "Have you ever had to handle an emergency — a leak, power outage, anything unexpected? What happened?"
 
-### Reliability & Logistics (5 min)
+### Reliability & Logistics
 - [ ] "What's your transportation situation — do you drive?"
 - [ ] "Have you ever had to call out unexpectedly? How do you handle that?"
 - [ ] "Are you comfortable with the schedule: [days/hours]?"
 - [ ] "What's your availability for a start date if offered the role?"
 
-### Privacy & Fit (5 min)
+### Privacy & Fit
 - [ ] "This is a private residence. We require full confidentiality — no photos, no discussion of the property or family outside of work. Are you comfortable with that?"
 - [ ] "We use a task management system. Are you comfortable learning and using an app?"
 - [ ] "What's your compensation expectation?"

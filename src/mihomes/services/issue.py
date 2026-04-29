@@ -80,6 +80,8 @@ def update_issue(session: Session, id_or_slug: str, **kwargs) -> Issue:
 
 def resolve_issue(session: Session, id_or_slug: str, notes: str | None = None) -> Issue:
     issue = resolve_identifier(session, Issue, id_or_slug)
+    if issue.status == IssueStatus.VERIFIED:
+        raise ValueError("Issue is already verified and cannot be moved back to resolved")
     old_snap = snapshot_instance(issue)
     issue.status = IssueStatus.RESOLVED
     issue.resolved_at = datetime.now(timezone.utc)

@@ -1,5 +1,6 @@
 """Staff CLI commands."""
 
+from datetime import date
 from typing import Optional
 
 import typer
@@ -227,7 +228,7 @@ def staff_schedule(
 
             for t in tasks:
                 due = t.due_date.isoformat() if t.due_date else "-"
-                if t.due_date and t.due_date.isoformat() < __import__("datetime").date.today().isoformat():
+                if t.due_date and t.due_date < date.today():
                     due = f"[red]{due} (overdue)[/red]"
                 pri = t.priority.value if t.priority else "-"
                 pri_display = f"[{priority_color(pri)}]{pri}[/{priority_color(pri)}]"

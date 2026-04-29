@@ -308,7 +308,7 @@ def _fetch_weather(session: Session, property_slug: str | None) -> str:
         try:
             prop = resolve_identifier(session, Property, property_slug)
             props = [prop]
-        except Exception:
+        except (ValueError, KeyError):
             props = []
     else:
         props = query.all()
@@ -319,7 +319,7 @@ def _fetch_weather(session: Session, property_slug: str | None) -> str:
             forecast = get_forecast_for_property(session, prop)
             if forecast:
                 summaries.append(forecast_summary(forecast))
-        except Exception:
+        except (OSError, KeyError, ValueError, TypeError):
             pass
 
     return "\n\n".join(summaries) if summaries else ""

@@ -6,6 +6,8 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
+from mihomes.services.task import get_upcoming_tasks
+
 
 TOKEN_FILE = Path(os.path.expanduser("~/.mihomes/google_token.json"))
 VENDOR_CATEGORIES = {
@@ -80,7 +82,6 @@ def push_upcoming_to_google(session: Session, days: int = 30,
     if not is_google_auth_available():
         return {"pushed": 0, "errors": [], "skipped": "not authenticated"}
 
-    from mihomes.services.task import get_upcoming_tasks
     from mihomes.models.task import Task
     tasks = get_upcoming_tasks(session, days=days,
                                property_id_or_slug=property_id_or_slug)

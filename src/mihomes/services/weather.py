@@ -9,6 +9,8 @@ from datetime import date
 
 from sqlalchemy.orm import Session
 
+from mihomes.services.config_service import get_config
+
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -64,11 +66,11 @@ def _describe_code(code: int) -> str:
     if code in (56, 57):
         return "Freezing drizzle"
     if code in (61, 63, 65):
-        return ("Light rain", "Rain", "Heavy rain")[code - 61]
+        return {61: "Light rain", 63: "Rain", 65: "Heavy rain"}[code]
     if code in (66, 67):
         return "Freezing rain"
     if code in (71, 73, 75):
-        return ("Light snow", "Snow", "Heavy snow")[code - 71]
+        return {71: "Light snow", 73: "Snow", 75: "Heavy snow"}[code]
     if code == 77:
         return "Snow grains"
     if code in (80, 81, 82):
@@ -197,7 +199,6 @@ def get_forecast_for_property(session: Session, prop) -> WeatherForecast | None:
     Returns None if no location can be resolved or geocoding fails.
     """
     if prop.latitude is None or prop.longitude is None:
-        from mihomes.services.config_service import get_config
         default_location = get_config(session, "weather.default_location")
 
         if prop.address:
@@ -269,6 +270,7 @@ def generate_weather_alerts(session: Session) -> int:
 
 def _assess_day(day: DailyForecast, prop_name: str) -> list[tuple]:
     """Return list of (AlertSeverity, message, key) for notable weather on a given day."""
+    from mihomes.models.alert import AlertSeverity
     results = []
 
     # Frost / freeze

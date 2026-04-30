@@ -164,7 +164,7 @@ def process_and_respond(
         return {"replied": 0, "logged": 0, "errors": []}
 
     try:
-        result = analyze_messages(session, messages, property_name=property_slug)
+        result = analyze_messages(session, messages, property_name=property_slug, property_slug=property_slug)
     except AIProviderError as e:
         import logging
         logging.getLogger("mihomes.whatsapp").error("AI provider error during message analysis: %s", e)

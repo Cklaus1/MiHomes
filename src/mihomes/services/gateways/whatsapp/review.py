@@ -1,11 +1,16 @@
 """WhatsApp conversation review — AI-powered passive issue detection."""
 
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 from sqlalchemy.orm import Session
 
+from mihomes.models.asset import Asset
+from mihomes.models.issue import Issue, IssueStatus
+from mihomes.models.staff import Staff
+from mihomes.models.property import Property
 from mihomes.services.ai.ai_config import get_ai_api_key, get_ai_model, get_ai_provider_name
 from mihomes.services.ai.provider import get_provider
+from mihomes.services.slug import resolve_identifier
 
 
 REVIEW_SCHEMA = {
@@ -50,10 +55,94 @@ REVIEW_SCHEMA = {
 }
 
 
+def _build_estate_context(session: Session, property_slug: str | None) -> str:
+    """Build an estate context block to inject into the AI prompt."""
+    if not property_slug:
+        return ""
+
+    try:
+        prop = resolve_identifier(session, Property, property_slug)
+    except Exception:
+        return ""
+
+    lines = [f"## Estate Context — {prop.name}"]
+
+    # Open issues
+    open_statuses = [
+        IssueStatus.REPORTED,
+        IssueStatus.ASSESSED,
+        IssueStatus.SCHEDULED,
+        IssueStatus.IN_PROGRESS,
+    ]
+    open_issues = (
+        session.query(Issue)
+        .filter(Issue.property_id == prop.id, Issue.status.in_(open_statuses))
+        .order_by(Issue.created_at.desc())
+        .limit(20)
+        .all()
+    )
+    if open_issues:
+        lines.append("\n### Open Issues")
+        for issue in open_issues:
+            age_days = (datetime.now(timezone.utc) - issue.created_at).days
+            lines.append(
+                f"- [{issue.severity.value}] {issue.title} — open {age_days}d (slug: {issue.slug})"
+            )
+    else:
+        lines.append("\n### Open Issues\n- None")
+
+    # Recently resolved issues (last 30 days)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    resolved_issues = (
+        session.query(Issue)
+        .filter(
+            Issue.property_id == prop.id,
+            Issue.status.in_([IssueStatus.RESOLVED, IssueStatus.VERIFIED]),
+            Issue.resolved_at >= cutoff,
+        )
+        .order_by(Issue.resolved_at.desc())
+        .limit(10)
+        .all()
+    )
+    if resolved_issues:
+        lines.append("\n### Recently Resolved Issues (last 30 days)")
+        for issue in resolved_issues:
+            resolved_str = issue.resolved_at.strftime("%Y-%m-%d") if issue.resolved_at else "unknown"
+            lines.append(f"- {issue.title} — resolved {resolved_str}")
+
+    # Active assets
+    assets = (
+        session.query(Asset)
+        .filter(Asset.property_id == prop.id, Asset.active.is_(True))
+        .order_by(Asset.name)
+        .all()
+    )
+    if assets:
+        lines.append("\n### Tracked Assets")
+        for asset in assets:
+            descriptor = asset.make or asset.asset_type.value
+            lines.append(f"- {asset.name} ({descriptor}) [slug: {asset.slug}]")
+
+    # Active staff assigned to this property
+    staff_members = (
+        session.query(Staff)
+        .filter(Staff.active.is_(True), Staff.properties.any(Property.id == prop.id))
+        .order_by(Staff.name)
+        .all()
+    )
+    if staff_members:
+        lines.append("\n### Staff")
+        for member in staff_members:
+            lines.append(f"- {member.name} ({member.role.value}) [slug: {member.slug}]")
+
+    return "\n".join(lines)
+
+
 def analyze_messages(
     session: Session,
     messages: list[dict],
     property_name: str | None = None,
+    property_slug: str | None = None,
 ) -> dict:
     """Analyze WhatsApp messages and extract actionable items.
 
@@ -102,7 +191,10 @@ def analyze_messages(
         "Correlate related messages (e.g., low tire + possible hole = severity upgrade)."
     )
 
-    context = f"Property: {property_name}" if property_name else ""
+    estate_context = _build_estate_context(session, property_slug)
+    property_header = f"Property: {property_name}" if property_name else ""
+    context_parts = [p for p in [property_header, estate_context] if p]
+    context = "\n\n".join(context_parts) if context_parts else ""
 
     provider_name = get_ai_provider_name(session)
     api_key = get_ai_api_key(session, provider_name)

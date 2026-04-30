@@ -555,7 +555,7 @@ def review_messages(
     with get_session() as session:
         try:
             with console.status("[bold blue]Analyzing conversations...", spinner="dots"):
-                result = analyze_messages(session, messages, property_name=property)
+                result = analyze_messages(session, messages, property_name=property, property_slug=property)
         except (AIAuthError, AIProviderError) as e:
             format_error(str(e))
             raise typer.Exit(1)

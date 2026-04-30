@@ -9,6 +9,7 @@ from mihomes.models.property import Property
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
 from mihomes.services.update_helpers import safe_update
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
+from mihomes.services.validators import validate_name
 
 
 # --- Event CRUD ---
@@ -27,6 +28,7 @@ def create_event(
     notes: str | None = None,
     slug: str | None = None,
 ) -> Event:
+    title = validate_name(title, "event")
     prop = resolve_identifier(session, Property, property_id_or_slug)
     slug = ensure_unique_slug(session, Event, slug or generate_slug(title))
     event = Event(
@@ -96,6 +98,7 @@ def create_guest(
     notes: str | None = None,
     slug: str | None = None,
 ) -> Guest:
+    name = validate_name(name, "guest")
     slug = ensure_unique_slug(session, Guest, slug or generate_slug(name))
     guest = Guest(
         name=name, slug=slug, email=email, phone=phone,

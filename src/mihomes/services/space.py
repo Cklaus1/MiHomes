@@ -11,6 +11,7 @@ from mihomes.services.slug import (
     resolve_identifier,
 )
 from mihomes.services.update_helpers import safe_update
+from mihomes.services.validators import validate_name
 
 
 def create_space(
@@ -22,6 +23,7 @@ def create_space(
     description: str | None = None,
     slug: str | None = None,
 ) -> Space:
+    name = validate_name(name, "space")
     prop = resolve_identifier(session, Property, property_id_or_slug)
     slug = ensure_unique_slug(session, Space, slug or generate_slug(name))
     space = Space(

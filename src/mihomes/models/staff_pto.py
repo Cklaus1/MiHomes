@@ -1,6 +1,7 @@
 """Staff PTO request model."""
 
 import enum
+from datetime import datetime
 
 from sqlalchemy import DateTime, Enum, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -23,7 +24,7 @@ class StaffPTORequest(Base, TimestampMixin):
     status: Mapped[PTOStatus] = mapped_column(Enum(PTOStatus), default=PTOStatus.PENDING)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     coverage_warning: Mapped[str | None] = mapped_column(Text, nullable=True)
-    decided_at: Mapped[str | None] = mapped_column(DateTime, nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     decided_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
     staff = relationship("Staff")

@@ -7,6 +7,7 @@ from mihomes.models.staff import Staff, StaffRole
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
 from mihomes.services.update_helpers import safe_update
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
+from mihomes.services.validators import validate_name
 
 
 def create_staff(
@@ -21,6 +22,7 @@ def create_staff(
     property_id_or_slug: str | None = None,
     slug: str | None = None,
 ) -> Staff:
+    name = validate_name(name, "staff")
     slug = ensure_unique_slug(session, Staff, slug or generate_slug(name))
     member = Staff(
         name=name,
@@ -73,8 +75,13 @@ def update_staff(session: Session, id_or_slug: str, **kwargs) -> Staff:
 
 
 def delete_staff(session: Session, id_or_slug: str) -> str:
+    from mihomes.models.task import Task
     member = resolve_identifier(session, Staff, id_or_slug)
     name = member.name
+    # Nullify task assignments rather than cascade-deleting tasks
+    session.query(Task).filter(Task.assignee_id == member.id).update(
+        {"assignee_id": None}, synchronize_session="fetch"
+    )
     record_change(session, "staff", member.id, "delete", snapshot_instance(member))
     session.delete(member)
     session.flush()

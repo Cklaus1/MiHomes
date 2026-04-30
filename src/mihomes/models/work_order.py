@@ -1,9 +1,9 @@
 """Work order model — maintenance and repair work tracking."""
 
 import enum
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import DateTime, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Date, DateTime, Enum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mihomes.models import Base, SlugMixin, TimestampMixin
@@ -35,7 +35,7 @@ class WorkOrder(Base, TimestampMixin, SlugMixin):
     actual_cost: Mapped[float | None] = mapped_column(Float, nullable=True)
     currency: Mapped[str] = mapped_column(String(10), default="USD")
     status: Mapped[WorkOrderStatus] = mapped_column(Enum(WorkOrderStatus), default=WorkOrderStatus.DRAFT)
-    due_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

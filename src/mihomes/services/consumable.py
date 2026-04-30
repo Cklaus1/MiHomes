@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session, joinedload
 from mihomes.models.consumable import Consumable, ConsumableStatus
 from mihomes.models.property import Property
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
+from mihomes.services.validators import validate_name
 
 
 def _compute_status(quantity_in_stock: float | None, par_level: float | None) -> ConsumableStatus:
@@ -61,6 +62,7 @@ def create_consumable(
     quantity_in_stock: float | None = None,
     notes: str | None = None,
 ) -> Consumable:
+    name = validate_name(name, "consumable")
     prop = resolve_identifier(session, Property, property_id_or_slug)
     slug = ensure_unique_slug(session, Consumable, generate_slug(name))
     status = _compute_status(quantity_in_stock, par_level)
@@ -156,5 +158,5 @@ def get_reorder_list(
         q = q.filter(Consumable.property_id == prop.id)
     return q.filter(
         Consumable.status.in_([ConsumableStatus.LOW, ConsumableStatus.OUT])
-        | (Consumable.quantity_to_order > 0)
+        | Consumable.quantity_to_order.isnot(None)
     ).order_by(Consumable.status, Consumable.name).all()

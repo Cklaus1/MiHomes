@@ -24,9 +24,10 @@ def create_template(
     session.add(template)
     session.flush()
 
-    if steps:
-        for i, step_title in enumerate(steps):
-            item = TemplateItem(template_id=template.id, title=step_title.strip(), order=i)
+    clean_steps = [s.strip() for s in (steps or []) if s.strip()]
+    if clean_steps:
+        for i, step_title in enumerate(clean_steps):
+            item = TemplateItem(template_id=template.id, title=step_title, order=i)
             session.add(item)
         session.flush()
 

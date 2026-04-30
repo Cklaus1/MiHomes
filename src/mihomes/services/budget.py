@@ -61,6 +61,8 @@ def add_transaction(
     notes: str | None = None,
     source: str = "manual",
 ) -> Transaction:
+    from mihomes.services.validators import validate_positive_amount
+    validate_positive_amount(amount, "Transaction amount")
     prop = resolve_identifier(session, Property, property_id_or_slug)
     vendor_id = None
     if vendor_id_or_slug:
@@ -128,8 +130,11 @@ def get_budget_report(
     ).distinct().all()
     currencies = {c[0] for c in tx_currencies}
     if len(currencies) > 1:
-        import warnings
-        warnings.warn(f"Property '{prop.name}' has transactions in multiple currencies: {currencies}. Report may be inaccurate.")
+        import logging
+        logging.getLogger("mihomes.budget").warning(
+            "Property '%s' has transactions in multiple currencies: %s. Report totals may be inaccurate.",
+            prop.name, currencies,
+        )
 
     # Get budgets for this property
     budgets = session.query(Budget).filter(

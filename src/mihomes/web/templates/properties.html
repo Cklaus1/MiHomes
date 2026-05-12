@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Properties — MiHomes{% endblock %}
+{% block heading %}Properties{% endblock %}
+{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ properties|length }} propert{{ 'y' if properties|length == 1 else 'ies' }}</p>{% endblock %}
+
+{% block actions %}
+<a href="/properties/new" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
+  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+  Add Property
+</a>
+{% endblock %}
+
+{% block content %}
+<div id="property-list">
+  {% include "partials/property_list.html" %}
+</div>
+{% endblock %}

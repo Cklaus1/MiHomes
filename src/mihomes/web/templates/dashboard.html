@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard — MiHomes{% endblock %}
+{% block heading %}Portfolio Overview{% endblock %}
+{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ properties|length }} propert{{ 'y' if properties|length == 1 else 'ies' }} · {{ alerts|length }} active alert{{ 's' if alerts|length != 1 else '' }}</p>{% endblock %}
+
+{% macro health_color(score) %}
+  {% if score >= 75 %}text-emerald-600 bg-emerald-50{% elif score >= 50 %}text-amber-600 bg-amber-50{% else %}text-red-600 bg-red-50{% endif %}
+{% endmacro %}
+
+{% macro health_bar_color(score) %}
+  {% if score >= 75 %}bg-emerald-500{% elif score >= 50 %}bg-amber-500{% else %}bg-red-500{% endif %}
+{% endmacro %}
+
+{% block content %}
+
+<!-- Stat row -->
+<div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+  <div class="bg-white rounded-xl border border-gray-200 p-4">
+    <div class="text-xs font-medium text-gray-500 uppercase tracking-wide">Properties</div>
+    <div class="mt-1 text-3xl font-bold text-gray-900">{{ properties|length }}</div>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 p-4">
+    <div class="text-xs font-medium text-gray-500 uppercase tracking-wide">Active Alerts</div>
+    <div class="mt-1 text-3xl font-bold {% if alerts %}text-red-600{% else %}text-gray-900{% endif %}">{{ alerts|length }}</div>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 p-4">
+    <div class="text-xs font-medium text-gray-500 uppercase tracking-wide">Overdue Tasks</div>
+    <div class="mt-1 text-3xl font-bold {% if overdue_tasks %}text-amber-600{% else %}text-gray-900{% endif %}">{{ overdue_tasks|length }}</div>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 p-4">
+    <div class="text-xs font-medium text-gray-500 uppercase tracking-wide">Due This Week</div>
+    <div class="mt-1 text-3xl font-bold text-gray-900">{{ upcoming_tasks|length }}</div>
+  </div>
+</div>
+
+<!-- Property health cards -->
+{% if properties %}
+<h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Properties</h2>
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+  {% for prop in properties %}
+  {% set hs = health_scores.get(prop.id) %}
+  {% set score = hs.score if hs else 100 %}
+  <a href="/properties/{{ prop.slug }}"
+     class="bg-white rounded-xl border border-gray-200 p-5 hover:border-brand-500 hover:shadow-sm transition-all block">
+    <div class="flex items-start justify-between mb-3">
+      <div>
+        <div class="font-semibold text-gray-900">{{ prop.name }}</div>
+        {% if prop.address %}<div class="text-xs text-gray-400 mt-0.5 truncate max-w-[160px]">{{ prop.address }}</div>{% endif %}
+      </div>
+      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold {{ health_color(score) }}">
+        {{ score }}
+      </span>
+    </div>
+    <div class="w-full bg-gray-100 rounded-full h-1.5">
+      <div class="{{ health_bar_color(score) }} h-1.5 rounded-full" style="width: {{ score }}%"></div>
+    </div>
+    <div class="mt-3 flex gap-4 text-xs text-gray-500">
+      <span class="{% if prop.status.value == 'open' %}text-emerald-600{% elif prop.status.value == 'closed' %}text-gray-400{% else %}text-amber-600{% endif %} font-medium">
+        {{ prop.status.value.replace('-', ' ').title() }}
+      </span>
+      <span>{{ prop.property_type.value.title() }}</span>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center mb-6">
+  <div class="text-gray-400 text-sm">No properties yet.</div>
+  <a href="/properties/new" class="mt-3 inline-flex items-center text-sm font-medium text-brand-600 hover:text-brand-700">
+    Add your first property →
+  </a>
+</div>
+{% endif %}
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+  <!-- Overdue tasks -->
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+      <h2 class="text-sm font-semibold text-gray-700">Overdue Tasks</h2>
+      <a href="/tasks?status=pending" class="text-xs text-brand-600 hover:text-brand-700">View all →</a>
+    </div>
+    {% if overdue_tasks %}
+    <ul class="divide-y divide-gray-50">
+      {% for task in overdue_tasks[:5] %}
+      <li class="px-5 py-3 flex items-center justify-between gap-3">
+        <div class="min-w-0">
+          <div class="text-sm font-medium text-gray-900 truncate">{{ task.title }}</div>
+          <div class="text-xs text-gray-400 mt-0.5">
+            {% if task.property %}{{ task.property.name }}{% endif %}
+            {% if task.due_date %} · Due {{ task.due_date.strftime('%b %d') }}{% endif %}
+          </div>
+        </div>
+        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+          {% if task.priority.value == 'urgent' %}bg-red-100 text-red-700
+          {% elif task.priority.value == 'high' %}bg-orange-100 text-orange-700
+          {% elif task.priority.value == 'medium' %}bg-amber-100 text-amber-700
+          {% else %}bg-gray-100 text-gray-600{% endif %}">
+          {{ task.priority.value }}
+        </span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="px-5 py-6 text-center text-sm text-gray-400">No overdue tasks 🎉</div>
+    {% endif %}
+  </div>
+
+  <!-- Active alerts -->
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+      <h2 class="text-sm font-semibold text-gray-700">Active Alerts</h2>
+    </div>
+    {% if alerts %}
+    <ul class="divide-y divide-gray-50">
+      {% for alert in alerts %}
+      <li class="px-5 py-3">
+        <div class="flex items-start gap-3">
+          <span class="mt-0.5 w-2 h-2 rounded-full flex-shrink-0
+            {% if alert.severity.value == 'critical' %}bg-red-500
+            {% elif alert.severity.value == 'high' %}bg-orange-400
+            {% elif alert.severity.value == 'medium' %}bg-amber-400
+            {% else %}bg-gray-300{% endif %}"></span>
+          <div class="min-w-0">
+            <div class="text-sm text-gray-800">{{ alert.message }}</div>
+            <div class="text-xs text-gray-400 mt-0.5">{{ alert.severity.value.title() }} · {{ alert.created_at.strftime('%b %d') if alert.created_at else '' }}</div>
+          </div>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="px-5 py-6 text-center text-sm text-gray-400">No active alerts</div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

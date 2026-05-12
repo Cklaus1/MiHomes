@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Issues — MiHomes{% endblock %}
+{% block heading %}Issues{% endblock %}
+{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ issues|length }} issue{{ 's' if issues|length != 1 else '' }}</p>{% endblock %}
+
+{% block actions %}
+<button onclick="document.getElementById('add-issue-modal').classList.remove('hidden')"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
+  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+  Report Issue
+</button>
+{% endblock %}
+
+{% block content %}
+
+<!-- Filter bar -->
+<div class="flex flex-wrap gap-3 mb-5">
+  <form class="flex gap-2" hx-get="/issues" hx-target="body" hx-push-url="true">
+    <select name="property_id" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
+      <option value="">All properties</option>
+      {% for p in properties %}<option value="{{ p.id }}" {% if filter_property == p.id %}selected{% endif %}>{{ p.name }}</option>{% endfor %}
+    </select>
+    <select name="status" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
+      <option value="">All statuses</option>
+      {% for s in statuses %}<option value="{{ s }}" {% if filter_status == s %}selected{% endif %}>{{ s.title() }}</option>{% endfor %}
+    </select>
+    <button type="submit" class="text-sm px-3 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-700 hover:bg-gray-50">Filter</button>
+  </form>
+</div>
+
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <div id="issue-list">
+    {% include "partials/issue_list.html" %}
+  </div>
+</div>
+
+<!-- Add issue modal -->
+<div id="add-issue-modal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="text-lg font-semibold text-gray-900">Report Issue</h2>
+      <button onclick="document.getElementById('add-issue-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <form hx-post="/issues" hx-target="#issue-list" hx-swap="innerHTML" class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Title</label>
+        <input type="text" name="title" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" placeholder="e.g. Roof leak near chimney" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Property</label>
+        <select name="property_id" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+          {% for p in properties %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Severity</label>
+        <select name="severity" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+          {% for s in severities %}<option value="{{ s }}" {% if s == 'medium' %}selected{% endif %}>{{ s.title() }}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+        <textarea name="description" rows="3" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" placeholder="Optional details..."></textarea>
+      </div>
+      <div class="flex gap-3 pt-1">
+        <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Submit</button>
+        <button type="button" onclick="document.getElementById('add-issue-modal').classList.add('hidden')" class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}

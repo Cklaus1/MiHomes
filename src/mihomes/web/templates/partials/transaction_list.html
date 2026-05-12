@@ -1,0 +1,30 @@
+{% if transactions %}
+<table class="w-full text-sm">
+  <thead>
+    <tr class="border-b border-gray-100">
+      <th class="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Description</th>
+      <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">Property</th>
+      <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Category</th>
+      <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Amount</th>
+      <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Date</th>
+    </tr>
+  </thead>
+  <tbody class="divide-y divide-gray-50">
+    {% for txn in transactions %}
+    <tr class="hover:bg-gray-50">
+      <td class="px-5 py-3 text-gray-900">{{ txn.description }}</td>
+      <td class="px-4 py-3 text-gray-500 hidden sm:table-cell">{% if txn.property %}{{ txn.property.name }}{% else %}—{% endif %}</td>
+      <td class="px-4 py-3 text-gray-500 hidden md:table-cell">{{ txn.category or '—' }}</td>
+      <td class="px-4 py-3 text-right font-medium {% if txn.amount < 0 %}text-red-600{% else %}text-emerald-600{% endif %}">
+        {% if txn.amount >= 0 %}+{% endif %}${{ '{:,.2f}'.format(txn.amount | abs) }}
+      </td>
+      <td class="px-4 py-3 text-gray-400 text-xs hidden md:table-cell">
+        {% if txn.created_at %}{{ txn.created_at.strftime('%b %d, %Y') }}{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="px-5 py-12 text-center text-sm text-gray-400">No transactions yet.</div>
+{% endif %}

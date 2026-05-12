@@ -1,0 +1,11 @@
+{% if staff %}
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+  {% for member in staff %}
+  {% include "partials/staff_card.html" %}
+  {% endfor %}
+</div>
+{% else %}
+<div class="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center">
+  <div class="text-gray-400 text-sm">No staff members yet.</div>
+</div>
+{% endif %}

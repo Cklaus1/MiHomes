@@ -1,0 +1,24 @@
+{% if vendors %}
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+  {% for vendor in vendors %}
+  <div class="bg-white rounded-xl border border-gray-200 p-5">
+    <div class="flex items-start justify-between mb-2">
+      <div>
+        <div class="font-semibold text-gray-900">{{ vendor.company_name }}</div>
+        {% if vendor.service_type %}<div class="text-xs text-gray-500 mt-0.5">{{ vendor.service_type }}</div>{% endif %}
+      </div>
+    </div>
+    {% if vendor.phone or vendor.email %}
+    <div class="mt-3 space-y-1">
+      {% if vendor.phone %}<div class="text-xs text-gray-500">📞 {{ vendor.phone }}</div>{% endif %}
+      {% if vendor.email %}<div class="text-xs text-gray-500 truncate">✉ {{ vendor.email }}</div>{% endif %}
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center">
+  <div class="text-gray-400 text-sm">No vendors yet.</div>
+</div>
+{% endif %}

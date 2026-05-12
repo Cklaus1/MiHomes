@@ -1,0 +1,41 @@
+<tr id="issue-{{ issue.id }}" class="hover:bg-gray-50 transition-colors {% if issue.status.value == 'resolved' %}opacity-50{% endif %}">
+  <td class="px-5 py-3">
+    <div class="font-medium text-gray-900">{{ issue.title }}</div>
+    {% if issue.description %}<div class="text-xs text-gray-400 mt-0.5 truncate max-w-[240px]">{{ issue.description }}</div>{% endif %}
+  </td>
+  <td class="px-4 py-3 text-gray-500 hidden sm:table-cell">
+    {% if issue.property %}{{ issue.property.name }}{% else %}—{% endif %}
+  </td>
+  <td class="px-4 py-3">
+    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+      {% if issue.severity.value == 'critical' %}bg-red-100 text-red-700
+      {% elif issue.severity.value == 'high' %}bg-orange-100 text-orange-700
+      {% elif issue.severity.value == 'medium' %}bg-amber-100 text-amber-700
+      {% else %}bg-gray-100 text-gray-600{% endif %}">
+      {{ issue.severity.value.title() }}
+    </span>
+  </td>
+  <td class="px-4 py-3">
+    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+      {% if issue.status.value == 'resolved' %}bg-emerald-100 text-emerald-700
+      {% elif issue.status.value == 'open' %}bg-red-100 text-red-700
+      {% elif issue.status.value == 'in-progress' %}bg-blue-100 text-blue-700
+      {% else %}bg-gray-100 text-gray-600{% endif %}">
+      {{ issue.status.value.replace('-', ' ').title() }}
+    </span>
+  </td>
+  <td class="px-4 py-3 text-gray-400 text-xs hidden md:table-cell">
+    {% if issue.created_at %}{{ issue.created_at.strftime('%b %d, %Y') }}{% endif %}
+  </td>
+  <td class="px-4 py-3 text-right">
+    {% if issue.status.value != 'resolved' %}
+    <button hx-post="/issues/{{ issue.slug }}/resolve"
+            hx-target="#issue-{{ issue.id }}"
+            hx-swap="outerHTML"
+            hx-indicator="#htmx-loading"
+            class="text-xs text-brand-600 hover:text-brand-700 font-medium">
+      Resolve
+    </button>
+    {% endif %}
+  </td>
+</tr>

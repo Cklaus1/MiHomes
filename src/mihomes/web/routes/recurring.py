@@ -1,4 +1,4 @@
-"""Recurring expenses routes."""
+"""Recurring expenses routes — rendered as a tab inside budget.html."""
 
 from datetime import date
 
@@ -9,28 +9,19 @@ from sqlalchemy.orm import Session
 from mihomes.models.recurring_expense import ExpenseFrequency
 from mihomes.services import recurring as recurring_svc
 from mihomes.services import note as note_svc
-from mihomes.services import property as prop_svc
-from mihomes.services import vendor as vendor_svc
 from mihomes.web.deps import get_db, templates
+from mihomes.web.routes.budget import _ctx as _budget_ctx
 
 router = APIRouter()
 
 
 def _ctx(db: Session) -> dict:
-    expenses = recurring_svc.list_recurring_expenses(db, active_only=False)
-    return {
-        "page": "recurring",
-        "expenses": expenses,
-        "properties": prop_svc.list_properties(db),
-        "vendors": vendor_svc.list_vendors(db),
-        "frequencies": [f.value for f in ExpenseFrequency],
-        "notes_map": {e.id: note_svc.list_notes(db, f"recurring:{e.id}") for e in expenses},
-    }
+    return _budget_ctx(db, active_tab="recurring")
 
 
 @router.get("/")
 def list_recurring(request: Request, db: Session = Depends(get_db)):
-    return templates.TemplateResponse(request, "recurring.html", _ctx(db))
+    return templates.TemplateResponse(request, "budget.html", _ctx(db))
 
 
 @router.post("/", response_class=HTMLResponse)
@@ -59,7 +50,7 @@ def create_recurring(
         end_date=date.fromisoformat(end_date) if end_date else None,
         notes=notes or None,
     )
-    return templates.TemplateResponse(request, "recurring.html", _ctx(db))
+    return templates.TemplateResponse(request, "budget.html", _ctx(db))
 
 
 @router.post("/{expense_id}/edit", response_class=HTMLResponse)
@@ -87,13 +78,13 @@ def edit_recurring(
         kwargs["end_date"] = date.fromisoformat(end_date)
     kwargs["notes"] = notes or None
     recurring_svc.update_recurring_expense(db, expense_id, **kwargs)
-    return templates.TemplateResponse(request, "recurring.html", _ctx(db))
+    return templates.TemplateResponse(request, "budget.html", _ctx(db))
 
 
 @router.post("/generate", response_class=HTMLResponse)
 def generate_transactions(request: Request, db: Session = Depends(get_db)):
     recurring_svc.generate_transactions(db)
-    return templates.TemplateResponse(request, "recurring.html", _ctx(db))
+    return templates.TemplateResponse(request, "budget.html", _ctx(db))
 
 
 @router.post("/{expense_id}/notes", response_class=HTMLResponse)
@@ -121,4 +112,4 @@ def delete_note(request: Request, expense_id: int, note_id: int, db: Session = D
 @router.post("/{expense_id}/delete", response_class=HTMLResponse)
 def delete_recurring(request: Request, expense_id: int, db: Session = Depends(get_db)):
     recurring_svc.update_recurring_expense(db, expense_id, end_date=date.today())
-    return templates.TemplateResponse(request, "recurring.html", _ctx(db))
+    return templates.TemplateResponse(request, "budget.html", _ctx(db))

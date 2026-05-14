@@ -5,6 +5,7 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from mihomes.models.property import PropertyStatus, PropertyType
+from mihomes.models.task import TaskStatus
 from mihomes.services import issue as issue_svc
 from mihomes.services import property as prop_svc
 from mihomes.services import staff as staff_svc
@@ -19,17 +20,18 @@ router = APIRouter()
 def list_properties(request: Request, db: Session = Depends(get_db)):
     properties = prop_svc.list_properties(db)
     return templates.TemplateResponse(
+        request,
         "properties.html",
-        {"request": request, "page": "properties", "properties": properties},
+        {"page": "properties", "properties": properties},
     )
 
 
 @router.get("/new")
 def new_property_form(request: Request):
     return templates.TemplateResponse(
+        request,
         "property_form.html",
         {
-            "request": request,
             "page": "properties",
             "property": None,
             "property_types": [t.value for t in PropertyType],
@@ -56,8 +58,9 @@ def create_property(
     )
     properties = prop_svc.list_properties(db)
     return templates.TemplateResponse(
+        request,
         "partials/property_list.html",
-        {"request": request, "properties": properties},
+        {"properties": properties},
         headers={"HX-Push-Url": "/properties"},
     )
 
@@ -68,13 +71,13 @@ def property_detail(request: Request, slug: str, db: Session = Depends(get_db)):
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
     health = compute_property_health(db, prop.id)
-    open_tasks = task_svc.list_tasks(db, property_id=prop.id, status="pending")
-    open_issues = issue_svc.list_issues(db, property_id=prop.id, status="open")
-    assigned_staff = staff_svc.list_by_property(db, prop.id)
+    open_tasks = task_svc.list_tasks(db, property_id_or_slug=slug, status=TaskStatus.PENDING)
+    open_issues = issue_svc.list_issues(db, property_id_or_slug=slug, open_only=True)
+    assigned_staff = staff_svc.list_by_property(db, slug)
     return templates.TemplateResponse(
+        request,
         "property_detail.html",
         {
-            "request": request,
             "page": "properties",
             "prop": prop,
             "health": health,
@@ -89,8 +92,9 @@ def property_detail(request: Request, slug: str, db: Session = Depends(get_db)):
 def occupy(request: Request, slug: str, db: Session = Depends(get_db)):
     prop = prop_svc.occupy_property(db, slug)
     return templates.TemplateResponse(
+        request,
         "partials/property_status_badge.html",
-        {"request": request, "prop": prop},
+        {"prop": prop},
     )
 
 
@@ -98,6 +102,7 @@ def occupy(request: Request, slug: str, db: Session = Depends(get_db)):
 def vacate(request: Request, slug: str, db: Session = Depends(get_db)):
     prop = prop_svc.vacate_property(db, slug)
     return templates.TemplateResponse(
+        request,
         "partials/property_status_badge.html",
-        {"request": request, "prop": prop},
+        {"prop": prop},
     )

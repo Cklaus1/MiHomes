@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from mihomes.web.routes import dashboard, properties, tasks, issues, staff, vendors, budget
+from mihomes.web.routes import alerts, assets, contracts, dashboard, properties, tasks, issues, staff, vendors, budget, work_orders
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 STATIC_DIR = Path(__file__).parent / "static"
@@ -26,6 +26,10 @@ def create_app() -> FastAPI:
     app.include_router(staff.router, prefix="/staff")
     app.include_router(vendors.router, prefix="/vendors")
     app.include_router(budget.router, prefix="/budget")
+    app.include_router(alerts.router, prefix="/alerts")
+    app.include_router(assets.router, prefix="/assets")
+    app.include_router(work_orders.router, prefix="/work-orders")
+    app.include_router(contracts.router, prefix="/contracts")
 
     return app
 

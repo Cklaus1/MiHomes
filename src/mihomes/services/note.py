@@ -21,6 +21,7 @@ def _get_model_class(entity_type: str):
         from mihomes.models.work_order import WorkOrder
         from mihomes.models.event import Event, Guest
         from mihomes.models.document import Document
+        from mihomes.models.contract import Contract
         ENTITY_TYPE_MAP.update({
             "property": Property,
             "staff": Staff,
@@ -29,6 +30,7 @@ def _get_model_class(entity_type: str):
             "issue": Issue,
             "asset": Asset,
             "workorder": WorkOrder,
+            "contract": Contract,
             "event": Event,
             "guest": Guest,
             "document": Document,

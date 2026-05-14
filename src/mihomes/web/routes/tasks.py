@@ -1,15 +1,48 @@
 """Task routes."""
 
+from datetime import date
+
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from mihomes.models.task import TaskPriority, TaskStatus
+from mihomes.services import note as note_svc
 from mihomes.services import property as prop_svc
+from mihomes.services import staff as staff_svc
 from mihomes.services import task as task_svc
 from mihomes.web.deps import get_db, templates
 
 router = APIRouter()
+
+
+def _ctx(db: Session, property_id=None, status=None, overdue=False, due_week=False) -> dict:
+    if overdue:
+        tasks = task_svc.get_overdue_tasks(db)
+    elif due_week:
+        tasks = task_svc.get_upcoming_tasks(db, days=7)
+    else:
+        tasks = task_svc.list_tasks(
+            db,
+            property_id_or_slug=str(property_id) if property_id else None,
+            status=TaskStatus(status) if status else None,
+        )
+    all_overdue = task_svc.get_overdue_tasks(db)
+    overdue_ids = {t.id for t in all_overdue}
+    return {
+        "page": "tasks",
+        "tasks": tasks,
+        "properties": prop_svc.list_properties(db),
+        "staff": staff_svc.list_staff(db),
+        "overdue_ids": overdue_ids,
+        "priorities": [p.value for p in TaskPriority],
+        "statuses": [s.value for s in TaskStatus],
+        "notes_map": {t.id: note_svc.list_notes(db, f"task:{t.id}") for t in tasks},
+        "filter_property": property_id,
+        "filter_status": status,
+        "filter_overdue": overdue,
+        "filter_due_week": due_week,
+    }
 
 
 @router.get("/")
@@ -17,36 +50,11 @@ def list_tasks(
     request: Request,
     property_id: int | None = None,
     status: str | None = None,
-    priority: str | None = None,
+    overdue: bool = False,
+    due_week: bool = False,
     db: Session = Depends(get_db),
 ):
-    tasks = task_svc.list_tasks(db, property_id=property_id, status=status)
-    properties = prop_svc.list_properties(db)
-    overdue = task_svc.get_overdue_tasks(db)
-    overdue_ids = {t.id for t in overdue}
-    return templates.TemplateResponse(
-        "tasks.html",
-        {
-            "request": request,
-            "page": "tasks",
-            "tasks": tasks,
-            "properties": properties,
-            "overdue_ids": overdue_ids,
-            "filter_property": property_id,
-            "filter_status": status,
-            "priorities": [p.value for p in TaskPriority],
-            "statuses": [s.value for s in TaskStatus],
-        },
-    )
-
-
-@router.post("/{slug}/complete", response_class=HTMLResponse)
-def complete_task(request: Request, slug: str, db: Session = Depends(get_db)):
-    task, next_task = task_svc.complete_task(db, slug)
-    return templates.TemplateResponse(
-        "partials/task_row.html",
-        {"request": request, "task": task, "next_task": next_task, "overdue_ids": set()},
-    )
+    return templates.TemplateResponse(request, "tasks.html", _ctx(db, property_id, status, overdue, due_week))
 
 
 @router.post("/", response_class=HTMLResponse)
@@ -58,19 +66,71 @@ def create_task(
     due_date: str = Form(None),
     db: Session = Depends(get_db),
 ):
-    from datetime import date
     due = date.fromisoformat(due_date) if due_date else None
     task_svc.create_task(
         db,
         title=title,
-        property_id=property_id,
+        property_id_or_slug=str(property_id),
         priority=TaskPriority(priority),
         due_date=due,
     )
-    tasks = task_svc.list_tasks(db)
-    overdue = task_svc.get_overdue_tasks(db)
-    overdue_ids = {t.id for t in overdue}
-    return templates.TemplateResponse(
-        "partials/task_list.html",
-        {"request": request, "tasks": tasks, "overdue_ids": overdue_ids},
+    return templates.TemplateResponse(request, "tasks.html", _ctx(db))
+
+
+@router.post("/{slug}/complete", response_class=HTMLResponse)
+def complete_task(request: Request, slug: str, db: Session = Depends(get_db)):
+    task_svc.complete_task(db, slug)
+    return templates.TemplateResponse(request, "tasks.html", _ctx(db))
+
+
+@router.post("/{slug}/edit", response_class=HTMLResponse)
+def edit_task(
+    request: Request,
+    slug: str,
+    title: str = Form(...),
+    priority: str = Form("medium"),
+    due_date: str = Form(""),
+    description: str = Form(""),
+    status: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    kwargs = dict(
+        title=title,
+        priority=TaskPriority(priority),
+        due_date=date.fromisoformat(due_date) if due_date else None,
+        description=description or None,
     )
+    if status:
+        kwargs["status"] = TaskStatus(status)
+    task_svc.update_task(db, slug, **kwargs)
+    return templates.TemplateResponse(request, "tasks.html", _ctx(db))
+
+
+@router.post("/{slug}/delete", response_class=HTMLResponse)
+def delete_task(request: Request, slug: str, db: Session = Depends(get_db)):
+    task_svc.delete_task(db, slug)
+    return templates.TemplateResponse(request, "tasks.html", _ctx(db))
+
+
+@router.post("/{slug}/notes", response_class=HTMLResponse)
+def add_note(request: Request, slug: str, content: str = Form(...), db: Session = Depends(get_db)):
+    task = task_svc.get_task(db, slug)
+    note_svc.add_note(db, f"task:{task.id}", content)
+    notes = note_svc.list_notes(db, f"task:{task.id}")
+    return templates.TemplateResponse(request, "partials/notes_section.html", {
+        "notes": notes,
+        "post_url": f"/tasks/{slug}/notes",
+        "delete_url_prefix": f"/tasks/{slug}/notes",
+    })
+
+
+@router.delete("/{slug}/notes/{note_id}", response_class=HTMLResponse)
+def delete_note(request: Request, slug: str, note_id: int, db: Session = Depends(get_db)):
+    note_svc.delete_note(db, note_id)
+    task = task_svc.get_task(db, slug)
+    notes = note_svc.list_notes(db, f"task:{task.id}")
+    return templates.TemplateResponse(request, "partials/notes_section.html", {
+        "notes": notes,
+        "post_url": f"/tasks/{slug}/notes",
+        "delete_url_prefix": f"/tasks/{slug}/notes",
+    })

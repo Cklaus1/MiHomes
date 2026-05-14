@@ -6,10 +6,32 @@ from sqlalchemy.orm import Session
 
 from mihomes.models.issue import IssueSeverity, IssueStatus
 from mihomes.services import issue as issue_svc
+from mihomes.services import note as note_svc
 from mihomes.services import property as prop_svc
 from mihomes.web.deps import get_db, templates
 
 router = APIRouter()
+
+
+def _ctx(db: Session, property_id=None, status=None) -> dict:
+    open_only = status == "open" if status else False
+    resolved_only = status == "resolved" if status else False
+    issues = issue_svc.list_issues(
+        db,
+        property_id_or_slug=str(property_id) if property_id else None,
+        open_only=open_only,
+        resolved_only=resolved_only,
+    )
+    return {
+        "page": "issues",
+        "issues": issues,
+        "properties": prop_svc.list_properties(db),
+        "severities": [s.value for s in IssueSeverity],
+        "statuses": [s.value for s in IssueStatus],
+        "notes_map": {i.id: note_svc.list_notes(db, f"issue:{i.id}") for i in issues},
+        "filter_property": property_id,
+        "filter_status": status,
+    }
 
 
 @router.get("/")
@@ -19,21 +41,7 @@ def list_issues(
     status: str | None = None,
     db: Session = Depends(get_db),
 ):
-    issues = issue_svc.list_issues(db, property_id=property_id, status=status)
-    properties = prop_svc.list_properties(db)
-    return templates.TemplateResponse(
-        "issues.html",
-        {
-            "request": request,
-            "page": "issues",
-            "issues": issues,
-            "properties": properties,
-            "filter_property": property_id,
-            "filter_status": status,
-            "severities": [s.value for s in IssueSeverity],
-            "statuses": [s.value for s in IssueStatus],
-        },
-    )
+    return templates.TemplateResponse(request, "issues.html", _ctx(db, property_id, status))
 
 
 @router.post("/", response_class=HTMLResponse)
@@ -48,21 +56,65 @@ def create_issue(
     issue_svc.create_issue(
         db,
         title=title,
-        property_id=property_id,
+        property_id_or_slug=str(property_id),
         severity=IssueSeverity(severity),
         description=description or None,
     )
-    issues = issue_svc.list_issues(db)
-    return templates.TemplateResponse(
-        "partials/issue_list.html",
-        {"request": request, "issues": issues},
-    )
+    return templates.TemplateResponse(request, "issues.html", _ctx(db))
 
 
 @router.post("/{slug}/resolve", response_class=HTMLResponse)
 def resolve_issue(request: Request, slug: str, db: Session = Depends(get_db)):
-    issue = issue_svc.resolve_issue(db, slug)
-    return templates.TemplateResponse(
-        "partials/issue_row.html",
-        {"request": request, "issue": issue},
+    issue_svc.resolve_issue(db, slug)
+    return templates.TemplateResponse(request, "issues.html", _ctx(db))
+
+
+@router.post("/{slug}/edit", response_class=HTMLResponse)
+def edit_issue(
+    request: Request,
+    slug: str,
+    title: str = Form(...),
+    severity: str = Form("medium"),
+    description: str = Form(""),
+    status: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    kwargs = dict(
+        title=title,
+        severity=IssueSeverity(severity),
+        description=description or None,
     )
+    if status:
+        kwargs["status"] = IssueStatus(status)
+    issue_svc.update_issue(db, slug, **kwargs)
+    return templates.TemplateResponse(request, "issues.html", _ctx(db))
+
+
+@router.post("/{slug}/delete", response_class=HTMLResponse)
+def delete_issue(request: Request, slug: str, db: Session = Depends(get_db)):
+    issue_svc.delete_issue(db, slug)
+    return templates.TemplateResponse(request, "issues.html", _ctx(db))
+
+
+@router.post("/{slug}/notes", response_class=HTMLResponse)
+def add_note(request: Request, slug: str, content: str = Form(...), db: Session = Depends(get_db)):
+    issue = issue_svc.get_issue(db, slug)
+    note_svc.add_note(db, f"issue:{issue.id}", content)
+    notes = note_svc.list_notes(db, f"issue:{issue.id}")
+    return templates.TemplateResponse(request, "partials/notes_section.html", {
+        "notes": notes,
+        "post_url": f"/issues/{slug}/notes",
+        "delete_url_prefix": f"/issues/{slug}/notes",
+    })
+
+
+@router.delete("/{slug}/notes/{note_id}", response_class=HTMLResponse)
+def delete_note(request: Request, slug: str, note_id: int, db: Session = Depends(get_db)):
+    note_svc.delete_note(db, note_id)
+    issue = issue_svc.get_issue(db, slug)
+    notes = note_svc.list_notes(db, f"issue:{issue.id}")
+    return templates.TemplateResponse(request, "partials/notes_section.html", {
+        "notes": notes,
+        "post_url": f"/issues/{slug}/notes",
+        "delete_url_prefix": f"/issues/{slug}/notes",
+    })

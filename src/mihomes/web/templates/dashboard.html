@@ -16,22 +16,22 @@
 
 <!-- Stat row -->
 <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-  <div class="bg-white rounded-xl border border-gray-200 p-4">
+  <a href="/properties" class="bg-white rounded-xl border border-gray-200 p-4 hover:border-brand-400 hover:shadow-sm transition-all block">
     <div class="text-xs font-medium text-gray-500 uppercase tracking-wide">Properties</div>
     <div class="mt-1 text-3xl font-bold text-gray-900">{{ properties|length }}</div>
-  </div>
-  <div class="bg-white rounded-xl border border-gray-200 p-4">
+  </a>
+  <a href="/alerts" class="bg-white rounded-xl border border-gray-200 p-4 hover:border-brand-400 hover:shadow-sm transition-all block">
     <div class="text-xs font-medium text-gray-500 uppercase tracking-wide">Active Alerts</div>
     <div class="mt-1 text-3xl font-bold {% if alerts %}text-red-600{% else %}text-gray-900{% endif %}">{{ alerts|length }}</div>
-  </div>
-  <div class="bg-white rounded-xl border border-gray-200 p-4">
+  </a>
+  <a href="/tasks?overdue=true" class="bg-white rounded-xl border border-gray-200 p-4 hover:border-brand-400 hover:shadow-sm transition-all block">
     <div class="text-xs font-medium text-gray-500 uppercase tracking-wide">Overdue Tasks</div>
     <div class="mt-1 text-3xl font-bold {% if overdue_tasks %}text-amber-600{% else %}text-gray-900{% endif %}">{{ overdue_tasks|length }}</div>
-  </div>
-  <div class="bg-white rounded-xl border border-gray-200 p-4">
+  </a>
+  <a href="/tasks?due_week=true" class="bg-white rounded-xl border border-gray-200 p-4 hover:border-brand-400 hover:shadow-sm transition-all block">
     <div class="text-xs font-medium text-gray-500 uppercase tracking-wide">Due This Week</div>
     <div class="mt-1 text-3xl font-bold text-gray-900">{{ upcoming_tasks|length }}</div>
-  </div>
+  </a>
 </div>
 
 <!-- Property health cards -->

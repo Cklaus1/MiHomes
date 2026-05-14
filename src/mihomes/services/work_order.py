@@ -44,6 +44,7 @@ def create_work_order(
     source_type: str | None = None,
     source_id: int | None = None,
     vendor_id_or_slug: str | None = None,
+    vendor_name: str | None = None,
     assignee_id_or_slug: str | None = None,
     estimated_cost: float | None = None,
     currency: str = "USD",
@@ -63,7 +64,7 @@ def create_work_order(
     wo = WorkOrder(
         title=title, slug=slug, description=description,
         property_id=prop.id, source_type=source_type, source_id=source_id,
-        vendor_id=vendor_id, assignee_id=assignee_id,
+        vendor_id=vendor_id, vendor_name=vendor_name, assignee_id=assignee_id,
         estimated_cost=estimated_cost, currency=currency, due_date=due_date,
     )
     session.add(wo)

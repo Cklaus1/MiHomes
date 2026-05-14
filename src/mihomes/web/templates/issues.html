@@ -15,7 +15,7 @@
 
 <!-- Filter bar -->
 <div class="flex flex-wrap gap-3 mb-5">
-  <form class="flex gap-2" hx-get="/issues" hx-target="body" hx-push-url="true">
+  <form class="flex gap-2" hx-get="/issues" hx-target="body" hx-swap="innerHTML" hx-push-url="true">
     <select name="property_id" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
       <option value="">All properties</option>
       {% for p in properties %}<option value="{{ p.id }}" {% if filter_property == p.id %}selected{% endif %}>{{ p.name }}</option>{% endfor %}
@@ -28,11 +28,222 @@
   </form>
 </div>
 
+<!-- Issues table -->
 <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-  <div id="issue-list">
-    {% include "partials/issue_list.html" %}
+  {% if issues %}
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="border-b border-gray-100">
+        <th class="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Issue</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">Property</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Severity</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Reported</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-50">
+      {% for issue in issues %}
+      <tr class="hover:bg-gray-50 cursor-pointer transition-colors {% if issue.status.value == 'resolved' %}opacity-60{% endif %}"
+          onclick="openModal('issue-modal-{{ issue.id }}')">
+        <td class="px-5 py-3">
+          <div class="font-medium text-gray-900">{{ issue.title }}</div>
+          {% if issue.description %}<div class="text-xs text-gray-400 mt-0.5 truncate max-w-[240px]">{{ issue.description }}</div>{% endif %}
+        </td>
+        <td class="px-4 py-3 text-gray-500 hidden sm:table-cell text-xs">
+          {% if issue.property %}{{ issue.property.name }}{% else %}—{% endif %}
+        </td>
+        <td class="px-4 py-3">
+          <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+            {% if issue.severity.value == 'critical' %}bg-red-100 text-red-700
+            {% elif issue.severity.value == 'high' %}bg-orange-100 text-orange-700
+            {% elif issue.severity.value == 'medium' %}bg-amber-100 text-amber-700
+            {% else %}bg-gray-100 text-gray-600{% endif %}">
+            {{ issue.severity.value.title() }}
+          </span>
+        </td>
+        <td class="px-4 py-3">
+          <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+            {% if issue.status.value == 'resolved' %}bg-emerald-100 text-emerald-700
+            {% elif issue.status.value == 'open' %}bg-red-100 text-red-700
+            {% elif issue.status.value == 'reported' %}bg-amber-100 text-amber-700
+            {% elif issue.status.value == 'in-progress' %}bg-blue-100 text-blue-700
+            {% else %}bg-gray-100 text-gray-600{% endif %}">
+            {{ issue.status.value.replace('-', ' ').title() }}
+          </span>
+        </td>
+        <td class="px-4 py-3 text-gray-400 text-xs hidden md:table-cell">
+          {% if issue.created_at %}{{ issue.created_at.strftime('%b %d, %Y') }}{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="px-5 py-12 text-center text-sm text-gray-400">No issues found.</div>
+  {% endif %}
+</div>
+
+<!-- Issue detail modals (rendered outside table) -->
+{% for issue in issues %}
+<div id="issue-modal-{{ issue.id }}"
+     class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+     onclick="if(event.target===this)closeModal('issue-modal-{{ issue.id }}')">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col" onclick="event.stopPropagation()">
+
+    <!-- Modal header -->
+    <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
+      <div>
+        <h2 class="text-lg font-bold text-gray-900 truncate max-w-xs">{{ issue.title }}</h2>
+        <p class="text-xs text-gray-500 mt-0.5">
+          {% if issue.property %}{{ issue.property.name }}{% endif %}
+          {% if issue.created_at %} · {{ issue.created_at.strftime('%b %d, %Y') }}{% endif %}
+        </p>
+      </div>
+      <div class="flex items-center gap-2 flex-shrink-0">
+        <button hx-post="/issues/{{ issue.slug }}/delete"
+                hx-target="body" hx-swap="innerHTML"
+                hx-confirm="Delete this issue? This cannot be undone."
+                class="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                title="Delete">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+        </button>
+        <button onclick="closeModal('issue-modal-{{ issue.id }}')"
+                class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="flex border-b border-gray-100 px-6 flex-shrink-0">
+      <button onclick="switchTab('issue','{{ issue.id }}','details')"
+              id="issue-tab-{{ issue.id }}-details"
+              class="px-1 py-3 text-sm font-medium border-b-2 border-brand-600 text-brand-600 mr-5">Details</button>
+      <button onclick="switchTab('issue','{{ issue.id }}','notes')"
+              id="issue-tab-{{ issue.id }}-notes"
+              class="px-1 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 mr-5">Notes ({{ notes_map[issue.id]|length }})</button>
+    </div>
+
+    <!-- Modal body -->
+    <div class="flex-1 overflow-y-auto">
+
+      <!-- Details tab -->
+      <div id="issue-panel-{{ issue.id }}-details" class="px-6 py-5">
+
+        <!-- View div -->
+        <div id="issue-view-{{ issue.id }}">
+          <dl class="grid grid-cols-2 gap-x-6 gap-y-4 text-sm mb-4">
+            <div>
+              <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Severity</dt>
+              <dd>
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+                  {% if issue.severity.value == 'critical' %}bg-red-100 text-red-700
+                  {% elif issue.severity.value == 'high' %}bg-orange-100 text-orange-700
+                  {% elif issue.severity.value == 'medium' %}bg-amber-100 text-amber-700
+                  {% else %}bg-gray-100 text-gray-600{% endif %}">
+                  {{ issue.severity.value.title() }}
+                </span>
+              </dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Status</dt>
+              <dd class="flex items-center gap-2 pt-0.5">
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+                  {% if issue.status.value == 'resolved' %}bg-emerald-100 text-emerald-700
+                  {% elif issue.status.value == 'open' %}bg-red-100 text-red-700
+                  {% elif issue.status.value == 'reported' %}bg-amber-100 text-amber-700
+                  {% elif issue.status.value == 'in-progress' %}bg-blue-100 text-blue-700
+                  {% else %}bg-gray-100 text-gray-600{% endif %}">
+                  {{ issue.status.value.replace('-',' ').title() }}
+                </span>
+                {% if issue.status.value != 'resolved' %}
+                <button hx-post="/issues/{{ issue.slug }}/resolve" hx-target="body" hx-swap="innerHTML"
+                        class="text-xs text-emerald-600 hover:text-emerald-700 font-medium underline-offset-2 hover:underline">
+                  Mark Resolved
+                </button>
+                {% endif %}
+              </dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Property</dt>
+              <dd class="text-gray-700 pt-0.5">{% if issue.property %}{{ issue.property.name }}{% else %}—{% endif %}</dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Reported</dt>
+              <dd class="text-gray-700 pt-0.5">{{ issue.created_at.strftime('%b %d, %Y') if issue.created_at else '—' }}</dd>
+            </div>
+            {% if issue.resolved_at %}
+            <div class="col-span-2">
+              <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Resolved</dt>
+              <dd class="text-gray-700 pt-0.5">{{ issue.resolved_at.strftime('%b %d, %Y') }}</dd>
+            </div>
+            {% endif %}
+            {% if issue.description %}
+            <div class="col-span-2">
+              <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Description</dt>
+              <dd class="text-gray-700 text-sm bg-gray-50 rounded-lg p-3">{{ issue.description }}</dd>
+            </div>
+            {% endif %}
+          </dl>
+          <div class="flex justify-end mt-4 pt-4 border-t border-gray-100">
+            <button type="button" onclick="enterEdit('issue','{{ issue.id }}')"
+                    class="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+              Edit
+            </button>
+          </div>
+        </div>
+
+        <!-- Edit div -->
+        <div id="issue-edit-{{ issue.id }}" class="hidden">
+          <form hx-post="/issues/{{ issue.slug }}/edit" hx-target="body" hx-swap="innerHTML">
+            <div class="space-y-4">
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Title</div>
+                <input type="text" name="title" value="{{ issue.title }}" required
+                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Severity</div>
+                <select name="severity" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                  {% for s in severities %}<option value="{{ s }}" {% if issue.severity.value == s %}selected{% endif %}>{{ s.title() }}</option>{% endfor %}
+                </select>
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Status</div>
+                <select name="status" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                  {% for s in statuses %}<option value="{{ s }}" {% if issue.status.value == s %}selected{% endif %}>{{ s.replace('-',' ').title() }}</option>{% endfor %}
+                </select>
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Description</div>
+                <textarea name="description" data-autoresize
+                          class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
+                          placeholder="No description…">{{ issue.description or '' }}</textarea>
+              </div>
+            </div>
+            <div class="flex justify-end gap-2 mt-4 pt-4 border-t border-gray-100">
+              <button type="button" onclick="exitEdit('issue','{{ issue.id }}')"
+                      class="px-4 py-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors">Cancel</button>
+              <button type="submit"
+                      class="px-4 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors">Save</button>
+            </div>
+          </form>
+        </div>
+
+      </div>
+
+      <!-- Notes tab (hidden by default) -->
+      <div id="issue-panel-{{ issue.id }}-notes" class="hidden px-6 py-5" data-notes-container>
+        {% with notes=notes_map[issue.id], post_url="/issues/"+issue.slug+"/notes", delete_url_prefix="/issues/"+issue.slug+"/notes" %}
+        {% include "partials/notes_section.html" %}
+        {% endwith %}
+      </div>
+
+    </div>
   </div>
 </div>
+{% endfor %}
 
 <!-- Add issue modal -->
 <div id="add-issue-modal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-50">
@@ -43,7 +254,7 @@
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
       </button>
     </div>
-    <form hx-post="/issues" hx-target="#issue-list" hx-swap="innerHTML" class="space-y-4">
+    <form hx-post="/issues" hx-target="body" hx-swap="innerHTML" class="space-y-4">
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-1">Title</label>
         <input type="text" name="title" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" placeholder="e.g. Roof leak near chimney" />
@@ -71,5 +282,32 @@
     </form>
   </div>
 </div>
+
+<script>
+function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
+function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+function switchTab(prefix, id, tab) {
+  ['details','notes'].forEach(t => {
+    document.getElementById(prefix+'-panel-'+id+'-'+t).classList.toggle('hidden', t !== tab);
+    const btn = document.getElementById(prefix+'-tab-'+id+'-'+t);
+    btn.classList.toggle('border-brand-600', t === tab);
+    btn.classList.toggle('text-brand-600', t === tab);
+    btn.classList.toggle('border-transparent', t !== tab);
+    btn.classList.toggle('text-gray-500', t !== tab);
+  });
+}
+function autoResize(el){el.style.height='auto';el.style.height=el.scrollHeight+'px';}
+function enterEdit(prefix, id) {
+  document.getElementById(prefix+'-view-'+id).classList.add('hidden');
+  const editEl = document.getElementById(prefix+'-edit-'+id);
+  editEl.classList.remove('hidden');
+  editEl.querySelectorAll('textarea[data-autoresize]').forEach(ta => autoResize(ta));
+}
+function exitEdit(prefix, id) {
+  document.getElementById(prefix+'-edit-'+id).classList.add('hidden');
+  document.getElementById(prefix+'-view-'+id).classList.remove('hidden');
+}
+document.addEventListener('DOMContentLoaded',()=>document.querySelectorAll('textarea[data-autoresize]').forEach(t=>t.addEventListener('input',()=>autoResize(t))));
+</script>
 
 {% endblock %}

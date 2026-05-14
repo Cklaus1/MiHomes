@@ -21,11 +21,41 @@
     .htmx-indicator { opacity: 0; transition: opacity 200ms ease-in; }
     .htmx-request .htmx-indicator { opacity: 1; }
     .htmx-request.htmx-indicator { opacity: 1; }
-    [hx-boost] a, a[hx-boost] { cursor: pointer; }
+
+    /* Inline-edit fields: look like plain text at rest, reveal editability on hover/focus */
+    .ie-field {
+      display: block; width: 100%;
+      background: transparent;
+      border: 1px solid transparent; border-radius: 6px;
+      padding: 3px 6px; margin: -3px -6px;
+      font-size: 0.875rem; color: #374151;
+      font-family: inherit; line-height: 1.5;
+      transition: border-color .12s, background-color .12s;
+      cursor: text;
+    }
+    .ie-field:hover  { border-color: #e5e7eb; background: #f9fafb; }
+    .ie-field:focus  { border-color: #0284c7; background: #fff; outline: none; box-shadow: 0 0 0 3px rgba(2,132,199,.08); }
+    textarea.ie-field { resize: none; overflow: hidden; }
+    select.ie-field  { cursor: pointer; appearance: none; -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%239CA3AF'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 6px center; padding-right: 20px; }
+
+    /* Variant for fields that sit inside a bg-gray-50 card tile */
+    .ie-incard {
+      display: block; width: 100%;
+      background: transparent; border: none; border-bottom: 1px solid transparent;
+      padding: 0; font-size: 0.875rem; font-weight: 500; color: #1f2937;
+      font-family: inherit; line-height: 1.5;
+      transition: border-color .12s;
+      cursor: text;
+    }
+    .ie-incard:hover { border-bottom-color: #9ca3af; }
+    .ie-incard:focus { border-bottom-color: #0284c7; outline: none; }
+    textarea.ie-incard { resize: none; overflow: hidden; }
   </style>
   {% block head %}{% endblock %}
 </head>
-<body class="h-full" hx-boost="true">
+<body class="h-full">
 
   <div class="flex h-full">
 
@@ -39,22 +69,35 @@
       <nav class="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
         {% set nav = [
           ('/', 'dashboard', 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6', 'Dashboard'),
-          ('/properties', 'properties', 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4', 'Properties'),
-          ('/tasks', 'tasks', 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4', 'Tasks'),
-          ('/issues', 'issues', 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z', 'Issues'),
-          ('/staff', 'staff', 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z', 'Staff'),
-          ('/vendors', 'vendors', 'M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2', 'Vendors'),
-          ('/budget', 'budget', 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z', 'Budget'),
+          ('/properties/', 'properties', 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4', 'Properties'),
+          ('/tasks/', 'tasks', 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4', 'Tasks'),
+          ('/issues/', 'issues', 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z', 'Issues'),
+          ('/staff/', 'staff', 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z', 'Staff'),
+          ('/vendors/', 'vendors', 'M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2', 'Vendors'),
+          ('/budget/', 'budget', 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z', 'Budget'),
+          ('/alerts/', 'alerts', 'M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9', 'Alerts'),
+          ('/assets/', 'assets', 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4', 'Assets'),
+          ('/work-orders/', 'work_orders', 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01', 'Work Orders'),
+          ('/contracts/', 'contracts', 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z', 'Contracts'),
         ] %}
         {% for href, key, icon_path, label in nav %}
-        <a href="{{ href }}"
-           class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors
-                  {% if page == key %}bg-gray-700 text-white{% else %}text-gray-400 hover:bg-gray-800 hover:text-white{% endif %}">
-          <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="{{ icon_path }}" />
-          </svg>
-          {{ label }}
-        </a>
+        <div class="relative">
+          <a href="{{ href }}"
+             class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors
+                    {% if page == key %}bg-gray-700 text-white{% else %}text-gray-400 hover:bg-gray-800 hover:text-white{% endif %}">
+            <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="{{ icon_path }}" />
+            </svg>
+            <span class="flex-1">{{ label }}</span>
+            {% if key == 'alerts' %}
+            <span id="nav-alert-badge"
+                  hx-get="/alerts/badge"
+                  hx-trigger="load, every 60s"
+                  hx-swap="outerHTML">
+            </span>
+            {% endif %}
+          </a>
+        </div>
         {% endfor %}
       </nav>
 

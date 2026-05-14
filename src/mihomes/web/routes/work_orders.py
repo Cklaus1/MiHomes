@@ -160,3 +160,53 @@ def edit_work_order(
 def delete_work_order(request: Request, slug: str, db: Session = Depends(get_db)):
     wo_svc.delete_work_order(db, slug)
     return templates.TemplateResponse(request, "work_orders.html", _ctx(db))
+
+
+@router.post("/{slug}/approve", response_class=HTMLResponse)
+def approve_work_order(request: Request, slug: str, db: Session = Depends(get_db)):
+    wo_svc.approve(db, slug)
+    return templates.TemplateResponse(request, "work_orders.html", _ctx(db))
+
+
+@router.post("/{slug}/start", response_class=HTMLResponse)
+def start_work_order(request: Request, slug: str, db: Session = Depends(get_db)):
+    from mihomes.models.work_order import WorkOrderStatus
+    wo_svc.transition_status(db, slug, WorkOrderStatus.IN_PROGRESS)
+    return templates.TemplateResponse(request, "work_orders.html", _ctx(db))
+
+
+@router.post("/{slug}/complete", response_class=HTMLResponse)
+def complete_work_order(
+    request: Request,
+    slug: str,
+    actual_cost: str = Form(""),
+    notes: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    try:
+        wo_svc.complete(
+            db,
+            slug,
+            actual_cost=float(actual_cost) if actual_cost else None,
+            notes=notes or None,
+        )
+    except ValueError:
+        pass
+    return templates.TemplateResponse(request, "work_orders.html", _ctx(db))
+
+
+@router.post("/{slug}/verify", response_class=HTMLResponse)
+def verify_work_order(request: Request, slug: str, db: Session = Depends(get_db)):
+    wo_svc.verify(db, slug)
+    return templates.TemplateResponse(request, "work_orders.html", _ctx(db))
+
+
+@router.post("/{slug}/cancel", response_class=HTMLResponse)
+def cancel_work_order(
+    request: Request,
+    slug: str,
+    notes: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    wo_svc.cancel(db, slug, notes=notes or None)
+    return templates.TemplateResponse(request, "work_orders.html", _ctx(db))

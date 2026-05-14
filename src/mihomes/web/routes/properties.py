@@ -1,7 +1,7 @@
 """Property routes."""
 
 from fastapi import APIRouter, Depends, Form, Request, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from mihomes.models.property import PropertyStatus, PropertyType
@@ -84,6 +84,8 @@ def property_detail(request: Request, slug: str, db: Session = Depends(get_db)):
             "open_tasks": open_tasks,
             "open_issues": open_issues,
             "assigned_staff": assigned_staff,
+            "property_types": [t.value for t in PropertyType],
+            "property_statuses": [s.value for s in PropertyStatus],
         },
     )
 
@@ -105,4 +107,43 @@ def vacate(request: Request, slug: str, db: Session = Depends(get_db)):
         request,
         "partials/property_status_badge.html",
         {"prop": prop},
+    )
+
+
+@router.post("/{slug}/edit", response_class=HTMLResponse)
+def edit_property(
+    request: Request,
+    slug: str,
+    name: str = Form(""),
+    address: str = Form(""),
+    property_type: str = Form(""),
+    status: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    kwargs: dict = {}
+    if name:
+        kwargs["name"] = name
+    if address is not None:
+        kwargs["address"] = address or None
+    if property_type:
+        kwargs["property_type"] = PropertyType(property_type)
+    if status:
+        kwargs["status"] = PropertyStatus(status)
+    prop_svc.update_property(db, slug, **kwargs)
+    properties = prop_svc.list_properties(db)
+    return templates.TemplateResponse(
+        request,
+        "properties.html",
+        {"page": "properties", "properties": properties},
+    )
+
+
+@router.post("/{slug}/delete", response_class=HTMLResponse)
+def delete_property(request: Request, slug: str, db: Session = Depends(get_db)):
+    prop_svc.delete_property(db, slug)
+    properties = prop_svc.list_properties(db)
+    return templates.TemplateResponse(
+        request,
+        "properties.html",
+        {"page": "properties", "properties": properties},
     )

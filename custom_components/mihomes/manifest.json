@@ -1,0 +1,11 @@
+{
+  "domain": "mihomes",
+  "name": "MiHomes Estate Manager",
+  "codeowners": [],
+  "config_flow": true,
+  "documentation": "https://github.com/your-org/mihomes-os",
+  "integration_type": "hub",
+  "iot_class": "local_polling",
+  "requirements": ["aiohttp>=3.9.0"],
+  "version": "1.0.0"
+}

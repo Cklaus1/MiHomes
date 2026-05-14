@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Alerts — MiHomes{% endblock %}
+{% block heading %}Alerts{% endblock %}
+{% block subheading %}
+<p class="text-sm text-gray-500 mt-0.5">
+  {{ alerts|length }} active alert{{ 's' if alerts|length != 1 else '' }}
+  {% if critical %} · <span class="text-red-600 font-medium">{{ critical|length }} critical</span>{% endif %}
+</p>
+{% endblock %}
+
+{% block content %}
+
+{% if not alerts %}
+<div class="bg-white rounded-xl border border-dashed border-gray-300 p-16 text-center">
+  <div class="text-4xl mb-3">✅</div>
+  <div class="text-gray-700 font-medium">All clear — no active alerts</div>
+  <div class="text-gray-400 text-sm mt-1">Run automation to scan for new issues</div>
+</div>
+{% else %}
+
+<div id="alert-list">
+  {% include "partials/alert_list.html" %}
+</div>
+
+{% endif %}
+{% endblock %}

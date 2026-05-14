@@ -1,0 +1,11 @@
+{% if count > 0 %}
+<span id="nav-alert-badge"
+      hx-get="/alerts/badge" hx-trigger="every 60s" hx-swap="outerHTML"
+      class="inline-flex items-center justify-center min-w-[20px] h-5 px-1 text-xs font-bold bg-red-500 text-white rounded-full">
+  {{ count if count < 100 else '99+' }}
+</span>
+{% else %}
+<span id="nav-alert-badge"
+      hx-get="/alerts/badge" hx-trigger="every 60s" hx-swap="outerHTML">
+</span>
+{% endif %}

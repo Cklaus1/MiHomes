@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}Integrations — MiHomes{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <h1>Integrations</h1>
+  <span style="font-size:0.8rem;color:#9ca3af;">MiHomes runs inside Home Assistant — no manual connections needed</span>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;align-items:start;">
+
+  <!-- ── Left: HA status ────────────────────────────────────────────────── -->
+  <div>
+    <div class="section-title">Home Assistant</div>
+    <div style="background:#fff;border-radius:16px;box-shadow:var(--card-shadow);padding:1.25rem;">
+
+      <!-- Connection status -->
+      <div style="display:flex;align-items:center;gap:1rem;padding-bottom:1rem;border-bottom:1px solid var(--divider);">
+        <div style="width:44px;height:44px;border-radius:12px;background:{% if ha_available %}rgba(76,175,80,.12){% else %}rgba(244,67,54,.08){% endif %};display:flex;align-items:center;justify-content:center;">
+          <svg viewBox="0 0 24 24" fill="{% if ha_available %}#4caf50{% else %}#f44336{% endif %}" width="24" height="24">
+            <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+            <polyline points="9 22 9 12 15 12 15 22" fill="none" stroke="{% if ha_available %}#4caf50{% else %}#f44336{% endif %}" stroke-width="2"/>
+          </svg>
+        </div>
+        <div>
+          <div style="font-weight:500;color:var(--text-primary);">Home Assistant Core</div>
+          <div style="font-size:0.8rem;color:#6b7280;">
+            {% if ha_available %}
+            Connected via Supervisor · {% if ha_version %}v{{ ha_version }}{% else %}version unknown{% endif %}
+            {% else %}
+            Not running as an add-on
+            {% endif %}
+          </div>
+        </div>
+        <span class="badge {% if ha_available %}badge-completed{% else %}badge-open{% endif %}" style="margin-left:auto;">
+          {% if ha_available %}Online{% else %}Offline{% endif %}
+        </span>
+      </div>
+
+      <!-- Details table -->
+      <table style="font-size:0.875rem;margin-top:0.75rem;width:100%;">
+        <tr>
+          <td style="color:#6b7280;padding:0.4rem 0;font-weight:500;width:160px;">Auth mode</td>
+          <td>{% if ha_available %}Supervisor Token (automatic){% else %}—{% endif %}</td>
+        </tr>
+        <tr>
+          <td style="color:#6b7280;padding:0.4rem 0;font-weight:500;">WebSocket</td>
+          <td>{% if ha_available %}<code style="font-size:0.78rem;">ws://supervisor/core/websocket</code>{% else %}—{% endif %}</td>
+        </tr>
+        <tr>
+          <td style="color:#6b7280;padding:0.4rem 0;font-weight:500;">REST API</td>
+          <td>{% if ha_available %}<code style="font-size:0.78rem;">http://supervisor/core/api</code>{% else %}—{% endif %}</td>
+        </tr>
+        <tr>
+          <td style="color:#6b7280;padding:0.4rem 0;font-weight:500;">Entities tracked</td>
+          <td>{{ total_entities }}</td>
+        </tr>
+        <tr>
+          <td style="color:#6b7280;padding:0.4rem 0;font-weight:500;">Assigned to properties</td>
+          <td>{{ assigned_count }}</td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- Entity domain breakdown -->
+    {% if domain_counts %}
+    <div class="section-title" style="margin-top:1.5rem;">Entity Domains</div>
+    <div style="background:#fff;border-radius:16px;box-shadow:var(--card-shadow);overflow:hidden;">
+      <table>
+        <thead>
+          <tr>
+            <th>Domain</th>
+            <th style="text-align:right;">Count</th>
+            <th style="text-align:right;">Assigned</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for domain, count in domain_counts.items() %}
+          <tr>
+            <td style="font-family:monospace;font-size:0.8rem;color:#4f46e5;">{{ domain }}</td>
+            <td style="text-align:right;">{{ count }}</td>
+            <td style="text-align:right;color:#6b7280;">{{ domain_assigned.get(domain, 0) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ── Right: MiHomes services ─────────────────────────────────────────── -->
+  <div>
+    <div class="section-title">MiHomes Services</div>
+    <div style="background:#fff;border-radius:16px;box-shadow:var(--card-shadow);padding:1.25rem;display:flex;flex-direction:column;gap:0.75rem;">
+
+      {% for svc in services %}
+      <div style="display:flex;align-items:center;gap:0.75rem;padding:0.5rem 0;{% if not loop.last %}border-bottom:1px solid var(--divider);{% endif %}">
+        <div style="width:36px;height:36px;border-radius:8px;background:{{ 'rgba(3,169,244,.1)' if svc.ok else 'rgba(244,67,54,.08)' }};display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <svg viewBox="0 0 24 24" fill="{{ '#03a9f4' if svc.ok else '#f44336' }}" width="18" height="18">
+            {{ svc.icon|safe }}
+          </svg>
+        </div>
+        <div style="flex:1;">
+          <div style="font-weight:500;font-size:0.875rem;">{{ svc.name }}</div>
+          <div style="font-size:0.75rem;color:#9ca3af;">{{ svc.description }}</div>
+        </div>
+        <span class="badge {% if svc.ok %}badge-completed{% else %}badge-cancelled{% endif %}">
+          {{ 'Active' if svc.ok else 'Inactive' }}
+        </span>
+      </div>
+      {% endfor %}
+
+    </div>
+
+    <!-- Automation rules summary -->
+    <div class="section-title" style="margin-top:1.5rem;">Sensor → Estate Rules</div>
+    <div style="background:#fff;border-radius:16px;box-shadow:var(--card-shadow);overflow:hidden;">
+      <table>
+        <thead>
+          <tr>
+            <th>Sensor Pattern</th>
+            <th>Severity</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for rule in rules %}
+          <tr>
+            <td style="font-family:monospace;font-size:0.78rem;color:#4f46e5;">{{ rule.pattern }}</td>
+            <td><span class="badge badge-{{ rule.severity.value }}">{{ rule.severity.value }}</span></td>
+            <td style="font-size:0.8rem;color:#6b7280;">{{ 'Alert' if rule.alert_only else 'Issue' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- How it works -->
+    <div class="section-title" style="margin-top:1.5rem;">How It Works</div>
+    <div style="background:#fff;border-radius:16px;box-shadow:var(--card-shadow);padding:1.25rem;font-size:0.875rem;line-height:1.75;">
+      <ol style="margin:0;padding-left:1.25rem;color:#374151;">
+        <li>MiHomes runs as a Home Assistant add-on panel</li>
+        <li>Supervisor injects credentials — no manual setup</li>
+        <li>Real-time sensor events are matched against detection rules</li>
+        <li>Matching events create Issues or Alerts in MiHomes, linked to the affected property</li>
+        <li>AI analyzes patterns across all properties using the SPACE framework</li>
+        <li>Tasks, work orders, and maintenance schedules are generated automatically</li>
+      </ol>
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}

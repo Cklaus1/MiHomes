@@ -1,0 +1,1156 @@
+title: MiHomes Estate
+views:
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # OVERVIEW — Portfolio snapshot
+  # ═══════════════════════════════════════════════════════════════════════════
+  - title: Overview
+    path: home
+    icon: mdi:home-city
+    cards:
+
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: binary_sensor.mihomes_critical_issue
+            state: "on"
+        card:
+          type: tile
+          entity: binary_sensor.mihomes_critical_issue
+          name: "Critical Issue — Immediate Attention Required"
+          icon: mdi:alert-circle
+          color: red
+
+      - type: grid
+        columns: 3
+        square: false
+        cards:
+          - type: gauge
+            entity: sensor.beach_house_health_score
+            name: Beach House
+            min: 0
+            max: 100
+            needle: true
+            severity:
+              green: 75
+              yellow: 50
+              red: 0
+          - type: gauge
+            entity: sensor.mountain_lodge_health_score
+            name: Mountain Lodge
+            min: 0
+            max: 100
+            needle: true
+            severity:
+              green: 75
+              yellow: 50
+              red: 0
+          - type: gauge
+            entity: sensor.city_apartment_health_score
+            name: City Apartment
+            min: 0
+            max: 100
+            needle: true
+            severity:
+              green: 75
+              yellow: 50
+              red: 0
+
+      - type: grid
+        columns: 4
+        square: false
+        cards:
+          - type: tile
+            entity: sensor.mihomes_active_alerts
+            name: Active Alerts
+            icon: mdi:bell-alert
+            color: red
+          - type: tile
+            entity: sensor.mihomes_overdue_tasks
+            name: Overdue Tasks
+            icon: mdi:clock-alert
+            color: orange
+          - type: tile
+            entity: sensor.active_staff_count
+            name: Active Staff
+            icon: mdi:account-group
+            color: blue
+          - type: tile
+            entity: sensor.vendors_on_site_today
+            name: Vendors On Site
+            icon: mdi:truck
+            color: green
+
+      - type: grid
+        columns: 3
+        square: false
+        cards:
+          - type: tile
+            entity: binary_sensor.beach_house_has_issues
+            name: Beach House
+            icon: mdi:beach
+          - type: tile
+            entity: binary_sensor.mountain_lodge_has_issues
+            name: Mountain Lodge
+            icon: mdi:pine-tree
+          - type: tile
+            entity: binary_sensor.city_apartment_has_issues
+            name: City Apartment
+            icon: mdi:city-variant
+
+      - type: grid
+        columns: 3
+        square: false
+        cards:
+          - type: entity
+            entity: sensor.beach_house_open_issues
+            name: BH Open Issues
+            icon: mdi:alert-circle-outline
+          - type: entity
+            entity: sensor.mountain_lodge_open_issues
+            name: ML Open Issues
+            icon: mdi:alert-circle-outline
+          - type: entity
+            entity: sensor.city_apartment_open_issues
+            name: CA Open Issues
+            icon: mdi:alert-circle-outline
+
+      - type: grid
+        columns: 3
+        square: false
+        cards:
+          - type: entity
+            entity: sensor.beach_house_open_tasks
+            name: BH Open Tasks
+            icon: mdi:checkbox-marked-circle-outline
+          - type: entity
+            entity: sensor.mountain_lodge_open_tasks
+            name: ML Open Tasks
+            icon: mdi:checkbox-marked-circle-outline
+          - type: entity
+            entity: sensor.city_apartment_open_tasks
+            name: CA Open Tasks
+            icon: mdi:checkbox-marked-circle-outline
+
+      - type: grid
+        columns: 2
+        square: false
+        cards:
+          - type: tile
+            entity: sensor.monthly_budget_remaining
+            name: May Budget Left
+            icon: mdi:cash
+            color: green
+          - type: tile
+            entity: sensor.ytd_expenses
+            name: YTD Expenses
+            icon: mdi:chart-line
+            color: blue
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # BEACH HOUSE
+  # ═══════════════════════════════════════════════════════════════════════════
+  - title: Beach House
+    path: beach-house
+    icon: mdi:beach
+    cards:
+
+      - type: grid
+        columns: 3
+        square: false
+        cards:
+          - type: gauge
+            entity: sensor.bh_indoor_temperature
+            name: Indoor Temp
+            min: 50
+            max: 95
+            needle: true
+            severity:
+              green: 68
+              yellow: 78
+              red: 85
+          - type: gauge
+            entity: sensor.bh_indoor_humidity
+            name: Humidity
+            min: 0
+            max: 100
+            needle: true
+            severity:
+              green: 40
+              yellow: 60
+              red: 70
+          - type: tile
+            entity: sensor.bh_outdoor_temperature
+            name: Outdoors
+            icon: mdi:thermometer
+
+      - type: entities
+        title: Lights
+        entities:
+          - entity: input_boolean.bh_light_living_room
+            name: Living Room
+            icon: mdi:ceiling-light
+          - entity: input_boolean.bh_light_kitchen
+            name: Kitchen
+            icon: mdi:ceiling-light
+          - entity: input_boolean.bh_light_master_bedroom
+            name: Master Bedroom
+            icon: mdi:ceiling-light
+          - entity: input_boolean.bh_light_guest_bedroom
+            name: Guest Bedroom
+            icon: mdi:ceiling-light
+          - entity: input_boolean.bh_light_office
+            name: Office
+            icon: mdi:desk-lamp
+          - entity: input_boolean.bh_light_garage
+            name: Garage
+            icon: mdi:garage
+          - entity: input_boolean.bh_light_outdoor
+            name: Outdoor
+            icon: mdi:outdoor-lamp
+
+      - type: entities
+        title: Climate
+        entities:
+          - entity: input_select.bh_hvac_mode
+            name: HVAC Mode
+          - entity: input_number.bh_heat_setpoint
+            name: Heat
+          - entity: input_number.bh_cool_setpoint
+            name: Cool
+
+      - type: glance
+        title: Security
+        show_state: true
+        entities:
+          - entity: binary_sensor.bh_front_door
+            name: Front Door
+          - entity: binary_sensor.bh_back_door
+            name: Back Door
+          - entity: binary_sensor.bh_garage_door
+            name: Garage Door
+          - entity: binary_sensor.bh_master_bedroom_window
+            name: Bedroom Win
+          - entity: binary_sensor.bh_living_room_window
+            name: Living Win
+          - entity: binary_sensor.bh_basement_window
+            name: Basement Win
+          - entity: binary_sensor.bh_living_room_motion
+            name: LR Motion
+          - entity: binary_sensor.bh_garage_motion
+            name: Garage Motion
+          - entity: binary_sensor.bh_smoke_detector
+            name: Smoke
+          - entity: binary_sensor.bh_co_detector
+            name: CO
+
+      - type: grid
+        columns: 3
+        square: false
+        cards:
+          - type: tile
+            entity: sensor.bh_energy_today
+            name: Energy Today
+            icon: mdi:lightning-bolt
+          - type: tile
+            entity: sensor.bh_solar_today
+            name: Solar Today
+            icon: mdi:solar-panel
+            color: yellow
+          - type: tile
+            entity: sensor.bh_water_usage_today
+            name: Water Today
+            icon: mdi:water
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # MOUNTAIN LODGE
+  # ═══════════════════════════════════════════════════════════════════════════
+  - title: Mountain Lodge
+    path: mountain-lodge
+    icon: mdi:pine-tree
+    cards:
+
+      - type: grid
+        columns: 3
+        square: false
+        cards:
+          - type: gauge
+            entity: sensor.ml_indoor_temperature
+            name: Indoor Temp
+            min: 30
+            max: 85
+            needle: true
+            severity:
+              green: 65
+              yellow: 55
+              red: 45
+          - type: gauge
+            entity: sensor.ml_indoor_humidity
+            name: Humidity
+            min: 0
+            max: 100
+            needle: true
+            severity:
+              green: 35
+              yellow: 60
+              red: 70
+          - type: tile
+            entity: sensor.ml_outdoor_temperature
+            name: Outdoors
+            icon: mdi:thermometer
+
+      - type: entities
+        title: Lights
+        entities:
+          - entity: input_boolean.ml_light_great_room
+            name: Great Room
+            icon: mdi:ceiling-light
+          - entity: input_boolean.ml_light_master_suite
+            name: Master Suite
+            icon: mdi:ceiling-light
+          - entity: input_boolean.ml_light_deck
+            name: Deck
+            icon: mdi:outdoor-lamp
+          - entity: input_boolean.ml_light_garage
+            name: Garage
+            icon: mdi:garage
+
+      - type: entities
+        title: Climate
+        entities:
+          - entity: input_select.ml_hvac_mode
+            name: HVAC Mode
+          - entity: input_number.ml_heat_setpoint
+            name: Heat Setpoint
+
+      - type: glance
+        title: Security
+        show_state: true
+        entities:
+          - entity: binary_sensor.ml_front_door
+            name: Front Door
+          - entity: binary_sensor.ml_garage_door
+            name: Garage Door
+          - entity: binary_sensor.ml_motion_sensor
+            name: Motion
+          - entity: binary_sensor.ml_smoke_detector
+            name: Smoke
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # CITY APARTMENT
+  # ═══════════════════════════════════════════════════════════════════════════
+  - title: City Apt
+    path: city-apartment
+    icon: mdi:city-variant
+    cards:
+
+      - type: grid
+        columns: 2
+        square: false
+        cards:
+          - type: gauge
+            entity: sensor.ca_indoor_temperature
+            name: Indoor Temp
+            min: 50
+            max: 90
+            needle: true
+            severity:
+              green: 68
+              yellow: 78
+              red: 85
+          - type: gauge
+            entity: sensor.ca_indoor_humidity
+            name: Humidity
+            min: 0
+            max: 100
+            needle: true
+            severity:
+              green: 40
+              yellow: 60
+              red: 70
+
+      - type: entities
+        title: Lights
+        entities:
+          - entity: input_boolean.ca_light_living_room
+            name: Living Room
+            icon: mdi:ceiling-light
+          - entity: input_boolean.ca_light_bedroom
+            name: Bedroom
+            icon: mdi:ceiling-light
+          - entity: input_boolean.ca_light_kitchen
+            name: Kitchen
+            icon: mdi:ceiling-light
+
+      - type: entities
+        title: Climate
+        entities:
+          - entity: input_select.ca_hvac_mode
+            name: HVAC Mode
+          - entity: input_number.ca_heat_setpoint
+            name: Heat Setpoint
+
+      - type: glance
+        title: Security
+        show_state: true
+        entities:
+          - entity: binary_sensor.ca_front_door
+            name: Front Door
+          - entity: binary_sensor.ca_motion_sensor
+            name: Motion
+          - entity: binary_sensor.ca_smoke_detector
+            name: Smoke
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # TASKS & ISSUES
+  # ═══════════════════════════════════════════════════════════════════════════
+  - title: Tasks
+    path: tasks
+    icon: mdi:checkbox-marked-circle-outline
+    cards:
+
+      - type: grid
+        columns: 3
+        square: false
+        cards:
+          - type: tile
+            entity: sensor.mihomes_overdue_tasks
+            name: Overdue
+            icon: mdi:clock-alert
+            color: red
+          - type: tile
+            entity: sensor.beach_house_open_tasks
+            name: Beach House
+            icon: mdi:beach
+          - type: tile
+            entity: sensor.mountain_lodge_open_tasks
+            name: Mountain Lodge
+            icon: mdi:pine-tree
+
+      - type: entities
+        title: Open Tasks — Beach House
+        entities:
+          - entity: sensor.task_bh_hvac_filter
+            name: HVAC Filter Replacement
+            secondary_info: last-changed
+          - type: attribute
+            entity: sensor.task_bh_hvac_filter
+            attribute: assignee
+            name: Assigned
+            icon: mdi:account
+          - type: attribute
+            entity: sensor.task_bh_hvac_filter
+            attribute: due
+            name: Due Date
+            icon: mdi:calendar
+          - type: divider
+          - entity: sensor.task_bh_pool_pump_repair
+            name: Pool Pump Repair
+          - type: attribute
+            entity: sensor.task_bh_pool_pump_repair
+            attribute: assignee
+            name: Assigned
+            icon: mdi:account
+          - type: attribute
+            entity: sensor.task_bh_pool_pump_repair
+            attribute: due
+            name: Due Date
+            icon: mdi:calendar
+          - type: divider
+          - entity: sensor.task_bh_pool_chemical
+            name: Pool Chemical Balance
+          - type: attribute
+            entity: sensor.task_bh_pool_chemical
+            attribute: assignee
+            name: Assigned
+            icon: mdi:account
+          - type: divider
+          - entity: sensor.task_bh_generator_test
+            name: Generator Monthly Test
+          - type: attribute
+            entity: sensor.task_bh_generator_test
+            attribute: assignee
+            name: Assigned
+            icon: mdi:account
+          - type: divider
+          - entity: sensor.task_bh_camera_firmware
+            name: Security Camera Firmware
+          - type: attribute
+            entity: sensor.task_bh_camera_firmware
+            attribute: assignee
+            name: Assigned
+            icon: mdi:account
+
+      - type: entities
+        title: Open Tasks — Mountain Lodge
+        entities:
+          - entity: sensor.task_ml_hot_tub_service
+            name: Hot Tub Service (E4 Error)
+          - type: attribute
+            entity: sensor.task_ml_hot_tub_service
+            attribute: assignee
+            name: Assigned
+            icon: mdi:account
+          - type: attribute
+            entity: sensor.task_ml_hot_tub_service
+            attribute: due
+            name: Due Date
+            icon: mdi:calendar
+          - type: divider
+          - entity: sensor.task_ml_roof_inspection
+            name: Roof Inspection
+          - type: attribute
+            entity: sensor.task_ml_roof_inspection
+            attribute: assignee
+            name: Assigned
+            icon: mdi:account
+          - type: attribute
+            entity: sensor.task_ml_roof_inspection
+            attribute: due
+            name: Due Date
+            icon: mdi:calendar
+          - type: divider
+          - entity: sensor.task_ml_chimney_sweep
+            name: Chimney Sweep
+          - type: attribute
+            entity: sensor.task_ml_chimney_sweep
+            attribute: assignee
+            name: Assigned
+            icon: mdi:account
+
+      - type: entities
+        title: Open Tasks — City Apartment
+        entities:
+          - entity: sensor.task_ca_parking_permit
+            name: Parking Permit Renewal
+          - type: attribute
+            entity: sensor.task_ca_parking_permit
+            attribute: assignee
+            name: Assigned
+            icon: mdi:account
+          - type: attribute
+            entity: sensor.task_ca_parking_permit
+            attribute: due
+            name: Due Date
+            icon: mdi:calendar
+          - type: divider
+          - entity: sensor.task_ca_hvac_service
+            name: Annual HVAC Service
+          - type: attribute
+            entity: sensor.task_ca_hvac_service
+            attribute: assignee
+            name: Assigned
+            icon: mdi:account
+          - type: attribute
+            entity: sensor.task_ca_hvac_service
+            attribute: due
+            name: Due Date
+            icon: mdi:calendar
+
+      - type: entities
+        title: Open Issues — All Properties
+        entities:
+          - entity: sensor.issue_bh_pool_pump_noise
+            name: Pool Pump Grinding Noise
+          - type: attribute
+            entity: sensor.issue_bh_pool_pump_noise
+            attribute: severity
+            name: Severity
+            icon: mdi:alert
+          - type: attribute
+            entity: sensor.issue_bh_pool_pump_noise
+            attribute: assigned
+            name: Assigned To
+            icon: mdi:account
+          - type: divider
+          - entity: sensor.issue_ml_hot_tub_e4
+            name: Hot Tub E4 Error
+          - type: attribute
+            entity: sensor.issue_ml_hot_tub_e4
+            attribute: severity
+            name: Severity
+            icon: mdi:alert
+          - type: attribute
+            entity: sensor.issue_ml_hot_tub_e4
+            attribute: assigned
+            name: Assigned To
+            icon: mdi:account
+          - type: divider
+          - entity: sensor.issue_ml_roof_damage
+            name: Roof Inspection Needed
+          - type: attribute
+            entity: sensor.issue_ml_roof_damage
+            attribute: severity
+            name: Severity
+            icon: mdi:alert
+          - type: attribute
+            entity: sensor.issue_ml_roof_damage
+            attribute: assigned
+            name: Assigned To
+            icon: mdi:account
+          - type: divider
+          - entity: sensor.issue_bh_faucet_dripping
+            name: Guest Bathroom Faucet Dripping
+          - type: attribute
+            entity: sensor.issue_bh_faucet_dripping
+            attribute: assigned
+            name: Assigned To
+            icon: mdi:account
+          - type: divider
+          - entity: sensor.issue_ca_hallway_leak
+            name: Building Hallway Leak (Monitoring)
+          - type: attribute
+            entity: sensor.issue_ca_hallway_leak
+            attribute: assigned
+            name: Assigned To
+            icon: mdi:account
+
+      - type: entities
+        title: Sync Tasks to MiHomes API
+        entities:
+          - entity: todo.beach_house_tasks
+            name: Beach House Task List
+          - entity: todo.mountain_lodge_tasks
+            name: Mountain Lodge Task List
+          - entity: todo.city_apartment_tasks
+            name: City Apartment Task List
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # STAFF & VENDORS
+  # ═══════════════════════════════════════════════════════════════════════════
+  - title: Staff
+    path: staff
+    icon: mdi:account-group
+    cards:
+
+      - type: grid
+        columns: 2
+        square: false
+        cards:
+          - type: tile
+            entity: sensor.active_staff_count
+            name: Active Staff
+            icon: mdi:account-group
+            color: blue
+          - type: tile
+            entity: sensor.vendors_on_site_today
+            name: Vendors On Site
+            icon: mdi:truck
+            color: green
+
+      - type: entities
+        title: Household Staff — Beach House
+        entities:
+          - entity: input_select.staff_maria_santos
+            name: Maria Santos
+            secondary_info: last-changed
+            icon: mdi:account-circle
+          - type: section
+            label: Head Housekeeper · +1 310-555-0101
+          - entity: input_select.staff_elena_cruz
+            name: Elena Cruz
+            icon: mdi:account-circle
+          - type: section
+            label: Housekeeper · +1 310-555-0103
+          - entity: input_select.staff_david_park
+            name: David Park
+            icon: mdi:account-circle
+          - type: section
+            label: Groundskeeper · +1 310-555-0104
+          - entity: input_select.staff_robert_nash
+            name: Robert Nash
+            icon: mdi:account-circle
+          - type: section
+            label: Driver / Security · +1 310-555-0106
+          - entity: input_select.staff_carlos_diaz
+            name: Carlos Diaz
+            icon: mdi:account-wrench
+          - type: section
+            label: Handyman (On Call) · +1 310-555-0108
+
+      - type: entities
+        title: Household Staff — Other Properties
+        entities:
+          - entity: input_select.staff_patricia_webb
+            name: Patricia Webb
+            icon: mdi:account-star
+          - type: section
+            label: House Manager · All Properties · +1 212-555-0105
+          - entity: input_select.staff_james_okafor
+            name: James Okafor
+            icon: mdi:account-circle
+          - type: section
+            label: Caretaker · Mountain Lodge · +1 970-555-0142
+          - entity: input_select.staff_yuki_tanaka
+            name: Yuki Tanaka
+            icon: mdi:account-circle
+          - type: section
+            label: Chef · City Apartment · +1 212-555-0107
+
+      - type: entities
+        title: Active Vendors
+        entities:
+          - entity: input_select.vendor_aquapure
+            name: AquaPure Pools
+            icon: mdi:pool
+          - type: section
+            label: Pool Service · Beach House · May 12, 2pm
+          - entity: input_select.vendor_blueline_hvac
+            name: BlueLine HVAC
+            icon: mdi:air-conditioner
+          - type: section
+            label: AC Tune-Up · Beach House · May 13, 10am
+          - entity: input_select.vendor_summit_roofing
+            name: Summit Roofing
+            icon: mdi:home-roof
+          - type: section
+            label: Roof Inspection · Mountain Lodge · May 14, 8am
+
+      - type: entities
+        title: Staff Schedule — This Week
+        entities:
+          - type: section
+            label: Today — May 12
+          - type: divider
+          - type: section
+            label: "Maria Santos: BH deep clean"
+          - type: section
+            label: "James Okafor: ML caretaker check-in"
+          - type: section
+            label: "AquaPure Pools: BH pool service 2pm"
+          - type: divider
+          - type: section
+            label: Wed May 13
+          - type: divider
+          - type: section
+            label: "BlueLine HVAC: BH AC tune-up 10am–2pm"
+          - type: section
+            label: "Carlos Diaz: BH faucet repair"
+          - type: divider
+          - type: section
+            label: Thu May 14
+          - type: divider
+          - type: section
+            label: "Summit Roofing: ML roof inspection 8am–12pm"
+          - type: section
+            label: "Maria Santos + Elena Cruz: BH guest room prep"
+          - type: divider
+          - type: section
+            label: Fri May 15 — Sun May 16
+          - type: divider
+          - type: section
+            label: "Yuki Tanaka: CA dinner prep Fri"
+          - type: section
+            label: "Full crew: BH weekend deep clean Sat"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # BUDGET & FINANCE
+  # ═══════════════════════════════════════════════════════════════════════════
+  - title: Budget
+    path: budget
+    icon: mdi:cash-multiple
+    cards:
+
+      - type: grid
+        columns: 2
+        square: false
+        cards:
+          - type: gauge
+            entity: sensor.monthly_budget_remaining
+            name: May Budget Remaining
+            min: 0
+            max: 30000
+            needle: true
+            severity:
+              green: 10000
+              yellow: 5000
+              red: 0
+          - type: tile
+            entity: sensor.ytd_expenses
+            name: YTD Expenses
+            icon: mdi:chart-line
+            color: blue
+
+      - type: entities
+        title: May Budget by Property
+        entities:
+          - type: section
+            label: Beach House
+          - entity: sensor.bh_may_budget
+            name: Budget
+            icon: mdi:beach
+          - entity: sensor.bh_may_spent
+            name: Spent
+            icon: mdi:cash-minus
+          - type: section
+            label: Mountain Lodge
+          - entity: sensor.ml_may_budget
+            name: Budget
+            icon: mdi:pine-tree
+          - entity: sensor.ml_may_spent
+            name: Spent
+            icon: mdi:cash-minus
+          - type: section
+            label: City Apartment
+          - entity: sensor.ca_may_budget
+            name: Budget
+            icon: mdi:city-variant
+          - entity: sensor.ca_may_spent
+            name: Spent
+            icon: mdi:cash-minus
+
+      - type: entities
+        title: Recent Transactions
+        entities:
+          - entity: sensor.txn_1_aquapure
+            name: AquaPure Pools — Pool Service
+            secondary_info: last-changed
+          - type: attribute
+            entity: sensor.txn_1_aquapure
+            attribute: property
+            name: Property
+            icon: mdi:home
+          - type: divider
+          - entity: sensor.txn_2_summit_roofing
+            name: Summit Roofing — Repair
+          - type: attribute
+            entity: sensor.txn_2_summit_roofing
+            attribute: property
+            name: Property
+            icon: mdi:home
+          - type: divider
+          - entity: sensor.txn_3_maria_santos
+            name: Maria Santos — Weekly Pay
+          - type: attribute
+            entity: sensor.txn_3_maria_santos
+            attribute: property
+            name: Property
+            icon: mdi:home
+          - type: divider
+          - entity: sensor.txn_4_coned
+            name: ConEd — Electric
+          - type: attribute
+            entity: sensor.txn_4_coned
+            attribute: property
+            name: Property
+            icon: mdi:home
+          - type: divider
+          - entity: sensor.txn_5_sce
+            name: SCE — Electric
+          - type: attribute
+            entity: sensor.txn_5_sce
+            attribute: property
+            name: Property
+            icon: mdi:home
+
+      - type: entities
+        title: Recurring Expenses
+        entities:
+          - type: section
+            label: Monthly
+          - type: section
+            label: "Chubb Estate Insurance · All · $1,240 · due Jun 5"
+          - type: section
+            label: "SCE Electric · Beach House · ~$410 · due Jun 7"
+          - type: section
+            label: "ConEd Electric · City Apt · ~$218 · due Jun 8"
+          - type: section
+            label: "Spectrum Internet · Beach House · $89 · due Jun 1"
+          - type: divider
+          - type: section
+            label: Weekly
+          - type: section
+            label: "Maria Santos (BH) · $640 · next May 16"
+          - type: section
+            label: "James Okafor (ML) · $480 · next May 16"
+          - type: divider
+          - type: section
+            label: Bi-weekly
+          - type: section
+            label: "AquaPure Pool Service · $320 · next May 26"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # INVENTORY & ASSETS
+  # ═══════════════════════════════════════════════════════════════════════════
+  - title: Inventory
+    path: inventory
+    icon: mdi:clipboard-list
+    cards:
+
+      - type: entities
+        title: High-Value Assets
+        entities:
+          - entity: sensor.asset_steinway_piano
+            name: Steinway Model B — Grand Piano
+            icon: mdi:piano
+          - type: attribute
+            entity: sensor.asset_steinway_piano
+            attribute: property
+            name: Property
+            icon: mdi:home
+          - type: attribute
+            entity: sensor.asset_steinway_piano
+            attribute: location
+            name: Location
+            icon: mdi:map-marker
+          - type: attribute
+            entity: sensor.asset_steinway_piano
+            attribute: status
+            name: Status
+            icon: mdi:check-circle
+          - type: divider
+          - entity: sensor.asset_coastal_painting
+            name: Original Oil Painting — Coastal Scene
+            icon: mdi:image-frame
+          - type: attribute
+            entity: sensor.asset_coastal_painting
+            attribute: property
+            name: Property
+            icon: mdi:home
+          - type: attribute
+            entity: sensor.asset_coastal_painting
+            attribute: status
+            name: Status
+            icon: mdi:alert-circle
+          - type: divider
+          - entity: sensor.asset_rolex_submariner
+            name: Rolex Submariner
+            icon: mdi:watch
+          - type: attribute
+            entity: sensor.asset_rolex_submariner
+            attribute: property
+            name: Property
+            icon: mdi:home
+          - type: attribute
+            entity: sensor.asset_rolex_submariner
+            attribute: location
+            name: Location
+            icon: mdi:map-marker
+          - type: divider
+          - entity: sensor.asset_wolf_bbq
+            name: Wolf Commercial BBQ
+            icon: mdi:grill
+          - type: attribute
+            entity: sensor.asset_wolf_bbq
+            attribute: property
+            name: Property
+            icon: mdi:home
+          - type: divider
+          - entity: sensor.asset_kayak_set
+            name: Kayak + Paddleboard Set (3)
+            icon: mdi:kayaking
+          - type: attribute
+            entity: sensor.asset_kayak_set
+            attribute: location
+            name: Location
+            icon: mdi:map-marker
+
+      - type: entities
+        title: Appliances & Systems
+        entities:
+          - entity: sensor.asset_hvac_system
+            name: HVAC System — Carrier 5-ton
+            icon: mdi:air-conditioner
+          - type: attribute
+            entity: sensor.asset_hvac_system
+            attribute: next_service
+            name: Next Service
+            icon: mdi:calendar
+          - type: attribute
+            entity: sensor.asset_hvac_system
+            attribute: status
+            name: Status
+            icon: mdi:check-circle
+          - type: divider
+          - entity: sensor.asset_pool_pump
+            name: Pool Pump — Pentair
+            icon: mdi:pump
+          - type: attribute
+            entity: sensor.asset_pool_pump
+            attribute: next_service
+            name: Next Service
+            icon: mdi:calendar-alert
+          - type: attribute
+            entity: sensor.asset_pool_pump
+            attribute: status
+            name: Status
+            icon: mdi:alert-circle
+
+      - type: entities
+        title: Vehicles
+        entities:
+          - entity: sensor.asset_2023_escalade
+            name: 2023 Cadillac Escalade ESV
+            icon: mdi:car-suv
+          - type: attribute
+            entity: sensor.asset_2023_escalade
+            attribute: property
+            name: Property
+            icon: mdi:home
+          - type: attribute
+            entity: sensor.asset_2023_escalade
+            attribute: plate
+            name: Registration
+            icon: mdi:card-account-details
+          - type: attribute
+            entity: sensor.asset_2023_escalade
+            attribute: insurer
+            name: Insurer
+            icon: mdi:shield-check
+          - type: divider
+          - entity: sensor.asset_2022_defender
+            name: 2022 Land Rover Defender
+            icon: mdi:car-4wd
+          - type: attribute
+            entity: sensor.asset_2022_defender
+            attribute: property
+            name: Property
+            icon: mdi:home
+          - type: attribute
+            entity: sensor.asset_2022_defender
+            attribute: plate
+            name: Registration
+            icon: mdi:card-account-details
+          - type: divider
+          - entity: sensor.asset_2024_tesla_model_s
+            name: 2024 Tesla Model S
+            icon: mdi:car-electric
+          - type: attribute
+            entity: sensor.asset_2024_tesla_model_s
+            attribute: property
+            name: Property
+            icon: mdi:home
+          - type: attribute
+            entity: sensor.asset_2024_tesla_model_s
+            attribute: plate
+            name: Registration
+            icon: mdi:card-account-details
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # AI ADVISOR
+  # ═══════════════════════════════════════════════════════════════════════════
+  - title: AI Advisor
+    path: ai-advisor
+    icon: mdi:robot-outline
+    cards:
+
+      - type: tile
+        entity: binary_sensor.mihomes_critical_issue
+        name: Critical Issue Status
+        icon: mdi:robot
+
+      - type: grid
+        columns: 2
+        square: false
+        cards:
+          - type: tile
+            entity: sensor.mihomes_active_alerts
+            name: Active Alerts
+            icon: mdi:bell-alert
+            color: red
+          - type: tile
+            entity: sensor.mihomes_overdue_tasks
+            name: Overdue Tasks
+            icon: mdi:clock-alert
+            color: orange
+
+      - type: entities
+        title: "🔴 Safety — Immediate Action"
+        entities:
+          - entity: sensor.issue_bh_pool_pump_noise
+            name: Pool Pump Noise — Bearing Wear Risk
+            icon: mdi:pump-off
+          - type: attribute
+            entity: sensor.issue_bh_pool_pump_noise
+            attribute: assigned
+            name: Assigned
+            icon: mdi:account
+          - type: attribute
+            entity: sensor.issue_bh_pool_pump_noise
+            attribute: severity
+            name: Severity
+            icon: mdi:alert
+          - type: divider
+          - entity: sensor.issue_ml_hot_tub_e4
+            name: Hot Tub E4 — Pressure Switch Fault
+            icon: mdi:hot-tub
+          - type: section
+            label: "Do not use until inspected. Schedule service tech today."
+
+      - type: entities
+        title: "🟠 Presence — Guest Readiness (June 1)"
+        entities:
+          - entity: sensor.task_bh_hvac_filter
+            name: HVAC Filter — OVERDUE
+            icon: mdi:air-filter
+          - type: attribute
+            entity: sensor.task_bh_hvac_filter
+            attribute: assignee
+            name: Assigned To
+            icon: mdi:account
+          - type: divider
+          - entity: sensor.task_bh_pool_chemical
+            name: Pool Chemical Balance
+            icon: mdi:pool
+          - type: attribute
+            entity: sensor.task_bh_pool_chemical
+            attribute: due
+            name: Due
+            icon: mdi:calendar
+          - type: section
+            label: "19 days to guest arrival. 5 tasks require completion."
+
+      - type: entities
+        title: "🟡 Asset Protection"
+        entities:
+          - entity: sensor.issue_ml_roof_damage
+            name: ML Roof — 8 Months Overdue
+            icon: mdi:home-roof
+          - type: section
+            label: "Schedule Summit Roofing before Jun 15. Risk increases with summer."
+          - type: divider
+          - entity: sensor.asset_pool_pump
+            name: Pool Pump — Proactive Replacement
+            icon: mdi:pump
+          - type: section
+            label: "Replace now $800–1,200 vs emergency rate $2,400 mid-summer."
+
+      - type: entities
+        title: "🔵 Compliance — Expiring Items"
+        entities:
+          - entity: sensor.task_ca_parking_permit
+            name: Parking Permit — Expires Jun 1
+            icon: mdi:parking
+          - type: attribute
+            entity: sensor.task_ca_parking_permit
+            attribute: assignee
+            name: Assigned
+            icon: mdi:account
+          - type: divider
+          - entity: sensor.task_ca_hvac_service
+            name: HVAC Service Agreement — Expires Jul 1
+            icon: mdi:air-conditioner
+          - type: attribute
+            entity: sensor.task_ca_hvac_service
+            attribute: due
+            name: Scheduled
+            icon: mdi:calendar
+
+      - type: entities
+        title: "💚 Economy — Cost Optimizations"
+        entities:
+          - type: section
+            label: "SCE Electric up 18% vs March — pool pump runtime 6h vs recommended 4h"
+          - type: section
+            label: "Adjust schedule → estimated savings $65/month"
+          - type: divider
+          - type: section
+            label: "Mountain Lodge propane: switch to Aspen Energy Direct (12% lower rate)"
+          - type: section
+            label: "Estimated annual savings: $380"
+          - type: divider
+          - entity: sensor.bh_solar_today
+            name: Solar Generation Today
+            icon: mdi:solar-panel
+          - type: section
+            label: "Solar offsetting 61% of today's energy draw"

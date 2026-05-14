@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}Predictive Maintenance — MiHomes{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Predictive Maintenance</h1>
+  <button class="btn btn-primary"
+    hx-post="/ui/maintenance/run"
+    hx-target="#run-result"
+    hx-swap="innerHTML"
+    hx-indicator="#run-spinner">
+    Run Scan &amp; Create Tasks
+  </button>
+</div>
+
+<span id="run-spinner" class="htmx-indicator" style="font-size:0.8rem;color:#6b7280;">Scanning…</span>
+<div id="run-result"></div>
+
+<!-- Risk summary -->
+<div class="stat-grid" style="margin-bottom:2rem;">
+  <div class="stat-card {% if counts.critical > 0 %}danger{% endif %}">
+    <div class="stat-num">{{ counts.critical }}</div>
+    <div class="stat-label">Critical</div>
+  </div>
+  <div class="stat-card {% if counts.high > 0 %}warn{% endif %}">
+    <div class="stat-num">{{ counts.high }}</div>
+    <div class="stat-label">High Risk</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num">{{ counts.medium }}</div>
+    <div class="stat-label">Medium Risk</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num">{{ counts.low }}</div>
+    <div class="stat-label">Low Risk</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num">{{ flags|length }}</div>
+    <div class="stat-label">Total Flagged</div>
+  </div>
+</div>
+
+{% if flags %}
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Asset</th>
+        <th>Property</th>
+        <th>Type</th>
+        <th>Risk</th>
+        <th>Action</th>
+        <th>Reason</th>
+        <th>EOL %</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for f in flags %}
+      <tr>
+        <td>
+          <div style="font-weight:600;font-size:0.875rem;">{{ f.asset.name }}</div>
+          {% if f.asset.make or f.asset.model_name %}
+          <div style="font-size:0.75rem;color:#9ca3af;">{{ f.asset.make or '' }} {{ f.asset.model_name or '' }}</div>
+          {% endif %}
+        </td>
+        <td style="font-size:0.8rem;color:#6b7280;">{{ prop_map.get(f.asset.property_id, '—') }}</td>
+        <td><span class="badge badge-draft">{{ f.asset.asset_type.value }}</span></td>
+        <td>
+          {% if f.risk_level == 'critical' %}
+            <span class="badge badge-critical">critical</span>
+          {% elif f.risk_level == 'high' %}
+            <span class="badge badge-high">high</span>
+          {% elif f.risk_level == 'medium' %}
+            <span class="badge badge-medium">medium</span>
+          {% else %}
+            <span class="badge badge-low">low</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if f.action == 'replace' %}
+            <span style="font-size:0.8rem;font-weight:600;color:#e11d48;">Replace</span>
+          {% elif f.action == 'inspect' %}
+            <span style="font-size:0.8rem;font-weight:600;color:#d97706;">Inspect</span>
+          {% elif f.action == 'service' %}
+            <span style="font-size:0.8rem;font-weight:600;color:#4f8ef7;">Service</span>
+          {% else %}
+            <span style="font-size:0.8rem;color:#6b7280;">Warranty</span>
+          {% endif %}
+        </td>
+        <td style="font-size:0.8rem;color:#374151;max-width:280px;">{{ f.reason }}</td>
+        <td>
+          {% if f.eol_pct is not none %}
+          <div style="display:flex;align-items:center;gap:0.4rem;min-width:80px;">
+            <div style="background:#f3f4f6;border-radius:3px;height:6px;flex:1;overflow:hidden;">
+              <div style="height:100%;border-radius:3px;
+                          background:{% if f.eol_pct >= 100 %}#e11d48{% elif f.eol_pct >= 80 %}#d97706{% else %}#16a34a{% endif %};
+                          width:{{ [f.eol_pct, 100]|min }}%;"></div>
+            </div>
+            <span style="font-size:0.75rem;font-weight:600;
+                         color:{% if f.eol_pct >= 100 %}#e11d48{% elif f.eol_pct >= 80 %}#d97706{% else %}#16a34a{% endif %};">
+              {{ f.eol_pct|round|int }}%
+            </span>
+          </div>
+          {% else %}
+          <span style="color:#9ca3af;">—</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty">
+  <p style="font-size:1rem;margin-bottom:0.5rem;">No maintenance flags detected.</p>
+  <p>All tracked assets are within expected service windows and lifespan thresholds.</p>
+</div>
+{% endif %}
+
+<div style="margin-top:2rem;background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:1.25rem;font-size:0.8rem;color:#6b7280;">
+  <strong style="color:#374151;">How flags are generated:</strong>
+  Assets are flagged when: end-of-life is &gt;80% elapsed, last service was &gt;1 year ago,
+  condition is marked Poor, or warranty expires within 90 days.
+  "Run Scan" creates tasks (due in 14–30 days) and alerts for all critical/high flags.
+  Runs automatically via <code>mihomes auto run-all</code>.
+</div>
+{% endblock %}

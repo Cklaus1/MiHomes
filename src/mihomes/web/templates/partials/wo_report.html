@@ -1,0 +1,22 @@
+{# Work order AI report partial — hx-target="#wo-report-{{ wo.id }}" #}
+{% if wo.ai_report %}
+<div class="bg-blue-50 rounded-xl p-4 text-sm text-gray-700 border border-blue-100 whitespace-pre-wrap leading-relaxed">{{ wo.ai_report }}</div>
+{% else %}
+<div class="text-center py-4">
+  <div class="text-gray-400 text-sm mb-3">No report generated yet.</div>
+  <button hx-post="/work-orders/{{ wo.slug }}/generate-report"
+          hx-target="#wo-report-{{ wo.id }}"
+          hx-swap="outerHTML"
+          hx-indicator="#wo-report-spinner-{{ wo.id }}"
+          class="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.347.346a7.5 7.5 0 01-1.07 1.025A3 3 0 0112 18a3 3 0 01-2.121-.879l-.346-.346z"/>
+    </svg>
+    Generate AI Report
+    <svg id="wo-report-spinner-{{ wo.id }}" class="htmx-indicator w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+    </svg>
+  </button>
+</div>
+{% endif %}

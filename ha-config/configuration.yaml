@@ -1,0 +1,645 @@
+homeassistant:
+  name: MiHomes Estate
+  unit_system: imperial
+  time_zone: America/New_York
+
+default_config:
+
+# ── Lights (toggleable per property per room) ─────────────────────────────────
+input_boolean:
+  # Beach House
+  bh_light_living_room:
+    name: "Living Room"
+    icon: mdi:ceiling-light
+  bh_light_kitchen:
+    name: "Kitchen"
+    icon: mdi:ceiling-light
+  bh_light_master_bedroom:
+    name: "Master Bedroom"
+    icon: mdi:ceiling-light
+  bh_light_guest_bedroom:
+    name: "Guest Bedroom"
+    icon: mdi:ceiling-light
+  bh_light_office:
+    name: "Office"
+    icon: mdi:desk-lamp
+  bh_light_garage:
+    name: "Garage"
+    icon: mdi:garage
+  bh_light_outdoor:
+    name: "Outdoor"
+    icon: mdi:outdoor-lamp
+  # Mountain Lodge
+  ml_light_great_room:
+    name: "Great Room"
+    icon: mdi:ceiling-light
+  ml_light_master_suite:
+    name: "Master Suite"
+    icon: mdi:ceiling-light
+  ml_light_deck:
+    name: "Deck"
+    icon: mdi:outdoor-lamp
+  ml_light_garage:
+    name: "Garage"
+    icon: mdi:garage
+  # City Apartment
+  ca_light_living_room:
+    name: "Living Room"
+    icon: mdi:ceiling-light
+  ca_light_bedroom:
+    name: "Bedroom"
+    icon: mdi:ceiling-light
+  ca_light_kitchen:
+    name: "Kitchen"
+    icon: mdi:ceiling-light
+
+# ── Thermostat setpoints ──────────────────────────────────────────────────────
+input_number:
+  bh_heat_setpoint:
+    name: "Heat Setpoint"
+    min: 60
+    max: 78
+    step: 1
+    unit_of_measurement: "°F"
+    mode: box
+    icon: mdi:thermometer-chevron-up
+  bh_cool_setpoint:
+    name: "Cool Setpoint"
+    min: 68
+    max: 85
+    step: 1
+    unit_of_measurement: "°F"
+    mode: box
+    icon: mdi:thermometer-chevron-down
+  ml_heat_setpoint:
+    name: "Heat Setpoint"
+    min: 58
+    max: 75
+    step: 1
+    unit_of_measurement: "°F"
+    mode: box
+    icon: mdi:thermometer-chevron-up
+  ca_heat_setpoint:
+    name: "Heat Setpoint"
+    min: 62
+    max: 78
+    step: 1
+    unit_of_measurement: "°F"
+    mode: box
+    icon: mdi:thermometer-chevron-up
+
+# ── HVAC mode & staff status (interactive selects) ───────────────────────────
+input_select:
+  bh_hvac_mode:
+    name: "BH HVAC Mode"
+    options: [Heat, Cool, Auto, "Off"]
+    icon: mdi:hvac
+  ml_hvac_mode:
+    name: "ML HVAC Mode"
+    options: [Heat, Cool, Auto, "Off"]
+    icon: mdi:hvac
+  ca_hvac_mode:
+    name: "CA HVAC Mode"
+    options: [Heat, Cool, Auto, "Off"]
+    icon: mdi:hvac
+
+  # Staff duty status
+  staff_maria_santos:
+    name: "Maria Santos"
+    options: ["On Duty", "Scheduled", "Off Duty", "On Leave"]
+    initial: "On Duty"
+    icon: mdi:account-circle
+  staff_james_okafor:
+    name: "James Okafor"
+    options: ["On Duty", "Scheduled", "Off Duty", "On Leave"]
+    initial: "On Duty"
+    icon: mdi:account-circle
+  staff_elena_cruz:
+    name: "Elena Cruz"
+    options: ["On Duty", "Scheduled", "Off Duty", "On Leave"]
+    initial: "On Duty"
+    icon: mdi:account-circle
+  staff_david_park:
+    name: "David Park"
+    options: ["On Duty", "Scheduled", "Off Duty", "On Leave"]
+    initial: "Scheduled"
+    icon: mdi:account-circle
+  staff_patricia_webb:
+    name: "Patricia Webb"
+    options: ["On Duty", "Scheduled", "Off Duty", "On Leave"]
+    initial: "On Duty"
+    icon: mdi:account-star
+  staff_robert_nash:
+    name: "Robert Nash"
+    options: ["On Duty", "Scheduled", "Off Duty", "On Leave"]
+    initial: "Scheduled"
+    icon: mdi:account-circle
+  staff_yuki_tanaka:
+    name: "Yuki Tanaka"
+    options: ["On Duty", "Scheduled", "Off Duty", "On Leave"]
+    initial: "Scheduled"
+    icon: mdi:account-circle
+  staff_carlos_diaz:
+    name: "Carlos Diaz"
+    options: ["On Duty", "Scheduled", "Off Duty", "On Leave"]
+    initial: "On Duty"
+    icon: mdi:account-circle
+
+  # Vendor status
+  vendor_aquapure:
+    name: "AquaPure Pools"
+    options: ["En Route", "On Site", "Completed", "Scheduled", "Inactive"]
+    initial: "En Route"
+    icon: mdi:pool
+  vendor_blueline_hvac:
+    name: "BlueLine HVAC"
+    options: ["En Route", "On Site", "Completed", "Scheduled", "Inactive"]
+    initial: "Scheduled"
+    icon: mdi:air-conditioner
+  vendor_summit_roofing:
+    name: "Summit Roofing"
+    options: ["En Route", "On Site", "Completed", "Scheduled", "Inactive"]
+    initial: "Scheduled"
+    icon: mdi:home-roof
+
+# ── All template sensors and binary sensors ───────────────────────────────────
+template:
+  - sensor:
+      # ── Environment: Beach House ───────────────────────────────────────────
+      - name: "BH Indoor Temperature"
+        state: "72"
+        unit_of_measurement: "°F"
+        device_class: temperature
+      - name: "BH Indoor Humidity"
+        state: "54"
+        unit_of_measurement: "%"
+        device_class: humidity
+      - name: "BH Outdoor Temperature"
+        state: "68"
+        unit_of_measurement: "°F"
+        device_class: temperature
+      - name: "BH Energy Today"
+        state: "14.2"
+        unit_of_measurement: "kWh"
+        device_class: energy
+        icon: mdi:lightning-bolt
+      - name: "BH Solar Today"
+        state: "8.7"
+        unit_of_measurement: "kWh"
+        device_class: energy
+        icon: mdi:solar-panel
+      - name: "BH Water Usage Today"
+        state: "48"
+        unit_of_measurement: "gal"
+        icon: mdi:water
+
+      # ── Environment: Mountain Lodge ────────────────────────────────────────
+      - name: "ML Indoor Temperature"
+        state: "64"
+        unit_of_measurement: "°F"
+        device_class: temperature
+      - name: "ML Indoor Humidity"
+        state: "38"
+        unit_of_measurement: "%"
+        device_class: humidity
+      - name: "ML Outdoor Temperature"
+        state: "41"
+        unit_of_measurement: "°F"
+        device_class: temperature
+
+      # ── Environment: City Apartment ────────────────────────────────────────
+      - name: "CA Indoor Temperature"
+        state: "70"
+        unit_of_measurement: "°F"
+        device_class: temperature
+      - name: "CA Indoor Humidity"
+        state: "49"
+        unit_of_measurement: "%"
+        device_class: humidity
+
+      # ── Estate health scores ───────────────────────────────────────────────
+      - name: "Beach House Health Score"
+        state: "84"
+        unit_of_measurement: "%"
+        icon: mdi:home-heart
+      - name: "Mountain Lodge Health Score"
+        state: "71"
+        unit_of_measurement: "%"
+        icon: mdi:home-heart
+      - name: "City Apartment Health Score"
+        state: "93"
+        unit_of_measurement: "%"
+        icon: mdi:home-heart
+
+      # ── Issue & task counts ────────────────────────────────────────────────
+      - name: "Beach House Open Issues"
+        state: "3"
+        icon: mdi:alert-circle-outline
+      - name: "Mountain Lodge Open Issues"
+        state: "5"
+        icon: mdi:alert-circle-outline
+      - name: "City Apartment Open Issues"
+        state: "1"
+        icon: mdi:alert-circle-outline
+      - name: "Beach House Open Tasks"
+        state: "7"
+        icon: mdi:checkbox-marked-circle-outline
+      - name: "Mountain Lodge Open Tasks"
+        state: "12"
+        icon: mdi:checkbox-marked-circle-outline
+      - name: "City Apartment Open Tasks"
+        state: "4"
+        icon: mdi:checkbox-marked-circle-outline
+      - name: "MiHomes Active Alerts"
+        state: "2"
+        icon: mdi:bell-alert
+      - name: "MiHomes Overdue Tasks"
+        state: "3"
+        icon: mdi:clock-alert-outline
+
+      # ── Staff & vendor counts ──────────────────────────────────────────────
+      - name: "Active Staff Count"
+        state: "8"
+        icon: mdi:account-group
+      - name: "Vendors On Site Today"
+        state: "2"
+        icon: mdi:truck
+
+      # ── Budget ────────────────────────────────────────────────────────────
+      - name: "Monthly Budget Remaining"
+        state: "12400"
+        unit_of_measurement: "$"
+        icon: mdi:cash
+      - name: "YTD Expenses"
+        state: "84200"
+        unit_of_measurement: "$"
+        icon: mdi:chart-line
+      - name: "BH May Budget"
+        state: "18000"
+        unit_of_measurement: "$"
+        icon: mdi:home
+      - name: "BH May Spent"
+        state: "11200"
+        unit_of_measurement: "$"
+        icon: mdi:cash-minus
+      - name: "ML May Budget"
+        state: "8000"
+        unit_of_measurement: "$"
+        icon: mdi:pine-tree
+      - name: "ML May Spent"
+        state: "4600"
+        unit_of_measurement: "$"
+        icon: mdi:cash-minus
+      - name: "CA May Budget"
+        state: "4000"
+        unit_of_measurement: "$"
+        icon: mdi:city-variant
+      - name: "CA May Spent"
+        state: "1800"
+        unit_of_measurement: "$"
+        icon: mdi:cash-minus
+
+      # ── Recent transactions ────────────────────────────────────────────────
+      - name: "Txn 1 AquaPure"
+        state: "-$320"
+        icon: mdi:pool
+        attributes:
+          property: "Beach House"
+          category: "Pool Service"
+          date: "May 11"
+          vendor: "AquaPure Pools"
+      - name: "Txn 2 Summit Roofing"
+        state: "-$850"
+        icon: mdi:home-roof
+        attributes:
+          property: "Mountain Lodge"
+          category: "Repair"
+          date: "May 10"
+          vendor: "Summit Roofing"
+      - name: "Txn 3 Maria Santos"
+        state: "-$640"
+        icon: mdi:account
+        attributes:
+          property: "Beach House"
+          category: "Staff — Weekly"
+          date: "May 9"
+          vendor: "Maria Santos"
+      - name: "Txn 4 ConEd"
+        state: "-$218"
+        icon: mdi:lightning-bolt
+        attributes:
+          property: "City Apartment"
+          category: "Utilities"
+          date: "May 8"
+          vendor: "ConEd"
+      - name: "Txn 5 SCE"
+        state: "-$410"
+        icon: mdi:lightning-bolt
+        attributes:
+          property: "Beach House"
+          category: "Utilities"
+          date: "May 7"
+          vendor: "SCE"
+
+      # ── Open tasks with assignee ───────────────────────────────────────────
+      - name: "Task BH HVAC Filter"
+        state: "Overdue"
+        icon: mdi:air-filter
+        attributes:
+          property: "Beach House"
+          assignee: "BlueLine HVAC"
+          due: "May 5"
+          priority: "High"
+      - name: "Task BH Pool Chemical"
+        state: "In Progress"
+        icon: mdi:pool
+        attributes:
+          property: "Beach House"
+          assignee: "AquaPure Pools"
+          due: "May 14"
+          priority: "High"
+      - name: "Task BH Pool Pump Repair"
+        state: "Open"
+        icon: mdi:pump
+        attributes:
+          property: "Beach House"
+          assignee: "AquaPure Pools"
+          due: "May 15"
+          priority: "High"
+      - name: "Task BH Generator Test"
+        state: "Open"
+        icon: mdi:generator-portable
+        attributes:
+          property: "Beach House"
+          assignee: "Carlos Diaz"
+          due: "May 20"
+          priority: "Medium"
+      - name: "Task BH Camera Firmware"
+        state: "Open"
+        icon: mdi:cctv
+        attributes:
+          property: "Beach House"
+          assignee: "Robert Nash"
+          due: "May 22"
+          priority: "Low"
+      - name: "Task ML Roof Inspection"
+        state: "Scheduled"
+        icon: mdi:home-roof
+        attributes:
+          property: "Mountain Lodge"
+          assignee: "Summit Roofing"
+          due: "May 14"
+          priority: "High"
+      - name: "Task ML Hot Tub Service"
+        state: "Open"
+        icon: mdi:hot-tub
+        attributes:
+          property: "Mountain Lodge"
+          assignee: "Unassigned"
+          due: "May 13"
+          priority: "High"
+      - name: "Task ML Chimney Sweep"
+        state: "Open"
+        icon: mdi:fireplace
+        attributes:
+          property: "Mountain Lodge"
+          assignee: "James Okafor"
+          due: "May 30"
+          priority: "Medium"
+      - name: "Task CA HVAC Service"
+        state: "Scheduled"
+        icon: mdi:air-conditioner
+        attributes:
+          property: "City Apartment"
+          assignee: "BlueLine HVAC"
+          due: "Jun 3"
+          priority: "Medium"
+      - name: "Task CA Parking Permit"
+        state: "Open"
+        icon: mdi:parking
+        attributes:
+          property: "City Apartment"
+          assignee: "Patricia Webb"
+          due: "Jun 1"
+          priority: "Medium"
+
+      # ── Open issues ────────────────────────────────────────────────────────
+      - name: "Issue BH Pool Pump Noise"
+        state: "Open"
+        icon: mdi:pump-off
+        attributes:
+          property: "Beach House"
+          severity: "High"
+          reported: "May 10"
+          assigned: "AquaPure Pools"
+      - name: "Issue BH Faucet Dripping"
+        state: "Open"
+        icon: mdi:water-off
+        attributes:
+          property: "Beach House"
+          severity: "Medium"
+          reported: "May 8"
+          assigned: "Carlos Diaz"
+      - name: "Issue BH Paint Peeling"
+        state: "Open"
+        icon: mdi:brush-off
+        attributes:
+          property: "Beach House"
+          severity: "Low"
+          reported: "May 1"
+          assigned: "Unassigned"
+      - name: "Issue ML Roof Damage"
+        state: "Open"
+        icon: mdi:home-roof
+        attributes:
+          property: "Mountain Lodge"
+          severity: "High"
+          reported: "May 9"
+          assigned: "Summit Roofing"
+      - name: "Issue ML Hot Tub E4"
+        state: "Open"
+        icon: mdi:hot-tub
+        attributes:
+          property: "Mountain Lodge"
+          severity: "High"
+          reported: "May 11"
+          assigned: "Unassigned"
+      - name: "Issue ML Water Heater"
+        state: "Monitoring"
+        icon: mdi:water-boiler-alert
+        attributes:
+          property: "Mountain Lodge"
+          severity: "Medium"
+          reported: "May 7"
+          assigned: "James Okafor"
+      - name: "Issue CA Hallway Leak"
+        state: "Monitoring"
+        icon: mdi:water-alert
+        attributes:
+          property: "City Apartment"
+          severity: "Low"
+          reported: "May 11"
+          assigned: "Building Mgmt"
+
+      # ── Inventory ─────────────────────────────────────────────────────────
+      - name: "Asset Steinway Piano"
+        state: "$42,000"
+        icon: mdi:piano
+        attributes:
+          property: "Beach House"
+          location: "Living Room"
+          status: "Verified"
+          last_verified: "Apr 2026"
+      - name: "Asset Coastal Painting"
+        state: "$18,500"
+        icon: mdi:image-frame
+        attributes:
+          property: "Beach House"
+          location: "Great Room"
+          status: "Needs Appraisal"
+          last_verified: "Jan 2026"
+      - name: "Asset Rolex Submariner"
+        state: "$14,200"
+        icon: mdi:watch
+        attributes:
+          property: "City Apartment"
+          location: "Master Suite Safe"
+          status: "Verified"
+          last_verified: "Apr 2026"
+      - name: "Asset Wolf BBQ"
+        state: "$6,800"
+        icon: mdi:grill
+        attributes:
+          property: "Beach House"
+          location: "Back Patio"
+          status: "Verified"
+          last_verified: "Mar 2026"
+      - name: "Asset Kayak Set"
+        state: "$4,500"
+        icon: mdi:kayaking
+        attributes:
+          property: "Beach House"
+          location: "Garage"
+          status: "Verified"
+          last_verified: "Mar 2026"
+      - name: "Asset HVAC System"
+        state: "7 yrs remaining"
+        icon: mdi:air-conditioner
+        attributes:
+          property: "Beach House"
+          installed: "2019"
+          next_service: "Jun 2026"
+          status: "Good"
+      - name: "Asset Pool Pump"
+        state: "Needs Repair"
+        icon: mdi:pump
+        attributes:
+          property: "Beach House"
+          installed: "2021"
+          next_service: "Immediate"
+          status: "Degraded"
+      - name: "Asset 2023 Escalade"
+        state: "In Garage"
+        icon: mdi:car-suv
+        attributes:
+          property: "Beach House"
+          plate: "CA — Dec 2026"
+          insurer: "Chubb"
+          status: "Current"
+      - name: "Asset 2022 Defender"
+        state: "In Garage"
+        icon: mdi:car-4wd
+        attributes:
+          property: "Mountain Lodge"
+          plate: "CO — Mar 2027"
+          insurer: "Chubb"
+          status: "Current"
+      - name: "Asset 2024 Tesla Model S"
+        state: "Building Garage"
+        icon: mdi:car-electric
+        attributes:
+          property: "City Apartment"
+          plate: "NY — Aug 2026"
+          insurer: "Chubb"
+          status: "Current"
+
+  - binary_sensor:
+      # ── Beach House security ───────────────────────────────────────────────
+      - name: "BH Front Door"
+        state: "off"
+        device_class: door
+      - name: "BH Back Door"
+        state: "off"
+        device_class: door
+      - name: "BH Garage Door"
+        state: "off"
+        device_class: garage_door
+      - name: "BH Master Bedroom Window"
+        state: "off"
+        device_class: window
+      - name: "BH Living Room Window"
+        state: "off"
+        device_class: window
+      - name: "BH Basement Window"
+        state: "off"
+        device_class: window
+      - name: "BH Living Room Motion"
+        state: "off"
+        device_class: motion
+      - name: "BH Garage Motion"
+        state: "off"
+        device_class: motion
+      - name: "BH Smoke Detector"
+        state: "off"
+        device_class: smoke
+      - name: "BH CO Detector"
+        state: "off"
+        device_class: carbon_monoxide
+      # ── Mountain Lodge security ────────────────────────────────────────────
+      - name: "ML Front Door"
+        state: "off"
+        device_class: door
+      - name: "ML Garage Door"
+        state: "off"
+        device_class: garage_door
+      - name: "ML Motion Sensor"
+        state: "off"
+        device_class: motion
+      - name: "ML Smoke Detector"
+        state: "off"
+        device_class: smoke
+      # ── City Apartment security ────────────────────────────────────────────
+      - name: "CA Front Door"
+        state: "off"
+        device_class: door
+      - name: "CA Motion Sensor"
+        state: "off"
+        device_class: motion
+      - name: "CA Smoke Detector"
+        state: "off"
+        device_class: smoke
+      # ── Estate status ──────────────────────────────────────────────────────
+      - name: "Beach House Has Issues"
+        state: "on"
+        device_class: problem
+      - name: "Mountain Lodge Has Issues"
+        state: "on"
+        device_class: problem
+      - name: "City Apartment Has Issues"
+        state: "off"
+        device_class: problem
+      - name: "MiHomes Critical Issue"
+        state: "off"
+        device_class: problem
+
+# ── Lovelace: new format (fixes deprecation, removes duplicate Overview) ───────
+lovelace:
+  resource_mode: yaml
+  dashboards:
+    lovelace:
+      mode: yaml
+      filename: ui-lovelace.yaml
+      title: MiHomes
+      icon: mdi:home-city
+      show_in_sidebar: true
+      require_admin: false

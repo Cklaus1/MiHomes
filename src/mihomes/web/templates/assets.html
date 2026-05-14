@@ -1,0 +1,311 @@
+{% extends "base.html" %}
+{% block title %}Assets & Inventory — MiHomes{% endblock %}
+{% block heading %}Assets & Inventory{% endblock %}
+{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ assets|length }} asset{{ 's' if assets|length != 1 else '' }} tracked</p>{% endblock %}
+
+{% block actions %}
+<button onclick="document.getElementById('add-asset-modal').classList.remove('hidden')"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
+  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+  Add Asset
+</button>
+{% endblock %}
+
+{% block content %}
+{% set condition_colors = {'excellent':'bg-emerald-100 text-emerald-700','good':'bg-blue-100 text-blue-700','fair':'bg-amber-100 text-amber-700','poor':'bg-red-100 text-red-700'} %}
+{% set type_icons = {'appliance':'🔌','vehicle':'🚗','valuable':'💎','consumable':'📦','equipment':'🔧'} %}
+
+{% if all_assets %}
+<div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
+  {% for type_val, label in [('appliance','Appliances'),('vehicle','Vehicles'),('valuable','Valuables'),('equipment','Equipment'),('consumable','Consumables')] %}
+  {% set count = all_assets | selectattr('asset_type', 'equalto', type_val) | list | length %}
+  <a href="{% if filter_type == type_val %}/assets{% else %}/assets?asset_type={{ type_val }}{% endif %}"
+     class="block rounded-xl border px-4 py-3 text-center transition-all hover:shadow-sm
+            {% if filter_type == type_val %}bg-brand-50 border-brand-400{% else %}bg-white border-gray-200 hover:border-brand-300{% endif %}">
+    <div class="text-xl">{{ type_icons.get(type_val,'📦') }}</div>
+    <div class="text-lg font-bold {% if filter_type == type_val %}text-brand-700{% else %}text-gray-900{% endif %} mt-0.5">{{ count }}</div>
+    <div class="text-xs {% if filter_type == type_val %}text-brand-600{% else %}text-gray-500{% endif %}">{{ label }}</div>
+  </a>
+  {% endfor %}
+</div>
+
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="border-b border-gray-100 bg-gray-50">
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Asset</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Type</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Property</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Make / Model</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Purchase</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Warranty</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Condition</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-50">
+      {% for asset in assets %}
+      <tr class="hover:bg-gray-50 cursor-pointer transition-colors" onclick="openModal('asset-modal-{{ asset.id }}')">
+        <td class="px-4 py-3"><div class="font-medium text-gray-900">{{ asset.name }}</div>{% if asset.serial_number %}<div class="text-xs text-gray-400 font-mono">S/N: {{ asset.serial_number }}</div>{% endif %}</td>
+        <td class="px-4 py-3"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-600 font-medium capitalize">{{ type_icons.get(asset.asset_type.value,'📦') }} {{ asset.asset_type.value }}</span></td>
+        <td class="px-4 py-3 text-gray-600">{{ asset.property.name if asset.property else '—' }}</td>
+        <td class="px-4 py-3 text-gray-600 hidden md:table-cell">{% if asset.make or asset.model_name %}{{ asset.make or '' }}{% if asset.make and asset.model_name %} {% endif %}{{ asset.model_name or '' }}{% else %}—{% endif %}</td>
+        <td class="px-4 py-3 text-gray-600 hidden lg:table-cell">{% if asset.purchase_date %}<div>{{ asset.purchase_date.strftime('%b %Y') }}</div>{% if asset.purchase_price %}<div class="text-xs text-gray-400">${{ '{:,.0f}'.format(asset.purchase_price) }}</div>{% endif %}{% else %}—{% endif %}</td>
+        <td class="px-4 py-3 hidden lg:table-cell">{% if asset.warranty_expires %}<span class="text-xs {% if asset.warranty_expires.year < 2027 %}text-red-600 font-medium{% else %}text-gray-500{% endif %}">{{ asset.warranty_expires.strftime('%b %d, %Y') }}</span>{% else %}<span class="text-gray-400 text-xs">—</span>{% endif %}</td>
+        <td class="px-4 py-3"><span class="px-2 py-0.5 rounded-full text-xs font-medium capitalize {{ condition_colors.get(asset.condition.value,'bg-gray-100 text-gray-600') }}">{{ asset.condition.value }}</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center">
+  <div class="text-3xl mb-2">🔧</div>
+  <div class="text-gray-500 font-medium">No assets tracked yet</div>
+  <button onclick="document.getElementById('add-asset-modal').classList.remove('hidden')" class="mt-3 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Add First Asset</button>
+</div>
+{% endif %}
+
+<!-- Add Asset modal -->
+<div id="add-asset-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onclick="if(event.target===this)this.classList.add('hidden')">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="text-lg font-semibold text-gray-900">New Asset</h2>
+      <button onclick="document.getElementById('add-asset-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+    </div>
+    <form hx-post="/assets/" hx-target="body" hx-swap="innerHTML" class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Name <span class="text-red-500">*</span></label>
+        <input type="text" name="name" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Type <span class="text-red-500">*</span></label>
+          <select name="asset_type" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+            {% for t in asset_types %}<option value="{{ t }}">{{ t | capitalize }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Condition</label>
+          <select name="condition" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+            {% for c in conditions %}<option value="{{ c }}" {% if c == 'good' %}selected{% endif %}>{{ c | capitalize }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Property <span class="text-red-500">*</span></label>
+        <select name="property_slug" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          <option value="">Select property…</option>
+          {% for p in properties %}<option value="{{ p.slug }}">{{ p.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Make</label>
+          <input type="text" name="make" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Model</label>
+          <input type="text" name="model_name" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Purchase Price ($)</label>
+        <input type="number" name="purchase_price" min="0" step="0.01" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+        <textarea name="notes" rows="2" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"></textarea>
+      </div>
+      <div class="flex gap-3 pt-1">
+        <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Add Asset</button>
+        <button type="button" onclick="document.getElementById('add-asset-modal').classList.add('hidden')" class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-50">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Detail modals -->
+{% for asset in assets %}
+{% set a_notes = notes_map.get(asset.id, []) %}
+<div id="asset-modal-{{ asset.id }}" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onclick="if(event.target===this)closeModal('asset-modal-{{ asset.id }}')">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] flex flex-col" onclick="event.stopPropagation()">
+
+    <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
+      <div>
+        <h2 class="text-lg font-bold text-gray-900">{{ asset.name }}</h2>
+        <p class="text-xs text-gray-500 mt-0.5 capitalize">{{ asset.asset_type.value }} · {{ asset.property.name if asset.property else '' }}</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="px-2.5 py-1 rounded-full text-xs font-medium capitalize {{ condition_colors.get(asset.condition.value,'bg-gray-100 text-gray-600') }}">{{ asset.condition.value }}</span>
+        <button hx-post="/assets/{{ asset.slug }}/delete" hx-target="body" hx-swap="innerHTML" hx-confirm="Delete this asset?" class="text-gray-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
+        <button onclick="closeModal('asset-modal-{{ asset.id }}')" class="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+      </div>
+    </div>
+
+    <div class="flex border-b border-gray-200 px-6 flex-shrink-0">
+      {% for tid, tlabel in [('details','Details'),('notes','Notes')] %}
+      <button onclick="switchTab('asset','{{ asset.id }}','{{ tid }}')" id="asset-tab-{{ asset.id }}-{{ tid }}"
+              class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if tid=='details' %}border-brand-500 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
+        {{ tlabel }}{% if tid=='notes' and a_notes %} ({{ a_notes|length }}){% endif %}
+      </button>
+      {% endfor %}
+    </div>
+
+    <div class="flex-1 overflow-y-auto">
+
+      <!-- Details tab -->
+      <div id="asset-panel-{{ asset.id }}-details" class="px-6 py-5">
+
+        <!-- View div -->
+        <div id="asset-view-{{ asset.id }}">
+          <!-- Read-only metadata grid -->
+          <div class="grid grid-cols-2 gap-3 mb-3">
+            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Make</div><div class="font-medium text-sm text-gray-800">{{ asset.make or '—' }}</div></div>
+            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Model</div><div class="font-medium text-sm text-gray-800">{{ asset.model_name or '—' }}</div></div>
+            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Purchase Date</div><div class="font-medium text-sm text-gray-800">{{ asset.purchase_date.strftime('%b %d, %Y') if asset.purchase_date else '—' }}</div></div>
+            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Purchase Price</div><div class="font-medium text-sm text-gray-800">{{ '$' + '{:,.2f}'.format(asset.purchase_price) if asset.purchase_price else '—' }}</div></div>
+            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Warranty Expires</div><div class="font-medium text-sm {{ 'text-red-600' if asset.warranty_expires and asset.warranty_expires.year < 2027 else 'text-gray-800' if asset.warranty_expires else 'text-gray-400' }}">{{ asset.warranty_expires.strftime('%b %d, %Y') if asset.warranty_expires else '—' }}</div></div>
+            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Last Serviced</div><div class="font-medium text-sm text-gray-800">{{ asset.last_serviced.strftime('%b %d, %Y') if asset.last_serviced else '—' }}</div></div>
+            {% if asset.serial_number %}<div class="bg-gray-50 rounded-xl p-3 col-span-2"><div class="text-xs text-gray-400 mb-0.5">Serial Number</div><div class="font-mono text-sm text-gray-700">{{ asset.serial_number }}</div></div>{% endif %}
+            {% if asset.expected_lifespan_years %}<div class="bg-blue-50 rounded-xl p-3 border border-blue-100"><div class="text-xs text-gray-500 mb-0.5">Expected Lifespan</div><div class="font-medium text-sm text-gray-800">{{ asset.expected_lifespan_years|int }} years</div></div>{% endif %}
+            {% if asset.replacement_cost_estimate %}<div class="bg-blue-50 rounded-xl p-3 border border-blue-100"><div class="text-xs text-gray-500 mb-0.5">Replacement Est.</div><div class="font-medium text-sm text-gray-800">${{ '{:,.0f}'.format(asset.replacement_cost_estimate) }}</div></div>{% endif %}
+          </div>
+          <div class="mb-3">
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Notes</div>
+            <div class="text-sm text-gray-700">{{ asset.notes or '—' }}</div>
+          </div>
+          <div class="flex justify-end mt-4 pt-4 border-t border-gray-100">
+            <button type="button" onclick="enterEdit('asset','{{ asset.id }}')"
+                    class="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+              Edit
+            </button>
+          </div>
+        </div>
+
+        <!-- Edit div -->
+        <div id="asset-edit-{{ asset.id }}" class="hidden">
+          <form hx-post="/assets/{{ asset.slug }}/edit" hx-target="body" hx-swap="innerHTML">
+            <div class="mb-4">
+              <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Name</div>
+              <input type="text" name="name" value="{{ asset.name }}" required
+                     class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+            </div>
+            <div class="grid grid-cols-2 gap-3 mb-3">
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Make</div>
+                <input type="text" name="make" value="{{ asset.make or '' }}"
+                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Model</div>
+                <input type="text" name="model_name" value="{{ asset.model_name or '' }}"
+                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Condition</div>
+                <select name="condition" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                  {% for c in conditions %}<option value="{{ c }}" {% if asset.condition.value == c %}selected{% endif %}>{{ c | capitalize }}</option>{% endfor %}
+                </select>
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Serial Number</div>
+                <input type="text" name="serial_number" value="{{ asset.serial_number or '' }}"
+                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Purchase Date</div>
+                <input type="date" name="purchase_date"
+                       value="{{ asset.purchase_date.isoformat() if asset.purchase_date else '' }}"
+                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Purchase Price ($)</div>
+                <input type="number" name="purchase_price" step="0.01" min="0"
+                       value="{{ asset.purchase_price or '' }}"
+                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Warranty Expires</div>
+                <input type="date" name="warranty_expires"
+                       value="{{ asset.warranty_expires.isoformat() if asset.warranty_expires else '' }}"
+                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Last Serviced</div>
+                <input type="date" name="last_serviced"
+                       value="{{ asset.last_serviced.isoformat() if asset.last_serviced else '' }}"
+                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Expected Lifespan (years)</div>
+                <input type="number" name="expected_lifespan_years" step="1" min="0"
+                       value="{{ asset.expected_lifespan_years|int if asset.expected_lifespan_years else '' }}"
+                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Replacement Est. ($)</div>
+                <input type="number" name="replacement_cost_estimate" step="1" min="0"
+                       value="{{ asset.replacement_cost_estimate|int if asset.replacement_cost_estimate else '' }}"
+                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+            </div>
+            <div>
+              <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Notes</div>
+              <textarea name="notes" data-autoresize
+                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
+                        placeholder="No notes yet…">{{ asset.notes or '' }}</textarea>
+            </div>
+            <div class="flex justify-end gap-2 mt-4 pt-4 border-t border-gray-100">
+              <button type="button" onclick="exitEdit('asset','{{ asset.id }}')"
+                      class="px-4 py-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors">Cancel</button>
+              <button type="submit"
+                      class="px-4 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors">Save</button>
+            </div>
+          </form>
+        </div>
+
+      </div>
+
+      <!-- Notes tab -->
+      <div id="asset-panel-{{ asset.id }}-notes" class="px-6 py-5 hidden">
+        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Notes & Comments</div>
+        <div data-notes-container>
+          {% with notes=a_notes, post_url="/assets/"+asset.slug+"/notes", delete_url_prefix="/assets/"+asset.slug+"/notes" %}{% include "partials/notes_section.html" %}{% endwith %}
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endfor %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
+function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+function switchTab(prefix, entityId, tab) {
+  ['details','notes','documents','report'].forEach(t => {
+    document.getElementById(prefix+'-panel-'+entityId+'-'+t)?.classList.add('hidden');
+    const btn = document.getElementById(prefix+'-tab-'+entityId+'-'+t);
+    if (btn) { btn.classList.remove('border-brand-500','text-brand-600'); btn.classList.add('border-transparent','text-gray-500'); }
+  });
+  document.getElementById(prefix+'-panel-'+entityId+'-'+tab)?.classList.remove('hidden');
+  const active = document.getElementById(prefix+'-tab-'+entityId+'-'+tab);
+  if (active) { active.classList.add('border-brand-500','text-brand-600'); active.classList.remove('border-transparent','text-gray-500'); }
+}
+function autoResize(el){el.style.height='auto';el.style.height=el.scrollHeight+'px';}
+function enterEdit(prefix, id) {
+  document.getElementById(prefix+'-view-'+id).classList.add('hidden');
+  const editEl = document.getElementById(prefix+'-edit-'+id);
+  editEl.classList.remove('hidden');
+  editEl.querySelectorAll('textarea[data-autoresize]').forEach(ta => autoResize(ta));
+}
+function exitEdit(prefix, id) {
+  document.getElementById(prefix+'-edit-'+id).classList.add('hidden');
+  document.getElementById(prefix+'-view-'+id).classList.remove('hidden');
+}
+document.addEventListener('DOMContentLoaded',()=>document.querySelectorAll('textarea[data-autoresize]').forEach(t=>t.addEventListener('input',()=>autoResize(t))));
+</script>
+{% endblock %}

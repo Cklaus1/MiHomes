@@ -1,0 +1,42 @@
+name: "MiHomes Estate Manager"
+description: "AI-first multi-home estate management — tasks, issues, vendors, budgets, and AI advisory"
+version: "1.0.0"
+slug: "mihomes"
+url: "https://github.com/your-org/mihomes-os"
+
+arch:
+  - aarch64
+  - amd64
+  - armhf
+  - armv7
+
+# Persistent data in /data (survives add-on restarts/updates)
+map:
+  - data:rw
+
+# MiHomes web UI exposed via HA Ingress — no separate port needed
+ingress: true
+ingress_port: 8080
+ingress_path: /
+panel_icon: "mdi:home-city"
+panel_title: "MiHomes"
+
+# Give us access to HA's REST + WebSocket API with the injected supervisor token
+# This eliminates all manual token configuration
+homeassistant_api: true
+
+# User-configurable options
+options:
+  log_level: "info"
+  run_ha_bridge: true
+  run_automation: true
+  automation_interval_minutes: 60
+
+schema:
+  log_level: "list(debug|info|warning|error)"
+  run_ha_bridge: bool
+  run_automation: bool
+  automation_interval_minutes: int(5,1440)
+
+# Init system (s6-overlay on HA base images)
+init: false

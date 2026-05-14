@@ -1,0 +1,153 @@
+title: Estate Manager
+views:
+
+  # ── Overview ──────────────────────────────────────────────────────────────
+  - title: Overview
+    path: overview
+    icon: mdi:home-city
+    cards:
+
+      - type: markdown
+        content: >
+          ## MiHomes Estate Intelligence
+
+          AI-first estate management — property health, staff, vendors, tasks, and issues.
+          Data synced from MiHomes API every 5 minutes.
+
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: binary_sensor.mihomes_critical_issue
+            state: "on"
+        card:
+          type: markdown
+          content: >
+            ## ⚠️ Critical Issue Active
+
+            One or more properties have a **critical severity** issue requiring
+            immediate attention. Review the Issues tab.
+
+      - type: markdown
+        content: "### Portfolio Health"
+
+      - type: horizontal-stack
+        cards:
+          - type: gauge
+            entity: sensor.beach_house_health_score
+            name: Beach House
+            min: 0
+            max: 100
+            needle: true
+            severity:
+              green: 75
+              yellow: 50
+              red: 0
+          - type: gauge
+            entity: sensor.mountain_lodge_health_score
+            name: Mountain Lodge
+            min: 0
+            max: 100
+            needle: true
+            severity:
+              green: 75
+              yellow: 50
+              red: 0
+          - type: gauge
+            entity: sensor.city_apartment_health_score
+            name: City Apartment
+            min: 0
+            max: 100
+            needle: true
+            severity:
+              green: 75
+              yellow: 50
+              red: 0
+
+      - type: markdown
+        content: "### Global Alerts"
+
+      - type: horizontal-stack
+        cards:
+          - type: entity
+            entity: sensor.mihomes_active_alerts
+            name: Active Alerts
+            icon: mdi:bell-alert
+          - type: entity
+            entity: sensor.mihomes_overdue_tasks
+            name: Overdue Tasks
+            icon: mdi:clock-alert-outline
+
+      - type: markdown
+        content: "### Issues by Property"
+
+      - type: horizontal-stack
+        cards:
+          - type: entity
+            entity: sensor.beach_house_open_issues
+            name: Beach House
+            icon: mdi:alert-circle-outline
+          - type: entity
+            entity: sensor.mountain_lodge_open_issues
+            name: Mountain Lodge
+            icon: mdi:alert-circle-outline
+          - type: entity
+            entity: sensor.city_apartment_open_issues
+            name: City Apartment
+            icon: mdi:alert-circle-outline
+
+      - type: markdown
+        content: "### Open Tasks by Property"
+
+      - type: horizontal-stack
+        cards:
+          - type: entity
+            entity: sensor.beach_house_open_tasks
+            name: Beach House
+            icon: mdi:checkbox-marked-circle-outline
+          - type: entity
+            entity: sensor.mountain_lodge_open_tasks
+            name: Mountain Lodge
+            icon: mdi:checkbox-marked-circle-outline
+          - type: entity
+            entity: sensor.city_apartment_open_tasks
+            name: City Apartment
+            icon: mdi:checkbox-marked-circle-outline
+
+      - type: markdown
+        content: "### Alert Status"
+
+      - type: glance
+        entities:
+          - entity: binary_sensor.beach_house_has_issues
+            name: Beach House
+          - entity: binary_sensor.mountain_lodge_has_issues
+            name: Mountain Lodge
+          - entity: binary_sensor.city_apartment_has_issues
+            name: City Apartment
+          - entity: binary_sensor.mihomes_critical_issue
+            name: Critical Issue
+
+  # ── Tasks ─────────────────────────────────────────────────────────────────
+  - title: Tasks
+    path: tasks
+    icon: mdi:checkbox-marked-circle-outline
+    cards:
+      - type: markdown
+        content: >
+          ### Property Task Lists
+
+          Tasks created or completed here sync back to MiHomes in real time.
+          The MiHomes AI prioritizes using the SPACE framework:
+          Safety → Presence → Asset Protection → Compliance → Economy.
+
+      - type: todo-list
+        entity: todo.beach_house_tasks
+        title: Beach House
+
+      - type: todo-list
+        entity: todo.mountain_lodge_tasks
+        title: Mountain Lodge
+
+      - type: todo-list
+        entity: todo.city_apartment_tasks
+        title: City Apartment

@@ -16,7 +16,16 @@ from mihomes.web.deps import get_db, templates
 router = APIRouter()
 
 
-def _ctx(db: Session, property_id=None, status=None, overdue=False, due_week=False) -> dict:
+def _ctx(
+    db: Session,
+    property_id=None,
+    status=None,
+    overdue=False,
+    due_week=False,
+    assignee_id=None,
+    sort: str | None = None,
+    recurrence: str | None = None,
+) -> dict:
     if overdue:
         tasks = task_svc.get_overdue_tasks(db)
     elif due_week:
@@ -26,7 +35,21 @@ def _ctx(db: Session, property_id=None, status=None, overdue=False, due_week=Fal
             db,
             property_id_or_slug=str(property_id) if property_id else None,
             status=TaskStatus(status) if status else None,
+            assignee_id_or_slug=str(assignee_id) if assignee_id else None,
         )
+
+    # Recurrence filter
+    if recurrence == "recurring":
+        tasks = [t for t in tasks if t.schedule and t.schedule.frequency.value != "once"]
+    elif recurrence == "once":
+        tasks = [t for t in tasks if not t.schedule or t.schedule.frequency.value == "once"]
+
+    # Sort order
+    if sort == "oldest":
+        tasks = sorted(tasks, key=lambda t: t.created_at or t.id)
+    else:
+        tasks = sorted(tasks, key=lambda t: t.created_at or t.id, reverse=True)
+
     all_overdue = task_svc.get_overdue_tasks(db)
     overdue_ids = {t.id for t in all_overdue}
     return {
@@ -42,6 +65,9 @@ def _ctx(db: Session, property_id=None, status=None, overdue=False, due_week=Fal
         "filter_status": status,
         "filter_overdue": overdue,
         "filter_due_week": due_week,
+        "filter_assignee": assignee_id,
+        "filter_sort": sort or "newest",
+        "filter_recurrence": recurrence or "",
     }
 
 
@@ -52,9 +78,15 @@ def list_tasks(
     status: str | None = None,
     overdue: bool = False,
     due_week: bool = False,
+    assignee_id: int | None = None,
+    sort: str | None = None,
+    recurrence: str | None = None,
     db: Session = Depends(get_db),
 ):
-    return templates.TemplateResponse(request, "tasks.html", _ctx(db, property_id, status, overdue, due_week))
+    return templates.TemplateResponse(
+        request, "tasks.html",
+        _ctx(db, property_id, status, overdue, due_week, assignee_id, sort, recurrence),
+    )
 
 
 @router.post("/", response_class=HTMLResponse)

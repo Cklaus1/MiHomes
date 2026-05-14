@@ -23,23 +23,39 @@
 {% endif %}
 
 <!-- Filters -->
-<div class="flex flex-wrap gap-3 mb-5">
-  <form class="flex gap-2" hx-get="/tasks" hx-target="body" hx-swap="innerHTML" hx-push-url="true">
-    <select name="property_id" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
-      <option value="">All properties</option>
-      {% for p in properties %}
-      <option value="{{ p.id }}" {% if filter_property == p.id %}selected{% endif %}>{{ p.name }}</option>
-      {% endfor %}
-    </select>
-    <select name="status" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
-      <option value="">All statuses</option>
-      {% for s in statuses %}
-      <option value="{{ s }}" {% if filter_status == s %}selected{% endif %}>{{ s.replace('-', ' ').title() }}</option>
-      {% endfor %}
-    </select>
-    <button type="submit" class="text-sm px-3 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-700 hover:bg-gray-50">Filter</button>
-  </form>
-</div>
+<form class="flex flex-wrap gap-2 mb-5" hx-get="/tasks" hx-target="body" hx-swap="innerHTML" hx-push-url="true">
+  <select name="property_id" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
+    <option value="">All properties</option>
+    {% for p in properties %}
+    <option value="{{ p.id }}" {% if filter_property == p.id %}selected{% endif %}>{{ p.name }}</option>
+    {% endfor %}
+  </select>
+  <select name="status" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
+    <option value="">All statuses</option>
+    {% for s in statuses %}
+    <option value="{{ s }}" {% if filter_status == s %}selected{% endif %}>{{ s.replace('-', ' ').title() }}</option>
+    {% endfor %}
+  </select>
+  <select name="assignee_id" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
+    <option value="">All assignees</option>
+    {% for s in staff %}
+    <option value="{{ s.id }}" {% if filter_assignee == s.id %}selected{% endif %}>{{ s.name }}</option>
+    {% endfor %}
+  </select>
+  <select name="recurrence" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
+    <option value="" {% if not filter_recurrence %}selected{% endif %}>All occurrences</option>
+    <option value="recurring" {% if filter_recurrence == 'recurring' %}selected{% endif %}>Recurring only</option>
+    <option value="once" {% if filter_recurrence == 'once' %}selected{% endif %}>One-time only</option>
+  </select>
+  <select name="sort" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
+    <option value="newest" {% if filter_sort == 'newest' %}selected{% endif %}>Newest first</option>
+    <option value="oldest" {% if filter_sort == 'oldest' %}selected{% endif %}>Oldest first</option>
+  </select>
+  <button type="submit" class="text-sm px-3 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-700 hover:bg-gray-50 font-medium">Apply</button>
+  {% if filter_property or filter_status or filter_assignee or filter_recurrence or filter_sort == 'oldest' %}
+  <a href="/tasks" class="text-sm px-3 py-1.5 text-gray-400 hover:text-gray-600">Clear</a>
+  {% endif %}
+</form>
 
 <!-- Task table -->
 <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">

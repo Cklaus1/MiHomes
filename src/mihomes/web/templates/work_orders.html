@@ -134,7 +134,7 @@
     </div>
 
     <div class="flex border-b border-gray-200 px-6 flex-shrink-0">
-      {% for tid, tlabel in [('details','Details'),('report','AI Report'),('notes','Notes')] %}
+      {% for tid, tlabel in [('details','Details'),('notes','Notes')] %}
       <button onclick="switchTab('wo','{{ wo.id }}','{{ tid }}')" id="wo-tab-{{ wo.id }}-{{ tid }}"
               class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if tid=='details' %}border-brand-500 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
         {{ tlabel }}{% if tid == 'notes' and wo_notes %} ({{ wo_notes|length }}){% endif %}
@@ -321,12 +321,6 @@
 
       </div>
 
-      <!-- AI Report tab -->
-      <div id="wo-panel-{{ wo.id }}-report" class="px-6 py-5 hidden">
-        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Estate Manager AI Report</div>
-        <div id="wo-report-{{ wo.id }}">{% include "partials/wo_report.html" %}</div>
-      </div>
-
       <!-- Notes tab -->
       <div id="wo-panel-{{ wo.id }}-notes" class="px-6 py-5 hidden">
         <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Notes & Comments</div>
@@ -346,7 +340,7 @@
 function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
 function switchTab(prefix, entityId, tab) {
-  ['details','report','notes'].forEach(t => {
+  ['details','notes'].forEach(t => {
     document.getElementById(prefix+'-panel-'+entityId+'-'+t)?.classList.add('hidden');
     const btn = document.getElementById(prefix+'-tab-'+entityId+'-'+t);
     if (btn) { btn.classList.remove('border-brand-500','text-brand-600'); btn.classList.add('border-transparent','text-gray-500'); }

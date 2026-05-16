@@ -1,6 +1,11 @@
 """AI provider abstraction — Protocol, exceptions, factory."""
 
-from typing import Protocol
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from mihomes.services.ai.file_processor import Attachment
 
 
 class AIProviderError(Exception):
@@ -26,6 +31,7 @@ class AIProvider(Protocol):
         system_prompt: str,
         user_message: str,
         context_data: str | None = None,
+        attachments: list[Attachment] | None = None,
     ) -> str:
         """Send a completion request. Returns the AI response text."""
         ...

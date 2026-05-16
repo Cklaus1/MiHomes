@@ -11,20 +11,100 @@
   </thead>
   <tbody class="divide-y divide-gray-50">
     {% for txn in transactions %}
-    <tr class="hover:bg-gray-50">
-      <td class="px-5 py-3 text-gray-900">{{ txn.description }}</td>
+    <tr class="hover:bg-gray-50 cursor-pointer transition-colors"
+        onclick="openModal('txn-modal-{{ txn.id }}')">
+      <td class="px-5 py-3 text-gray-900">{{ txn.description or '—' }}</td>
       <td class="px-4 py-3 text-gray-500 hidden sm:table-cell">{% if txn.property %}{{ txn.property.name }}{% else %}—{% endif %}</td>
       <td class="px-4 py-3 text-gray-500 hidden md:table-cell">{{ txn.category or '—' }}</td>
       <td class="px-4 py-3 text-right font-medium {% if txn.amount < 0 %}text-red-600{% else %}text-emerald-600{% endif %}">
         {% if txn.amount >= 0 %}+{% endif %}${{ '{:,.2f}'.format(txn.amount | abs) }}
       </td>
       <td class="px-4 py-3 text-gray-400 text-xs hidden md:table-cell">
-        {% if txn.created_at %}{{ txn.created_at.strftime('%b %d, %Y') }}{% endif %}
+        {% if txn.date %}{{ txn.date.strftime('%b %d, %Y') }}{% endif %}
       </td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
+
+<!-- Transaction detail modals -->
+{% for txn in transactions %}
+<div id="txn-modal-{{ txn.id }}"
+     class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+     onclick="if(event.target===this)closeModal('txn-modal-{{ txn.id }}')">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col" onclick="event.stopPropagation()">
+
+    <!-- Header -->
+    <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
+      <div>
+        <h2 class="text-lg font-bold text-gray-900 truncate max-w-xs">{{ txn.description or 'Transaction' }}</h2>
+        <p class="text-xs text-gray-500 mt-0.5">
+          {% if txn.date %}{{ txn.date.strftime('%b %d, %Y') }}{% endif %}
+          {% if txn.category %} · {{ txn.category }}{% endif %}
+        </p>
+      </div>
+      <button onclick="closeModal('txn-modal-{{ txn.id }}')"
+              class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <!-- Body -->
+    <div class="overflow-y-auto px-6 py-5">
+      <dl class="grid grid-cols-2 gap-x-6 gap-y-4 text-sm">
+        <div class="col-span-2">
+          <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Amount</dt>
+          <dd class="text-2xl font-bold {% if txn.amount < 0 %}text-red-600{% else %}text-emerald-600{% endif %}">
+            {% if txn.amount >= 0 %}+{% endif %}${{ '{:,.2f}'.format(txn.amount | abs) }}
+            <span class="text-sm font-normal text-gray-400 ml-1">{{ txn.currency }}</span>
+          </dd>
+        </div>
+        <div>
+          <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Property</dt>
+          <dd class="text-gray-700 pt-0.5">{% if txn.property %}{{ txn.property.name }}{% else %}—{% endif %}</dd>
+        </div>
+        <div>
+          <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Category</dt>
+          <dd class="text-gray-700 pt-0.5">{{ txn.category or '—' }}</dd>
+        </div>
+        <div>
+          <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Vendor</dt>
+          <dd class="text-gray-700 pt-0.5">
+            {% if txn.vendor %}{{ txn.vendor.name }}
+            {% elif txn.vendor_name %}{{ txn.vendor_name }}
+            {% elif txn.work_order and txn.work_order.vendor %}{{ txn.work_order.vendor.name }}
+            {% elif txn.work_order and txn.work_order.vendor_name %}{{ txn.work_order.vendor_name }}
+            {% else %}—{% endif %}
+          </dd>
+        </div>
+        <div>
+          <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Source</dt>
+          <dd class="text-gray-700 pt-0.5">
+            {% if txn.work_order %}
+              <a href="/work-orders/" class="text-brand-600 hover:underline">Work Order</a>
+              <span class="text-gray-400 ml-1">— {{ txn.work_order.title }}</span>
+            {% else %}
+              {{ txn.source.replace('-', ' ').title() if txn.source else '—' }}
+            {% endif %}
+          </dd>
+        </div>
+        <div>
+          <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Date</dt>
+          <dd class="text-gray-700 pt-0.5">{% if txn.date %}{{ txn.date.strftime('%B %d, %Y') }}{% else %}—{% endif %}</dd>
+        </div>
+        {% if txn.notes %}
+        <div class="col-span-2">
+          <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Notes</dt>
+          <dd class="text-gray-700 text-sm bg-gray-50 rounded-lg p-3">{{ txn.notes }}</dd>
+        </div>
+        {% endif %}
+      </dl>
+    </div>
+
+  </div>
+</div>
+{% endfor %}
+
 {% else %}
 <div class="px-5 py-12 text-center text-sm text-gray-400">No transactions yet.</div>
 {% endif %}

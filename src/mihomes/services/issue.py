@@ -22,6 +22,7 @@ def create_issue(
     space_id_or_slug: str | None = None,
     photos: list[str] | None = None,
     slug: str | None = None,
+    reported_by_id: int | None = None,
 ) -> Issue:
     prop = resolve_identifier(session, Property, property_id_or_slug)
     space_id = None
@@ -32,6 +33,7 @@ def create_issue(
     issue = Issue(
         title=title, slug=slug, description=description,
         property_id=prop.id, space_id=space_id, severity=severity, photos=photos,
+        reported_by_id=reported_by_id,
     )
     session.add(issue)
     session.flush()
@@ -78,7 +80,7 @@ def update_issue(session: Session, id_or_slug: str, **kwargs) -> Issue:
     return issue
 
 
-def resolve_issue(session: Session, id_or_slug: str, notes: str | None = None) -> Issue:
+def resolve_issue(session: Session, id_or_slug: str, notes: str | None = None, resolved_by_id: int | None = None) -> Issue:
     issue = resolve_identifier(session, Issue, id_or_slug)
     if issue.status == IssueStatus.VERIFIED:
         raise ValueError("Issue is already verified and cannot be moved back to resolved")
@@ -86,6 +88,8 @@ def resolve_issue(session: Session, id_or_slug: str, notes: str | None = None) -
     issue.status = IssueStatus.RESOLVED
     issue.resolved_at = datetime.now(timezone.utc)
     issue.resolution_notes = notes
+    if resolved_by_id is not None:
+        issue.resolved_by_id = resolved_by_id
     session.flush()
     new_snap = snapshot_instance(issue)
     changes = diff_instance(old_snap, new_snap)

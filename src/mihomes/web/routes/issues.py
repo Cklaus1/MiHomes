@@ -8,6 +8,7 @@ from mihomes.models.issue import IssueSeverity, IssueStatus
 from mihomes.services import issue as issue_svc
 from mihomes.services import note as note_svc
 from mihomes.services import property as prop_svc
+from mihomes.services import staff as staff_svc
 from mihomes.web.deps import get_db, templates
 
 router = APIRouter()
@@ -26,6 +27,7 @@ def _ctx(db: Session, property_id=None, status=None) -> dict:
         "page": "issues",
         "issues": issues,
         "properties": prop_svc.list_properties(db),
+        "staff": staff_svc.list_staff(db),
         "severities": [s.value for s in IssueSeverity],
         "statuses": [s.value for s in IssueStatus],
         "notes_map": {i.id: note_svc.list_notes(db, f"issue:{i.id}") for i in issues},
@@ -51,6 +53,7 @@ def create_issue(
     property_id: int = Form(...),
     severity: str = Form("medium"),
     description: str = Form(""),
+    reported_by_id: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     issue_svc.create_issue(
@@ -59,13 +62,19 @@ def create_issue(
         property_id_or_slug=str(property_id),
         severity=IssueSeverity(severity),
         description=description or None,
+        reported_by_id=int(reported_by_id) if reported_by_id else None,
     )
     return templates.TemplateResponse(request, "issues.html", _ctx(db))
 
 
 @router.post("/{slug}/resolve", response_class=HTMLResponse)
-def resolve_issue(request: Request, slug: str, db: Session = Depends(get_db)):
-    issue_svc.resolve_issue(db, slug)
+def resolve_issue(
+    request: Request,
+    slug: str,
+    resolved_by_id: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    issue_svc.resolve_issue(db, slug, resolved_by_id=int(resolved_by_id) if resolved_by_id else None)
     return templates.TemplateResponse(request, "issues.html", _ctx(db))
 
 
@@ -77,15 +86,20 @@ def edit_issue(
     severity: str = Form("medium"),
     description: str = Form(""),
     status: str = Form(""),
+    reported_by_id: str | None = Form(None),
+    resolved_by_id: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     kwargs = dict(
         title=title,
         severity=IssueSeverity(severity),
         description=description or None,
+        reported_by_id=int(reported_by_id) if reported_by_id else None,
     )
     if status:
         kwargs["status"] = IssueStatus(status)
+    if resolved_by_id:
+        kwargs["resolved_by_id"] = int(resolved_by_id)
     issue_svc.update_issue(db, slug, **kwargs)
     return templates.TemplateResponse(request, "issues.html", _ctx(db))
 

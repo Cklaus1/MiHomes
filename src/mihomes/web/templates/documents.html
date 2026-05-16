@@ -1,0 +1,351 @@
+{% extends "base.html" %}
+{% block title %}Documents — MiHomes{% endblock %}
+{% block heading %}Documents{% endblock %}
+{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ documents|length }} document{{ 's' if documents|length != 1 else '' }}{% if type_filter %} · {{ doc_type_labels.get(type_filter, type_filter.title()) }}{% endif %}</p>{% endblock %}
+
+{% block actions %}
+<button onclick="document.getElementById('add-doc-modal').classList.remove('hidden')"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
+  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+  Add Document
+</button>
+{% endblock %}
+
+{% set type_color_map = {
+  'sop':        ('bg-violet-50 text-violet-700 border-violet-200', 'bg-violet-100 text-violet-700'),
+  'manual':     ('bg-blue-50 text-blue-700 border-blue-200',       'bg-blue-100 text-blue-700'),
+  'warranty':   ('bg-emerald-50 text-emerald-700 border-emerald-200', 'bg-emerald-100 text-emerald-700'),
+  'contract':   ('bg-orange-50 text-orange-700 border-orange-200', 'bg-orange-100 text-orange-700'),
+  'insurance':  ('bg-sky-50 text-sky-700 border-sky-200',          'bg-sky-100 text-sky-700'),
+  'permit':     ('bg-amber-50 text-amber-700 border-amber-200',    'bg-amber-100 text-amber-700'),
+  'regulation': ('bg-red-50 text-red-700 border-red-200',          'bg-red-100 text-red-700'),
+  'other':      ('bg-gray-50 text-gray-600 border-gray-200',       'bg-gray-100 text-gray-600'),
+} %}
+
+{% block content %}
+
+<!-- Type filter chips -->
+<div class="flex flex-wrap gap-2 mb-5">
+  <a href="/documents/"
+     class="px-3 py-1.5 text-xs font-medium rounded-full border transition-colors
+            {% if not type_filter %}bg-brand-600 border-brand-600 text-white{% else %}bg-white border-gray-200 text-gray-600 hover:border-brand-400 hover:text-brand-600{% endif %}">
+    All
+  </a>
+  {% for value, label in doc_types %}
+  <a href="/documents/?type={{ value }}"
+     class="px-3 py-1.5 text-xs font-medium rounded-full border transition-colors
+            {% if type_filter == value %}bg-brand-600 border-brand-600 text-white{% else %}bg-white border-gray-200 text-gray-600 hover:border-brand-400 hover:text-brand-600{% endif %}">
+    {{ label }}
+  </a>
+  {% endfor %}
+</div>
+
+{% if documents %}
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="border-b border-gray-100 bg-gray-50/50">
+        <th class="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Title</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Type</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Property</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Expires</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Link / Path</th>
+        <th class="px-4 py-3"></th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-50">
+      {% for doc in documents %}
+      {% set chip_class = type_color_map.get(doc.document_type.value, ('bg-gray-100 text-gray-600 border-gray-200', 'bg-gray-100 text-gray-600'))[1] %}
+      <tr class="hover:bg-gray-50 cursor-pointer transition-colors" onclick="openModal('doc-modal-{{ doc.slug }}')">
+        <td class="px-5 py-3">
+          <div class="font-medium text-gray-900 flex items-center gap-2">
+            {{ doc.title }}
+            {% if doc.id in expiring_ids %}
+            <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-700">Expiring</span>
+            {% endif %}
+          </div>
+          {% if doc.notes %}
+          <div class="text-xs text-gray-400 mt-0.5 truncate max-w-xs">{{ doc.notes }}</div>
+          {% endif %}
+        </td>
+        <td class="px-4 py-3">
+          <span class="px-2 py-0.5 rounded-full text-xs font-medium {{ chip_class }}">
+            {{ doc_type_labels.get(doc.document_type.value, doc.document_type.value.title()) }}
+          </span>
+        </td>
+        <td class="px-4 py-3 text-gray-500 hidden md:table-cell">
+          {% if doc.entity_type == 'property' and doc.entity_id %}
+            {% set prop = properties | selectattr('id', 'equalto', doc.entity_id) | first %}
+            {{ prop.name if prop else '—' }}
+          {% else %}—{% endif %}
+        </td>
+        <td class="px-4 py-3 hidden lg:table-cell">
+          {% if doc.expires_at %}
+            {% if doc.id in expiring_ids %}
+            <span class="text-amber-600 font-medium">{{ doc.expires_at.strftime('%b %d, %Y') }}</span>
+            {% else %}
+            <span class="text-gray-500">{{ doc.expires_at.strftime('%b %d, %Y') }}</span>
+            {% endif %}
+          {% else %}
+          <span class="text-gray-300">—</span>
+          {% endif %}
+        </td>
+        <td class="px-4 py-3 hidden lg:table-cell">
+          {% if doc.file_path and doc.file_path != '—' %}
+            {% if doc.file_path.startswith('http') %}
+            <a href="{{ doc.file_path }}" target="_blank" rel="noopener"
+               onclick="event.stopPropagation()"
+               class="inline-flex items-center gap-1 text-brand-600 hover:underline text-xs">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+              Open
+            </a>
+            {% else %}
+            <span class="text-xs text-gray-400 font-mono truncate max-w-[160px] block">{{ doc.file_path }}</span>
+            {% endif %}
+          {% else %}
+          <span class="text-gray-300">—</span>
+          {% endif %}
+        </td>
+        <td class="px-4 py-3 text-right">
+          <svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+          </svg>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% else %}
+<div class="bg-white rounded-xl border border-gray-200 px-6 py-16 text-center">
+  <svg class="w-12 h-12 text-gray-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+  </svg>
+  <p class="text-sm font-medium text-gray-500">No documents yet</p>
+  <p class="text-xs text-gray-400 mt-1">Store playbooks, manuals, warranties, permits, and other reference materials</p>
+</div>
+{% endif %}
+
+
+<!-- ══ Add Document Modal ══ -->
+<div id="add-doc-modal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+     onclick="if(event.target===this)this.classList.add('hidden')">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="text-lg font-semibold text-gray-900">Add Document</h2>
+      <button onclick="document.getElementById('add-doc-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <form hx-post="/documents/" hx-target="body" hx-swap="innerHTML" class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Title <span class="text-red-500">*</span></label>
+        <input type="text" name="title" required
+               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+               placeholder="e.g. HVAC Maintenance SOP" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Type <span class="text-red-500">*</span></label>
+        <select name="document_type" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          {% for value, label in doc_types %}
+          <option value="{{ value }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Link, URL, or File Path</label>
+        <input type="text" name="file_path"
+               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+               placeholder="https://drive.google.com/... or /files/docs/..." />
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Property</label>
+          <select name="property_id" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+            <option value="">All properties</option>
+            {% for p in properties %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Expires</label>
+          <input type="date" name="expires_at"
+                 class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+        <textarea name="notes" rows="2"
+                  class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
+                  placeholder="Brief description or instructions…"></textarea>
+      </div>
+      <div class="flex gap-3 pt-1">
+        <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Save</button>
+        <button type="button" onclick="document.getElementById('add-doc-modal').classList.add('hidden')"
+                class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+
+<!-- ══ Document Detail Modals ══ -->
+{% for doc in documents %}
+{% set chip_cls = type_color_map.get(doc.document_type.value, ('bg-gray-50 text-gray-600 border-gray-200','bg-gray-100 text-gray-600'))[1] %}
+{% set prop_name = '' %}
+{% if doc.entity_type == 'property' and doc.entity_id %}
+  {% set _p = properties | selectattr('id', 'equalto', doc.entity_id) | first %}
+  {% if _p %}{% set prop_name = _p.name %}{% set prop_id = _p.id %}{% endif %}
+{% endif %}
+
+<div id="doc-modal-{{ doc.slug }}" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+     onclick="if(event.target===this)closeModal('doc-modal-{{ doc.slug }}')">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col" onclick="event.stopPropagation()">
+
+    <!-- Modal header -->
+    <div class="flex items-start justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
+      <div class="min-w-0 pr-4">
+        <div class="flex items-center gap-2 flex-wrap">
+          <h2 class="text-base font-bold text-gray-900">{{ doc.title }}</h2>
+          <span class="px-2 py-0.5 rounded-full text-xs font-medium {{ chip_cls }}">
+            {{ doc_type_labels.get(doc.document_type.value, doc.document_type.value.title()) }}
+          </span>
+          {% if doc.id in expiring_ids %}
+          <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-700">Expiring Soon</span>
+          {% endif %}
+        </div>
+        {% if prop_name %}<p class="text-xs text-gray-400 mt-0.5">{{ prop_name }}</p>{% endif %}
+      </div>
+      <div class="flex items-center gap-2 flex-shrink-0">
+        <button onclick="enterEdit('doc','{{ doc.slug }}')"
+                class="p-1.5 text-gray-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors" title="Edit">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+        </button>
+        <button hx-post="/documents/{{ doc.slug }}/delete"
+                hx-target="body" hx-swap="innerHTML"
+                hx-confirm="Delete '{{ doc.title }}'? This cannot be undone."
+                class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+        </button>
+        <button onclick="closeModal('doc-modal-{{ doc.slug }}')" class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="flex-1 overflow-y-auto">
+
+      <!-- View mode -->
+      <div id="doc-view-{{ doc.slug }}" class="px-6 py-5 space-y-4">
+        <div class="grid grid-cols-2 gap-3">
+          <div class="bg-gray-50 rounded-xl p-3">
+            <div class="text-xs text-gray-400 mb-0.5">Property</div>
+            <div class="text-sm font-medium text-gray-800">{{ prop_name or '—' }}</div>
+          </div>
+          <div class="bg-gray-50 rounded-xl p-3">
+            <div class="text-xs text-gray-400 mb-0.5">Expires</div>
+            <div class="text-sm font-medium {% if doc.id in expiring_ids %}text-amber-600{% else %}text-gray-800{% endif %}">
+              {{ doc.expires_at.strftime('%b %d, %Y') if doc.expires_at else '—' }}
+            </div>
+          </div>
+          <div class="bg-gray-50 rounded-xl p-3">
+            <div class="text-xs text-gray-400 mb-0.5">Added</div>
+            <div class="text-sm font-medium text-gray-800">{{ doc.created_at.strftime('%b %d, %Y') if doc.created_at else '—' }}</div>
+          </div>
+          <div class="bg-gray-50 rounded-xl p-3">
+            <div class="text-xs text-gray-400 mb-0.5">Link / Path</div>
+            {% if doc.file_path and doc.file_path != '—' %}
+              {% if doc.file_path.startswith('http') %}
+              <a href="{{ doc.file_path }}" target="_blank" rel="noopener"
+                 class="text-sm text-brand-600 hover:underline inline-flex items-center gap-1">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                Open Link
+              </a>
+              {% else %}
+              <div class="text-sm font-mono text-gray-700 break-all">{{ doc.file_path }}</div>
+              {% endif %}
+            {% else %}
+            <div class="text-sm text-gray-400">—</div>
+            {% endif %}
+          </div>
+        </div>
+        {% if doc.notes %}
+        <div>
+          <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Notes</div>
+          <div class="text-sm text-gray-700 whitespace-pre-wrap">{{ doc.notes }}</div>
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- Edit mode -->
+      <div id="doc-edit-{{ doc.slug }}" class="hidden px-6 py-5">
+        <form hx-post="/documents/{{ doc.slug }}/edit" hx-target="body" hx-swap="innerHTML" class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Title</label>
+            <input type="text" name="title" value="{{ doc.title }}" required
+                   class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Type</label>
+            <select name="document_type" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+              {% for value, label in doc_types %}
+              <option value="{{ value }}" {% if doc.document_type.value == value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Link, URL, or File Path</label>
+            <input type="text" name="file_path" value="{{ doc.file_path if doc.file_path != '—' else '' }}"
+                   class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                   placeholder="https://... or /local/path" />
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Property</label>
+              <select name="property_id" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                <option value="">All properties</option>
+                {% for p in properties %}
+                <option value="{{ p.id }}" {% if doc.entity_type == 'property' and doc.entity_id == p.id %}selected{% endif %}>{{ p.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Expires</label>
+              <input type="date" name="expires_at" value="{{ doc.expires_at.isoformat() if doc.expires_at else '' }}"
+                     class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+            </div>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+            <textarea name="notes" rows="3"
+                      class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none">{{ doc.notes or '' }}</textarea>
+          </div>
+          <div class="flex justify-end gap-2 pt-2 border-t border-gray-100">
+            <button type="button" onclick="exitEdit('doc','{{ doc.slug }}')"
+                    class="px-4 py-1.5 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
+            <button type="submit" class="px-4 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg">Save</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
+function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+function enterEdit(prefix, id) {
+  document.getElementById(prefix+'-view-'+id)?.classList.add('hidden');
+  document.getElementById(prefix+'-edit-'+id)?.classList.remove('hidden');
+}
+function exitEdit(prefix, id) {
+  document.getElementById(prefix+'-edit-'+id)?.classList.add('hidden');
+  document.getElementById(prefix+'-view-'+id)?.classList.remove('hidden');
+}
+</script>
+{% endblock %}

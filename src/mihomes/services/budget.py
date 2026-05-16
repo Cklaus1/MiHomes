@@ -56,10 +56,12 @@ def add_transaction(
     tx_date: date,
     *,
     vendor_id_or_slug: str | None = None,
+    vendor_name: str | None = None,
     description: str | None = None,
     currency: str = "USD",
     notes: str | None = None,
     source: str = "manual",
+    work_order_id: int | None = None,
 ) -> Transaction:
     from mihomes.services.validators import validate_positive_amount
     validate_positive_amount(amount, "Transaction amount")
@@ -70,8 +72,9 @@ def add_transaction(
         vendor_id = vendor.id
     tx = Transaction(
         amount=amount, currency=currency, property_id=prop.id,
-        vendor_id=vendor_id, category=category, description=description,
-        date=tx_date, source=source, notes=notes,
+        vendor_id=vendor_id, vendor_name=vendor_name, category=category,
+        description=description, date=tx_date, source=source, notes=notes,
+        work_order_id=work_order_id,
     )
     session.add(tx)
     session.flush()

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% block head %}<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>{% endblock %}
 {% block title %}Budget — MiHomes{% endblock %}
 {% block heading %}Budget & Finance{% endblock %}
 {% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ transactions|length }} recent transactions</p>{% endblock %}
@@ -14,6 +15,9 @@
     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
     Add Transaction
   </button>
+</div>
+<div id="analysis-actions" class="hidden items-center gap-2">
+  <span class="text-xs text-gray-400">{{ analysis_year }} year to date</span>
 </div>
 <div id="recurring-actions" class="hidden flex items-center gap-2">
   <form hx-post="/recurring/generate" hx-target="body" hx-swap="innerHTML" style="display:inline">
@@ -42,6 +46,10 @@
     Recurring
     {% set active_count = expenses | selectattr('end_date', 'none') | list | length %}
     {% if active_count %}<span class="ml-1.5 px-1.5 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600">{{ active_count }}</span>{% endif %}
+  </button>
+  <button onclick="switchBudgetTab('analysis')" id="tab-btn-analysis"
+          class="px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors">
+    Spending Analysis
   </button>
 </div>
 
@@ -130,6 +138,140 @@
     <button onclick="document.getElementById('add-expense-modal').classList.remove('hidden')" class="mt-3 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Add First Expense</button>
   </div>
   {% endif %}
+
+</div>
+
+<!-- ── Spending Analysis tab ── -->
+<div id="tab-panel-analysis" class="hidden">
+
+  <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+    <p class="text-xs text-gray-400">
+      {{ analysis_year }} year to date
+      {% if analysis_prop %} · Category &amp; Vendor charts show <span class="font-medium text-gray-600">{{ analysis_prop.name }}</span>{% endif %}
+    </p>
+    <div class="flex gap-1 bg-gray-100 p-1 rounded-xl">
+      <button onclick="switchAnalysisTab('comparison')" id="atab-comparison"
+              class="px-3 py-1 text-xs font-medium rounded-lg bg-white text-gray-900 shadow-sm transition-colors">All Properties</button>
+      <button onclick="switchAnalysisTab('category')" id="atab-category"
+              class="px-3 py-1 text-xs font-medium rounded-lg text-gray-500 hover:text-gray-700 transition-colors">By Category</button>
+      <button onclick="switchAnalysisTab('vendor')" id="atab-vendor"
+              class="px-3 py-1 text-xs font-medium rounded-lg text-gray-500 hover:text-gray-700 transition-colors">By Vendor</button>
+    </div>
+  </div>
+
+  <!-- Comparison -->
+  <div id="apanel-comparison">
+    {% if comparison_data %}
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <div class="bg-white rounded-xl border border-gray-200 p-5">
+        <h3 class="text-sm font-semibold text-gray-700 mb-4">Spending by Property</h3>
+        <div class="relative h-64"><canvas id="compChart"></canvas></div>
+      </div>
+      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <table class="w-full text-sm">
+          <thead><tr class="border-b border-gray-100">
+            <th class="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Property</th>
+            <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Spent</th>
+            <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">Txns</th>
+          </tr></thead>
+          <tbody class="divide-y divide-gray-50">
+            {% set max_s = comparison_data[0].total_spending if comparison_data[0].total_spending > 0 else 1 %}
+            {% for row in comparison_data %}
+            <tr class="hover:bg-gray-50">
+              <td class="px-5 py-3">
+                <div class="font-medium text-gray-900">{{ row.property }}</div>
+                <div class="mt-1 h-1.5 bg-gray-100 rounded-full"><div class="h-1.5 bg-brand-500 rounded-full" style="width:{{ ((row.total_spending/max_s)*100)|round(1) }}%"></div></div>
+              </td>
+              <td class="px-4 py-3 text-right font-medium text-gray-900">${{ '{:,.0f}'.format(row.total_spending) }}</td>
+              <td class="px-4 py-3 text-right text-gray-400 hidden sm:table-cell">{{ row.transaction_count }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% else %}
+    <div class="bg-white rounded-xl border border-gray-200 px-6 py-12 text-center">
+      <p class="text-sm text-gray-400">No spending data for {{ analysis_year }}.</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- By Category -->
+  <div id="apanel-category" class="hidden">
+    {% if category_data %}
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <div class="bg-white rounded-xl border border-gray-200 p-5">
+        <h3 class="text-sm font-semibold text-gray-700 mb-4">By Category{% if analysis_prop %} — {{ analysis_prop.name }}{% endif %}</h3>
+        <div class="relative h-64"><canvas id="catChart"></canvas></div>
+      </div>
+      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <table class="w-full text-sm">
+          <thead><tr class="border-b border-gray-100">
+            <th class="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Category</th>
+            <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Spent</th>
+            <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">Txns</th>
+          </tr></thead>
+          <tbody class="divide-y divide-gray-50">
+            {% set max_s = category_data[0].total if category_data[0].total > 0 else 1 %}
+            {% for row in category_data %}
+            <tr class="hover:bg-gray-50">
+              <td class="px-5 py-3">
+                <div class="font-medium text-gray-900">{{ row.category.replace('-',' ').title() }}</div>
+                <div class="mt-1 h-1.5 bg-gray-100 rounded-full"><div class="h-1.5 bg-brand-500 rounded-full" style="width:{{ ((row.total/max_s)*100)|round(1) }}%"></div></div>
+              </td>
+              <td class="px-4 py-3 text-right font-medium text-gray-900">${{ '{:,.0f}'.format(row.total) }}</td>
+              <td class="px-4 py-3 text-right text-gray-400 hidden sm:table-cell">{{ row.transaction_count }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% else %}
+    <div class="bg-white rounded-xl border border-gray-200 px-6 py-12 text-center">
+      <p class="text-sm text-gray-400">No category data{% if analysis_prop %} for {{ analysis_prop.name }}{% endif %} in {{ analysis_year }}.</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- By Vendor -->
+  <div id="apanel-vendor" class="hidden">
+    {% if vendor_data %}
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <div class="bg-white rounded-xl border border-gray-200 p-5">
+        <h3 class="text-sm font-semibold text-gray-700 mb-4">By Vendor{% if analysis_prop %} — {{ analysis_prop.name }}{% endif %}</h3>
+        <div class="relative h-64"><canvas id="vendChart"></canvas></div>
+      </div>
+      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <table class="w-full text-sm">
+          <thead><tr class="border-b border-gray-100">
+            <th class="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Vendor</th>
+            <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Spent</th>
+            <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">Txns</th>
+          </tr></thead>
+          <tbody class="divide-y divide-gray-50">
+            {% set max_s = vendor_data[0].total if vendor_data[0].total > 0 else 1 %}
+            {% for row in vendor_data %}
+            <tr class="hover:bg-gray-50">
+              <td class="px-5 py-3">
+                <div class="font-medium text-gray-900">{{ row.vendor }}</div>
+                <div class="mt-1 h-1.5 bg-gray-100 rounded-full"><div class="h-1.5 bg-emerald-500 rounded-full" style="width:{{ ((row.total/max_s)*100)|round(1) }}%"></div></div>
+              </td>
+              <td class="px-4 py-3 text-right font-medium text-gray-900">${{ '{:,.0f}'.format(row.total) }}</td>
+              <td class="px-4 py-3 text-right text-gray-400 hidden sm:table-cell">{{ row.transaction_count }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% else %}
+    <div class="bg-white rounded-xl border border-gray-200 px-6 py-12 text-center">
+      <p class="text-sm text-gray-400">No vendor data{% if analysis_prop %} for {{ analysis_prop.name }}{% endif %} in {{ analysis_year }}.</p>
+    </div>
+    {% endif %}
+  </div>
 
 </div>
 
@@ -413,8 +555,51 @@ function switchTab(prefix, entityId, tab) {
   if (active) { active.classList.add('border-brand-500','text-brand-600'); active.classList.remove('border-transparent','text-gray-500'); }
 }
 
+let chartsInitialized = false;
+
+Chart.defaults.font.family = 'inherit';
+Chart.defaults.color = '#6b7280';
+
+function initSpendingCharts() {
+  const opts = {
+    indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { grid: { color: '#f3f4f6' }, ticks: { callback: v => '$' + v.toLocaleString() } },
+      y: { grid: { display: false } },
+    },
+  };
+  {% if comparison_chart != '{}' %}
+  new Chart(document.getElementById('compChart'), { type: 'bar', data: {{ comparison_chart | safe }}, options: opts });
+  {% endif %}
+  {% if category_chart != '{}' %}
+  new Chart(document.getElementById('catChart'), { type: 'bar', data: {{ category_chart | safe }}, options: opts });
+  {% endif %}
+  {% if vendor_chart != '{}' %}
+  new Chart(document.getElementById('vendChart'), { type: 'bar', data: {{ vendor_chart | safe }}, options: opts });
+  {% endif %}
+}
+
+const analysisTabs = ['comparison', 'category', 'vendor'];
+function switchAnalysisTab(tab) {
+  analysisTabs.forEach(t => {
+    document.getElementById('apanel-'+t)?.classList.add('hidden');
+    const btn = document.getElementById('atab-'+t);
+    if (btn) {
+      btn.classList.remove('bg-white', 'text-gray-900', 'shadow-sm');
+      btn.classList.add('text-gray-500', 'hover:text-gray-700');
+    }
+  });
+  document.getElementById('apanel-'+tab)?.classList.remove('hidden');
+  const active = document.getElementById('atab-'+tab);
+  if (active) {
+    active.classList.add('bg-white', 'text-gray-900', 'shadow-sm');
+    active.classList.remove('text-gray-500', 'hover:text-gray-700');
+  }
+}
+
 function switchBudgetTab(tab) {
-  ['overview','recurring'].forEach(t => {
+  ['overview','recurring','analysis'].forEach(t => {
     document.getElementById('tab-panel-'+t)?.classList.add('hidden');
     const btn = document.getElementById('tab-btn-'+t);
     if (btn) { btn.classList.remove('border-brand-500','text-brand-600'); btn.classList.add('border-transparent','text-gray-500'); }
@@ -422,9 +607,13 @@ function switchBudgetTab(tab) {
   document.getElementById('tab-panel-'+tab)?.classList.remove('hidden');
   const active = document.getElementById('tab-btn-'+tab);
   if (active) { active.classList.add('border-brand-500','text-brand-600'); active.classList.remove('border-transparent','text-gray-500'); }
-  // swap header action buttons
   document.getElementById('overview-actions').classList.toggle('hidden', tab !== 'overview');
   document.getElementById('recurring-actions').classList.toggle('hidden', tab !== 'recurring');
+  document.getElementById('analysis-actions').classList.toggle('hidden', tab !== 'analysis');
+  if (tab === 'analysis' && !chartsInitialized) {
+    initSpendingCharts();
+    chartsInitialized = true;
+  }
 }
 
 function autoResize(el){el.style.height='auto';el.style.height=el.scrollHeight+'px';}

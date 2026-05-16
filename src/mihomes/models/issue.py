@@ -38,6 +38,10 @@ class Issue(Base, TimestampMixin, SlugMixin):
     photos: Mapped[list | None] = mapped_column(JSON, nullable=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     resolution_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reported_by_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("staff.id"), nullable=True)
+    resolved_by_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("staff.id"), nullable=True)
 
     property = relationship("Property")
     space = relationship("Space")
+    reported_by = relationship("Staff", foreign_keys=[reported_by_id])
+    resolved_by = relationship("Staff", foreign_keys=[resolved_by_id])

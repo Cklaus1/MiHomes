@@ -1,0 +1,499 @@
+{% extends "base.html" %}
+{% block title %}AI Advisor — MiHomes{% endblock %}
+{% block heading %}AI Advisor{% endblock %}
+{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">Chat, ask questions, or generate advisory reports</p>{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/marked@4.3.0/marked.min.js"></script>
+<style>
+  /* Report prose styling for marked.js output */
+  .report-prose h1 { font-size: 1.125rem; font-weight: 700; color: #111827; margin: 1.25rem 0 0.5rem; }
+  .report-prose h2 { font-size: 0.9375rem; font-weight: 700; color: #111827; margin: 1.5rem 0 0.4rem; padding-bottom: 0.3rem; border-bottom: 1px solid #e5e7eb; }
+  .report-prose h3 { font-size: 0.875rem; font-weight: 600; color: #374151; margin: 1rem 0 0.25rem; }
+  .report-prose h4 { font-size: 0.8125rem; font-weight: 600; color: #374151; margin: 0.75rem 0 0.2rem; }
+  .report-prose p  { font-size: 0.875rem; color: #374151; line-height: 1.65; margin: 0.4rem 0; }
+  .report-prose ul, .report-prose ol { padding-left: 1.25rem; margin: 0.4rem 0; }
+  .report-prose li { font-size: 0.875rem; color: #374151; margin: 0.2rem 0; line-height: 1.55; }
+  .report-prose strong { font-weight: 600; color: #111827; }
+  .report-prose em { font-style: italic; color: #6b7280; }
+  .report-prose table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; margin: 0.75rem 0; }
+  .report-prose th { text-align: left; padding: 0.4rem 0.75rem; background: #f9fafb; font-weight: 600; color: #374151; border-bottom: 1px solid #e5e7eb; border-top: 1px solid #e5e7eb; }
+  .report-prose td { padding: 0.4rem 0.75rem; color: #374151; border-bottom: 1px solid #f3f4f6; }
+  .report-prose tr:hover td { background: #f9fafb; }
+  .report-prose hr { border: none; border-top: 1px solid #e5e7eb; margin: 1rem 0; }
+  .report-prose blockquote { border-left: 3px solid #0284c7; padding: 0.25rem 0 0.25rem 0.75rem; margin: 0.5rem 0; color: #6b7280; font-size: 0.875rem; }
+  .report-prose code { font-family: ui-monospace, monospace; font-size: 0.8125rem; background: #f3f4f6; padding: 0.1rem 0.3rem; border-radius: 3px; }
+  .report-prose :first-child { margin-top: 0 !important; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- Tab bar -->
+<div class="flex gap-1 mb-5 bg-gray-100 p-1 rounded-xl w-fit">
+  <button onclick="switchAITab('chat')" id="aitab-chat"
+          class="px-4 py-1.5 text-sm font-medium rounded-lg bg-white text-gray-900 shadow-sm transition-colors">
+    Chat
+  </button>
+  <button onclick="switchAITab('report')" id="aitab-report"
+          class="px-4 py-1.5 text-sm font-medium rounded-lg text-gray-500 hover:text-gray-700 transition-colors">
+    Generate Report
+  </button>
+</div>
+
+<div class="flex gap-5" style="min-height: calc(100vh - 240px)">
+
+  <!-- Left: main content -->
+  <div class="flex-1 flex flex-col min-w-0">
+
+    <!-- ── Chat panel ── -->
+    <div id="aipanel-chat" class="flex flex-col flex-1">
+
+      <!-- Messages -->
+      <div id="conversation" class="flex-1 overflow-y-auto space-y-4 mb-4 pb-2">
+        <!-- Welcome card -->
+        <div class="bg-white rounded-xl border border-gray-200 p-5">
+          <div class="flex items-start gap-3">
+            <div class="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+              <svg class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+              </svg>
+            </div>
+            <div>
+              <div class="text-sm font-semibold text-gray-900 mb-1">MiHomes AI Advisor</div>
+              <div class="text-sm text-gray-600">
+                I'm your estate management advisor. Ask me anything about your properties, tasks, budgets, vendors, or get proactive recommendations.
+              </div>
+              <div class="mt-3 flex flex-wrap gap-2">
+                {% for prompt in [
+                  'What should I prioritize this week?',
+                  'Review my budget for this year',
+                  'Which vendors have I spent the most on?',
+                  'Are there any overdue maintenance items?'
+                ] %}
+                <button onclick="setQuery(this.textContent)"
+                        class="px-3 py-1 text-xs text-brand-600 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-full transition-colors">
+                  {{ prompt }}
+                </button>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chat input -->
+      <div class="bg-white rounded-xl border border-gray-200 p-4 flex-shrink-0">
+        <form id="ask-form"
+              hx-post="/ai/ask"
+              hx-target="#conversation"
+              hx-swap="beforeend"
+              hx-indicator="#ai-spinner"
+              hx-encoding="multipart/form-data"
+              hx-on::after-request="clearInput()">
+          <div class="flex gap-3 items-end">
+            <div class="flex-1">
+              <textarea id="query-input" name="query" rows="2" required
+                        placeholder="Ask anything about your estate…"
+                        class="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
+                        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();document.getElementById('ask-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));}"></textarea>
+              <!-- File attachment -->
+              <div class="mt-2 flex items-center gap-2 flex-wrap">
+                <label for="files-chat" class="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 cursor-pointer transition-colors">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+                  </svg>
+                  Attach files
+                </label>
+                <input type="file" id="files-chat" name="files" multiple
+                       accept=".txt,.md,.csv,.json,.jpg,.jpeg,.png,.gif,.webp,.pdf"
+                       class="hidden" onchange="updateFileChips(this,'chips-chat')" />
+                <div id="chips-chat" class="flex flex-wrap gap-1.5"></div>
+              </div>
+            </div>
+            <button type="submit"
+                    class="flex-shrink-0 inline-flex items-center gap-2 px-4 py-2.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
+              <span id="ai-spinner" class="htmx-indicator">
+                <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                </svg>
+              </span>
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+              </svg>
+              Ask
+            </button>
+          </div>
+          <input type="hidden" name="role" id="role-input" value="" />
+          <input type="hidden" name="property_id" id="property-input" value="" />
+        </form>
+      </div>
+    </div><!-- /aipanel-chat -->
+
+
+    <!-- ── Generate Report panel ── -->
+    <div id="aipanel-report" class="hidden space-y-5">
+
+      <!-- Report mode selector -->
+      <div class="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit">
+        <button onclick="switchReportMode('situation')" id="rmode-situation"
+                class="px-4 py-1.5 text-sm font-medium rounded-lg bg-white text-gray-900 shadow-sm transition-colors">
+          Situation Report
+        </button>
+        <button onclick="switchReportMode('digest')" id="rmode-digest"
+                class="px-4 py-1.5 text-sm font-medium rounded-lg text-gray-500 hover:text-gray-700 transition-colors">
+          Estate Digest
+        </button>
+      </div>
+
+      <!-- Situation Report form -->
+      <div id="rform-situation">
+        <div class="bg-white rounded-xl border border-gray-200 p-5">
+          <div class="mb-4">
+            <h3 class="text-sm font-semibold text-gray-900">Situation Report</h3>
+            <p class="text-xs text-gray-500 mt-0.5">Paste a transcript, contractor notes, estimate, or describe a situation — AI generates a structured advisory report for owner review and approval.</p>
+          </div>
+          <form hx-post="/ai/situation-report"
+                hx-target="#report-output"
+                hx-swap="innerHTML"
+                hx-indicator="#sr-spinner"
+                hx-encoding="multipart/form-data"
+                hx-on::after-request="scrollToReport(); renderMarkdown()"
+                class="space-y-4">
+            <div>
+              <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Subject / Title</label>
+              <input type="text" name="subject"
+                     class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                     placeholder="e.g. HVAC Replacement — May 14 Contractor Discussion" />
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Input Type</label>
+                <select name="input_type" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                  <option value="transcript">Transcript / Voice Memo</option>
+                  <option value="contractor_notes">Contractor Notes</option>
+                  <option value="estimate">Estimate / Quote</option>
+                  <option value="inspection">Inspection Report</option>
+                  <option value="meeting_notes">Meeting Notes</option>
+                  <option value="invoice">Invoice</option>
+                  <option value="general">General Notes</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Property</label>
+                <select name="property_slug" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                  <option value="">All / General</option>
+                  {% for p in properties %}
+                  <option value="{{ p.slug }}">{{ p.name }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Linked Work Order</label>
+                <select name="work_order_slug" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                  <option value="">None</option>
+                  {% for wo in work_orders %}
+                  <option value="{{ wo.slug }}">{{ wo.title }} — {{ wo.property.name }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                Input Content <span class="text-red-500">*</span>
+              </label>
+              <textarea name="content" rows="10" required
+                        class="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none font-mono"
+                        placeholder="Paste your transcript, contractor notes, estimates, or describe the situation here…&#10;&#10;The more detail you provide, the more specific and useful the report will be."></textarea>
+            </div>
+            <!-- File attachments -->
+            <div>
+              <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Attachments <span class="font-normal text-gray-400 normal-case">(optional — images, PDFs, text files)</span></label>
+              <label for="files-sr" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+                </svg>
+                Choose files
+              </label>
+              <input type="file" id="files-sr" name="files" multiple
+                     accept=".txt,.md,.csv,.json,.jpg,.jpeg,.png,.gif,.webp,.pdf"
+                     class="hidden" onchange="updateFileChips(this,'chips-sr')" />
+              <div id="chips-sr" class="flex flex-wrap gap-1.5 mt-2"></div>
+            </div>
+            <div class="flex items-center gap-3">
+              <button type="submit"
+                      class="inline-flex items-center gap-2 px-5 py-2.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
+                <span id="sr-spinner" class="htmx-indicator">
+                  <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                  </svg>
+                </span>
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
+                Generate Report
+              </button>
+              <span class="text-xs text-gray-400">Typically 20–40 seconds for a full report</span>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Estate Digest form -->
+      <div id="rform-digest" class="hidden">
+        <div class="bg-white rounded-xl border border-gray-200 p-5">
+          <div class="mb-4">
+            <h3 class="text-sm font-semibold text-gray-900">Estate Digest</h3>
+            <p class="text-xs text-gray-500 mt-0.5">AI pulls live activity from your estate records — tasks, work orders, issues, spend, staff — and writes a narrative owner summary.</p>
+          </div>
+          <form hx-post="/ai/estate-digest"
+                hx-target="#report-output"
+                hx-swap="innerHTML"
+                hx-indicator="#ed-spinner"
+                hx-encoding="multipart/form-data"
+                hx-on::after-request="scrollToReport(); renderMarkdown()"
+                class="space-y-4">
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Period</label>
+                <select name="period" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                  <option value="this_week">This Week</option>
+                  <option value="last_7">Last 7 Days</option>
+                  <option value="last_week">Last Week</option>
+                  <option value="this_month">This Month</option>
+                  <option value="last_30">Last 30 Days</option>
+                  <option value="last_month">Last Month</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Scope</label>
+                <select name="property_slug" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                  <option value="">All Properties</option>
+                  {% for p in properties %}
+                  <option value="{{ p.slug }}">{{ p.name }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
+
+            <!-- Context preview -->
+            <div class="bg-gray-50 rounded-lg px-4 py-3 text-xs text-gray-500 space-y-0.5">
+              <div class="font-semibold text-gray-600 mb-1">What gets pulled from your estate records:</div>
+              <div class="grid grid-cols-2 gap-x-4">
+                <span>✓ Tasks completed &amp; overdue</span>
+                <span>✓ Work orders &amp; vendors on site</span>
+                <span>✓ Issues opened &amp; resolved</span>
+                <span>✓ Spend by category</span>
+                <span>✓ Staff activity</span>
+                <span>✓ Upcoming deadlines (14 days)</span>
+              </div>
+            </div>
+
+            <!-- Optional file attachments -->
+            <div>
+              <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Additional Context <span class="font-normal text-gray-400 normal-case">(optional — attach notes, photos, or documents)</span></label>
+              <label for="files-ed" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+                </svg>
+                Choose files
+              </label>
+              <input type="file" id="files-ed" name="files" multiple
+                     accept=".txt,.md,.csv,.json,.jpg,.jpeg,.png,.gif,.webp,.pdf"
+                     class="hidden" onchange="updateFileChips(this,'chips-ed')" />
+              <div id="chips-ed" class="flex flex-wrap gap-1.5 mt-2"></div>
+            </div>
+            <div class="flex items-center gap-3">
+              <button type="submit"
+                      class="inline-flex items-center gap-2 px-5 py-2.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
+                <span id="ed-spinner" class="htmx-indicator">
+                  <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                  </svg>
+                </span>
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/>
+                </svg>
+                Generate Digest
+              </button>
+              <span class="text-xs text-gray-400">Pulls live data from your estate records</span>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Report output area (populated by HTMX) -->
+      <div id="report-output"></div>
+
+    </div><!-- /aipanel-report -->
+
+  </div><!-- /flex-1 -->
+
+
+  <!-- Right: settings panel (Chat only) -->
+  <div id="ai-settings" class="w-56 flex-shrink-0 space-y-4">
+
+    <!-- Role selector -->
+    <div class="bg-white rounded-xl border border-gray-200 p-4">
+      <div class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Advisor Role</div>
+      <div class="space-y-1">
+        {% for value, label in roles %}
+        <button onclick="setRole('{{ value }}')"
+                id="role-btn-{{ value or 'auto' }}"
+                class="w-full text-left px-3 py-2 text-xs rounded-lg transition-colors
+                       {% if loop.first %}bg-brand-50 text-brand-700 font-medium{% else %}text-gray-600 hover:bg-gray-50{% endif %}">
+          {% if not value %}<span class="text-gray-400">✦</span> {% endif %}{{ label }}
+        </button>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Property filter -->
+    <div class="bg-white rounded-xl border border-gray-200 p-4">
+      <div class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Scope</div>
+      <select onchange="setProperty(this.value)"
+              class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-brand-500">
+        <option value="">All properties</option>
+        {% for p in properties %}
+        <option value="{{ p.slug }}">{{ p.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <!-- Tips -->
+    <div class="bg-gray-50 rounded-xl border border-gray-100 p-4">
+      <div class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Tips</div>
+      <ul class="space-y-2 text-xs text-gray-500">
+        <li class="flex items-start gap-1.5"><span class="text-brand-400 mt-0.5">↵</span> Enter to send, Shift+Enter for new line</li>
+        <li class="flex items-start gap-1.5"><span class="text-brand-400 mt-0.5">✦</span> Auto-route picks the best advisor for your question</li>
+        <li class="flex items-start gap-1.5"><span class="text-brand-400 mt-0.5">◎</span> Scope to a property for more specific answers</li>
+      </ul>
+    </div>
+
+  </div><!-- /ai-settings -->
+
+</div><!-- /flex gap-5 -->
+
+<script>
+let activeRole = '';
+
+// ── Chat ──────────────────────────────────────────────────────────────────
+function setQuery(text) {
+  document.getElementById('query-input').value = text;
+  document.getElementById('query-input').focus();
+}
+
+function clearInput() {
+  document.getElementById('query-input').value = '';
+  const fileInput = document.getElementById('files-chat');
+  if (fileInput) { fileInput.value = ''; }
+  const chips = document.getElementById('chips-chat');
+  if (chips) chips.innerHTML = '';
+  const conv = document.getElementById('conversation');
+  if (conv) conv.scrollTop = conv.scrollHeight;
+}
+
+function setRole(value) {
+  activeRole = value;
+  document.getElementById('role-input').value = value;
+  document.querySelectorAll('[id^="role-btn-"]').forEach(btn => {
+    btn.classList.remove('bg-brand-50', 'text-brand-700', 'font-medium');
+    btn.classList.add('text-gray-600', 'hover:bg-gray-50');
+  });
+  const btn = document.getElementById('role-btn-' + (value || 'auto'));
+  if (btn) {
+    btn.classList.add('bg-brand-50', 'text-brand-700', 'font-medium');
+    btn.classList.remove('text-gray-600', 'hover:bg-gray-50');
+  }
+}
+
+function setProperty(value) {
+  document.getElementById('property-input').value = value;
+}
+
+// ── Tab switching ──────────────────────────────────────────────────────────
+function switchAITab(tab) {
+  ['chat', 'report'].forEach(t => {
+    document.getElementById('aipanel-' + t)?.classList.add('hidden');
+    const btn = document.getElementById('aitab-' + t);
+    if (btn) {
+      btn.classList.remove('bg-white', 'text-gray-900', 'shadow-sm');
+      btn.classList.add('text-gray-500', 'hover:text-gray-700');
+    }
+  });
+  document.getElementById('aipanel-' + tab)?.classList.remove('hidden');
+  const active = document.getElementById('aitab-' + tab);
+  if (active) {
+    active.classList.add('bg-white', 'text-gray-900', 'shadow-sm');
+    active.classList.remove('text-gray-500', 'hover:text-gray-700');
+  }
+  // Settings panel only relevant for chat
+  const settings = document.getElementById('ai-settings');
+  if (settings) settings.classList.toggle('hidden', tab !== 'chat');
+}
+
+// ── Report mode switching ─────────────────────────────────────────────────
+function switchReportMode(mode) {
+  ['situation', 'digest'].forEach(m => {
+    document.getElementById('rform-' + m)?.classList.add('hidden');
+    const btn = document.getElementById('rmode-' + m);
+    if (btn) {
+      btn.classList.remove('bg-white', 'text-gray-900', 'shadow-sm');
+      btn.classList.add('text-gray-500', 'hover:text-gray-700');
+    }
+  });
+  document.getElementById('rform-' + mode)?.classList.remove('hidden');
+  const active = document.getElementById('rmode-' + mode);
+  if (active) {
+    active.classList.add('bg-white', 'text-gray-900', 'shadow-sm');
+    active.classList.remove('text-gray-500', 'hover:text-gray-700');
+  }
+  // Clear previous report output when switching modes
+  const out = document.getElementById('report-output');
+  if (out) out.innerHTML = '';
+}
+
+// ── Report rendering ──────────────────────────────────────────────────────
+function scrollToReport() {
+  const el = document.getElementById('report-output');
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function renderMarkdown() {
+  if (typeof marked === 'undefined') return;
+  document.querySelectorAll('[data-markdown]').forEach(el => {
+    el.innerHTML = marked.parse(el.textContent || '');
+    el.removeAttribute('data-markdown');
+  });
+}
+
+// ── File attachment chip management ──────────────────────────────────────────
+function updateFileChips(input, chipsId) {
+  const container = document.getElementById(chipsId);
+  if (!container) return;
+  container.innerHTML = '';
+  Array.from(input.files).forEach((file, i) => {
+    const chip = document.createElement('span');
+    chip.className = 'inline-flex items-center gap-1 pl-2 pr-1 py-0.5 text-xs bg-brand-50 text-brand-700 border border-brand-200 rounded-full';
+    const isImage = file.type.startsWith('image/');
+    const isPdf = file.type === 'application/pdf';
+    const icon = isImage ? '🖼' : isPdf ? '📄' : '📎';
+    chip.innerHTML = `<span>${icon} ${file.name}</span><button type="button" onclick="removeFile('${input.id}',${i},'${chipsId}')" class="ml-0.5 text-brand-400 hover:text-red-500 font-bold leading-none">×</button>`;
+    container.appendChild(chip);
+  });
+}
+
+function removeFile(inputId, index, chipsId) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  const dt = new DataTransfer();
+  Array.from(input.files).forEach((f, i) => { if (i !== index) dt.items.add(f); });
+  input.files = dt.files;
+  updateFileChips(input, chipsId);
+}
+</script>
+
+{% endblock %}

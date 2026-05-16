@@ -62,33 +62,6 @@ def create_work_order(
     return templates.TemplateResponse(request, "work_orders.html", _ctx(db))
 
 
-@router.post("/{slug}/generate-report", response_class=HTMLResponse)
-def generate_report(request: Request, slug: str, db: Session = Depends(get_db)):
-    wo = wo_svc.get_work_order(db, slug)
-    try:
-        from mihomes.services.ai.orchestrator import ask
-        prompt = (
-            f"Generate a detailed estate manager report for work order: '{wo.title}'.\n"
-            f"Property: {wo.property.name if wo.property else 'Unknown'}\n"
-            f"Status: {wo.status.value}\n"
-            f"Description: {wo.description or 'None provided'}\n"
-            f"Vendor: {wo.vendor.company_name if wo.vendor else 'None assigned'}\n"
-            f"Estimated cost: {('$' + '{:,.2f}'.format(wo.estimated_cost)) if wo.estimated_cost else 'N/A'}\n"
-            f"Actual cost: {('$' + '{:,.2f}'.format(wo.actual_cost)) if wo.actual_cost else 'N/A'}\n"
-            f"Completion notes: {wo.completion_notes or 'None'}\n\n"
-            "Write a thorough report covering: work scope, vendor performance, cost analysis, "
-            "quality of work, any issues encountered, and recommendations for the homeowner. "
-            "Be specific and professional."
-        )
-        response = ask(db, prompt, role="maintenance")
-        wo.ai_report = response.text
-        db.flush()
-    except Exception as e:
-        wo.ai_report = f"[Report generation failed: {e}]"
-        db.flush()
-    return templates.TemplateResponse(request, "partials/wo_report.html", {"wo": wo})
-
-
 @router.post("/{slug}/notes", response_class=HTMLResponse)
 def add_note(request: Request, slug: str, content: str = Form(...), db: Session = Depends(get_db)):
     note_svc.add_note(db, f"workorder:{slug}", content)

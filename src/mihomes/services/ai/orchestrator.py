@@ -1,9 +1,12 @@
 """AI orchestrator — central coordinator for AI advisory."""
 
+from __future__ import annotations
+
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session
 
@@ -13,6 +16,9 @@ from mihomes.services.ai.ai_config import get_ai_api_key, get_ai_model, get_ai_p
 from mihomes.services.ai.context import assemble_context
 from mihomes.services.ai.provider import AIProvider, get_provider
 from mihomes.services.ai.roles import ROLES, route_query
+
+if TYPE_CHECKING:
+    from mihomes.services.ai.file_processor import Attachment
 
 SESSION_FILE = MIHOMES_DIR / "current_ai_session"
 SESSION_TIMEOUT_MINUTES = 30
@@ -34,6 +40,7 @@ def ask(
     role: str | None = None,
     property_slug: str | None = None,
     continue_session: bool = False,
+    attachments: list[Attachment] | None = None,
 ) -> AIResponse:
     """Process an AI ask query.
 
@@ -79,7 +86,7 @@ def ask(
         system_prompt = primary_role.system_prompt
 
     # Call AI
-    response_text = provider.complete(system_prompt, query, context_data=context)
+    response_text = provider.complete(system_prompt, query, context_data=context, attachments=attachments)
 
     # Store conversation
     convo = AIConversation(

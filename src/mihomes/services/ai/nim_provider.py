@@ -46,11 +46,15 @@ class NIMProvider:
         system_prompt: str,
         user_message: str,
         context_data: str | None = None,
+        attachments=None,
     ) -> str:
         """Send a completion request to NVIDIA NIM."""
         message_content = user_message
+        if attachments:
+            from mihomes.services.ai.file_processor import attachments_to_text_block
+            message_content = attachments_to_text_block(attachments) + "\n\n" + message_content
         if context_data:
-            message_content = f"{user_message}\n\n<estate_data>\n{context_data}\n</estate_data>"
+            message_content = f"{message_content}\n\n<estate_data>\n{context_data}\n</estate_data>"
 
         try:
             response = self.client.chat.completions.create(

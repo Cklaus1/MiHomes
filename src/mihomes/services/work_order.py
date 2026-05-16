@@ -152,7 +152,9 @@ def complete(
         add_transaction(
             session, cost, str(wo.property_id), "maintenance",
             date.today(), vendor_id_or_slug=str(wo.vendor_id) if wo.vendor_id else None,
+            vendor_name=wo.vendor_name if not wo.vendor_id else None,
             description=f"Work order: {wo.title}", source="work_order",
+            work_order_id=wo.id,
         )
 
     new_snap = snapshot_instance(wo)

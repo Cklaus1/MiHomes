@@ -1,11 +1,17 @@
 """Claude AI provider implementation."""
 
+from __future__ import annotations
+
 import json
 import os
+from typing import TYPE_CHECKING
 
 import anthropic
 
 from mihomes.services.ai.provider import AIAuthError, AIProviderError, AIRateLimitError
+
+if TYPE_CHECKING:
+    from mihomes.services.ai.file_processor import Attachment
 
 
 class ClaudeProvider:
@@ -26,18 +32,41 @@ class ClaudeProvider:
         system_prompt: str,
         user_message: str,
         context_data: str | None = None,
+        attachments: list[Attachment] | None = None,
     ) -> str:
-        """Send a completion request to Claude."""
-        message_content = user_message
+        """Send a completion request to Claude, with optional file attachments."""
+        text = user_message
         if context_data:
-            message_content = f"{user_message}\n\n<estate_data>\n{context_data}\n</estate_data>"
+            text = f"{text}\n\n<estate_data>\n{context_data}\n</estate_data>"
+
+        if attachments:
+            content: list[dict] = []
+            for att in attachments:
+                if att.is_image:
+                    content.append({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": att.media_type,
+                            "data": att.base64_data,
+                        },
+                    })
+                    content.append({"type": "text", "text": f"[Image: {att.filename}]"})
+                elif att.text_content:
+                    content.append({
+                        "type": "text",
+                        "text": f"--- Attached file: {att.filename} ---\n{att.text_content}\n---",
+                    })
+            content.append({"type": "text", "text": text})
+        else:
+            content = text  # type: ignore[assignment]
 
         try:
             response = self.client.messages.create(
                 model=self.model,
                 max_tokens=4096,
                 system=system_prompt,
-                messages=[{"role": "user", "content": message_content}],
+                messages=[{"role": "user", "content": content}],
             )
             return response.content[0].text
         except anthropic.AuthenticationError as e:

@@ -1,5 +1,6 @@
 """Budget & finance routes."""
 
+import json
 from datetime import date
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Session
 from mihomes.models.budget import BudgetPeriod
 from mihomes.models.recurring_expense import ExpenseFrequency
 from mihomes.services import budget as budget_svc
+from mihomes.services import financial_report as report_svc
 from mihomes.services import note as note_svc
 from mihomes.services import property as prop_svc
 from mihomes.services import recurring as recurring_svc
@@ -16,6 +18,24 @@ from mihomes.services import vendor as vendor_svc
 from mihomes.web.deps import get_db, templates
 
 router = APIRouter()
+
+CHART_COLORS = [
+    "#0ea5e9", "#10b981", "#f59e0b", "#8b5cf6",
+    "#ef4444", "#06b6d4", "#84cc16", "#f97316",
+    "#ec4899", "#6366f1",
+]
+
+
+def _make_chart(labels: list, values: list, label: str = "Spending") -> str:
+    return json.dumps({
+        "labels": labels,
+        "datasets": [{
+            "label": label,
+            "data": values,
+            "backgroundColor": CHART_COLORS[: len(values)],
+            "borderRadius": 4,
+        }],
+    })
 
 
 def _ctx(db: Session, active_tab: str = "overview") -> dict:
@@ -35,6 +55,38 @@ def _ctx(db: Session, active_tab: str = "overview") -> dict:
             pass
     transactions = budget_svc.list_transactions(db)
     expenses = recurring_svc.list_recurring_expenses(db, active_only=False)
+
+    # Spending analysis — current year to date
+    year_start = date(today.year, 1, 1)
+    comparison_data = report_svc.property_comparison(db, year_start, today)
+    comparison_chart = _make_chart(
+        [d["property"] for d in comparison_data],
+        [d["total_spending"] for d in comparison_data],
+        "Total Spending",
+    ) if comparison_data else "{}"
+
+    analysis_prop = properties[0] if properties else None
+    category_data: list = []
+    category_chart = "{}"
+    vendor_data: list = []
+    vendor_chart = "{}"
+    if analysis_prop:
+        try:
+            category_data = report_svc.spending_by_category(db, str(analysis_prop.id), year_start, today)
+            if category_data:
+                category_chart = _make_chart(
+                    [d["category"].replace("-", " ").title() for d in category_data],
+                    [d["total"] for d in category_data],
+                )
+            vendor_data = report_svc.spending_by_vendor(db, str(analysis_prop.id), year_start, today)
+            if vendor_data:
+                vendor_chart = _make_chart(
+                    [d["vendor"] for d in vendor_data],
+                    [d["total"] for d in vendor_data],
+                )
+        except Exception:
+            pass
+
     return {
         "page": "budget",
         "active_tab": active_tab,
@@ -46,6 +98,14 @@ def _ctx(db: Session, active_tab: str = "overview") -> dict:
         "vendors": vendor_svc.list_vendors(db),
         "frequencies": [f.value for f in ExpenseFrequency],
         "notes_map": {e.id: note_svc.list_notes(db, f"recurring:{e.id}") for e in expenses},
+        "comparison_data": comparison_data,
+        "comparison_chart": comparison_chart,
+        "category_data": category_data,
+        "category_chart": category_chart,
+        "vendor_data": vendor_data,
+        "vendor_chart": vendor_chart,
+        "analysis_prop": analysis_prop,
+        "analysis_year": today.year,
     }
 
 

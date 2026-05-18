@@ -1,7 +1,17 @@
 {% extends "base.html" %}
-{% block title %}Assets & Inventory — MiHomes{% endblock %}
-{% block heading %}Assets & Inventory{% endblock %}
-{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ assets|length }} asset{{ 's' if assets|length != 1 else '' }} tracked</p>{% endblock %}
+{% block title %}{{ space.name if space else 'Unassigned' }} — {{ prop.name }} — MiHomes{% endblock %}
+{% block heading %}{{ space.name if space else 'Unassigned' }}{% endblock %}
+{% block subheading %}
+<div class="flex items-center gap-1.5 text-sm text-gray-500 mt-0.5">
+  <a href="/assets" class="hover:text-brand-600 transition-colors">Assets</a>
+  <svg class="w-3.5 h-3.5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+  <a href="/assets/{{ prop.slug }}" class="hover:text-brand-600 transition-colors">{{ prop.name }}</a>
+  <svg class="w-3.5 h-3.5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+  <span class="text-gray-900 font-medium">{{ space.name if space else 'Unassigned' }}</span>
+  <span class="text-gray-300">·</span>
+  <span>{{ assets|length }} asset{{ 's' if assets|length != 1 else '' }}</span>
+</div>
+{% endblock %}
 
 {% block actions %}
 <button onclick="document.getElementById('add-asset-modal').classList.remove('hidden')"
@@ -18,8 +28,8 @@
 {% if all_assets %}
 <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
   {% for type_val, label in [('appliance','Appliances'),('vehicle','Vehicles'),('valuable','Valuables'),('equipment','Equipment'),('consumable','Consumables')] %}
-  {% set count = all_assets | selectattr('asset_type', 'equalto', type_val) | list | length %}
-  <a href="{% if filter_type == type_val %}/assets{% else %}/assets?asset_type={{ type_val }}{% endif %}"
+  {% set count = assets | selectattr('asset_type', 'equalto', type_val) | list | length %}
+  <a href="{% if filter_type == type_val %}/assets/{{ prop.slug }}/{{ space_slug }}{% else %}/assets/{{ prop.slug }}/{{ space_slug }}?asset_type={{ type_val }}{% endif %}"
      class="block rounded-xl border px-4 py-3 text-center transition-all hover:shadow-sm
             {% if filter_type == type_val %}bg-brand-50 border-brand-400{% else %}bg-white border-gray-200 hover:border-brand-300{% endif %}">
     <div class="text-xl">{{ type_icons.get(type_val,'📦') }}</div>
@@ -28,14 +38,15 @@
   </a>
   {% endfor %}
 </div>
+{% endif %}
 
+{% if assets %}
 <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
   <table class="w-full text-sm">
     <thead>
       <tr class="border-b border-gray-100 bg-gray-50">
         <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Asset</th>
         <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Type</th>
-        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Property</th>
         <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Make / Model</th>
         <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Purchase</th>
         <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Warranty</th>
@@ -47,7 +58,6 @@
       <tr class="hover:bg-gray-50 cursor-pointer transition-colors" onclick="openModal('asset-modal-{{ asset.id }}')">
         <td class="px-4 py-3"><div class="font-medium text-gray-900">{{ asset.name }}</div>{% if asset.serial_number %}<div class="text-xs text-gray-400 font-mono">S/N: {{ asset.serial_number }}</div>{% endif %}</td>
         <td class="px-4 py-3"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-600 font-medium capitalize">{{ type_icons.get(asset.asset_type.value,'📦') }} {{ asset.asset_type.value }}</span></td>
-        <td class="px-4 py-3 text-gray-600">{{ asset.property.name if asset.property else '—' }}</td>
         <td class="px-4 py-3 text-gray-600 hidden md:table-cell">{% if asset.make or asset.model_name %}{{ asset.make or '' }}{% if asset.make and asset.model_name %} {% endif %}{{ asset.model_name or '' }}{% else %}—{% endif %}</td>
         <td class="px-4 py-3 text-gray-600 hidden lg:table-cell">{% if asset.purchase_date %}<div>{{ asset.purchase_date.strftime('%b %Y') }}</div>{% if asset.purchase_price %}<div class="text-xs text-gray-400">${{ '{:,.0f}'.format(asset.purchase_price) }}</div>{% endif %}{% else %}—{% endif %}</td>
         <td class="px-4 py-3 hidden lg:table-cell">{% if asset.warranty_expires %}<span class="text-xs {% if asset.warranty_expires.year < 2027 %}text-red-600 font-medium{% else %}text-gray-500{% endif %}">{{ asset.warranty_expires.strftime('%b %d, %Y') }}</span>{% else %}<span class="text-gray-400 text-xs">—</span>{% endif %}</td>
@@ -60,7 +70,7 @@
 {% else %}
 <div class="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center">
   <div class="text-3xl mb-2">🔧</div>
-  <div class="text-gray-500 font-medium">No assets tracked yet</div>
+  <div class="text-gray-500 font-medium">No assets in this space yet</div>
   <button onclick="document.getElementById('add-asset-modal').classList.remove('hidden')" class="mt-3 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Add First Asset</button>
 </div>
 {% endif %}
@@ -73,6 +83,12 @@
       <button onclick="document.getElementById('add-asset-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
     </div>
     <form hx-post="/assets/" hx-target="body" hx-swap="innerHTML" class="space-y-4">
+      <input type="hidden" name="from_property" value="{{ prop.slug }}">
+      <input type="hidden" name="from_space" value="{{ space_slug }}">
+      <input type="hidden" name="property_slug" value="{{ prop.slug }}">
+      {% if space and space_slug != 'unassigned' %}
+      <input type="hidden" name="space_slug" value="{{ space_slug }}">
+      {% endif %}
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-1">Name <span class="text-red-500">*</span></label>
         <input type="text" name="name" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
@@ -91,13 +107,15 @@
           </select>
         </div>
       </div>
+      {% if not space or space_slug == 'unassigned' %}
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Property <span class="text-red-500">*</span></label>
-        <select name="property_slug" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
-          <option value="">Select property…</option>
-          {% for p in properties %}<option value="{{ p.slug }}">{{ p.name }}</option>{% endfor %}
+        <label class="block text-sm font-medium text-gray-700 mb-1">Room</label>
+        <select name="space_slug" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          <option value="">No room</option>
+          {% for s in spaces %}<option value="{{ s.slug }}">{{ s.name }}</option>{% endfor %}
         </select>
       </div>
+      {% endif %}
       <div class="grid grid-cols-2 gap-3">
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Make</label>
@@ -133,11 +151,15 @@
     <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
       <div>
         <h2 class="text-lg font-bold text-gray-900">{{ asset.name }}</h2>
-        <p class="text-xs text-gray-500 mt-0.5 capitalize">{{ asset.asset_type.value }} · {{ asset.property.name if asset.property else '' }}</p>
+        <p class="text-xs text-gray-500 mt-0.5 capitalize">{{ asset.asset_type.value }}{% if space %} · {{ space.name }}{% endif %}</p>
       </div>
       <div class="flex items-center gap-2">
         <span class="px-2.5 py-1 rounded-full text-xs font-medium capitalize {{ condition_colors.get(asset.condition.value,'bg-gray-100 text-gray-600') }}">{{ asset.condition.value }}</span>
-        <button hx-post="/assets/{{ asset.slug }}/delete" hx-target="body" hx-swap="innerHTML" hx-confirm="Delete this asset?" class="text-gray-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
+        <form hx-post="/assets/{{ asset.slug }}/delete" hx-target="body" hx-swap="innerHTML" hx-confirm="Delete this asset?" class="inline">
+          <input type="hidden" name="from_property" value="{{ prop.slug }}">
+          <input type="hidden" name="from_space" value="{{ space_slug }}">
+          <button type="submit" class="text-gray-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
+        </form>
         <button onclick="closeModal('asset-modal-{{ asset.id }}')" class="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
       </div>
     </div>
@@ -155,10 +177,7 @@
 
       <!-- Details tab -->
       <div id="asset-panel-{{ asset.id }}-details" class="px-6 py-5">
-
-        <!-- View div -->
         <div id="asset-view-{{ asset.id }}">
-          <!-- Read-only metadata grid -->
           <div class="grid grid-cols-2 gap-3 mb-3">
             <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Make</div><div class="font-medium text-sm text-gray-800">{{ asset.make or '—' }}</div></div>
             <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Model</div><div class="font-medium text-sm text-gray-800">{{ asset.model_name or '—' }}</div></div>
@@ -183,9 +202,10 @@
           </div>
         </div>
 
-        <!-- Edit div -->
         <div id="asset-edit-{{ asset.id }}" class="hidden">
           <form hx-post="/assets/{{ asset.slug }}/edit" hx-target="body" hx-swap="innerHTML">
+            <input type="hidden" name="from_property" value="{{ prop.slug }}">
+            <input type="hidden" name="from_space" value="{{ space_slug }}">
             <div class="mb-4">
               <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Name</div>
               <input type="text" name="name" value="{{ asset.name }}" required
@@ -215,38 +235,32 @@
               </div>
               <div>
                 <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Purchase Date</div>
-                <input type="date" name="purchase_date"
-                       value="{{ asset.purchase_date.isoformat() if asset.purchase_date else '' }}"
+                <input type="date" name="purchase_date" value="{{ asset.purchase_date.isoformat() if asset.purchase_date else '' }}"
                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
               <div>
                 <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Purchase Price ($)</div>
-                <input type="number" name="purchase_price" step="0.01" min="0"
-                       value="{{ asset.purchase_price or '' }}"
+                <input type="number" name="purchase_price" step="0.01" min="0" value="{{ asset.purchase_price or '' }}"
                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
               <div>
                 <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Warranty Expires</div>
-                <input type="date" name="warranty_expires"
-                       value="{{ asset.warranty_expires.isoformat() if asset.warranty_expires else '' }}"
+                <input type="date" name="warranty_expires" value="{{ asset.warranty_expires.isoformat() if asset.warranty_expires else '' }}"
                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
               <div>
                 <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Last Serviced</div>
-                <input type="date" name="last_serviced"
-                       value="{{ asset.last_serviced.isoformat() if asset.last_serviced else '' }}"
+                <input type="date" name="last_serviced" value="{{ asset.last_serviced.isoformat() if asset.last_serviced else '' }}"
                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
               <div>
-                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Expected Lifespan (years)</div>
-                <input type="number" name="expected_lifespan_years" step="1" min="0"
-                       value="{{ asset.expected_lifespan_years|int if asset.expected_lifespan_years else '' }}"
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Expected Lifespan (yrs)</div>
+                <input type="number" name="expected_lifespan_years" step="1" min="0" value="{{ asset.expected_lifespan_years|int if asset.expected_lifespan_years else '' }}"
                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
               <div>
                 <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Replacement Est. ($)</div>
-                <input type="number" name="replacement_cost_estimate" step="1" min="0"
-                       value="{{ asset.replacement_cost_estimate|int if asset.replacement_cost_estimate else '' }}"
+                <input type="number" name="replacement_cost_estimate" step="1" min="0" value="{{ asset.replacement_cost_estimate|int if asset.replacement_cost_estimate else '' }}"
                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
             </div>
@@ -264,7 +278,6 @@
             </div>
           </form>
         </div>
-
       </div>
 
       <!-- Notes tab -->
@@ -286,7 +299,7 @@
 function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
 function switchTab(prefix, entityId, tab) {
-  ['details','notes','documents','report'].forEach(t => {
+  ['details','notes'].forEach(t => {
     document.getElementById(prefix+'-panel-'+entityId+'-'+t)?.classList.add('hidden');
     const btn = document.getElementById(prefix+'-tab-'+entityId+'-'+t);
     if (btn) { btn.classList.remove('border-brand-500','text-brand-600'); btn.classList.add('border-transparent','text-gray-500'); }

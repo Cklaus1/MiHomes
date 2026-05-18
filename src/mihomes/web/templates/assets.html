@@ -14,16 +14,40 @@
 {% endblock %}
 
 {% block actions %}
-<button onclick="document.getElementById('add-asset-modal').classList.remove('hidden')"
-        class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
-  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-  Add Asset
-</button>
+<div id="tab-actions-assets" {% if active_tab == 'books' %}class="hidden"{% endif %}>
+  <button onclick="document.getElementById('add-asset-modal').classList.remove('hidden')"
+          class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+    Add Asset
+  </button>
+</div>
+<div id="tab-actions-books" {% if active_tab != 'books' %}class="hidden"{% endif %}>
+  <button onclick="document.getElementById('add-book-modal').classList.remove('hidden')"
+          class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+    Add Book
+  </button>
+</div>
 {% endblock %}
 
 {% block content %}
-{% set condition_colors = {'excellent':'bg-emerald-100 text-emerald-700','good':'bg-blue-100 text-blue-700','fair':'bg-amber-100 text-amber-700','poor':'bg-red-100 text-red-700'} %}
+{% set condition_colors = {'excellent':'bg-emerald-100 text-emerald-700','good':'bg-blue-100 text-blue-700','fair':'bg-amber-100 text-amber-700','poor':'bg-red-100 text-red-700','damaged':'bg-red-100 text-red-700'} %}
 {% set type_icons = {'appliance':'🔌','vehicle':'🚗','valuable':'💎','consumable':'📦','equipment':'🔧'} %}
+
+<!-- Tab bar -->
+<div class="flex gap-1 mb-5 border-b border-gray-200">
+  <button id="tab-btn-assets" onclick="switchSpaceTab('assets')"
+          class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if active_tab != 'books' %}border-brand-500 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
+    Assets <span class="ml-1 px-1.5 py-0.5 rounded-full text-xs bg-gray-100 text-gray-500">{{ assets|length }}</span>
+  </button>
+  <button id="tab-btn-books" onclick="switchSpaceTab('books')"
+          class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if active_tab == 'books' %}border-brand-500 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
+    Books <span class="ml-1 px-1.5 py-0.5 rounded-full text-xs bg-gray-100 text-gray-500">{{ books|length }}</span>
+  </button>
+</div>
+
+<!-- Assets panel -->
+<div id="panel-assets" {% if active_tab == 'books' %}class="hidden"{% endif %}>
 
 {% if all_assets %}
 <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
@@ -74,6 +98,45 @@
   <button onclick="document.getElementById('add-asset-modal').classList.remove('hidden')" class="mt-3 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Add First Asset</button>
 </div>
 {% endif %}
+
+</div><!-- /panel-assets -->
+
+<!-- Books panel -->
+<div id="panel-books" {% if active_tab != 'books' %}class="hidden"{% endif %}>
+{% if books %}
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="border-b border-gray-100 bg-gray-50">
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Title</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">Author</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Genre</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Location</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Condition</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-50">
+      {% for book in books %}
+      <tr class="hover:bg-gray-50 cursor-pointer transition-colors" onclick="openModal('book-modal-{{ book.id }}')">
+        <td class="px-4 py-3"><div class="font-medium text-gray-900">{{ book.title }}</div>{% if book.isbn %}<div class="text-xs text-gray-400 font-mono">ISBN: {{ book.isbn }}</div>{% endif %}</td>
+        <td class="px-4 py-3 text-gray-600 hidden sm:table-cell">{{ book.author or '—' }}</td>
+        <td class="px-4 py-3 text-gray-500 hidden md:table-cell">{{ book.genre or '—' }}</td>
+        <td class="px-4 py-3 text-gray-600 text-sm">{{ book.space.name if book.space else '—' }}</td>
+        <td class="px-4 py-3"><span class="px-2 py-0.5 rounded-full text-xs font-medium capitalize {{ condition_colors.get(book.condition.value,'bg-gray-100 text-gray-600') }}">{{ book.condition.value }}</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center">
+  <div class="text-3xl mb-2">📚</div>
+  <div class="text-gray-500 font-medium">No books recorded in this space yet</div>
+  <button onclick="switchSpaceTab('books'); document.getElementById('add-book-modal').classList.remove('hidden')"
+          class="mt-3 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Add First Book</button>
+</div>
+{% endif %}
+</div><!-- /panel-books -->
 
 <!-- Add Asset modal -->
 <div id="add-asset-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onclick="if(event.target===this)this.classList.add('hidden')">
@@ -142,8 +205,144 @@
   </div>
 </div>
 
-<!-- Detail modals -->
+<!-- Add Book modal -->
+<div id="add-book-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onclick="if(event.target===this)this.classList.add('hidden')">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="text-lg font-semibold text-gray-900">Add Book</h2>
+      <button onclick="document.getElementById('add-book-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+    </div>
+    <form hx-post="/books/" hx-target="body" hx-swap="innerHTML" class="space-y-4">
+      <input type="hidden" name="from_property" value="{{ prop.slug }}">
+      <input type="hidden" name="from_space" value="{{ space_slug }}">
+      <input type="hidden" name="property_slug" value="{{ prop.slug }}">
+      {% if space and space_slug != 'unassigned' %}
+      <input type="hidden" name="space_slug" value="{{ space_slug }}">
+      {% endif %}
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Title <span class="text-red-500">*</span></label>
+        <input type="text" name="title" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Author</label>
+          <input type="text" name="author" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Genre</label>
+          <input type="text" name="genre" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">ISBN</label>
+          <input type="text" name="isbn" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Condition</label>
+          <select name="condition" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+            {% for c in book_conditions %}<option value="{{ c }}" {% if c == 'good' %}selected{% endif %}>{{ c | capitalize }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      {% if not space or space_slug == 'unassigned' %}
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Room</label>
+        <select name="space_slug" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          <option value="">No room assigned</option>
+          {% for s in spaces %}<option value="{{ s.slug }}">{{ s.name }}</option>{% endfor %}
+        </select>
+      </div>
+      {% endif %}
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+        <textarea name="notes" rows="2" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"></textarea>
+      </div>
+      <div class="flex gap-3 pt-1">
+        <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Add Book</button>
+        <button type="button" onclick="document.getElementById('add-book-modal').classList.add('hidden')" class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-50">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Book detail modals -->
+{% for book in books %}
+<div id="book-modal-{{ book.id }}" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onclick="if(event.target===this)closeModal('book-modal-{{ book.id }}')">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] flex flex-col" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
+      <div>
+        <h2 class="text-lg font-bold text-gray-900">{{ book.title }}</h2>
+        <p class="text-xs text-gray-500 mt-0.5">{{ book.author or 'Unknown author' }}{% if book.genre %} · {{ book.genre }}{% endif %}</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="px-2.5 py-1 rounded-full text-xs font-medium capitalize {{ condition_colors.get(book.condition.value,'bg-gray-100 text-gray-600') }}">{{ book.condition.value }}</span>
+        <form hx-post="/books/{{ book.slug }}/delete" hx-target="body" hx-swap="innerHTML" hx-confirm="Remove this book?" class="inline">
+          <input type="hidden" name="from_property" value="{{ prop.slug }}">
+          <input type="hidden" name="from_space" value="{{ space_slug }}">
+          <button type="submit" class="text-gray-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
+        </form>
+        <button onclick="closeModal('book-modal-{{ book.id }}')" class="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+      </div>
+    </div>
+    <div class="flex-1 overflow-y-auto px-6 py-5">
+      <div id="book-view-{{ book.id }}">
+        <div class="grid grid-cols-2 gap-3 mb-4">
+          <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Author</div><div class="font-medium text-sm text-gray-800">{{ book.author or '—' }}</div></div>
+          <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Genre</div><div class="font-medium text-sm text-gray-800">{{ book.genre or '—' }}</div></div>
+          <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">ISBN</div><div class="font-mono text-sm text-gray-700">{{ book.isbn or '—' }}</div></div>
+          <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Location</div><div class="font-medium text-sm text-gray-800">{{ book.space.name if book.space else '—' }}</div></div>
+        </div>
+        {% if book.notes %}<div class="mb-4"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Notes</div><div class="text-sm text-gray-700">{{ book.notes }}</div></div>{% endif %}
+        <div class="flex justify-end mt-4 pt-4 border-t border-gray-100">
+          <button type="button" onclick="enterEdit('book','{{ book.id }}')"
+                  class="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+            Edit
+          </button>
+        </div>
+      </div>
+      <div id="book-edit-{{ book.id }}" class="hidden">
+        <form hx-post="/books/{{ book.slug }}/edit" hx-target="body" hx-swap="innerHTML">
+          <input type="hidden" name="from_property" value="{{ prop.slug }}">
+          <input type="hidden" name="from_space" value="{{ space_slug }}">
+          <div class="space-y-3">
+            <div><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Title</div>
+            <input type="text" name="title" value="{{ book.title }}" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" /></div>
+            <div class="grid grid-cols-2 gap-3">
+              <div><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Author</div>
+              <input type="text" name="author" value="{{ book.author or '' }}" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" /></div>
+              <div><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Genre</div>
+              <input type="text" name="genre" value="{{ book.genre or '' }}" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" /></div>
+              <div><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">ISBN</div>
+              <input type="text" name="isbn" value="{{ book.isbn or '' }}" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" /></div>
+              <div><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Condition</div>
+              <select name="condition" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                {% for c in book_conditions %}<option value="{{ c }}" {% if book.condition.value == c %}selected{% endif %}>{{ c | capitalize }}</option>{% endfor %}
+              </select></div>
+            </div>
+            <div><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Room</div>
+            <select name="space_slug" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+              <option value="">No room assigned</option>
+              {% for s in spaces %}<option value="{{ s.slug }}" {% if book.space and book.space.slug == s.slug %}selected{% endif %}>{{ s.name }}</option>{% endfor %}
+            </select></div>
+            <div><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Notes</div>
+            <textarea name="notes" rows="2" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">{{ book.notes or '' }}</textarea></div>
+          </div>
+          <div class="flex justify-end gap-2 mt-4 pt-4 border-t border-gray-100">
+            <button type="button" onclick="exitEdit('book','{{ book.id }}')" class="px-4 py-1.5 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
+            <button type="submit" class="px-4 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg">Save</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+<!-- Asset detail modals -->
 {% for asset in assets %}
+
 {% set a_notes = notes_map.get(asset.id, []) %}
 <div id="asset-modal-{{ asset.id }}" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onclick="if(event.target===this)closeModal('asset-modal-{{ asset.id }}')">
   <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] flex flex-col" onclick="event.stopPropagation()">
@@ -298,6 +497,19 @@
 <script>
 function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+function switchSpaceTab(tab) {
+  ['assets','books'].forEach(t => {
+    document.getElementById('panel-'+t)?.classList.toggle('hidden', t !== tab);
+    document.getElementById('tab-actions-'+t)?.classList.toggle('hidden', t !== tab);
+    const btn = document.getElementById('tab-btn-'+t);
+    if (btn) {
+      btn.classList.toggle('border-brand-500', t === tab);
+      btn.classList.toggle('text-brand-600', t === tab);
+      btn.classList.toggle('border-transparent', t !== tab);
+      btn.classList.toggle('text-gray-500', t !== tab);
+    }
+  });
+}
 function switchTab(prefix, entityId, tab) {
   ['details','notes'].forEach(t => {
     document.getElementById(prefix+'-panel-'+entityId+'-'+t)?.classList.add('hidden');

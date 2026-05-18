@@ -5,7 +5,9 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from mihomes.models.asset import AssetType, AssetCondition
+from mihomes.models.book import BookCondition
 from mihomes.services import asset as asset_svc
+from mihomes.services import book as book_svc
 from mihomes.services import note as note_svc
 from mihomes.services import property as prop_svc
 from mihomes.services import space as space_svc
@@ -59,6 +61,9 @@ def _list_ctx(db: Session, property_slug: str, space_slug: str, asset_type: str 
         assets = [a for a in all_prop_assets if a.space_id == space.id]
     if asset_type:
         assets = [a for a in assets if a.asset_type.value == asset_type]
+    spaces = space_svc.list_spaces(db, property_slug)
+    books = book_svc.list_books(db, property_id_or_slug=property_slug,
+                                space_id_or_slug=None if space_slug == "unassigned" else (space.slug if space else None))
     return {
         "page": "assets",
         "prop": prop,
@@ -67,11 +72,14 @@ def _list_ctx(db: Session, property_slug: str, space_slug: str, asset_type: str 
         "assets": assets,
         "all_assets": all_prop_assets,
         "properties": prop_svc.list_properties(db),
-        "spaces": space_svc.list_spaces(db, property_slug),
+        "spaces": spaces,
         "asset_types": [t.value for t in AssetType],
         "conditions": [c.value for c in AssetCondition],
+        "book_conditions": [c.value for c in BookCondition],
         "notes_map": {a.id: note_svc.list_notes(db, f"asset:{a.id}") for a in assets},
         "filter_type": asset_type,
+        "books": books,
+        "active_tab": "assets",
     }
 
 

@@ -1,5 +1,6 @@
 """Database engine, session management, and initialization."""
 
+import os
 from contextlib import contextmanager
 from typing import Generator
 
@@ -7,7 +8,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from mihomes.config import DB_URL, ensure_dirs
+from mihomes.config import DB_URL, DB_DIR, ensure_dirs
 
 _engine: Engine | None = None
 _SessionLocal: sessionmaker | None = None
@@ -22,11 +23,17 @@ def _set_sqlite_pragmas(dbapi_conn, connection_record):
     cursor.close()
 
 
+def _active_url() -> str:
+    if os.environ.get("MIHOMES_DEMO") == "1":
+        return f"sqlite:///{DB_DIR / 'demo.db'}"
+    return DB_URL
+
+
 def get_engine(url: str | None = None) -> Engine:
     """Get or create the SQLAlchemy engine."""
     global _engine
     if _engine is None or url is not None:
-        _engine = create_engine(url or DB_URL, echo=False)
+        _engine = create_engine(url or _active_url(), echo=False)
     return _engine
 
 

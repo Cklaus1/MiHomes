@@ -14,7 +14,7 @@
       hx-target="#weather-widget"
       hx-swap="outerHTML"
       hx-indicator="#weather-spinner"
-      class="flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:text-brand-700 transition-colors disabled:opacity-50"
+      class="flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:text-brand-700 transition-colors"
     >
       <span id="weather-spinner" class="htmx-indicator">
         <svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -32,8 +32,7 @@
 
   <!-- AI result banner -->
   {% if result %}
-  <div class="px-5 py-3 border-b border-gray-100
-    {% if result.ai_error %}bg-amber-50{% else %}bg-emerald-50{% endif %}">
+  <div class="px-5 py-3 border-b border-gray-100 {% if result.ai_error %}bg-amber-50{% else %}bg-emerald-50{% endif %}">
     {% if result.ai_error %}
     <div class="flex items-start gap-2 text-sm text-amber-800">
       <svg class="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -51,8 +50,7 @@
     <ul class="mt-1 space-y-0.5">
       {% for ps in result.property_summaries %}
       <li class="text-xs text-emerald-700">
-        <span class="font-medium">{{ ps.prop_name }}:</span>
-        {{ ps.tasks | join(', ') }}
+        <span class="font-medium">{{ ps.prop_name }}:</span> {{ ps.tasks | join(', ') }}
       </li>
       {% endfor %}
     </ul>
@@ -61,66 +59,74 @@
   </div>
   {% endif %}
 
-  <!-- Property weather cards -->
-  {% if forecasts %}
+  <!-- Zip code weather groups -->
+  {% if groups %}
   <div class="divide-y divide-gray-50">
-    {% for item in forecasts %}
+    {% for group in groups %}
     <div class="px-5 py-4">
 
-      <!-- Property name + current conditions -->
-      <div class="flex items-start justify-between gap-4 mb-3">
+      <!-- Zip + current conditions row -->
+      <div class="flex items-start justify-between gap-4 mb-2">
         <div class="flex items-center gap-3 min-w-0">
-          <span class="text-3xl leading-none flex-shrink-0">{{ item.icon }}</span>
+          <span class="text-3xl leading-none flex-shrink-0">{{ group.icon }}</span>
           <div class="min-w-0">
-            <div class="font-semibold text-gray-900 text-sm truncate">{{ item.prop.name }}</div>
-            {% if item.forecast %}
-            <div class="text-xs text-gray-500 mt-0.5">{{ item.forecast.current.description }}</div>
+            <div class="font-semibold text-gray-900 text-sm">{{ group.zip }}</div>
+            {% if group.forecast %}
+            <div class="text-xs text-gray-500 mt-0.5">{{ group.forecast.current.description }}</div>
             {% else %}
             <div class="text-xs text-gray-400 mt-0.5">Weather unavailable</div>
             {% endif %}
           </div>
         </div>
-        {% if item.forecast %}
+        {% if group.forecast %}
         <div class="flex-shrink-0 text-right">
-          <div class="text-2xl font-bold text-gray-900">{{ item.forecast.current.temperature | round | int }}°F</div>
-          <div class="text-xs text-gray-400">Feels {{ item.forecast.current.feels_like | round | int }}°F</div>
+          <div class="text-2xl font-bold text-gray-900">{{ group.forecast.current.temperature | round | int }}°F</div>
+          <div class="text-xs text-gray-400">Feels {{ group.forecast.current.feels_like | round | int }}°F</div>
         </div>
         {% endif %}
       </div>
 
-      {% if item.forecast %}
+      <!-- Property names -->
+      <div class="flex flex-wrap gap-1.5 mb-3">
+        {% for prop in group.props %}
+        <a href="/properties/{{ prop.slug }}"
+           class="inline-flex items-center px-2 py-0.5 bg-gray-100 hover:bg-brand-50 hover:text-brand-700 rounded text-xs text-gray-600 transition-colors">
+          {{ prop.name }}
+        </a>
+        {% endfor %}
+      </div>
+
+      {% if group.forecast %}
 
       <!-- Stat pills -->
       <div class="flex flex-wrap gap-2 mb-3">
         <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 rounded text-xs text-gray-600">
           <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                  d="M14 5l7 7m0 0l-7 7m7-7H3"/>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/>
           </svg>
-          {{ item.forecast.current.wind_speed | round | int }} mph
+          {{ group.forecast.current.wind_speed | round | int }} mph
         </span>
         <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 rounded text-xs text-gray-600">
           <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                   d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
           </svg>
-          {{ item.forecast.current.humidity }}% humidity
+          {{ group.forecast.current.humidity }}% humidity
         </span>
-        {% if item.forecast.current.precipitation > 0 %}
+        {% if group.forecast.current.precipitation > 0 %}
         <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 rounded text-xs text-blue-700">
           <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                   d="M19 14.5a7 7 0 11-14 0C5 9 12 3 12 3s7 6 7 11.5z"/>
           </svg>
-          {{ item.forecast.current.precipitation }}" now
+          {{ group.forecast.current.precipitation }}" now
         </span>
         {% endif %}
       </div>
 
       <!-- 3-day forecast strip -->
-      {% set days = item.forecast.daily[1:4] %}
       <div class="grid grid-cols-3 gap-2">
-        {% for day in days %}
+        {% for day in group.forecast.daily[1:4] %}
         <div class="bg-gray-50 rounded-lg px-3 py-2 text-center">
           <div class="text-xs font-medium text-gray-500 mb-1">{{ day.date.strftime('%a') }}</div>
           <div class="text-lg leading-none mb-1">
@@ -147,7 +153,7 @@
         {% endfor %}
       </div>
 
-      {% endif %}{# end if item.forecast #}
+      {% endif %}
     </div>
     {% endfor %}
   </div>

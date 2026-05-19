@@ -1,5 +1,8 @@
 """Weather routes — widget and AI-powered alert/task generation."""
 
+import re
+from collections import defaultdict
+
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
@@ -21,9 +24,27 @@ _WMO_ICON = {
     95: "⛈️", 96: "⛈️", 99: "⛈️",
 }
 
+_ZIP_RE = re.compile(r'\b(\d{5})(?:-\d{4})?\b')
+
 
 def _icon(code: int) -> str:
     return _WMO_ICON.get(code, "🌡️")
+
+
+def _extract_zip(address: str | None) -> str:
+    if address:
+        m = _ZIP_RE.search(address)
+        if m:
+            return m.group(1)
+    return "—"
+
+
+def _group_by_zip(properties) -> list[dict]:
+    """Return list of {zip, props} dicts, preserving insertion order."""
+    buckets: dict[str, list] = defaultdict(list)
+    for prop in properties:
+        buckets[_extract_zip(prop.address)].append(prop)
+    return [{"zip": z, "props": ps} for z, ps in buckets.items()]
 
 
 @router.get("", response_class=HTMLResponse)
@@ -33,21 +54,27 @@ def weather_widget(request: Request, db: Session = Depends(get_db)):
     from mihomes.services.weather import get_forecast_for_property
 
     properties = db.query(Property).all()
-    forecasts = []
-    for prop in properties:
-        try:
-            forecast = get_forecast_for_property(db, prop)
-        except Exception:
-            forecast = None
-        forecasts.append({
-            "prop": prop,
+    groups = []
+    for group in _group_by_zip(properties):
+        # Fetch forecast from the first property that resolves successfully
+        forecast = None
+        for prop in group["props"]:
+            try:
+                forecast = get_forecast_for_property(db, prop)
+            except Exception:
+                forecast = None
+            if forecast:
+                break
+        groups.append({
+            "zip": group["zip"],
+            "props": group["props"],
             "forecast": forecast,
             "icon": _icon(forecast.current.weather_code) if forecast else "❓",
         })
     db.commit()  # persist any cached lat/lon
 
     return templates.TemplateResponse(request, "partials/weather_widget.html", {
-        "forecasts": forecasts,
+        "groups": groups,
         "result": None,
     })
 
@@ -60,7 +87,7 @@ def weather_analyze(request: Request, db: Session = Depends(get_db)):
     from mihomes.services.weather_tasks import suggest_tasks_for_weather, create_tasks_from_suggestions
 
     properties = db.query(Property).all()
-    forecasts = []
+    groups = []
     total_alerts = 0
     total_tasks = 0
     property_summaries = []
@@ -69,41 +96,46 @@ def weather_analyze(request: Request, db: Session = Depends(get_db)):
     # 1. Weather alerts (no AI needed)
     try:
         total_alerts = generate_weather_alerts(db)
-    except Exception as e:
+    except Exception:
         pass
 
-    # 2. AI task suggestions per property
-    for prop in properties:
-        try:
-            forecast = get_forecast_for_property(db, prop)
-        except Exception:
-            forecast = None
-
-        forecasts.append({
-            "prop": prop,
+    # 2. Build groups + AI task suggestions per property
+    for group in _group_by_zip(properties):
+        forecast = None
+        for prop in group["props"]:
+            try:
+                forecast = get_forecast_for_property(db, prop)
+            except Exception:
+                forecast = None
+            if forecast:
+                break
+        groups.append({
+            "zip": group["zip"],
+            "props": group["props"],
             "forecast": forecast,
             "icon": _icon(forecast.current.weather_code) if forecast else "❓",
         })
 
-        if forecast is None:
+        if forecast is None or ai_error:
             continue
 
-        try:
-            suggestions = suggest_tasks_for_weather(db, prop, forecast)
-            if suggestions:
-                created = create_tasks_from_suggestions(db, prop.slug, suggestions)
-                total_tasks += len(created)
-                property_summaries.append({
-                    "prop_name": prop.name,
-                    "tasks": [t.title for t in created],
-                })
-        except Exception as e:
-            err = str(e)
-            if "api_key" in err.lower() or "apikey" in err.lower() or "unauthorized" in err.lower() or "authentication" in err.lower():
-                ai_error = "AI API key not configured. Set it via CLI: mihomes config set anthropic.api_key <key>"
-            else:
-                ai_error = f"AI analysis failed: {err}"
-            break
+        for prop in group["props"]:
+            try:
+                suggestions = suggest_tasks_for_weather(db, prop, forecast)
+                if suggestions:
+                    created = create_tasks_from_suggestions(db, prop.slug, suggestions)
+                    total_tasks += len(created)
+                    property_summaries.append({
+                        "prop_name": prop.name,
+                        "tasks": [t.title for t in created],
+                    })
+            except Exception as e:
+                err = str(e)
+                if "api_key" in err.lower() or "apikey" in err.lower() or "unauthorized" in err.lower() or "authentication" in err.lower():
+                    ai_error = "AI API key not configured. Set it via CLI: mihomes config set anthropic.api_key <key>"
+                else:
+                    ai_error = f"AI analysis failed: {err}"
+                break
 
     db.commit()
 
@@ -115,6 +147,6 @@ def weather_analyze(request: Request, db: Session = Depends(get_db)):
     }
 
     return templates.TemplateResponse(request, "partials/weather_widget.html", {
-        "forecasts": forecasts,
+        "groups": groups,
         "result": result,
     })

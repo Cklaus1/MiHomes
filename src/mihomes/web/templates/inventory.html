@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+
+{% block title %}Inventory — MiHomes{% endblock %}
+{% block heading %}Inventory{% endblock %}
+{% block subheading %}
+<p class="text-sm text-gray-500 mt-0.5">
+  {{ total }} item{{ 's' if total != 1 else '' }}
+  {% if low_count %} · <span class="text-amber-600 font-medium">{{ low_count }} need{{ 's' if low_count == 1 else '' }} reorder</span>{% endif %}
+</p>
+{% endblock %}
+
+{% block content %}
+
+<!-- Filters -->
+<div class="flex flex-wrap items-center gap-3 mb-5">
+
+  <!-- Property chips -->
+  <a href="/inventory/"
+     class="px-3 py-1.5 rounded-full text-xs font-medium transition-colors
+            {% if not filter_property %}bg-brand-600 text-white{% else %}bg-white border border-gray-200 text-gray-600 hover:border-brand-400{% endif %}">
+    All Properties
+  </a>
+  {% for prop in properties %}
+  <a href="/inventory/?property_slug={{ prop.slug }}"
+     class="px-3 py-1.5 rounded-full text-xs font-medium transition-colors
+            {% if filter_property == prop.slug %}bg-brand-600 text-white{% else %}bg-white border border-gray-200 text-gray-600 hover:border-brand-400{% endif %}">
+    {{ prop.name }}
+  </a>
+  {% endfor %}
+
+  <!-- Category filter -->
+  {% if all_categories %}
+  <div class="ml-2 h-4 border-l border-gray-200"></div>
+  <select onchange="location='?{% if filter_property %}property_slug={{ filter_property }}&{% endif %}category='+this.value"
+          class="border border-gray-200 rounded-lg px-3 py-1.5 text-xs text-gray-600 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500">
+    <option value="">All Locations</option>
+    {% for cat in all_categories %}
+    <option value="{{ cat }}" {% if filter_category == cat %}selected{% endif %}>{{ cat }}</option>
+    {% endfor %}
+  </select>
+  {% endif %}
+
+  <!-- Search -->
+  <div class="relative ml-auto">
+    <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
+         fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/>
+    </svg>
+    <input id="inv-search" type="search" placeholder="Search items…"
+           oninput="filterItems(this.value)"
+           class="pl-9 pr-4 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white w-52" />
+  </div>
+
+</div>
+
+<!-- Inventory groups -->
+{% if groups %}
+<div class="space-y-4" id="inv-groups">
+  {% for category, items in groups.items() %}
+  <div class="inv-group bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+      <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide">{{ category }}</h3>
+      <span class="text-xs text-gray-400">{{ items|length }} item{{ 's' if items|length != 1 else '' }}</span>
+    </div>
+    <table class="w-full text-sm">
+      <tbody class="divide-y divide-gray-50">
+        {% for item in items %}
+        <tr class="inv-row hover:bg-gray-50 transition-colors" data-name="{{ item.name | lower }}">
+          <td class="px-4 py-3 font-medium text-gray-900 w-full">
+            {{ item.name }}
+            {% if item.property %}
+            <span class="ml-2 text-xs text-gray-400">{{ item.property.name }}</span>
+            {% endif %}
+          </td>
+
+          <!-- Stock level -->
+          <td class="px-4 py-3 whitespace-nowrap">
+            <div class="flex items-center gap-2">
+              {% if item.status.value == 'ok' %}
+              <span class="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0"></span>
+              {% elif item.status.value == 'low' %}
+              <span class="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0"></span>
+              {% elif item.status.value == 'out' %}
+              <span class="w-2 h-2 rounded-full bg-red-400 flex-shrink-0"></span>
+              {% else %}
+              <span class="w-2 h-2 rounded-full bg-blue-400 flex-shrink-0"></span>
+              {% endif %}
+              <span class="text-sm text-gray-700">
+                {% if item.quantity_in_stock is not none %}{{ item.quantity_in_stock | int }}{% else %}—{% endif %}
+                {% if item.par_level %}<span class="text-gray-400">/ {{ item.par_level | int }}</span>{% endif %}
+              </span>
+            </div>
+          </td>
+
+          <!-- Status badge -->
+          <td class="px-4 py-3 whitespace-nowrap">
+            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+              {% if item.status.value == 'ok' %}bg-emerald-50 text-emerald-700
+              {% elif item.status.value == 'low' %}bg-amber-50 text-amber-700
+              {% elif item.status.value == 'out' %}bg-red-50 text-red-700
+              {% else %}bg-blue-50 text-blue-700{% endif %}">
+              {{ item.status.value.title() }}
+            </span>
+          </td>
+
+          <!-- Quick actions -->
+          <td class="px-4 py-3 whitespace-nowrap text-right">
+            <div class="flex items-center justify-end gap-2">
+              <!-- Update stock inline form -->
+              <form method="post" action="/inventory/{{ item.slug }}/stock"
+                    class="flex items-center gap-1" onsubmit="this.querySelector('button').disabled=true">
+                <input type="hidden" name="property_slug" value="{{ filter_property or '' }}">
+                <input type="hidden" name="category" value="{{ filter_category or '' }}">
+                <input type="number" name="quantity" min="0" step="1"
+                       placeholder="qty"
+                       class="w-16 text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-brand-500 text-center" />
+                <button type="submit"
+                        class="text-xs text-brand-600 hover:text-brand-700 font-medium px-2 py-1 rounded hover:bg-brand-50 transition-colors">
+                  Set
+                </button>
+              </form>
+              {% if item.status.value in ['low', 'out'] %}
+              <form method="post" action="/inventory/{{ item.slug }}/ordered">
+                <input type="hidden" name="property_slug" value="{{ filter_property or '' }}">
+                <input type="hidden" name="category" value="{{ filter_category or '' }}">
+                <button type="submit"
+                        class="text-xs text-blue-600 hover:text-blue-700 font-medium px-2 py-1 rounded hover:bg-blue-50 transition-colors">
+                  Ordered
+                </button>
+              </form>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center">
+  <div class="text-3xl mb-3">📦</div>
+  <div class="text-gray-500 text-sm">No inventory items found.</div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterItems(q) {
+  q = q.toLowerCase();
+  document.querySelectorAll('.inv-group').forEach(group => {
+    let visible = 0;
+    group.querySelectorAll('.inv-row').forEach(row => {
+      const match = !q || row.dataset.name.includes(q);
+      row.style.display = match ? '' : 'none';
+      if (match) visible++;
+    });
+    group.style.display = visible === 0 && q ? 'none' : '';
+  });
+}
+</script>
+{% endblock %}

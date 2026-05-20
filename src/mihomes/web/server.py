@@ -58,14 +58,18 @@ def dev() -> None:
     init_db()
 
     import uvicorn
+    from pathlib import Path
+    import mihomes.web.app as _app_module
+    app_file = Path(_app_module.__file__).resolve()
     mode = " [DEMO]" if demo else ""
     print(f"MiHomes{mode} dev server running on http://localhost:5000  (auto-reload on)")
+    print(f"  Loading from: {app_file}")
     uvicorn.run(
         "mihomes.web.app:app",
         host="0.0.0.0",
         port=5000,
         reload=True,
-        reload_dirs=["src"],
+        reload_dirs=[str(app_file.parents[3] / "src")],  # absolute path to src/
     )
 
 

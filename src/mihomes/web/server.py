@@ -48,7 +48,7 @@ def main() -> None:
 
 
 def dev() -> None:
-    """Development server with hot reload — restarts automatically on file changes."""
+    """Development server — no-reload by default, stable on Windows."""
     ensure_dirs()
     demo = _demo_flag()
     if demo:
@@ -61,15 +61,17 @@ def dev() -> None:
     from pathlib import Path
     import mihomes.web.app as _app_module
     app_file = Path(_app_module.__file__).resolve()
+    want_reload = "--reload" in sys.argv
     mode = " [DEMO]" if demo else ""
-    print(f"MiHomes{mode} dev server running on http://localhost:5000  (auto-reload on)")
+    reload_note = " (auto-reload on)" if want_reload else " (restart to pick up changes)"
+    print(f"MiHomes{mode} dev server running on http://localhost:5000{reload_note}")
     print(f"  Loading from: {app_file}")
     uvicorn.run(
         "mihomes.web.app:app",
         host="0.0.0.0",
         port=5000,
-        reload=True,
-        reload_dirs=[str(app_file.parents[3] / "src")],  # absolute path to src/
+        reload=want_reload,
+        **({"reload_dirs": [str(app_file.parents[3] / "src")]} if want_reload else {}),
     )
 
 

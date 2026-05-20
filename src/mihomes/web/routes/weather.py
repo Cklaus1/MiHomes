@@ -119,23 +119,23 @@ def weather_analyze(request: Request, db: Session = Depends(get_db)):
         if forecast is None or ai_error:
             continue
 
-        for prop in group["props"]:
-            try:
-                suggestions = suggest_tasks_for_weather(db, prop, forecast)
-                if suggestions:
-                    created = create_tasks_from_suggestions(db, prop.slug, suggestions)
-                    total_tasks += len(created)
-                    property_summaries.append({
-                        "prop_name": prop.name,
-                        "tasks": [t.title for t in created],
-                    })
-            except Exception as e:
-                err = str(e)
-                if "api_key" in err.lower() or "apikey" in err.lower() or "unauthorized" in err.lower() or "authentication" in err.lower():
-                    ai_error = "AI API key not configured. Set it via CLI: mihomes config set anthropic.api_key <key>"
-                else:
-                    ai_error = f"AI analysis failed: {err}"
-                break
+        # Only generate AI tasks for the primary property in each zip group
+        primary = group["props"][0]
+        try:
+            suggestions = suggest_tasks_for_weather(db, primary, forecast)
+            if suggestions:
+                created = create_tasks_from_suggestions(db, primary.slug, suggestions)
+                total_tasks += len(created)
+                property_summaries.append({
+                    "prop_name": primary.name,
+                    "tasks": [t.title for t in created],
+                })
+        except Exception as e:
+            err = str(e)
+            if "api_key" in err.lower() or "apikey" in err.lower() or "unauthorized" in err.lower() or "authentication" in err.lower():
+                ai_error = "AI API key not configured. Set it via CLI: mihomes config set anthropic.api_key <key>"
+            else:
+                ai_error = f"AI analysis failed: {err}"
 
     db.commit()
 

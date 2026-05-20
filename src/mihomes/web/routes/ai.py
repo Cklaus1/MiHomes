@@ -26,6 +26,7 @@ ROLES = [
 ]
 
 _AI_ERROR_HINT = "AI provider not configured. Run `mihomes ai setup` in the CLI to set your API key."
+_AI_INVALID_KEY_HINT = "API key is invalid or rejected. Run `mihomes ai setup` in the CLI to update your API key."
 
 
 async def _read_attachments(files: list[UploadFile]) -> list[Attachment]:
@@ -44,8 +45,10 @@ async def _read_attachments(files: list[UploadFile]) -> list[Attachment]:
 
 def _ai_error(msg: str) -> str:
     lower = msg.lower()
-    if any(k in lower for k in ("api_key", "api key", "configure", "no provider")):
+    if any(k in lower for k in ("not found", "not configured", "no provider", "run: mihomes")):
         return _AI_ERROR_HINT
+    if any(k in lower for k in ("invalid api key", "authentication", "unauthorized", "401")):
+        return _AI_INVALID_KEY_HINT
     return f"AI request failed: {msg}"
 
 
@@ -102,7 +105,6 @@ async def ai_ask(
 async def situation_report(
     request: Request,
     subject: str = Form(""),
-    input_type: str = Form("general"),
     content: str = Form(...),
     work_order_slug: str | None = Form(None),
     property_slug: str | None = Form(None),
@@ -118,7 +120,6 @@ async def situation_report(
         resp = generate_situation_report(
             db, content,
             subject=subject,
-            input_type=input_type,
             work_order_slug=work_order_slug or None,
             property_slug=property_slug or None,
             attachments=attachments or None,
@@ -129,7 +130,7 @@ async def situation_report(
 
     return templates.TemplateResponse(request, "partials/report_output.html", {
         "report_type": "Situation Report",
-        "subject": subject or f"{input_type.replace('_', ' ').title()} Advisory",
+        "subject": subject or "Advisory Report",
         "report_text": report_text,
         "generated_at": datetime.now().strftime("%B %d, %Y at %I:%M %p"),
         "error": error,

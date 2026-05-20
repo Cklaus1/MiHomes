@@ -85,7 +85,6 @@ def generate_situation_report(
     content: str,
     *,
     subject: str = "",
-    input_type: str = "general",
     work_order_slug: str | None = None,
     property_slug: str | None = None,
     attachments: list[Attachment] | None = None,
@@ -133,8 +132,7 @@ def generate_situation_report(
             pass
 
     subject_line = f"Subject: {subject}\n" if subject else ""
-    type_label = input_type.replace("_", " ").title()
-    user_message = f"{subject_line}Input Type: {type_label}\n\n---\n\n{content}"
+    user_message = f"{subject_line}\n{content}" if subject_line else content
     if context_lines:
         user_message = "Estate records context:\n" + "\n".join(context_lines) + "\n\n---\n\n" + user_message
 

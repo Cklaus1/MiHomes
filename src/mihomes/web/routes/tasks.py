@@ -52,9 +52,28 @@ def _ctx(
 
     all_overdue = task_svc.get_overdue_tasks(db)
     overdue_ids = {t.id for t in all_overdue}
+
+    # Kanban columns — exclude cancelled from board
+    board_tasks = [t for t in tasks if t.status != TaskStatus.CANCELLED]
+    columns = {
+        "pending":     [t for t in board_tasks if t.status == TaskStatus.PENDING],
+        "in_progress": [t for t in board_tasks if t.status == TaskStatus.IN_PROGRESS],
+        "completed":   [t for t in board_tasks if t.status == TaskStatus.COMPLETED],
+    }
+
+    # Priority groups for grouped view
+    priority_groups = {
+        "urgent": [t for t in tasks if t.priority == TaskPriority.URGENT],
+        "high":   [t for t in tasks if t.priority == TaskPriority.HIGH],
+        "medium": [t for t in tasks if t.priority == TaskPriority.MEDIUM],
+        "low":    [t for t in tasks if t.priority == TaskPriority.LOW],
+    }
+
     return {
         "page": "tasks",
         "tasks": tasks,
+        "columns": columns,
+        "priority_groups": priority_groups,
         "properties": prop_svc.list_properties(db),
         "staff": staff_svc.list_staff(db),
         "overdue_ids": overdue_ids,
@@ -74,18 +93,20 @@ def _ctx(
 @router.get("/")
 def list_tasks(
     request: Request,
-    property_id: int | None = None,
+    property_id: str | None = None,
     status: str | None = None,
     overdue: bool = False,
     due_week: bool = False,
-    assignee_id: int | None = None,
+    assignee_id: str | None = None,
     sort: str | None = None,
     recurrence: str | None = None,
     db: Session = Depends(get_db),
 ):
+    pid = int(property_id) if property_id and property_id.strip() else None
+    aid = int(assignee_id) if assignee_id and assignee_id.strip() else None
     return templates.TemplateResponse(
         request, "tasks.html",
-        _ctx(db, property_id, status, overdue, due_week, assignee_id, sort, recurrence),
+        _ctx(db, pid, status or None, overdue, due_week, aid, sort, recurrence),
     )
 
 

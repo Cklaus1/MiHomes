@@ -11,7 +11,7 @@ except ImportError:
     openai = None
 
 NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
-DEFAULT_MODEL = "qwen/qwen3.5-122b-a10b"
+DEFAULT_MODEL = "meta/llama-3.1-8b-instruct"
 
 
 class NIMProvider:
@@ -38,7 +38,7 @@ class NIMProvider:
         self.client = openai.OpenAI(
             api_key=self.api_key,
             base_url=NIM_BASE_URL,
-            timeout=30.0,
+            timeout=120.0,
         )
 
     def complete(

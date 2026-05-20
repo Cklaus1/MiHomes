@@ -123,13 +123,15 @@ def _fetch_tasks(session: Session, property_slug: str | None) -> str:
         lines.append(f"### Overdue ({len(overdue)})")
         for t in overdue[:20]:
             assignee = t.assignee.name if t.assignee else "unassigned"
-            lines.append(f"- [{t.priority.value}] {t.title} @ {t.property.name} — due {t.due_date}, {assignee}")
+            prop_name = t.property.name if t.property else "unknown"
+            lines.append(f"- [{t.priority.value}] {t.title} @ {prop_name} — due {t.due_date}, {assignee}")
 
     upcoming = get_upcoming_tasks(session, days=30, property_id_or_slug=property_slug)
     if upcoming:
         lines.append(f"### Upcoming 30 days ({len(upcoming)})")
         for t in upcoming[:20]:
-            lines.append(f"- [{t.priority.value}] {t.title} @ {t.property.name} — due {t.due_date}")
+            prop_name = t.property.name if t.property else "unknown"
+            lines.append(f"- [{t.priority.value}] {t.title} @ {prop_name} — due {t.due_date}")
 
     if len(lines) == 1:
         lines.append("No overdue or upcoming tasks.")
@@ -146,7 +148,8 @@ def _fetch_issues(session: Session, property_slug: str | None) -> str:
     else:
         for i in issues[:20]:
             space = f" ({i.space.name})" if i.space else ""
-            lines.append(f"- [{i.severity.value}] {i.title} @ {i.property.name}{space} — {i.status.value}")
+            prop_name = i.property.name if i.property else "unknown"
+            lines.append(f"- [{i.severity.value}] {i.title} @ {prop_name}{space} — {i.status.value}")
             if i.description:
                 lines.append(f"  Description: {i.description[:200]}")
     return "\n".join(lines)
@@ -205,7 +208,9 @@ def _fetch_contracts(session: Session, property_slug: str | None) -> str:
             end = str(c.end_date) if c.end_date else "ongoing"
             cost = f"${c.annual_cost:,.0f}/yr" if c.annual_cost else ""
             renew = " (auto-renew)" if c.auto_renew else ""
-            lines.append(f"- {c.vendor.company_name} → {c.property.name}: {end} {cost}{renew}")
+            vendor_name = c.vendor.company_name if c.vendor else "unknown vendor"
+            prop_name = c.property.name if c.property else "unknown"
+            lines.append(f"- {vendor_name} → {prop_name}: {end} {cost}{renew}")
     return "\n".join(lines)
 
 
@@ -272,7 +277,8 @@ def _fetch_assets(session: Session, property_slug: str | None) -> str:
         return ""
     for a in assets:
         warranty = f", warranty expires {a.warranty_expires}" if a.warranty_expires else ""
-        lines.append(f"- {a.name} ({a.asset_type.value}) @ {a.property.name}{warranty}")
+        prop_name = a.property.name if a.property else "unknown"
+        lines.append(f"- {a.name} ({a.asset_type.value}) @ {prop_name}{warranty}")
     return "\n".join(lines)
 
 
@@ -294,7 +300,8 @@ def _fetch_work_orders(session: Session, property_slug: str | None) -> str:
     for wo in work_orders:
         vendor = wo.vendor.company_name if wo.vendor else "unassigned"
         cost = f"${wo.estimated_cost:,.0f}" if wo.estimated_cost else "no estimate"
-        lines.append(f"- [{wo.status.value}] {wo.title} @ {wo.property.name} — {vendor}, {cost}")
+        prop_name = wo.property.name if wo.property else "unknown"
+        lines.append(f"- [{wo.status.value}] {wo.title} @ {prop_name} — {vendor}, {cost}")
     return "\n".join(lines)
 
 

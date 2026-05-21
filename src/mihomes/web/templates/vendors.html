@@ -59,10 +59,14 @@
       </div>
       <span class="ml-2 flex-shrink-0 w-2 h-2 rounded-full mt-1.5 {{ 'bg-emerald-400' if vendor.active else 'bg-gray-300' }}"></span>
     </div>
-    {% if vendor.contact_name %}<div class="text-xs text-gray-500 mt-1">{{ vendor.contact_name }}</div>{% endif %}
+    {% set prim = vendor.contacts[0] if vendor.contacts else none %}
+    {% set card_name = prim.name if prim and prim.name else vendor.contact_name %}
+    {% set card_phone = prim.phone if prim and prim.phone else vendor.phone %}
+    {% set card_email = prim.email if prim and prim.email else vendor.email %}
+    {% if card_name %}<div class="text-xs text-gray-500 mt-1">{{ card_name }}</div>{% endif %}
     <div class="mt-2 space-y-1">
-      {% if vendor.phone %}<div class="text-xs text-gray-500">📞 {{ vendor.phone }}</div>{% endif %}
-      {% if vendor.email %}<div class="text-xs text-gray-500 truncate">✉ {{ vendor.email }}</div>{% endif %}
+      {% if card_phone %}<div class="text-xs text-gray-500">📞 {{ card_phone }}</div>{% endif %}
+      {% if card_email %}<div class="text-xs text-gray-500 truncate">✉ {{ card_email }}</div>{% endif %}
     </div>
     {% if quality_vals %}
     <div class="mt-3 pt-3 border-t border-gray-100 flex items-center gap-3 text-xs text-gray-500">
@@ -410,10 +414,14 @@
       </div>
       <span class="ml-2 flex-shrink-0 w-2 h-2 rounded-full mt-1.5 bg-gray-300"></span>
     </div>
-    {% if vendor.contact_name %}<div class="text-xs text-gray-500 mt-1">{{ vendor.contact_name }}</div>{% endif %}
+    {% set prim = vendor.contacts[0] if vendor.contacts else none %}
+    {% set card_name = prim.name if prim and prim.name else vendor.contact_name %}
+    {% set card_phone = prim.phone if prim and prim.phone else vendor.phone %}
+    {% set card_email = prim.email if prim and prim.email else vendor.email %}
+    {% if card_name %}<div class="text-xs text-gray-500 mt-1">{{ card_name }}</div>{% endif %}
     <div class="mt-2 space-y-1">
-      {% if vendor.phone %}<div class="text-xs text-gray-500">📞 {{ vendor.phone }}</div>{% endif %}
-      {% if vendor.email %}<div class="text-xs text-gray-500 truncate">✉ {{ vendor.email }}</div>{% endif %}
+      {% if card_phone %}<div class="text-xs text-gray-500">📞 {{ card_phone }}</div>{% endif %}
+      {% if card_email %}<div class="text-xs text-gray-500 truncate">✉ {{ card_email }}</div>{% endif %}
     </div>
     {% if quality_vals %}
     <div class="mt-3 pt-3 border-t border-gray-100 flex items-center gap-3 text-xs text-gray-500">

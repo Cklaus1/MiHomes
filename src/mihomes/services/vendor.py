@@ -68,11 +68,12 @@ def update_vendor(session: Session, id_or_slug: str, **kwargs) -> Vendor:
     if "company_name" in kwargs and "slug" not in kwargs:
         kwargs["slug"] = ensure_unique_slug(session, Vendor, generate_slug(kwargs["company_name"]), exclude_id=vendor.id)
     # Sync legacy fields from first contact when contacts list is provided
-    if "contacts" in kwargs and kwargs["contacts"]:
-        first = kwargs["contacts"][0]
-        kwargs.setdefault("contact_name", first.get("name") or None)
-        kwargs.setdefault("phone", first.get("phone") or None)
-        kwargs.setdefault("email", first.get("email") or None)
+    if "contacts" in kwargs:
+        if kwargs["contacts"]:
+            first = kwargs["contacts"][0]
+            kwargs["contact_name"] = first.get("name") or None
+            kwargs["phone"] = first.get("phone") or None
+            kwargs["email"] = first.get("email") or None
     safe_update(vendor, kwargs)
     session.flush()
     new_snap = snapshot_instance(vendor)

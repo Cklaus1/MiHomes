@@ -1,5 +1,7 @@
 """Vendor routes."""
 
+from typing import List
+
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
@@ -76,24 +78,43 @@ def edit_vendor(
     request: Request,
     slug: str,
     company_name: str = Form(...),
-    phone: str = Form(""),
-    email: str = Form(""),
     notes: str = Form(""),
-    contact_name: str = Form(""),
     active: str | None = Form(None),
+    service_categories_text: str = Form(""),
+    website: str = Form(""),
+    license_number: str = Form(""),
+    c_name: List[str] = Form(default=[]),
+    c_role: List[str] = Form(default=[]),
+    c_phone: List[str] = Form(default=[]),
+    c_email: List[str] = Form(default=[]),
     db: Session = Depends(get_db),
 ):
     current = vendor_svc.get_vendor(db, slug)
-    # Unchecked checkboxes send nothing — preserve current value unless explicitly sent
     active_val = (active == "1") if active is not None else current.active
+
+    # Build contacts list — skip entirely empty rows
+    contacts = []
+    for name, role, phone, email in zip(c_name, c_role, c_phone, c_email):
+        if any([name.strip(), phone.strip(), email.strip()]):
+            contacts.append({
+                "name": name.strip(),
+                "role": role.strip(),
+                "phone": phone.strip(),
+                "email": email.strip(),
+            })
+
+    # Parse service categories from comma-separated text
+    categories = [c.strip() for c in service_categories_text.split(",") if c.strip()] or None
+
     vendor_svc.update_vendor(
         db, slug,
         company_name=company_name,
-        phone=phone or None,
-        email=email or None,
         notes=notes or None,
-        contact_name=contact_name or None,
         active=active_val,
+        contacts=contacts or None,
+        service_categories=categories,
+        website=website.strip() or None,
+        license_number=license_number.strip() or None,
     )
     return templates.TemplateResponse(request, "vendors.html", _ctx(db))
 

@@ -146,22 +146,40 @@
                 </div>
               </div>
               {% endif %}
+              {% if vendor.website or vendor.license_number %}
               <div class="grid grid-cols-2 gap-4">
+                {% if vendor.website %}
                 <div>
-                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Phone</div>
-                  <div class="text-gray-700">{{ vendor.phone or '—' }}</div>
+                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Website</div>
+                  <a href="{{ vendor.website }}" target="_blank" class="text-brand-600 hover:underline break-all">{{ vendor.website }}</a>
                 </div>
+                {% endif %}
+                {% if vendor.license_number %}
                 <div>
-                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Email</div>
-                  <div class="text-gray-700">{{ vendor.email or '—' }}</div>
+                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">License #</div>
+                  <div class="text-gray-700 font-mono text-xs">{{ vendor.license_number }}</div>
                 </div>
+                {% endif %}
               </div>
-              {% if vendor.service_areas %}
+              {% endif %}
+              <!-- Contacts -->
+              {% set display_contacts = vendor.contacts if vendor.contacts else ([{"name": vendor.contact_name or "", "role": "", "phone": vendor.phone or "", "email": vendor.email or ""}] if (vendor.contact_name or vendor.phone or vendor.email) else []) %}
+              {% if display_contacts %}
               <div>
-                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Service Areas</div>
-                <div class="flex flex-wrap gap-2">
-                  {% for area in vendor.service_areas %}
-                  <span class="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600">{{ area }}</span>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Contacts</div>
+                <div class="space-y-2">
+                  {% for c in display_contacts %}
+                  {% if c.name or c.phone or c.email %}
+                  <div class="bg-gray-50 rounded-lg p-3 border border-gray-100">
+                    <div class="flex items-start justify-between">
+                      <div>
+                        {% if c.name %}<div class="font-medium text-gray-800 text-sm">{{ c.name }}{% if c.role %} <span class="text-xs text-gray-400 font-normal ml-1">{{ c.role }}</span>{% endif %}</div>{% endif %}
+                        {% if c.phone %}<div class="text-xs text-gray-500 mt-0.5">📞 {{ c.phone }}</div>{% endif %}
+                        {% if c.email %}<div class="text-xs text-gray-500">✉ {{ c.email }}</div>{% endif %}
+                      </div>
+                    </div>
+                  </div>
+                  {% endif %}
                   {% endfor %}
                 </div>
               </div>
@@ -172,10 +190,12 @@
                 <div class="bg-blue-50 rounded-lg p-3 text-sm text-gray-700 border border-blue-100">{{ vendor.insurance_info }}</div>
               </div>
               {% endif %}
+              {% if vendor.notes %}
               <div>
                 <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Notes</div>
-                <div class="text-sm text-gray-700">{{ vendor.notes or '—' }}</div>
+                <div class="text-sm text-gray-700">{{ vendor.notes }}</div>
               </div>
+              {% endif %}
             </div>
             <div class="flex justify-end mt-4 pt-4 border-t border-gray-100">
               <button type="button" onclick="enterEdit('vendor','{{ vendor.slug }}')"
@@ -196,48 +216,52 @@
                          class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
                 </div>
                 <div>
-                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Contact Name</div>
-                  <input type="text" name="contact_name" value="{{ vendor.contact_name or '' }}"
+                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Services <span class="font-normal text-gray-400">(comma-separated)</span></div>
+                  <input type="text" name="service_categories_text"
+                         value="{{ vendor.service_categories | join(', ') if vendor.service_categories else '' }}"
+                         placeholder="e.g. HVAC, Plumbing, Electrical"
                          class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
                 </div>
-                {% if vendor.service_categories %}
-                <div>
-                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Services</div>
-                  <div class="flex flex-wrap gap-2">
-                    {% for cat in vendor.service_categories %}
-                    <span class="px-2.5 py-1 rounded-full text-xs bg-blue-50 text-blue-700 font-medium">{{ cat }}</span>
-                    {% endfor %}
-                  </div>
-                </div>
-                {% endif %}
-                <div class="grid grid-cols-2 gap-4">
+                <div class="grid grid-cols-2 gap-3">
                   <div>
-                    <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Phone</div>
-                    <input type="tel" name="phone" value="{{ vendor.phone or '' }}"
+                    <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Website</div>
+                    <input type="url" name="website" value="{{ vendor.website or '' }}" placeholder="https://..."
                            class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
                   </div>
                   <div>
-                    <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Email</div>
-                    <input type="email" name="email" value="{{ vendor.email or '' }}"
+                    <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">License #</div>
+                    <input type="text" name="license_number" value="{{ vendor.license_number or '' }}"
                            class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
                   </div>
                 </div>
-                {% if vendor.service_areas %}
+                <!-- Contacts -->
                 <div>
-                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Service Areas</div>
-                  <div class="flex flex-wrap gap-2">
-                    {% for area in vendor.service_areas %}
-                    <span class="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600">{{ area }}</span>
+                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Contacts</div>
+                  {% set edit_contacts = vendor.contacts if vendor.contacts else ([{"name": vendor.contact_name or "", "role": "", "phone": vendor.phone or "", "email": vendor.email or ""}] if (vendor.contact_name or vendor.phone or vendor.email) else []) %}
+                  <div id="contacts-list-{{ vendor.slug }}" class="space-y-2 mb-2">
+                    {% for c in edit_contacts %}
+                    <div class="contact-row bg-gray-50 rounded-lg p-3 border border-gray-100">
+                      <div class="grid grid-cols-2 gap-2 mb-2">
+                        <input type="text" name="c_name" value="{{ c.name or '' }}" placeholder="Name"
+                               class="border border-gray-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                        <input type="text" name="c_role" value="{{ c.role or '' }}" placeholder="Role (Main, Office…)"
+                               class="border border-gray-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                        <input type="tel" name="c_phone" value="{{ c.phone or '' }}" placeholder="Phone"
+                               class="border border-gray-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                        <input type="email" name="c_email" value="{{ c.email or '' }}" placeholder="Email"
+                               class="border border-gray-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                      </div>
+                      <button type="button" onclick="this.closest('.contact-row').remove()"
+                              class="text-xs text-red-400 hover:text-red-600 transition-colors">Remove</button>
+                    </div>
                     {% endfor %}
                   </div>
+                  <button type="button" onclick="addContact('{{ vendor.slug }}')"
+                          class="inline-flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 font-medium">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                    Add Contact
+                  </button>
                 </div>
-                {% endif %}
-                {% if vendor.insurance_info %}
-                <div>
-                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Insurance</div>
-                  <div class="bg-blue-50 rounded-lg p-3 text-sm text-gray-700 border border-blue-100">{{ vendor.insurance_info }}</div>
-                </div>
-                {% endif %}
                 <div>
                   <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Notes</div>
                   <textarea name="notes" data-autoresize
@@ -460,20 +484,45 @@
                 </div>
               </div>
               {% endif %}
+              {% if vendor.website or vendor.license_number %}
               <div class="grid grid-cols-2 gap-4">
+                {% if vendor.website %}
                 <div>
-                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Phone</div>
-                  <div class="text-gray-700">{{ vendor.phone or '—' }}</div>
+                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Website</div>
+                  <a href="{{ vendor.website }}" target="_blank" class="text-brand-600 hover:underline break-all">{{ vendor.website }}</a>
                 </div>
+                {% endif %}
+                {% if vendor.license_number %}
                 <div>
-                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Email</div>
-                  <div class="text-gray-700">{{ vendor.email or '—' }}</div>
+                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">License #</div>
+                  <div class="text-gray-700 font-mono text-xs">{{ vendor.license_number }}</div>
+                </div>
+                {% endif %}
+              </div>
+              {% endif %}
+              {% set display_contacts = vendor.contacts if vendor.contacts else ([{"name": vendor.contact_name or "", "role": "", "phone": vendor.phone or "", "email": vendor.email or ""}] if (vendor.contact_name or vendor.phone or vendor.email) else []) %}
+              {% if display_contacts %}
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Contacts</div>
+                <div class="space-y-2">
+                  {% for c in display_contacts %}
+                  {% if c.name or c.phone or c.email %}
+                  <div class="bg-gray-50 rounded-lg p-3 border border-gray-100">
+                    {% if c.name %}<div class="font-medium text-gray-800 text-sm">{{ c.name }}{% if c.role %} <span class="text-xs text-gray-400 font-normal ml-1">{{ c.role }}</span>{% endif %}</div>{% endif %}
+                    {% if c.phone %}<div class="text-xs text-gray-500 mt-0.5">📞 {{ c.phone }}</div>{% endif %}
+                    {% if c.email %}<div class="text-xs text-gray-500">✉ {{ c.email }}</div>{% endif %}
+                  </div>
+                  {% endif %}
+                  {% endfor %}
                 </div>
               </div>
+              {% endif %}
+              {% if vendor.notes %}
               <div>
                 <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Notes</div>
-                <div class="text-sm text-gray-700">{{ vendor.notes or '—' }}</div>
+                <div class="text-sm text-gray-700">{{ vendor.notes }}</div>
               </div>
+              {% endif %}
             </div>
             <div class="flex justify-end mt-4 pt-4 border-t border-gray-100">
               <button type="button" onclick="enterEdit('vendor','{{ vendor.slug }}')"
@@ -492,31 +541,50 @@
                          class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
                 </div>
                 <div>
-                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Contact Name</div>
-                  <input type="text" name="contact_name" value="{{ vendor.contact_name or '' }}"
+                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Services <span class="font-normal text-gray-400">(comma-separated)</span></div>
+                  <input type="text" name="service_categories_text"
+                         value="{{ vendor.service_categories | join(', ') if vendor.service_categories else '' }}"
+                         placeholder="e.g. HVAC, Plumbing, Electrical"
                          class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
                 </div>
-                {% if vendor.service_categories %}
-                <div>
-                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Services</div>
-                  <div class="flex flex-wrap gap-2">
-                    {% for cat in vendor.service_categories %}
-                    <span class="px-2.5 py-1 rounded-full text-xs bg-blue-50 text-blue-700 font-medium">{{ cat }}</span>
-                    {% endfor %}
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Website</div>
+                    <input type="url" name="website" value="{{ vendor.website or '' }}" placeholder="https://..."
+                           class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                  </div>
+                  <div>
+                    <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">License #</div>
+                    <input type="text" name="license_number" value="{{ vendor.license_number or '' }}"
+                           class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
                   </div>
                 </div>
-                {% endif %}
-                <div class="grid grid-cols-2 gap-4">
-                  <div>
-                    <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Phone</div>
-                    <input type="tel" name="phone" value="{{ vendor.phone or '' }}"
-                           class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                <div>
+                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Contacts</div>
+                  {% set edit_contacts = vendor.contacts if vendor.contacts else ([{"name": vendor.contact_name or "", "role": "", "phone": vendor.phone or "", "email": vendor.email or ""}] if (vendor.contact_name or vendor.phone or vendor.email) else []) %}
+                  <div id="contacts-list-{{ vendor.slug }}" class="space-y-2 mb-2">
+                    {% for c in edit_contacts %}
+                    <div class="contact-row bg-gray-50 rounded-lg p-3 border border-gray-100">
+                      <div class="grid grid-cols-2 gap-2 mb-2">
+                        <input type="text" name="c_name" value="{{ c.name or '' }}" placeholder="Name"
+                               class="border border-gray-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                        <input type="text" name="c_role" value="{{ c.role or '' }}" placeholder="Role (Main, Office…)"
+                               class="border border-gray-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                        <input type="tel" name="c_phone" value="{{ c.phone or '' }}" placeholder="Phone"
+                               class="border border-gray-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                        <input type="email" name="c_email" value="{{ c.email or '' }}" placeholder="Email"
+                               class="border border-gray-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                      </div>
+                      <button type="button" onclick="this.closest('.contact-row').remove()"
+                              class="text-xs text-red-400 hover:text-red-600 transition-colors">Remove</button>
+                    </div>
+                    {% endfor %}
                   </div>
-                  <div>
-                    <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Email</div>
-                    <input type="email" name="email" value="{{ vendor.email or '' }}"
-                           class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
-                  </div>
+                  <button type="button" onclick="addContact('{{ vendor.slug }}')"
+                          class="inline-flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 font-medium">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                    Add Contact
+                  </button>
                 </div>
                 <div>
                   <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Notes</div>
@@ -686,6 +754,26 @@ function initVendors() {
 document.addEventListener('DOMContentLoaded', initVendors);
 document.addEventListener('htmx:afterSettle', initVendors);
 
+function addContact(slug) {
+  const container = document.getElementById('contacts-list-' + slug);
+  if (!container) return;
+  const row = document.createElement('div');
+  row.className = 'contact-row bg-gray-50 rounded-lg p-3 border border-gray-100';
+  row.innerHTML = `
+    <div class="grid grid-cols-2 gap-2 mb-2">
+      <input type="text" name="c_name" placeholder="Name"
+             class="border border-gray-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
+      <input type="text" name="c_role" placeholder="Role (Main, Office…)"
+             class="border border-gray-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
+      <input type="tel" name="c_phone" placeholder="Phone"
+             class="border border-gray-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
+      <input type="email" name="c_email" placeholder="Email"
+             class="border border-gray-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
+    </div>
+    <button type="button" onclick="this.closest('.contact-row').remove()"
+            class="text-xs text-red-400 hover:text-red-600 transition-colors">Remove</button>`;
+  container.appendChild(row);
+}
 function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
 function switchTab(prefix, id, tab) {

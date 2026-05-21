@@ -12,12 +12,15 @@ router = APIRouter()
 
 
 def _ctx(db: Session) -> dict:
-    vendors = vendor_svc.list_vendors(db)
+    active_vendors = vendor_svc.list_vendors(db, active_only=True)
+    all_vendors = vendor_svc.list_vendors(db, active_only=False)
+    inactive_vendors = [v for v in all_vendors if not v.active]
     return {
         "page": "vendors",
-        "vendors": vendors,
-        "vendor_ratings": {v.slug: vendor_svc.get_vendor_ratings(db, v.slug)["ratings"] for v in vendors},
-        "notes_map": {v.id: note_svc.list_notes(db, f"vendor:{v.id}") for v in vendors},
+        "active_vendors": active_vendors,
+        "inactive_vendors": inactive_vendors,
+        "vendor_ratings": {v.slug: vendor_svc.get_vendor_ratings(db, v.slug)["ratings"] for v in all_vendors},
+        "notes_map": {v.id: note_svc.list_notes(db, f"vendor:{v.id}") for v in all_vendors},
     }
 
 
@@ -77,9 +80,12 @@ def edit_vendor(
     email: str = Form(""),
     notes: str = Form(""),
     contact_name: str = Form(""),
-    active: str = Form(""),
+    active: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
+    current = vendor_svc.get_vendor(db, slug)
+    # Unchecked checkboxes send nothing — preserve current value unless explicitly sent
+    active_val = (active == "1") if active is not None else current.active
     vendor_svc.update_vendor(
         db, slug,
         company_name=company_name,
@@ -87,7 +93,7 @@ def edit_vendor(
         email=email or None,
         notes=notes or None,
         contact_name=contact_name or None,
-        active=(active == "1"),
+        active=active_val,
     )
     return templates.TemplateResponse(request, "vendors.html", _ctx(db))
 

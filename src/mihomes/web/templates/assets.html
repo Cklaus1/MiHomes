@@ -374,10 +374,10 @@
     </div>
 
     <div class="flex border-b border-gray-200 px-6 flex-shrink-0">
-      {% for tid, tlabel in [('details','Details'),('notes','Notes')] %}
+      {% for tid, tlabel in [('details','Details'),('pricing','Pricing'),('notes','Notes')] %}
       <button onclick="switchTab('asset','{{ asset.id }}','{{ tid }}')" id="asset-tab-{{ asset.id }}-{{ tid }}"
               class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if tid=='details' %}border-brand-500 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
-        {{ tlabel }}{% if tid=='notes' and a_notes %} ({{ a_notes|length }}){% endif %}
+        {{ tlabel }}{% if tid=='pricing' and asset.price_entries %} ({{ asset.price_entries|length }}){% endif %}{% if tid=='notes' and a_notes %} ({{ a_notes|length }}){% endif %}
       </button>
       {% endfor %}
     </div>
@@ -487,6 +487,69 @@
             </div>
           </form>
         </div>
+      </div>
+
+      <!-- Pricing tab -->
+      <div id="asset-panel-{{ asset.id }}-pricing" class="px-6 py-5 hidden">
+        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Price History</div>
+
+        <form hx-post="/assets/{{ asset.slug }}/price-entries" hx-target="body" hx-swap="innerHTML" class="mb-4 p-3 bg-gray-50 rounded-xl space-y-2">
+          <input type="hidden" name="from_property" value="{{ prop.slug }}">
+          <input type="hidden" name="from_space" value="{{ space_slug }}">
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-xs text-gray-500 mb-1">Price ($) <span class="text-red-400">*</span></label>
+              <input type="number" name="price" required min="0" step="0.01" placeholder="0.00"
+                     class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+            </div>
+            <div>
+              <label class="block text-xs text-gray-500 mb-1">Date <span class="text-red-400">*</span></label>
+              <input type="date" name="entry_date" required
+                     class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+            </div>
+            <div>
+              <label class="block text-xs text-gray-500 mb-1">Qty</label>
+              <input type="number" name="quantity" value="1" min="0.01" step="0.01"
+                     class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+            </div>
+            <div>
+              <label class="block text-xs text-gray-500 mb-1">Type</label>
+              <select name="entry_type" class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                <option value="purchase">Purchase</option>
+                <option value="valuation">Valuation</option>
+                <option value="estimate">Estimate</option>
+              </select>
+            </div>
+          </div>
+          <input type="text" name="note" placeholder="Note (optional)…"
+                 class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          <button type="submit" class="w-full py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">Add Entry</button>
+        </form>
+
+        {% set sorted_entries = asset.price_entries | sort(attribute='date', reverse=True) %}
+        {% if sorted_entries %}
+        <div class="space-y-2">
+          {% for entry in sorted_entries %}
+          <div class="flex items-center justify-between p-3 bg-white border border-gray-100 rounded-xl text-sm">
+            <div>
+              <div class="font-medium text-gray-800">
+                ${{ '{:,.2f}'.format(entry.price) }}
+                {% if entry.quantity != 1.0 %}<span class="text-gray-400 font-normal"> × {{ entry.quantity }}</span>{% endif %}
+              </div>
+              <div class="text-xs text-gray-400 mt-0.5">
+                {{ entry.date.strftime('%b %d, %Y') }} · <span class="capitalize">{{ entry.entry_type }}</span>{% if entry.note %} · {{ entry.note }}{% endif %}
+              </div>
+            </div>
+            <div class="text-right">
+              <div class="font-semibold text-gray-900">${{ '{:,.2f}'.format(entry.price * entry.quantity) }}</div>
+              {% if entry.quantity != 1.0 %}<div class="text-xs text-gray-400">total</div>{% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-center py-8 text-gray-400 text-sm">No price entries yet</div>
+        {% endif %}
       </div>
 
       <!-- Notes tab -->

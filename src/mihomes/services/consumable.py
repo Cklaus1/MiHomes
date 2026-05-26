@@ -1,8 +1,10 @@
 """Consumable inventory service — stock tracking and reorder management."""
 
+from datetime import date
+
 from sqlalchemy.orm import Session, joinedload
 
-from mihomes.models.consumable import Consumable, ConsumableStatus
+from mihomes.models.consumable import Consumable, ConsumablePriceEntry, ConsumableStatus
 from mihomes.models.property import Property
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
 from mihomes.services.validators import validate_name
@@ -114,7 +116,7 @@ def list_consumables(
     property_id_or_slug: str | None = None,
     needs_reorder: bool = False,
 ) -> list[Consumable]:
-    q = session.query(Consumable).options(joinedload(Consumable.property))
+    q = session.query(Consumable).options(joinedload(Consumable.property), joinedload(Consumable.price_entries))
     if property_id_or_slug:
         prop = resolve_identifier(session, Property, property_id_or_slug)
         q = q.filter(Consumable.property_id == prop.id)
@@ -125,10 +127,26 @@ def list_consumables(
     return q.order_by(Consumable.status, Consumable.name).all()
 
 
-def mark_ordered(session: Session, id_or_slug: str) -> Consumable:
+def mark_ordered(
+    session: Session,
+    id_or_slug: str,
+    *,
+    order_date: date | None = None,
+    quantity_ordered: float | None = None,
+    price: float | None = None,
+    note: str | None = None,
+) -> Consumable:
     item = resolve_identifier(session, Consumable, id_or_slug)
     item.status = ConsumableStatus.ORDERED
     item.quantity_to_order = None
+    item.last_ordered_at = order_date or date.today()
+    if price is not None:
+        add_price_entry(
+            session, id_or_slug, price, item.last_ordered_at,
+            quantity=quantity_ordered or 1.0,
+            entry_type="purchase",
+            note=note,
+        )
     session.flush()
     return item
 
@@ -145,6 +163,81 @@ def mark_restocked(
     item.status = _compute_status(item.quantity_in_stock, item.par_level)
     session.flush()
     return item
+
+
+def add_price_entry(
+    session: Session,
+    id_or_slug: str,
+    price: float,
+    entry_date: date,
+    *,
+    quantity: float = 1.0,
+    entry_type: str = "purchase",
+    note: str | None = None,
+) -> ConsumablePriceEntry:
+    item = resolve_identifier(session, Consumable, id_or_slug)
+    entry = ConsumablePriceEntry(
+        consumable_id=item.id,
+        date=entry_date,
+        price=price,
+        quantity=quantity,
+        entry_type=entry_type,
+        note=note,
+    )
+    session.add(entry)
+    item.unit_price = price
+    session.flush()
+    return entry
+
+
+def delete_price_entry(session: Session, entry_id: int) -> None:
+    entry = session.get(ConsumablePriceEntry, entry_id)
+    if not entry:
+        raise ValueError(f"Price entry {entry_id} not found")
+    consumable_id = entry.consumable_id
+    session.delete(entry)
+    session.flush()
+    # Sync unit_price to new latest entry (or None if none left)
+    latest = (
+        session.query(ConsumablePriceEntry)
+        .filter(ConsumablePriceEntry.consumable_id == consumable_id)
+        .order_by(ConsumablePriceEntry.date.desc())
+        .first()
+    )
+    item = session.get(Consumable, consumable_id)
+    if item:
+        item.unit_price = latest.price if latest else None
+
+
+def edit_price_entry(
+    session: Session,
+    entry_id: int,
+    price: float,
+    entry_date: date,
+    *,
+    quantity: float = 1.0,
+    entry_type: str = "purchase",
+    note: str | None = None,
+) -> ConsumablePriceEntry:
+    entry = session.get(ConsumablePriceEntry, entry_id)
+    if not entry:
+        raise ValueError(f"Price entry {entry_id} not found")
+    entry.price = price
+    entry.date = entry_date
+    entry.quantity = quantity
+    entry.entry_type = entry_type
+    entry.note = note
+    # Keep unit_price in sync with the most recent entry
+    latest = (
+        session.query(ConsumablePriceEntry)
+        .filter(ConsumablePriceEntry.consumable_id == entry.consumable_id)
+        .order_by(ConsumablePriceEntry.date.desc())
+        .first()
+    )
+    if latest:
+        entry.consumable.unit_price = latest.price
+    session.flush()
+    return entry
 
 
 def get_reorder_list(

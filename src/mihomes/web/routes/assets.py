@@ -206,6 +206,36 @@ def edit_asset(
     return templates.TemplateResponse(request, "assets_properties.html", _properties_ctx(db))
 
 
+@router.post("/{slug}/price-entries", response_class=HTMLResponse)
+def add_price_entry(
+    request: Request,
+    slug: str,
+    price: str = Form(...),
+    entry_date: str = Form(...),
+    quantity: str = Form("1"),
+    entry_type: str = Form("purchase"),
+    note: str = Form(""),
+    from_property: str = Form(""),
+    from_space: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    from datetime import date as date_type
+    asset_svc.add_price_entry(
+        db,
+        slug,
+        float(price),
+        date_type.fromisoformat(entry_date),
+        quantity=float(quantity) if quantity else 1.0,
+        entry_type=entry_type,
+        note=note or None,
+    )
+    if from_property and from_space:
+        return templates.TemplateResponse(request, "assets.html", _list_ctx(db, from_property, from_space))
+    if from_property:
+        return templates.TemplateResponse(request, "assets_spaces.html", _spaces_ctx(db, from_property))
+    return templates.TemplateResponse(request, "assets_properties.html", _properties_ctx(db))
+
+
 @router.post("/{slug}/delete", response_class=HTMLResponse)
 def delete_asset(
     request: Request,

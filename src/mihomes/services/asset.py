@@ -4,7 +4,7 @@ from datetime import date, timedelta  # timedelta used in get_lifecycle_data
 
 from sqlalchemy.orm import Session
 
-from mihomes.models.asset import Asset, AssetCondition, AssetType
+from mihomes.models.asset import Asset, AssetCondition, AssetType, PriceEntry
 from mihomes.models.property import Property
 from mihomes.models.space import Space
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
@@ -192,3 +192,38 @@ def list_by_type(session: Session, asset_type: AssetType) -> list[Asset]:
         Asset.asset_type == asset_type,
         Asset.active == True,  # noqa: E712
     ).order_by(Asset.name).all()
+
+
+def add_price_entry(
+    session: Session,
+    asset_id_or_slug: str,
+    price: float,
+    entry_date: date,
+    *,
+    quantity: float = 1.0,
+    entry_type: str = "purchase",
+    note: str | None = None,
+) -> PriceEntry:
+    asset = resolve_identifier(session, Asset, asset_id_or_slug)
+    entry = PriceEntry(
+        asset_id=asset.id,
+        date=entry_date,
+        price=price,
+        quantity=quantity,
+        entry_type=entry_type,
+        note=note,
+    )
+    session.add(entry)
+    asset.purchase_price = price
+    session.flush()
+    return entry
+
+
+def list_price_entries(session: Session, asset_id_or_slug: str) -> list[PriceEntry]:
+    asset = resolve_identifier(session, Asset, asset_id_or_slug)
+    return (
+        session.query(PriceEntry)
+        .filter(PriceEntry.asset_id == asset.id)
+        .order_by(PriceEntry.date.desc())
+        .all()
+    )

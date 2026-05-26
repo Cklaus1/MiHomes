@@ -45,6 +45,7 @@ def create_work_order(
     vendor_slug: str = Form(""),
     vendor_name_other: str = Form(""),
     estimated_cost: str = Form(""),
+    due_date: str = Form(""),
     db: Session = Depends(get_db),
 ):
     resolved_vendor_slug = vendor_slug
@@ -58,6 +59,7 @@ def create_work_order(
         description=description or None,
         vendor_id_or_slug=resolved_vendor_slug or None,
         estimated_cost=float(estimated_cost) if estimated_cost else None,
+        due_date=date.fromisoformat(due_date) if due_date else None,
     )
     return templates.TemplateResponse(request, "work_orders.html", _ctx(db))
 

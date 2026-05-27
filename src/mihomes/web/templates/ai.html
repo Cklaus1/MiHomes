@@ -24,6 +24,23 @@
   .report-prose blockquote { border-left: 3px solid #0284c7; padding: 0.25rem 0 0.25rem 0.75rem; margin: 0.5rem 0; color: #6b7280; font-size: 0.875rem; }
   .report-prose code { font-family: ui-monospace, monospace; font-size: 0.8125rem; background: #f3f4f6; padding: 0.1rem 0.3rem; border-radius: 3px; }
   .report-prose :first-child { margin-top: 0 !important; }
+  /* Chat markdown prose */
+  .chat-prose h1 { font-size: 1rem; font-weight: 700; color: #111827; margin: 1rem 0 0.4rem; }
+  .chat-prose h2 { font-size: 0.9375rem; font-weight: 700; color: #111827; margin: 1.25rem 0 0.35rem; padding-bottom: 0.25rem; border-bottom: 1px solid #e5e7eb; }
+  .chat-prose h3 { font-size: 0.875rem; font-weight: 600; color: #374151; margin: 0.875rem 0 0.2rem; }
+  .chat-prose p  { font-size: 0.875rem; color: #374151; line-height: 1.65; margin: 0.35rem 0; }
+  .chat-prose ul, .chat-prose ol { padding-left: 1.25rem; margin: 0.35rem 0; }
+  .chat-prose li { font-size: 0.875rem; color: #374151; margin: 0.15rem 0; line-height: 1.55; }
+  .chat-prose strong { font-weight: 600; color: #111827; }
+  .chat-prose em { font-style: italic; color: #6b7280; }
+  .chat-prose table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; margin: 0.5rem 0; }
+  .chat-prose th { text-align: left; padding: 0.3rem 0.6rem; background: #f9fafb; font-weight: 600; color: #374151; border-bottom: 1px solid #e5e7eb; border-top: 1px solid #e5e7eb; }
+  .chat-prose td { padding: 0.3rem 0.6rem; color: #374151; border-bottom: 1px solid #f3f4f6; }
+  .chat-prose hr { border: none; border-top: 1px solid #e5e7eb; margin: 0.75rem 0; }
+  .chat-prose code { font-family: ui-monospace, monospace; font-size: 0.8125rem; background: #f3f4f6; padding: 0.1rem 0.3rem; border-radius: 3px; }
+  .chat-prose :first-child { margin-top: 0 !important; }
+  @keyframes blink { 0%, 100% { opacity: 1 } 50% { opacity: 0 } }
+  .streaming-cursor { animation: blink 0.7s step-end infinite; color: #0284c7; font-weight: 300; }
 </style>
 {% endblock %}
 
@@ -84,13 +101,7 @@
 
       <!-- Chat input -->
       <div class="bg-white rounded-xl border border-gray-200 p-4 flex-shrink-0">
-        <form id="ask-form"
-              hx-post="/ai/ask"
-              hx-target="#conversation"
-              hx-swap="beforeend"
-              hx-indicator="#ai-spinner"
-              hx-encoding="multipart/form-data"
-              hx-on::after-request="clearInput()">
+        <form id="ask-form">
           <div class="flex gap-3 items-end">
             <div class="flex-1">
               <textarea id="query-input" name="query" rows="2" required
@@ -111,15 +122,13 @@
                 <div id="chips-chat" class="flex flex-wrap gap-1.5"></div>
               </div>
             </div>
-            <button type="submit"
-                    class="flex-shrink-0 inline-flex items-center gap-2 px-4 py-2.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
-              <span id="ai-spinner" class="htmx-indicator">
-                <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
-                </svg>
-              </span>
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <button type="submit" id="ask-submit-btn"
+                    class="flex-shrink-0 inline-flex items-center gap-2 px-4 py-2.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors">
+              <svg id="ai-spinner" class="w-4 h-4 animate-spin hidden" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+              </svg>
+              <svg id="ask-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
               </svg>
               Ask
@@ -368,7 +377,7 @@
 <script>
 let activeRole = '';
 
-// ── Chat ──────────────────────────────────────────────────────────────────
+// ── Chat streaming ─────────────────────────────────────────────────────────
 function setQuery(text) {
   document.getElementById('query-input').value = text;
   document.getElementById('query-input').focus();
@@ -380,9 +389,147 @@ function clearInput() {
   if (fileInput) { fileInput.value = ''; }
   const chips = document.getElementById('chips-chat');
   if (chips) chips.innerHTML = '';
-  const conv = document.getElementById('conversation');
-  if (conv) conv.scrollTop = conv.scrollHeight;
 }
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function appendUserBubble(text) {
+  const conv = document.getElementById('conversation');
+  const div = document.createElement('div');
+  div.className = 'flex items-start gap-3 justify-end';
+  div.innerHTML = `
+    <div class="bg-brand-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 max-w-lg text-sm whitespace-pre-wrap">${escHtml(text)}</div>
+    <div class="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0 mt-0.5">
+      <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+      </svg>
+    </div>`;
+  conv.appendChild(div);
+  conv.scrollTop = conv.scrollHeight;
+}
+
+function appendAiBubble() {
+  const conv = document.getElementById('conversation');
+  const id = 'ai-bubble-' + Date.now();
+  const div = document.createElement('div');
+  div.className = 'flex items-start gap-3';
+  div.innerHTML = `
+    <div class="w-7 h-7 rounded-full bg-brand-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+      <svg class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+      </svg>
+    </div>
+    <div class="flex-1 min-w-0">
+      <div id="${id}" class="bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-gray-700 max-w-2xl whitespace-pre-wrap leading-relaxed"><span class="streaming-cursor">▋</span></div>
+    </div>`;
+  conv.appendChild(div);
+  conv.scrollTop = conv.scrollHeight;
+  return id;
+}
+
+function setStreaming(on) {
+  const btn = document.getElementById('ask-submit-btn');
+  const spinner = document.getElementById('ai-spinner');
+  const icon = document.getElementById('ask-icon');
+  if (btn) btn.disabled = on;
+  if (spinner) spinner.classList.toggle('hidden', !on);
+  if (icon) icon.classList.toggle('hidden', on);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('ask-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const query = document.getElementById('query-input').value.trim();
+    if (!query) return;
+
+    appendUserBubble(query);
+    clearInput();
+    setStreaming(true);
+
+    const bubbleId = appendAiBubble();
+    const bubble = () => document.getElementById(bubbleId);
+    const conv = document.getElementById('conversation');
+
+    const formData = new FormData();
+    formData.append('query', query);
+    formData.append('role', document.getElementById('role-input').value);
+    formData.append('property_id', document.getElementById('property-input').value);
+    const filesEl = document.getElementById('files-chat');
+    if (filesEl && filesEl.files.length) {
+      Array.from(filesEl.files).forEach(f => formData.append('files', f));
+    }
+
+    let rawText = '';
+    try {
+      const resp = await fetch('/ai/ask-stream', { method: 'POST', body: formData });
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        // Process complete SSE events (separated by double newline)
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop();
+
+        for (const part of parts) {
+          for (const line of part.split('\n')) {
+            if (!line.startsWith('data: ')) continue;
+            const data = line.slice(6);
+
+            if (data === '[DONE]') {
+              const el = bubble();
+              if (el) {
+                if (typeof marked !== 'undefined' && rawText) {
+                  el.className = 'chat-prose bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-3 text-sm max-w-2xl';
+                  el.innerHTML = marked.parse(rawText);
+                } else {
+                  el.innerHTML = escHtml(rawText);
+                }
+              }
+              conv.scrollTop = conv.scrollHeight;
+              setStreaming(false);
+              return;
+            }
+
+            try {
+              const msg = JSON.parse(data);
+              if (msg.e) {
+                const el = bubble();
+                if (el) {
+                  el.className = 'bg-red-50 border border-red-200 rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-red-700 max-w-2xl';
+                  el.innerHTML = `<div class="font-medium mb-0.5">Unable to get a response</div>${escHtml(msg.e)}`;
+                }
+                setStreaming(false);
+                return;
+              }
+              if (msg.t !== undefined) {
+                rawText += msg.t;
+                const el = bubble();
+                if (el) {
+                  el.innerHTML = escHtml(rawText) + '<span class="streaming-cursor">▋</span>';
+                }
+                conv.scrollTop = conv.scrollHeight;
+              }
+            } catch (_) { /* malformed event, skip */ }
+          }
+        }
+      }
+    } catch (err) {
+      const el = bubble();
+      if (el) {
+        el.className = 'bg-red-50 border border-red-200 rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-red-700 max-w-2xl';
+        el.textContent = 'Connection error. Please try again.';
+      }
+      setStreaming(false);
+    }
+  });
+});
 
 function setRole(value) {
   activeRole = value;

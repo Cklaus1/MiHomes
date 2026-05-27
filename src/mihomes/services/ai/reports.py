@@ -173,7 +173,7 @@ def generate_situation_report(
     session.add(AIConversation(
         session_id=session_id,
         role="situation_report",
-        user_message=f"[Situation Report] {subject or type_label}: {content[:200]}",
+        user_message=f"[Situation Report] {subject or 'Advisory Report'}: {content[:200]}",
         ai_response=response_text,
         context_summary=f"situation_report; property:{property_slug or 'all'}; wo:{work_order_slug or 'none'}",
         provider=provider_name,

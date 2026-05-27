@@ -1,11 +1,12 @@
 """AI Advisor route."""
 
+import json
 import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from mihomes.models.document import DocumentType
@@ -192,6 +193,110 @@ async def estate_digest(
         "property_slug": property_slug or "",
         "error": error,
     })
+
+
+@router.post("/ask-stream")
+async def ai_ask_stream(
+    request: Request,
+    query: str = Form(...),
+    role: str = Form(""),
+    property_id: str = Form(""),
+    files: list[UploadFile] = File(default=[]),
+    db: Session = Depends(get_db),
+):
+    from mihomes.services.ai.ai_config import get_ai_api_key, get_ai_model, get_ai_provider_name
+    from mihomes.services.ai.context import assemble_context
+    from mihomes.services.ai.orchestrator import _get_session_id, _save_session_id
+    from mihomes.services.ai.provider import get_provider
+    from mihomes.services.ai.roles import route_query
+    from mihomes.models.ai_conversation import AIConversation
+
+    attachments = await _read_attachments(files)
+
+    try:
+        provider_name = get_ai_provider_name(db)
+        api_key = get_ai_api_key(db, provider_name)
+        model = get_ai_model(db, provider_name)
+        provider = get_provider(provider_name, api_key)
+        roles = route_query(query, explicit_role=role or None)
+        primary_role = roles[0]
+        session_id = _get_session_id(False)
+        context = assemble_context(db, roles, query, property_slug=property_id or None)
+        if len(roles) > 1:
+            system_prompt = (
+                f"You are acting as multiple advisors: {', '.join(r.display_name for r in roles)}.\n\n"
+                + roles[0].system_prompt
+            )
+        else:
+            system_prompt = primary_role.system_prompt
+    except Exception as e:
+        error_msg = _ai_error(str(e))
+
+        def _err_gen():
+            yield f"data: {json.dumps({'e': error_msg})}\n\n"
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(_err_gen(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    import asyncio
+
+    async def _generate():
+        loop = asyncio.get_event_loop()
+        queue: asyncio.Queue = asyncio.Queue()
+
+        def _run_sync():
+            try:
+                if hasattr(provider, "stream"):
+                    for chunk in provider.stream(system_prompt, query, context_data=context,
+                                                  attachments=attachments or None):
+                        loop.call_soon_threadsafe(queue.put_nowait, ("t", chunk))
+                else:
+                    result = provider.complete(system_prompt, query, context_data=context,
+                                               attachments=attachments or None)
+                    loop.call_soon_threadsafe(queue.put_nowait, ("t", result))
+            except Exception as exc:
+                loop.call_soon_threadsafe(queue.put_nowait, ("e", _ai_error(str(exc))))
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, (None, None))
+
+        future = loop.run_in_executor(None, _run_sync)
+
+        full_text_parts: list[str] = []
+        while True:
+            msg_type, msg_data = await queue.get()
+            if msg_type is None:
+                break
+            if msg_type == "t":
+                full_text_parts.append(msg_data)
+                yield f"data: {json.dumps({'t': msg_data})}\n\n"
+            elif msg_type == "e":
+                yield f"data: {json.dumps({'e': msg_data})}\n\n"
+
+        yield "data: [DONE]\n\n"
+        await future
+
+        try:
+            response_text = "".join(full_text_parts)
+            db.add(AIConversation(
+                session_id=session_id,
+                role=primary_role.name,
+                user_message=query,
+                ai_response=response_text,
+                context_summary=f"Roles: {', '.join(r.name for r in roles)}; property: {property_id or 'all'}",
+                provider=provider_name,
+                model=model,
+            ))
+            db.flush()
+            _save_session_id(session_id)
+        except Exception:
+            pass
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post("/save-report", response_class=HTMLResponse)

@@ -41,6 +41,18 @@
   .chat-prose :first-child { margin-top: 0 !important; }
   @keyframes blink { 0%, 100% { opacity: 1 } 50% { opacity: 0 } }
   .streaming-cursor { animation: blink 0.7s step-end infinite; color: #0284c7; font-weight: 300; }
+  /* Thinking dots */
+  .thinking-dot {
+    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    background: #9ca3af; margin: 0 2px;
+    animation: thinking-bounce 1.2s ease-in-out infinite;
+  }
+  .thinking-dot:nth-child(2) { animation-delay: 0.18s; }
+  .thinking-dot:nth-child(3) { animation-delay: 0.36s; }
+  @keyframes thinking-bounce {
+    0%, 75%, 100% { transform: translateY(0); opacity: 0.45; }
+    38% { transform: translateY(-6px); opacity: 1; }
+  }
 </style>
 {% endblock %}
 
@@ -422,7 +434,9 @@ function appendAiBubble() {
       </svg>
     </div>
     <div class="flex-1 min-w-0">
-      <div id="${id}" class="bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-gray-700 max-w-2xl whitespace-pre-wrap leading-relaxed"><span class="streaming-cursor">▋</span></div>
+      <div id="${id}" class="bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-3 max-w-2xl" style="min-height:2.5rem">
+        <span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span>
+      </div>
     </div>`;
   conv.appendChild(div);
   conv.scrollTop = conv.scrollHeight;
@@ -462,6 +476,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     let rawText = '';
+    let firstToken = true;
     try {
       const resp = await fetch('/ai/ask-stream', { method: 'POST', body: formData });
       const reader = resp.body.getReader();
@@ -485,11 +500,14 @@ document.addEventListener('DOMContentLoaded', () => {
             if (data === '[DONE]') {
               const el = bubble();
               if (el) {
+                el.style.minHeight = '';
                 if (typeof marked !== 'undefined' && rawText) {
                   el.className = 'chat-prose bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-3 text-sm max-w-2xl';
                   el.innerHTML = marked.parse(rawText);
-                } else {
+                } else if (rawText) {
                   el.innerHTML = escHtml(rawText);
+                } else {
+                  el.innerHTML = '';
                 }
               }
               conv.scrollTop = conv.scrollHeight;
@@ -503,6 +521,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const el = bubble();
                 if (el) {
                   el.className = 'bg-red-50 border border-red-200 rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-red-700 max-w-2xl';
+                  el.style.minHeight = '';
                   el.innerHTML = `<div class="font-medium mb-0.5">Unable to get a response</div>${escHtml(msg.e)}`;
                 }
                 setStreaming(false);
@@ -512,6 +531,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 rawText += msg.t;
                 const el = bubble();
                 if (el) {
+                  if (firstToken) {
+                    firstToken = false;
+                    el.className = 'bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-gray-700 max-w-2xl whitespace-pre-wrap leading-relaxed';
+                  }
                   el.innerHTML = escHtml(rawText) + '<span class="streaming-cursor">▋</span>';
                 }
                 conv.scrollTop = conv.scrollHeight;

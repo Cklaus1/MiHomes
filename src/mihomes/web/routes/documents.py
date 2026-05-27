@@ -20,6 +20,7 @@ DOC_TYPE_LABELS = {
     "insurance": "Insurance",
     "permit": "Permit",
     "regulation": "Regulation",
+    "report": "Report",
     "other": "Other",
 }
 
@@ -31,6 +32,7 @@ DOC_TYPE_COLORS = {
     "insurance": "sky",
     "permit": "amber",
     "regulation": "red",
+    "report": "indigo",
     "other": "gray",
 }
 

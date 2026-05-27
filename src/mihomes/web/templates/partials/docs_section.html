@@ -8,7 +8,15 @@
       </svg>
       <div class="flex-1 min-w-0">
         <div class="text-sm font-medium text-gray-800 truncate">{{ doc.title }}</div>
-        <div class="text-xs text-gray-400">{{ doc.document_type.value }} · {{ doc.file_path }}</div>
+        <div class="text-xs text-gray-400">
+          {{ doc.document_type.value }} ·
+          {% if doc.file_path.startswith('/static/') or doc.file_path.startswith('http') %}
+            <a href="{{ doc.file_path }}" target="_blank" rel="noopener"
+               class="text-brand-600 hover:underline truncate">{{ doc.file_path.split('/')[-1] }}</a>
+          {% else %}
+            {{ doc.file_path }}
+          {% endif %}
+        </div>
       </div>
       <button hx-delete="{{ delete_url_prefix }}/{{ doc.id }}"
               hx-target="closest [data-docs-container]"
@@ -28,6 +36,7 @@
 <form hx-post="{{ post_url }}"
       hx-target="closest [data-docs-container]"
       hx-swap="innerHTML"
+      hx-encoding="multipart/form-data"
       hx-on::after-request="this.reset()"
       class="space-y-2">
   <div class="flex gap-2">
@@ -42,9 +51,15 @@
       <option value="other" selected>Other</option>
     </select>
   </div>
-  <div class="flex gap-2">
-    <input type="text" name="file_path" placeholder="File path or URL" required
-           class="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white" />
+  <div class="flex gap-2 items-center">
+    <label class="flex-1 flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-1.5 bg-white cursor-pointer hover:border-brand-400 transition-colors">
+      <svg class="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+      </svg>
+      <span class="text-sm text-gray-400 truncate" id="file-label-{{ post_url | replace('/', '-') }}">Choose file…</span>
+      <input type="file" name="file" required class="sr-only"
+             onchange="document.getElementById('file-label-{{ post_url | replace('/', '-') }}').textContent = this.files[0]?.name || 'Choose file…'" />
+    </label>
     <button type="submit"
             class="px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors flex-shrink-0">
       Attach

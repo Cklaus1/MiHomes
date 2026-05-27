@@ -17,6 +17,7 @@ class DocumentType(str, enum.Enum):
     PERMIT = "permit"
     REGULATION = "regulation"
     SOP = "sop"
+    REPORT = "report"
     OTHER = "other"
 
 

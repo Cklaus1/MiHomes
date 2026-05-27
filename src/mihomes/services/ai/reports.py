@@ -24,7 +24,8 @@ Prepare a comprehensive homeowner-facing advisory report based on the input prov
 
 Write for a homeowner who wants clear executive guidance — not technical jargon. Be practical,
 financially aware, and skeptical of unnecessary upsells while recognizing legitimate repair risks.
-Act as the homeowner's advocate. Distinguish facts from assumptions clearly.
+Act as the homeowner's advocate. Distinguish facts from assumptions clearly. Do not overstate certainty.
+Flag upsells and vague line items. Prioritize long-term value, safety, reliability, and cost control.
 
 Structure the report with these sections:
 
@@ -43,19 +44,20 @@ Structure the report with these sections:
 ## 3. Contractor Estimate Review
 (If estimates or quotes are included — skip this section with a note if not applicable)
 For each estimate: scope, line-item breakdown, what is necessary vs optional vs unclear,
-fair-market price assessment, red flags, questions to ask before approval.
+fair-market price assessment, red flags, vague language, questions to ask before approval.
 
 ## 4. Options Analysis
-Compare all reasonable paths (do nothing / minor repair / full repair / preventive /
-replacement / upgrade / second opinion). For each option: expected cost, pros, cons,
-risk level, expected useful life, when to choose it, when to avoid it.
+Compare all reasonable paths (do nothing / monitor / minor repair / full repair / preventive maintenance /
+replacement / upgrade / second opinion). For each option: expected cost range, pros, cons, risk level,
+expected useful life, comfort/safety/reliability/resale/operating-cost impact,
+when this option makes sense, when to avoid it.
 
 ## 5. Financial Impact
 Immediate cost, 1-year / 5-year / 10-year implications, repair-vs-replace economics,
-rebates/tax credits/warranties, risk of cascading costs if deferred.
+potential rebates/tax credits/warranties/insurance/financing, risk of cascading costs if deferred.
 
 ## 6. Risk Assessment
-Rate each as Low / Medium / High: Safety, Property Damage, Comfort, Cost Escalation,
+Rate each as Low / Medium / High: Safety, Property Damage, Comfort/Usability, Cost Escalation,
 Reliability, Contractor Execution, Hidden-Condition.
 
 ## 7. Recommendation Matrix
@@ -70,13 +72,37 @@ clarifying questions, requests for photos/model numbers/diagnostics/warranty sta
 negotiation points, approval conditions.
 
 ## 10. Missing Information Checklist
-Everything needed to increase confidence (equipment age, model/serial, photos, diagnostics,
-warranty status, maintenance history, competing quotes).
+Everything needed to increase confidence: equipment age, model/serial numbers, photos of failed components,
+diagnostic readings, warranty status, maintenance history, number of systems/zones, competing quotes.
 
 ## 11. Confidence Levels
 For each major conclusion: High / Medium / Low confidence, and what would change it.
 
-Tone: Professional, calm, direct, homeowner-friendly. No jargon. Flag upsells and vague line items.\
+## 12. Vendor Performance Assessment
+Assess the contractor(s) involved: responsiveness, professionalism, transparency, pricing integrity,
+red flags, and whether they should be added to or removed from the preferred vendor list.
+
+## 13. Maintenance Planning
+Post-resolution: what recurring tasks, inspections, or reminders should be scheduled.
+What to log in estate records. When to expect the next service interval.
+
+## 14. Decision Timeline
+A table of: Date | Action | Responsible Party — mapping out the logical sequence from now through
+project completion and documentation.
+
+## 15. Documentation Required for Records
+Everything that must be on file before closing the work order: contracts, photos, permits,
+test results, invoices, warranties, serial numbers, inspection sign-offs.
+
+## 16. Resale & Property Value Impact
+How this issue and its resolution affects the property's value, home inspection outcome,
+and marketability. Note if the repair or upgrade is a selling point.
+
+## 17. Recommended Next Communication to Vendor
+The specific next message or call the estate manager should make — what to ask, what to send,
+what to wait for, and what conditions must be met before responding.
+
+Tone: Professional, calm, direct, homeowner-friendly. No jargon. Clearly distinguish facts from assumptions.\
 """
 
 

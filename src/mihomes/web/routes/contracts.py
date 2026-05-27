@@ -1,8 +1,10 @@
 """Contracts routes."""
 
+import uuid
 from datetime import date
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
@@ -88,15 +90,24 @@ def delete_note(request: Request, contract_id: int, note_id: int, db: Session = 
     })
 
 
+UPLOADS_DIR = Path(__file__).parent.parent / "static" / "uploads"
+
+
 @router.post("/{contract_id}/documents", response_class=HTMLResponse)
-def add_document(
+async def add_document(
     request: Request,
     contract_id: int,
     title: str = Form(...),
-    file_path: str = Form(...),
     doc_type: str = Form("other"),
+    file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
+    suffix = Path(file.filename).suffix.lower()
+    filename = f"{uuid.uuid4().hex}{suffix}"
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    dest = UPLOADS_DIR / filename
+    dest.write_bytes(await file.read())
+    file_path = f"/static/uploads/{filename}"
     doc_svc.create_document(
         db, title=title, file_path=file_path,
         document_type=DocumentType(doc_type),

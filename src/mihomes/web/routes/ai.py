@@ -1,14 +1,20 @@
 """AI Advisor route."""
 
+import uuid
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
+from mihomes.models.document import DocumentType
+from mihomes.services import document as doc_svc
 from mihomes.services import property as prop_svc
 from mihomes.services.ai.file_processor import Attachment, process_upload
 from mihomes.web.deps import get_db, templates
+
+UPLOADS_DIR = Path(__file__).parent.parent / "static" / "uploads"
 
 router = APIRouter()
 
@@ -133,6 +139,7 @@ async def situation_report(
         "subject": subject or "Advisory Report",
         "report_text": report_text,
         "generated_at": datetime.now().strftime("%B %d, %Y at %I:%M %p"),
+        "property_slug": property_slug or "",
         "error": error,
     })
 
@@ -182,5 +189,44 @@ async def estate_digest(
         "subject": f"{period_label} — {start.strftime('%b %d')} to {end.strftime('%b %d, %Y')}",
         "report_text": report_text,
         "generated_at": datetime.now().strftime("%B %d, %Y at %I:%M %p"),
+        "property_slug": property_slug or "",
         "error": error,
     })
+
+
+@router.post("/save-report", response_class=HTMLResponse)
+async def save_report(
+    request: Request,
+    report_type: str = Form(...),
+    subject: str = Form(...),
+    report_text: str = Form(...),
+    generated_at: str = Form(""),
+    property_slug: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    slug_part = subject.lower().replace(" ", "-").replace("/", "-")[:40]
+    filename = f"report-{slug_part}-{uuid.uuid4().hex[:8]}.md"
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    header = f"# {subject}\n\n**Type:** {report_type}  \n**Generated:** {generated_at}\n\n---\n\n"
+    (UPLOADS_DIR / filename).write_text(header + report_text, encoding="utf-8")
+    file_path = f"/static/uploads/{filename}"
+
+    prop = prop_svc.get_property(db, property_slug) if property_slug else None
+    doc_svc.create_document(
+        db,
+        title=f"{report_type} — {subject}",
+        file_path=file_path,
+        document_type=DocumentType.REPORT,
+        entity_type="property" if prop else None,
+        entity_id=prop.id if prop else None,
+    )
+
+    return HTMLResponse("""
+        <div class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-emerald-700
+                    border border-emerald-200 rounded-lg bg-emerald-50">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+          </svg>
+          Saved to Documents
+        </div>
+    """)

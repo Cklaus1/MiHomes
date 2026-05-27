@@ -525,7 +525,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 setStreaming(false);
                 return;
               }
-              if (msg.t !== undefined) {
+              if (msg.status !== undefined) {
+                const el = bubble();
+                if (el && firstToken) {
+                  el.innerHTML = `<span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span><span class="text-xs text-gray-400 ml-2">${escHtml(msg.status)}</span>`;
+                }
+              } else if (msg.t !== undefined) {
                 rawText += msg.t;
                 const el = bubble();
                 if (el) {

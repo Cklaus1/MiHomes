@@ -205,9 +205,8 @@ async def ai_ask_stream(
     db: Session = Depends(get_db),
 ):
     from mihomes.services.ai.ai_config import get_ai_api_key, get_ai_model, get_ai_provider_name
-    from mihomes.services.ai.context import assemble_context
+    from mihomes.services.ai.agent import agent_stream
     from mihomes.services.ai.orchestrator import _get_session_id, _save_session_id
-    from mihomes.services.ai.provider import get_provider
     from mihomes.services.ai.roles import route_query
     from mihomes.models.ai_conversation import AIConversation
 
@@ -217,11 +216,9 @@ async def ai_ask_stream(
         provider_name = get_ai_provider_name(db)
         api_key = get_ai_api_key(db, provider_name)
         model = get_ai_model(db, provider_name)
-        provider = get_provider(provider_name, api_key)
         roles = route_query(query, explicit_role=role or None)
         primary_role = roles[0]
         session_id = _get_session_id(False)
-        context = assemble_context(db, roles, query, property_slug=property_id or None)
         if len(roles) > 1:
             system_prompt = (
                 f"You are acting as multiple advisors: {', '.join(r.display_name for r in roles)}.\n\n"
@@ -247,16 +244,17 @@ async def ai_ask_stream(
 
         def _run_sync():
             try:
-                if hasattr(provider, "stream"):
-                    for chunk in provider.stream(system_prompt, query, context_data=context,
-                                                  attachments=attachments or None):
-                        loop.call_soon_threadsafe(queue.put_nowait, ("t", chunk))
-                else:
-                    result = provider.complete(system_prompt, query, context_data=context,
-                                               attachments=attachments or None)
-                    loop.call_soon_threadsafe(queue.put_nowait, ("t", result))
+                for event_type, data in agent_stream(
+                    db, query,
+                    system_prompt=system_prompt,
+                    api_key=api_key,
+                    model=model,
+                    property_slug=property_id or None,
+                    attachments=attachments or None,
+                ):
+                    loop.call_soon_threadsafe(queue.put_nowait, (event_type, data))
             except Exception as exc:
-                loop.call_soon_threadsafe(queue.put_nowait, ("e", _ai_error(str(exc))))
+                loop.call_soon_threadsafe(queue.put_nowait, ("error", _ai_error(str(exc))))
             finally:
                 loop.call_soon_threadsafe(queue.put_nowait, (None, None))
 
@@ -267,11 +265,13 @@ async def ai_ask_stream(
             msg_type, msg_data = await queue.get()
             if msg_type is None:
                 break
-            if msg_type == "t":
+            if msg_type == "token":
                 full_text_parts.append(msg_data)
                 yield f"data: {json.dumps({'t': msg_data})}\n\n"
-            elif msg_type == "e":
-                yield f"data: {json.dumps({'e': msg_data})}\n\n"
+            elif msg_type == "status":
+                yield f"data: {json.dumps({'status': msg_data})}\n\n"
+            elif msg_type == "error":
+                yield f"data: {json.dumps({'e': _ai_error(msg_data)})}\n\n"
 
         yield "data: [DONE]\n\n"
         await future
@@ -283,7 +283,7 @@ async def ai_ask_stream(
                 role=primary_role.name,
                 user_message=query,
                 ai_response=response_text,
-                context_summary=f"Roles: {', '.join(r.name for r in roles)}; property: {property_id or 'all'}",
+                context_summary=f"Agent; roles: {', '.join(r.name for r in roles)}; property: {property_id or 'all'}",
                 provider=provider_name,
                 model=model,
             ))

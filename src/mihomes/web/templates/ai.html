@@ -115,25 +115,10 @@
       <div class="bg-white rounded-xl border border-gray-200 p-4 flex-shrink-0">
         <form id="ask-form">
           <div class="flex gap-3 items-end">
-            <div class="flex-1">
-              <textarea id="query-input" name="query" rows="2" required
-                        placeholder="Ask anything about your estate…"
-                        class="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
-                        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();document.getElementById('ask-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));}"></textarea>
-              <!-- File attachment -->
-              <div class="mt-2 flex items-center gap-2 flex-wrap">
-                <label for="files-chat" class="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 cursor-pointer transition-colors">
-                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
-                  </svg>
-                  Attach files
-                </label>
-                <input type="file" id="files-chat" name="files" multiple
-                       accept=".txt,.md,.csv,.json,.jpg,.jpeg,.png,.gif,.webp,.pdf"
-                       class="hidden" onchange="updateFileChips(this,'chips-chat')" />
-                <div id="chips-chat" class="flex flex-wrap gap-1.5"></div>
-              </div>
-            </div>
+            <textarea id="query-input" name="query" rows="2" required
+                      placeholder="Ask anything about your estate…"
+                      class="flex-1 border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
+                      onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();document.getElementById('ask-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));}"></textarea>
             <button type="submit" id="ask-submit-btn"
                     class="flex-shrink-0 inline-flex items-center gap-2 px-4 py-2.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors">
               <svg id="ai-spinner" class="w-4 h-4 animate-spin hidden" fill="none" viewBox="0 0 24 24">
@@ -145,6 +130,19 @@
               </svg>
               Ask
             </button>
+          </div>
+          <!-- File attachment row below textarea+button -->
+          <div class="mt-2 flex items-center gap-2 flex-wrap">
+            <label for="files-chat" class="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 cursor-pointer transition-colors">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+              </svg>
+              Attach files
+            </label>
+            <input type="file" id="files-chat" name="files" multiple
+                   accept=".txt,.md,.csv,.json,.jpg,.jpeg,.png,.gif,.webp,.pdf"
+                   class="hidden" onchange="updateFileChips(this,'chips-chat')" />
+            <div id="chips-chat" class="flex flex-wrap gap-1.5"></div>
           </div>
           <input type="hidden" name="role" id="role-input" value="" />
           <input type="hidden" name="property_id" id="property-input" value="" />

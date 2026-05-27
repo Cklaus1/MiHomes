@@ -78,6 +78,12 @@ def assemble_context(
             token_est += len(text) // 4
 
     if token_est < max_tokens:
+        text = _fetch_books(session, property_slug)
+        if text:
+            sections.append(text)
+            token_est += len(text) // 4
+
+    if token_est < max_tokens:
         text = _fetch_work_orders(session, property_slug)
         if text:
             sections.append(text)
@@ -262,23 +268,85 @@ def _fetch_staff(session: Session, property_slug: str | None) -> str:
 
 
 def _fetch_assets(session: Session, property_slug: str | None) -> str:
+    from sqlalchemy import func
     from mihomes.models.asset import Asset
-    from mihomes.services.property import list_properties
 
-    lines = ["## Assets"]
-    query = session.query(Asset).filter(Asset.active.is_(True))
+    base = session.query(Asset).filter(Asset.active.is_(True))
     if property_slug:
         from mihomes.models.property import Property
         from mihomes.services.slug import resolve_identifier
         prop = resolve_identifier(session, Property, property_slug)
-        query = query.filter(Asset.property_id == prop.id)
-    assets = query.limit(20).all()
-    if not assets:
+        base = base.filter(Asset.property_id == prop.id)
+
+    total = base.count()
+    if not total:
         return ""
+
+    lines = [f"## Assets ({total} total)"]
+
+    # Summary by type
+    by_type = (
+        session.query(Asset.asset_type, func.count(Asset.id))
+        .filter(Asset.active.is_(True))
+        .group_by(Asset.asset_type)
+        .all()
+    )
+    if by_type:
+        lines.append("By type: " + ", ".join(f"{t.value}: {n}" for t, n in by_type))
+
+    # List up to 20 notable assets
+    assets = base.limit(20).all()
     for a in assets:
         warranty = f", warranty expires {a.warranty_expires}" if a.warranty_expires else ""
+        val = f", value ${a.purchase_price:,.0f}" if a.purchase_price else ""
         prop_name = a.property.name if a.property else "unknown"
-        lines.append(f"- {a.name} ({a.asset_type.value}) @ {prop_name}{warranty}")
+        lines.append(f"- {a.name} ({a.asset_type.value}) @ {prop_name}{val}{warranty}")
+
+    return "\n".join(lines)
+
+
+def _fetch_books(session: Session, property_slug: str | None) -> str:
+    from sqlalchemy import func
+    from mihomes.models.book import Book
+
+    base = session.query(Book).filter(Book.active.is_(True))
+    if property_slug:
+        from mihomes.models.property import Property
+        from mihomes.services.slug import resolve_identifier
+        prop = resolve_identifier(session, Property, property_slug)
+        base = base.filter(Book.property_id == prop.id)
+
+    total = base.count()
+    if not total:
+        return ""
+
+    lines = [f"## Library / Books ({total} total)"]
+
+    # Count by property
+    by_prop = (
+        session.query(Book.property_id, func.count(Book.id))
+        .filter(Book.active.is_(True))
+        .group_by(Book.property_id)
+        .all()
+    )
+    from mihomes.models.property import Property as Prop
+    for prop_id, cnt in by_prop:
+        p = session.get(Prop, prop_id)
+        prop_name = p.name if p else f"property {prop_id}"
+        lines.append(f"- {prop_name}: {cnt} books")
+
+    # Genre breakdown (top 10)
+    by_genre = (
+        session.query(Book.genre, func.count(Book.id))
+        .filter(Book.active.is_(True), Book.genre.isnot(None))
+        .group_by(Book.genre)
+        .order_by(func.count(Book.id).desc())
+        .limit(10)
+        .all()
+    )
+    if by_genre:
+        lines.append("Top genres: " + ", ".join(f"{g} ({n})" for g, n in by_genre))
+
     return "\n".join(lines)
 
 

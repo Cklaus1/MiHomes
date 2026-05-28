@@ -11,6 +11,43 @@ if TYPE_CHECKING:
 
 MAX_TOOL_ROUNDS = 5
 
+_PROVIDER_SYSTEM_SUFFIX = """
+Answer directly and specifically using the estate data provided.
+Cite actual numbers, names, and dates from the data when relevant.
+"""
+
+
+def provider_stream(
+    session: Session,
+    query: str,
+    *,
+    system_prompt: str,
+    provider_name: str,
+    api_key: str,
+    model: str,
+    roles: list,
+    property_slug: str | None = None,
+    attachments: list["Attachment"] | None = None,
+) -> Generator[tuple[str, str], None, None]:
+    """
+    Streaming for non-Claude providers via context injection.
+    Yields same (event_type, data) tuples as agent_stream.
+    """
+    from mihomes.services.ai.context import assemble_context
+    from mihomes.services.ai.provider import get_provider
+
+    full_system = system_prompt.rstrip() + "\n" + _PROVIDER_SYSTEM_SUFFIX
+    context_data = assemble_context(session, roles, query, property_slug=property_slug)
+    provider = get_provider(provider_name, api_key=api_key)
+    provider.model = model
+
+    try:
+        for chunk in provider.stream(full_system, query, context_data=context_data, attachments=attachments):
+            yield ("token", chunk)
+    except Exception as e:
+        yield ("error", str(e))
+
+
 _AGENT_SYSTEM_SUFFIX = """
 You have access to database tools that let you query the estate's live records.
 Use them whenever the user asks about specific data (counts, lists, names, dates, amounts).

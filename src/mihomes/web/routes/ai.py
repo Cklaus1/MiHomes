@@ -6,7 +6,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from mihomes.models.document import DocumentType
@@ -32,8 +32,105 @@ ROLES = [
     ("security", "Security Advisor"),
 ]
 
+ROLE_DISPLAY = {
+    "estate_manager": "Manager",
+    "maintenance": "Maintenance",
+    "financial": "Financial",
+    "vendor_strategist": "Vendor",
+    "compliance_officer": "Compliance",
+    "hospitality": "Hospitality",
+    "housekeeping": "Housekeeping",
+    "grounds": "Grounds",
+    "security": "Security",
+}
+
 _AI_ERROR_HINT = "AI provider not configured. Run `mihomes ai setup` in the CLI to set your API key."
 _AI_INVALID_KEY_HINT = "API key is invalid or rejected. Run `mihomes ai setup` in the CLI to update your API key."
+
+
+def _session_property_slug(context_summary: str | None) -> str:
+    """Parse context_summary like 'Agent; roles: financial; property: belle-estate' to extract the property slug."""
+    if not context_summary:
+        return ""
+    for part in context_summary.split(";"):
+        part = part.strip()
+        if part.startswith("property:"):
+            value = part[len("property:"):].strip()
+            if value and value != "all":
+                return value
+    return ""
+
+
+def _list_sessions(db: Session) -> list[dict]:
+    """Return the most recent 50 sessions, one entry per session_id."""
+    from sqlalchemy import func
+    from mihomes.models.ai_conversation import AIConversation
+
+    # Subquery: for each session_id get min(id), max(created_at), count
+    sub = (
+        db.query(
+            AIConversation.session_id,
+            func.min(AIConversation.id).label("first_id"),
+            func.max(AIConversation.created_at).label("last_at"),
+            func.count(AIConversation.id).label("msg_count"),
+        )
+        .group_by(AIConversation.session_id)
+        .subquery()
+    )
+
+    rows = (
+        db.query(AIConversation, sub.c.last_at, sub.c.msg_count)
+        .join(sub, AIConversation.id == sub.c.first_id)
+        .order_by(sub.c.last_at.desc())
+        .limit(50)
+        .all()
+    )
+
+    result = []
+    for conv, last_at, msg_count in rows:
+        custom_name = (conv.session_name or "").strip()
+        result.append({
+            "session_id": conv.session_id,
+            "title": custom_name or (conv.user_message or "")[:55],
+            "custom_name": custom_name,
+            "role": conv.role or "",
+            "role_label": ROLE_DISPLAY.get(conv.role or "", "Auto"),
+            "property": _session_property_slug(conv.context_summary),
+            "last_at": last_at,
+            "msg_count": msg_count,
+        })
+    return result
+
+
+def _group_sessions(sessions: list[dict]) -> list[tuple[str, list[dict]]]:
+    """Group sessions into Today / Yesterday / Last 7 days / Older, omitting empty groups."""
+    today = date.today()
+    yesterday = today - timedelta(days=1)
+    week_ago = today - timedelta(days=7)
+
+    groups: dict[str, list[dict]] = {
+        "Today": [],
+        "Yesterday": [],
+        "Last 7 days": [],
+        "Older": [],
+    }
+
+    for s in sessions:
+        last_at = s["last_at"]
+        if isinstance(last_at, datetime):
+            d = last_at.date()
+        else:
+            d = last_at
+        if d == today:
+            groups["Today"].append(s)
+        elif d == yesterday:
+            groups["Yesterday"].append(s)
+        elif d > week_ago:
+            groups["Last 7 days"].append(s)
+        else:
+            groups["Older"].append(s)
+
+    return [(label, items) for label, items in groups.items() if items]
 
 
 async def _read_attachments(files: list[UploadFile]) -> list[Attachment]:
@@ -62,6 +159,7 @@ def _ai_error(msg: str) -> str:
 @router.get("/")
 def ai_page(request: Request, db: Session = Depends(get_db)):
     from mihomes.models.work_order import WorkOrder, WorkOrderStatus
+
     work_orders = (
         db.query(WorkOrder)
         .filter(WorkOrder.status.notin_([WorkOrderStatus.CANCELLED]))
@@ -69,12 +167,69 @@ def ai_page(request: Request, db: Session = Depends(get_db)):
         .limit(60)
         .all()
     )
+
+    sessions = _list_sessions(db)
+    session_groups = _group_sessions(sessions)
+
     return templates.TemplateResponse(request, "ai.html", {
         "page": "ai",
         "properties": prop_svc.list_properties(db),
         "roles": ROLES,
         "work_orders": work_orders,
+        "session_groups": session_groups,
     })
+
+
+@router.get("/sessions-panel", response_class=HTMLResponse)
+def ai_sessions_panel(request: Request, db: Session = Depends(get_db)):
+    sessions = _list_sessions(db)
+    session_groups = _group_sessions(sessions)
+    return templates.TemplateResponse(request, "partials/ai_sessions_panel.html", {
+        "session_groups": session_groups,
+    })
+
+
+@router.get("/sessions/{session_id}", response_class=JSONResponse)
+def ai_session_messages(session_id: str, db: Session = Depends(get_db)):
+    from mihomes.models.ai_conversation import AIConversation
+
+    rows = (
+        db.query(AIConversation)
+        .filter(AIConversation.session_id == session_id)
+        .order_by(AIConversation.created_at.asc())
+        .all()
+    )
+    return [
+        {"user": r.user_message, "ai": r.ai_response, "role": r.role or ""}
+        for r in rows
+    ]
+
+
+@router.delete("/sessions/{session_id}", response_class=JSONResponse)
+def ai_delete_session(session_id: str, db: Session = Depends(get_db)):
+    from mihomes.models.ai_conversation import AIConversation
+
+    db.query(AIConversation).filter(AIConversation.session_id == session_id).delete()
+    db.flush()
+    return {"ok": True}
+
+
+@router.patch("/sessions/{session_id}/name", response_class=JSONResponse)
+async def ai_rename_session(session_id: str, request: Request, db: Session = Depends(get_db)):
+    from mihomes.models.ai_conversation import AIConversation
+
+    body = await request.json()
+    name = (body.get("name") or "").strip()[:120]
+    first_row = (
+        db.query(AIConversation)
+        .filter(AIConversation.session_id == session_id)
+        .order_by(AIConversation.id.asc())
+        .first()
+    )
+    if first_row:
+        first_row.session_name = name or None
+        db.flush()
+    return {"ok": True, "name": name}
 
 
 @router.post("/ask", response_class=HTMLResponse)
@@ -201,16 +356,17 @@ async def ai_ask_stream(
     query: str = Form(...),
     role: str = Form(""),
     property_id: str = Form(""),
+    session_id: str = Form(""),
     files: list[UploadFile] = File(default=[]),
     db: Session = Depends(get_db),
 ):
     from mihomes.services.ai.ai_config import get_ai_api_key, get_ai_model, get_ai_provider_name
-    from mihomes.services.ai.agent import agent_stream
-    from mihomes.services.ai.orchestrator import _get_session_id, _save_session_id
+    from mihomes.services.ai.agent import agent_stream, provider_stream
     from mihomes.services.ai.roles import route_query
     from mihomes.models.ai_conversation import AIConversation
 
     attachments = await _read_attachments(files)
+    session_id = session_id or str(uuid.uuid4())
 
     try:
         provider_name = get_ai_provider_name(db)
@@ -218,7 +374,6 @@ async def ai_ask_stream(
         model = get_ai_model(db, provider_name)
         roles = route_query(query, explicit_role=role or None)
         primary_role = roles[0]
-        session_id = _get_session_id(False)
         if len(roles) > 1:
             system_prompt = (
                 f"You are acting as multiple advisors: {', '.join(r.display_name for r in roles)}.\n\n"
@@ -244,14 +399,27 @@ async def ai_ask_stream(
 
         def _run_sync():
             try:
-                for event_type, data in agent_stream(
-                    db, query,
-                    system_prompt=system_prompt,
-                    api_key=api_key,
-                    model=model,
-                    property_slug=property_id or None,
-                    attachments=attachments or None,
-                ):
+                if provider_name == "claude":
+                    stream_gen = agent_stream(
+                        db, query,
+                        system_prompt=system_prompt,
+                        api_key=api_key,
+                        model=model,
+                        property_slug=property_id or None,
+                        attachments=attachments or None,
+                    )
+                else:
+                    stream_gen = provider_stream(
+                        db, query,
+                        system_prompt=system_prompt,
+                        provider_name=provider_name,
+                        api_key=api_key,
+                        model=model,
+                        roles=roles,
+                        property_slug=property_id or None,
+                        attachments=attachments or None,
+                    )
+                for event_type, data in stream_gen:
                     loop.call_soon_threadsafe(queue.put_nowait, (event_type, data))
             except Exception as exc:
                 loop.call_soon_threadsafe(queue.put_nowait, ("error", _ai_error(str(exc))))
@@ -288,7 +456,6 @@ async def ai_ask_stream(
                 model=model,
             ))
             db.flush()
-            _save_session_id(session_id)
         except Exception:
             pass
 

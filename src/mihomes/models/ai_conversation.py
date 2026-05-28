@@ -11,6 +11,7 @@ class AIConversation(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     session_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    session_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     role: Mapped[str] = mapped_column(String(50), nullable=False)
     user_message: Mapped[str] = mapped_column(Text, nullable=False)
     ai_response: Mapped[str] = mapped_column(Text, nullable=False)

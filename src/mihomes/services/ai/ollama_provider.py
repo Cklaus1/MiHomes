@@ -55,6 +55,17 @@ class OllamaProvider:
         except (KeyError, json.JSONDecodeError) as e:
             raise AIProviderError(f"Unexpected Ollama response: {e}")
 
+    def stream(
+        self,
+        system_prompt: str,
+        user_message: str,
+        context_data: str | None = None,
+        attachments=None,
+    ):
+        """Yield full response as one token (Ollama streaming not yet supported)."""
+        result = self.complete(system_prompt, user_message, context_data=context_data, attachments=attachments)
+        yield result
+
     def structured_output(
         self,
         system_prompt: str,

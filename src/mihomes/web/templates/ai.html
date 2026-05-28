@@ -53,6 +53,9 @@
     0%, 75%, 100% { transform: translateY(0); opacity: 0.45; }
     38% { transform: translateY(-6px); opacity: 1; }
   }
+  /* Session sidebar active state */
+  .session-item.active { background: #eff6ff; border-left-color: #0284c7; }
+  .session-item.active .session-btn { background: #eff6ff; }
 </style>
 {% endblock %}
 
@@ -70,50 +73,90 @@
   </button>
 </div>
 
-<div class="flex gap-5" style="min-height: calc(100vh - 240px)">
+<div class="flex overflow-hidden rounded-xl border border-gray-200" style="height:calc(100vh - 210px)">
 
-  <!-- Left: main content -->
-  <div class="flex-1 flex flex-col min-w-0">
+  <!-- Left: conversation history sidebar -->
+  <div id="ai-history-panel" class="w-52 flex-shrink-0 bg-gray-50 border-r border-gray-200 flex flex-col overflow-hidden">
+    <!-- New Chat button -->
+    <div class="p-3 border-b border-gray-200 flex-shrink-0">
+      <button onclick="newChat()"
+              class="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-lg transition-colors">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+        </svg>
+        New Chat
+      </button>
+    </div>
+    <!-- Session list -->
+    <div id="session-list"
+         class="flex-1 overflow-y-auto"
+         hx-get="/ai/sessions-panel"
+         hx-trigger="sessionUpdated from:body"
+         hx-swap="innerHTML">
+      {% include "partials/ai_sessions_panel.html" %}
+    </div>
+  </div>
+
+  <!-- Main area -->
+  <div class="flex-1 flex flex-col overflow-hidden min-w-0">
 
     <!-- ── Chat panel ── -->
-    <div id="aipanel-chat" class="flex flex-col flex-1">
+    <div id="aipanel-chat" class="flex flex-col h-full overflow-hidden">
 
-      <!-- Messages -->
-      <div id="conversation" class="flex-1 overflow-y-auto space-y-4 mb-4 pb-2">
-        <!-- Welcome card -->
-        <div class="bg-white rounded-xl border border-gray-200 p-5">
-          <div class="flex items-start gap-3">
-            <div class="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-              <svg class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
-              </svg>
+      <!-- Welcome card -->
+      <div id="welcome-card" class="p-5 border-b border-gray-200 flex-shrink-0">
+        <div class="flex items-start gap-3">
+          <div class="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+            <svg class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+            </svg>
+          </div>
+          <div>
+            <div class="text-sm font-semibold text-gray-900 mb-1">MiHomes AI Advisor</div>
+            <div class="text-sm text-gray-600">
+              I'm your estate management advisor. Ask me anything about your properties, tasks, budgets, vendors, or get proactive recommendations.
             </div>
-            <div>
-              <div class="text-sm font-semibold text-gray-900 mb-1">MiHomes AI Advisor</div>
-              <div class="text-sm text-gray-600">
-                I'm your estate management advisor. Ask me anything about your properties, tasks, budgets, vendors, or get proactive recommendations.
-              </div>
-              <div class="mt-3 flex flex-wrap gap-2">
-                {% for prompt in [
-                  'What should I prioritize this week?',
-                  'Review my budget for this year',
-                  'Which vendors have I spent the most on?',
-                  'Are there any overdue maintenance items?'
-                ] %}
-                <button onclick="setQuery(this.textContent)"
-                        class="px-3 py-1 text-xs text-brand-600 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-full transition-colors">
-                  {{ prompt }}
-                </button>
-                {% endfor %}
-              </div>
+            <div class="mt-3 flex flex-wrap gap-2">
+              {% for prompt in [
+                'What should I prioritize this week?',
+                'Review my budget for this year',
+                'Which vendors have I spent the most on?',
+                'Are there any overdue maintenance items?'
+              ] %}
+              <button onclick="setQuery(this.textContent)"
+                      class="px-3 py-1 text-xs text-brand-600 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-full transition-colors">
+                {{ prompt }}
+              </button>
+              {% endfor %}
             </div>
           </div>
         </div>
       </div>
 
+      <!-- Messages -->
+      <div id="conversation" class="flex-1 overflow-y-auto p-5 space-y-4"></div>
+
       <!-- Chat input -->
-      <div class="bg-white rounded-xl border border-gray-200 p-4 flex-shrink-0">
+      <div class="border-t border-gray-200 p-4 bg-white flex-shrink-0">
         <form id="ask-form">
+          <!-- Row 1: role + property selects + hint -->
+          <div class="flex items-center gap-2 mb-2.5">
+            <select id="role-select" onchange="setRole(this.value)"
+                    class="border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-brand-500">
+              {% for value, label in roles %}
+              <option value="{{ value }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+            <select id="property-select" onchange="setProperty(this.value)"
+                    class="border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-brand-500">
+              <option value="">All properties</option>
+              {% for p in properties %}
+              <option value="{{ p.slug }}">{{ p.name }}</option>
+              {% endfor %}
+            </select>
+            <span class="ml-auto text-[11px] text-gray-400 flex-shrink-0">↵ send · ⇧↵ newline</span>
+          </div>
+          <!-- Row 2: textarea + send button -->
           <div class="flex gap-3 items-end">
             <textarea id="query-input" name="query" rows="2" required
                       placeholder="Ask anything about your estate…"
@@ -131,7 +174,7 @@
               Ask
             </button>
           </div>
-          <!-- File attachment row below textarea+button -->
+          <!-- Row 3: file attach -->
           <div class="mt-2 flex items-center gap-2 flex-wrap">
             <label for="files-chat" class="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 cursor-pointer transition-colors">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -146,13 +189,14 @@
           </div>
           <input type="hidden" name="role" id="role-input" value="" />
           <input type="hidden" name="property_id" id="property-input" value="" />
+          <input type="hidden" name="session_id" id="session-id-input" value="" />
         </form>
       </div>
     </div><!-- /aipanel-chat -->
 
 
     <!-- ── Generate Report panel ── -->
-    <div id="aipanel-report" class="hidden space-y-5">
+    <div id="aipanel-report" class="hidden overflow-y-auto p-5 space-y-5">
 
       <!-- Report mode selector -->
       <div class="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit">
@@ -337,55 +381,121 @@
 
     </div><!-- /aipanel-report -->
 
-  </div><!-- /flex-1 -->
+  </div><!-- /flex-1 main area -->
 
-
-  <!-- Right: settings panel (Chat only) -->
-  <div id="ai-settings" class="w-56 flex-shrink-0 space-y-4">
-
-    <!-- Role selector -->
-    <div class="bg-white rounded-xl border border-gray-200 p-4">
-      <div class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Advisor Role</div>
-      <div class="space-y-1">
-        {% for value, label in roles %}
-        <button onclick="setRole('{{ value }}')"
-                id="role-btn-{{ value or 'auto' }}"
-                class="w-full text-left px-3 py-2 text-xs rounded-lg transition-colors
-                       {% if loop.first %}bg-brand-50 text-brand-700 font-medium{% else %}text-gray-600 hover:bg-gray-50{% endif %}">
-          {% if not value %}<span class="text-gray-400">✦</span> {% endif %}{{ label }}
-        </button>
-        {% endfor %}
-      </div>
-    </div>
-
-    <!-- Property filter -->
-    <div class="bg-white rounded-xl border border-gray-200 p-4">
-      <div class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Scope</div>
-      <select onchange="setProperty(this.value)"
-              class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-brand-500">
-        <option value="">All properties</option>
-        {% for p in properties %}
-        <option value="{{ p.slug }}">{{ p.name }}</option>
-        {% endfor %}
-      </select>
-    </div>
-
-    <!-- Tips -->
-    <div class="bg-gray-50 rounded-xl border border-gray-100 p-4">
-      <div class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Tips</div>
-      <ul class="space-y-2 text-xs text-gray-500">
-        <li class="flex items-start gap-1.5"><span class="text-brand-400 mt-0.5">↵</span> Enter to send, Shift+Enter for new line</li>
-        <li class="flex items-start gap-1.5"><span class="text-brand-400 mt-0.5">✦</span> Auto-route picks the best advisor for your question</li>
-        <li class="flex items-start gap-1.5"><span class="text-brand-400 mt-0.5">◎</span> Scope to a property for more specific answers</li>
-      </ul>
-    </div>
-
-  </div><!-- /ai-settings -->
-
-</div><!-- /flex gap-5 -->
+</div><!-- /outer flex container -->
 
 <script>
 let activeRole = '';
+let currentSessionId = null;
+
+// ── Session management ────────────────────────────────────────────────────
+
+function showWelcome() { document.getElementById('welcome-card').classList.remove('hidden'); }
+function hideWelcome() { document.getElementById('welcome-card').classList.add('hidden'); }
+
+function highlightActiveSession(sessionId) {
+  document.querySelectorAll('.session-item').forEach(item => {
+    const active = item.dataset.sessionId === sessionId;
+    item.classList.toggle('active', active);
+  });
+}
+
+async function loadSession(sessionId) {
+  currentSessionId = sessionId;
+  localStorage.setItem('mihomes_ai_session', sessionId);
+  document.getElementById('session-id-input').value = sessionId;
+  highlightActiveSession(sessionId);
+  hideWelcome();
+  const conv = document.getElementById('conversation');
+  conv.innerHTML = '<div class="flex items-center gap-2 text-sm text-gray-400 py-4 px-2"><svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg> Loading…</div>';
+  try {
+    const resp = await fetch('/ai/sessions/' + sessionId);
+    const messages = await resp.json();
+    conv.innerHTML = '';
+    if (messages.length === 0) {
+      showWelcome();
+    }
+    for (const msg of messages) {
+      appendUserBubble(msg.user);
+      const bubbleId = appendAiBubble();
+      const el = document.getElementById(bubbleId);
+      if (el) {
+        el.className = 'chat-prose bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-3 max-w-2xl text-sm';
+        el.style.minHeight = '';
+        el.innerHTML = typeof marked !== 'undefined' ? marked.parse(msg.ai) : escHtml(msg.ai);
+      }
+    }
+    conv.scrollTop = conv.scrollHeight;
+  } catch(e) {
+    conv.innerHTML = '<div class="text-sm text-red-500 px-2 py-4">Failed to load session.</div>';
+  }
+}
+
+function newChat() {
+  currentSessionId = crypto.randomUUID();
+  localStorage.setItem('mihomes_ai_session', currentSessionId);
+  document.getElementById('session-id-input').value = currentSessionId;
+  document.getElementById('conversation').innerHTML = '';
+  showWelcome();
+  highlightActiveSession(null);
+  clearInput();
+}
+
+document.addEventListener('htmx:afterSettle', (e) => {
+  if (e.target.id === 'session-list') highlightActiveSession(currentSessionId);
+});
+
+async function confirmDeleteSession(sessionId) {
+  if (!confirm('Delete this conversation? This cannot be undone.')) return;
+  await fetch('/ai/sessions/' + sessionId, { method: 'DELETE' });
+  if (sessionId === currentSessionId) newChat();
+  htmx.trigger(document.body, 'sessionUpdated');
+}
+
+function startRename(sessionId) {
+  const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
+  if (!item) return;
+  const titleEl = item.querySelector('.session-btn div');
+  const current = titleEl ? titleEl.textContent.trim() : '';
+
+  // Replace the session-btn content with an inline input
+  const btn = item.querySelector('.session-btn');
+  const originalHTML = btn.innerHTML;
+  btn.innerHTML = `
+    <input id="rename-input-${sessionId}"
+           class="w-full text-xs border border-brand-400 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-brand-500 bg-white"
+           value="${escHtml(current)}" maxlength="120" />
+    <div class="flex gap-1.5 mt-1">
+      <button type="button" id="rename-save-${sessionId}"
+              class="text-[10px] px-2 py-0.5 bg-brand-600 text-white rounded hover:bg-brand-700 transition-colors">Save</button>
+      <button type="button" id="rename-cancel-${sessionId}"
+              class="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition-colors">Cancel</button>
+    </div>`;
+
+  const input = document.getElementById('rename-input-' + sessionId);
+  input.focus();
+  input.select();
+
+  async function saveRename() {
+    const name = input.value.trim();
+    await fetch('/ai/sessions/' + sessionId + '/name', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    htmx.trigger(document.body, 'sessionUpdated');
+  }
+
+  document.getElementById('rename-save-' + sessionId).addEventListener('click', saveRename);
+  document.getElementById('rename-cancel-' + sessionId).addEventListener('click', () => {
+    btn.innerHTML = originalHTML;
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); saveRename(); }
+    if (e.key === 'Escape') { btn.innerHTML = originalHTML; }
+  });
+}
 
 // ── Chat streaming ─────────────────────────────────────────────────────────
 function setQuery(text) {
@@ -451,11 +561,22 @@ function setStreaming(on) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  // Restore or create session
+  const saved = localStorage.getItem('mihomes_ai_session');
+  if (saved) {
+    loadSession(saved);
+  } else {
+    currentSessionId = crypto.randomUUID();
+    localStorage.setItem('mihomes_ai_session', currentSessionId);
+    document.getElementById('session-id-input').value = currentSessionId;
+  }
+
   document.getElementById('ask-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const query = document.getElementById('query-input').value.trim();
     if (!query) return;
 
+    hideWelcome();
     appendUserBubble(query);
     clearInput();
     setStreaming(true);
@@ -468,6 +589,7 @@ document.addEventListener('DOMContentLoaded', () => {
     formData.append('query', query);
     formData.append('role', document.getElementById('role-input').value);
     formData.append('property_id', document.getElementById('property-input').value);
+    formData.append('session_id', currentSessionId || '');
     const filesEl = document.getElementById('files-chat');
     if (filesEl && filesEl.files.length) {
       Array.from(filesEl.files).forEach(f => formData.append('files', f));
@@ -510,6 +632,7 @@ document.addEventListener('DOMContentLoaded', () => {
               }
               conv.scrollTop = conv.scrollHeight;
               setStreaming(false);
+              htmx.trigger(document.body, 'sessionUpdated');
               return;
             }
 
@@ -560,6 +683,8 @@ document.addEventListener('DOMContentLoaded', () => {
 function setRole(value) {
   activeRole = value;
   document.getElementById('role-input').value = value;
+  const sel = document.getElementById('role-select');
+  if (sel) sel.value = value;
   document.querySelectorAll('[id^="role-btn-"]').forEach(btn => {
     btn.classList.remove('bg-brand-50', 'text-brand-700', 'font-medium');
     btn.classList.add('text-gray-600', 'hover:bg-gray-50');
@@ -591,9 +716,9 @@ function switchAITab(tab) {
     active.classList.add('bg-white', 'text-gray-900', 'shadow-sm');
     active.classList.remove('text-gray-500', 'hover:text-gray-700');
   }
-  // Settings panel only relevant for chat
-  const settings = document.getElementById('ai-settings');
-  if (settings) settings.classList.toggle('hidden', tab !== 'chat');
+  // History sidebar only relevant for chat
+  const historyPanel = document.getElementById('ai-history-panel');
+  if (historyPanel) historyPanel.classList.toggle('hidden', tab !== 'chat');
 }
 
 // ── Report mode switching ─────────────────────────────────────────────────

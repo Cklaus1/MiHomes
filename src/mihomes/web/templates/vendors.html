@@ -888,7 +888,10 @@ function filterByCategory(cat) {
 }
 
 function showAllCategories() {
-  document.querySelectorAll('.cat-pill[data-overflow]').forEach(el => el.removeAttribute('data-overflow'));
+  document.querySelectorAll('.cat-pill[data-overflow]').forEach(el => {
+    el.style.display = '';
+    el.removeAttribute('data-overflow');
+  });
   document.getElementById('show-more-cats')?.remove();
 }
 

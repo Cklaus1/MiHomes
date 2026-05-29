@@ -48,6 +48,7 @@ def _ctx(db: Session) -> dict:
         "properties": properties,
         "vendor_properties": vendor_properties,
         "all_categories": all_categories,
+        "service_categories": vendor_svc.SERVICE_CATEGORIES,
     }
 
 
@@ -60,18 +61,22 @@ def list_vendors(request: Request, db: Session = Depends(get_db)):
 def create_vendor(
     request: Request,
     company_name: str = Form(...),
-    service_type: str = Form(""),
+    service_cats: List[str] = Form(default=[]),
+    service_cat_other: str = Form(""),
     phone: str = Form(""),
     email: str = Form(""),
     prop_ids: List[str] = Form(default=[]),
     db: Session = Depends(get_db),
 ):
+    cats = list(service_cats)
+    if service_cat_other.strip():
+        cats.append(service_cat_other.strip())
     vendor_svc.create_vendor(
         db,
         company_name=company_name,
         phone=phone or None,
         email=email or None,
-        service_categories=[service_type] if service_type else None,
+        service_categories=cats or None,
         property_ids=[int(p) for p in prop_ids if p.isdigit()] or None,
     )
     return templates.TemplateResponse(request, "vendors.html", _ctx(db))
@@ -119,7 +124,8 @@ def edit_vendor(
     company_name: str = Form(...),
     notes: str = Form(""),
     active: str | None = Form(None),
-    service_categories_text: str = Form(""),
+    service_cats: List[str] = Form(default=[]),
+    service_cat_other: str = Form(""),
     website: str = Form(""),
     license_number: str = Form(""),
     c_name: List[str] = Form(default=[]),
@@ -143,8 +149,10 @@ def edit_vendor(
                 "email": email.strip(),
             })
 
-    # Parse service categories from comma-separated text
-    categories = [c.strip() for c in service_categories_text.split(",") if c.strip()] or None
+    cats = list(service_cats)
+    if service_cat_other.strip():
+        cats.append(service_cat_other.strip())
+    categories = cats or None
 
     vendor_svc.update_vendor(
         db, slug,

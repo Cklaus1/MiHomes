@@ -14,6 +14,7 @@ router = APIRouter()
 
 
 def _ctx(db: Session) -> dict:
+    from collections import Counter
     from mihomes.services import property as prop_svc
 
     active_vendors = vendor_svc.list_vendors(db, active_only=True)
@@ -29,6 +30,15 @@ def _ctx(db: Session) -> dict:
         for v in all_vendors
     }
 
+    # Build case-normalized, deduplicated category list (most common casing wins)
+    cat_groups: dict[str, Counter] = {}
+    for v in all_vendors:
+        for cat in (v.service_categories or []):
+            cat = cat.strip()
+            if cat:
+                cat_groups.setdefault(cat.lower(), Counter())[cat] += 1
+    all_categories = sorted(max(counts, key=counts.get) for counts in cat_groups.values())
+
     return {
         "page": "vendors",
         "active_vendors": active_vendors,
@@ -37,6 +47,7 @@ def _ctx(db: Session) -> dict:
         "notes_map": {v.id: note_svc.list_notes(db, f"vendor:{v.id}") for v in all_vendors},
         "properties": properties,
         "vendor_properties": vendor_properties,
+        "all_categories": all_categories,
     }
 
 
@@ -63,6 +74,18 @@ def create_vendor(
         service_categories=[service_type] if service_type else None,
         property_ids=[int(p) for p in prop_ids if p.isdigit()] or None,
     )
+    return templates.TemplateResponse(request, "vendors.html", _ctx(db))
+
+
+@router.post("/categories/delete", response_class=HTMLResponse)
+def delete_category(request: Request, category: str = Form(...), db: Session = Depends(get_db)):
+    vendor_svc.delete_category(db, category)
+    return templates.TemplateResponse(request, "vendors.html", _ctx(db))
+
+
+@router.post("/categories/rename", response_class=HTMLResponse)
+def rename_category(request: Request, old_name: str = Form(...), new_name: str = Form(...), db: Session = Depends(get_db)):
+    vendor_svc.rename_category(db, old_name.strip(), new_name.strip())
     return templates.TemplateResponse(request, "vendors.html", _ctx(db))
 
 

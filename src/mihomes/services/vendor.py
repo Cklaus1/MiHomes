@@ -162,6 +162,34 @@ def get_vendor_ratings(session: Session, id_or_slug: str) -> dict:
     }
 
 
+def delete_category(session: Session, category: str) -> int:
+    """Remove a service category string from every vendor that has it."""
+    vendors = session.query(Vendor).filter(Vendor.service_categories.isnot(None)).all()
+    count = 0
+    for vendor in vendors:
+        if vendor.service_categories and category in vendor.service_categories:
+            vendor.service_categories = [c for c in vendor.service_categories if c != category]
+            count += 1
+    if count:
+        session.flush()
+    return count
+
+
+def rename_category(session: Session, old_name: str, new_name: str) -> int:
+    """Rename a service category string across every vendor that has it."""
+    if not new_name:
+        return 0
+    vendors = session.query(Vendor).filter(Vendor.service_categories.isnot(None)).all()
+    count = 0
+    for vendor in vendors:
+        if vendor.service_categories and old_name in vendor.service_categories:
+            vendor.service_categories = [new_name if c == old_name else c for c in vendor.service_categories]
+            count += 1
+    if count:
+        session.flush()
+    return count
+
+
 def delete_vendor(session: Session, id_or_slug: str) -> str:
     vendor = resolve_identifier(session, Vendor, id_or_slug)
     name = vendor.company_name

@@ -46,7 +46,7 @@
   {% endif %}
 </div>
 
-<!-- Service category filter pills -->
+<!-- Service category filter dropdown -->
 {% set all_categories = [] %}
 {% for v in active_vendors + inactive_vendors %}
   {% for cat in (v.service_categories or []) %}
@@ -54,18 +54,15 @@
   {% endfor %}
 {% endfor %}
 {% if all_categories %}
-<div class="flex flex-wrap gap-1.5 items-center mb-4">
-  <span class="text-xs text-gray-400 font-medium mr-1">Service:</span>
-  <button onclick="filterByCategory('')" id="cat-filter-all"
-          class="cat-filter-btn px-3 py-1 text-xs font-medium rounded-full bg-gray-900 text-white transition-colors">
-    All
-  </button>
-  {% for cat in all_categories | sort %}
-  <button onclick="filterByCategory('{{ cat }}')" id="cat-filter-{{ cat | replace(' ', '-') | lower }}"
-          class="cat-filter-btn px-3 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors">
-    {{ cat }}
-  </button>
-  {% endfor %}
+<div class="flex items-center gap-2 mb-4">
+  <label class="text-xs text-gray-400 font-medium whitespace-nowrap">Service:</label>
+  <select onchange="filterByCategory(this.value)"
+          class="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-brand-500 text-gray-700">
+    <option value="">All services</option>
+    {% for cat in all_categories | sort %}
+    <option value="{{ cat }}">{{ cat }}</option>
+    {% endfor %}
+  </select>
 </div>
 {% endif %}
 
@@ -849,13 +846,6 @@ function filterByProperty(slug) {
 
 function filterByCategory(cat) {
   activeCategoryFilter = cat;
-  document.querySelectorAll('.cat-filter-btn').forEach(btn => {
-    const isActive = btn.id === 'cat-filter-' + (cat ? cat.replace(/ /g, '-').toLowerCase() : 'all');
-    btn.classList.toggle('bg-gray-900', isActive);
-    btn.classList.toggle('text-white', isActive);
-    btn.classList.toggle('bg-gray-100', !isActive);
-    btn.classList.toggle('text-gray-600', !isActive);
-  });
   applyFilters();
 }
 

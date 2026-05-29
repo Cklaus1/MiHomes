@@ -19,8 +19,8 @@
   {% else %}<span class="text-gray-300">—</span>{% endif %}
 {% endmacro %}
 
-<!-- Active / Inactive tabs -->
-<div class="flex gap-1 mb-5">
+<!-- Active / Inactive tabs + Property filter -->
+<div class="flex flex-wrap items-center gap-2 mb-5">
   <button id="vendors-tab-active" onclick="setVendorTab('active')"
           class="px-4 py-1.5 text-sm font-medium rounded-lg bg-brand-600 text-white transition-colors">
     Active <span class="ml-1 opacity-75">{{ active_vendors|length }}</span>
@@ -29,6 +29,21 @@
           class="px-4 py-1.5 text-sm font-medium rounded-lg text-gray-600 hover:bg-gray-100 transition-colors">
     Inactive <span class="ml-1 opacity-75">{{ inactive_vendors|length }}</span>
   </button>
+  {% if properties %}
+  <div class="h-5 w-px bg-gray-200 mx-1"></div>
+  <div class="flex flex-wrap gap-1.5 items-center">
+    <button onclick="filterByProperty('')" id="prop-filter-all"
+            class="prop-filter-btn px-3 py-1 text-xs font-medium rounded-full bg-gray-900 text-white transition-colors">
+      All Properties
+    </button>
+    {% for p in properties %}
+    <button onclick="filterByProperty('{{ p.slug }}')" id="prop-filter-{{ p.slug }}"
+            class="prop-filter-btn px-3 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors">
+      {{ p.name }}
+    </button>
+    {% endfor %}
+  </div>
+  {% endif %}
 </div>
 
 <!-- Active vendors panel -->
@@ -41,7 +56,8 @@
   {% set reliability_vals = ratings | selectattr('reliability_score') | map(attribute='reliability_score') | list %}
 
   <!-- Vendor card -->
-  <div class="bg-white rounded-xl border border-gray-200 p-5 flex flex-col cursor-pointer hover:border-brand-400 hover:shadow-sm transition-all group"
+  <div class="vendor-card bg-white rounded-xl border border-gray-200 p-5 flex flex-col cursor-pointer hover:border-brand-400 hover:shadow-sm transition-all group"
+       data-properties="{{ (vendor_properties.get(vendor.id) or []) | join(' ') }}"
        onclick="openModal('vendor-modal-{{ vendor.slug }}')">
     <div class="flex items-start justify-between mb-2">
       <div class="min-w-0">
@@ -396,7 +412,8 @@
   {% set reliability_vals = ratings | selectattr('reliability_score') | map(attribute='reliability_score') | list %}
 
   <!-- Vendor card -->
-  <div class="bg-white rounded-xl border border-gray-200 p-5 flex flex-col cursor-pointer hover:border-brand-400 hover:shadow-sm transition-all group opacity-75"
+  <div class="vendor-card bg-white rounded-xl border border-gray-200 p-5 flex flex-col cursor-pointer hover:border-brand-400 hover:shadow-sm transition-all group opacity-75"
+       data-properties="{{ (vendor_properties.get(vendor.id) or []) | join(' ') }}"
        onclick="openModal('vendor-modal-{{ vendor.slug }}')">
     <div class="flex items-start justify-between mb-2">
       <div class="min-w-0">
@@ -740,6 +757,29 @@
 </div>
 
 <script>
+let activePropertyFilter = '';
+
+function filterByProperty(slug) {
+  activePropertyFilter = slug;
+  document.querySelectorAll('.prop-filter-btn').forEach(btn => {
+    const isActive = btn.id === 'prop-filter-' + (slug || 'all');
+    btn.classList.toggle('bg-gray-900', isActive);
+    btn.classList.toggle('text-white', isActive);
+    btn.classList.toggle('bg-gray-100', !isActive);
+    btn.classList.toggle('text-gray-600', !isActive);
+  });
+  document.querySelectorAll('.vendor-card').forEach(card => {
+    const col = card.closest('[class*="col"], div.vendor-card')?.parentElement;
+    const target = card.parentElement;
+    if (!slug) {
+      target.classList.remove('hidden');
+    } else {
+      const props = (card.dataset.properties || '').split(' ').filter(Boolean);
+      target.classList.toggle('hidden', !props.includes(slug));
+    }
+  });
+}
+
 function setVendorTab(tab) {
   const panels = ['active', 'inactive'];
   panels.forEach(p => {

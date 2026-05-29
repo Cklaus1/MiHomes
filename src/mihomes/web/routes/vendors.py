@@ -14,15 +14,36 @@ router = APIRouter()
 
 
 def _ctx(db: Session) -> dict:
+    from mihomes.models.work_order import WorkOrder
+    from mihomes.services import property as prop_svc
+
     active_vendors = vendor_svc.list_vendors(db, active_only=True)
     all_vendors = vendor_svc.list_vendors(db, active_only=False)
     inactive_vendors = [v for v in all_vendors if not v.active]
+
+    # Build vendor → [property_slug, ...] from work orders
+    rows = (
+        db.query(WorkOrder.vendor_id, WorkOrder.property_id)
+        .filter(WorkOrder.vendor_id.isnot(None), WorkOrder.property_id.isnot(None))
+        .distinct()
+        .all()
+    )
+    properties = prop_svc.list_properties(db)
+    prop_slug_by_id = {p.id: p.slug for p in properties}
+    vendor_properties: dict[int, list[str]] = {}
+    for vendor_id, property_id in rows:
+        slug = prop_slug_by_id.get(property_id)
+        if slug:
+            vendor_properties.setdefault(vendor_id, []).append(slug)
+
     return {
         "page": "vendors",
         "active_vendors": active_vendors,
         "inactive_vendors": inactive_vendors,
         "vendor_ratings": {v.slug: vendor_svc.get_vendor_ratings(db, v.slug)["ratings"] for v in all_vendors},
         "notes_map": {v.id: note_svc.list_notes(db, f"vendor:{v.id}") for v in all_vendors},
+        "properties": properties,
+        "vendor_properties": vendor_properties,
     }
 
 

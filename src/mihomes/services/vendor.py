@@ -24,6 +24,7 @@ def create_vendor(
     insurance_info: str | None = None,
     notes: str | None = None,
     slug: str | None = None,
+    property_ids: list[int] | None = None,
 ) -> Vendor:
     slug = ensure_unique_slug(session, Vendor, slug or generate_slug(company_name))
     vendor = Vendor(
@@ -36,6 +37,7 @@ def create_vendor(
         service_areas=service_areas,
         insurance_info=insurance_info,
         notes=notes,
+        property_ids=property_ids,
     )
     session.add(vendor)
     session.flush()

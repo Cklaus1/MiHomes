@@ -22,3 +22,4 @@ class Vendor(Base, TimestampMixin, SlugMixin):
     insurance_info: Mapped[str | None] = mapped_column(Text, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    property_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)

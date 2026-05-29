@@ -14,27 +14,20 @@ router = APIRouter()
 
 
 def _ctx(db: Session) -> dict:
-    from mihomes.models.work_order import WorkOrder
     from mihomes.services import property as prop_svc
 
     active_vendors = vendor_svc.list_vendors(db, active_only=True)
     all_vendors = vendor_svc.list_vendors(db, active_only=False)
     inactive_vendors = [v for v in all_vendors if not v.active]
 
-    # Build vendor → [property_slug, ...] from work orders
-    rows = (
-        db.query(WorkOrder.vendor_id, WorkOrder.property_id)
-        .filter(WorkOrder.vendor_id.isnot(None), WorkOrder.property_id.isnot(None))
-        .distinct()
-        .all()
-    )
     properties = prop_svc.list_properties(db)
     prop_slug_by_id = {p.id: p.slug for p in properties}
-    vendor_properties: dict[int, list[str]] = {}
-    for vendor_id, property_id in rows:
-        slug = prop_slug_by_id.get(property_id)
-        if slug:
-            vendor_properties.setdefault(vendor_id, []).append(slug)
+
+    # Build vendor → [property_slug, ...] from vendor.property_ids (direct tagging)
+    vendor_properties: dict[int, list[str]] = {
+        v.id: [prop_slug_by_id[pid] for pid in (v.property_ids or []) if pid in prop_slug_by_id]
+        for v in all_vendors
+    }
 
     return {
         "page": "vendors",
@@ -59,6 +52,7 @@ def create_vendor(
     service_type: str = Form(""),
     phone: str = Form(""),
     email: str = Form(""),
+    prop_ids: List[str] = Form(default=[]),
     db: Session = Depends(get_db),
 ):
     vendor_svc.create_vendor(
@@ -67,6 +61,7 @@ def create_vendor(
         phone=phone or None,
         email=email or None,
         service_categories=[service_type] if service_type else None,
+        property_ids=[int(p) for p in prop_ids if p.isdigit()] or None,
     )
     return templates.TemplateResponse(request, "vendors.html", _ctx(db))
 
@@ -108,6 +103,7 @@ def edit_vendor(
     c_role: List[str] = Form(default=[]),
     c_phone: List[str] = Form(default=[]),
     c_email: List[str] = Form(default=[]),
+    prop_ids: List[str] = Form(default=[]),
     db: Session = Depends(get_db),
 ):
     current = vendor_svc.get_vendor(db, slug)
@@ -136,6 +132,7 @@ def edit_vendor(
         service_categories=categories,
         website=website.strip() or None,
         license_number=license_number.strip() or None,
+        property_ids=[int(p) for p in prop_ids if p.isdigit()] or None,
     )
     return templates.TemplateResponse(request, "vendors.html", _ctx(db))
 

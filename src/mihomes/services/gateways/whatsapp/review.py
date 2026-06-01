@@ -84,7 +84,7 @@ def _build_estate_context(session: Session, property_slug: str | None) -> str:
     if open_issues:
         lines.append("\n### Open Issues")
         for issue in open_issues:
-            age_days = (datetime.now(timezone.utc) - issue.created_at).days
+            age_days = (datetime.now(timezone.utc).replace(tzinfo=None) - issue.created_at).days
             lines.append(
                 f"- [{issue.severity.value}] {issue.title} — open {age_days}d (slug: {issue.slug})"
             )
@@ -92,7 +92,7 @@ def _build_estate_context(session: Session, property_slug: str | None) -> str:
         lines.append("\n### Open Issues\n- None")
 
     # Recently resolved issues (last 30 days)
-    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=30)
     resolved_issues = (
         session.query(Issue)
         .filter(
@@ -151,13 +151,18 @@ def analyze_messages(
     if not messages:
         return {"items": [], "skipped": []}
 
-    # Format messages for AI
+    # Format messages for AI — skip entirely empty (no text, no media)
     formatted = []
     for msg in messages:
         sender = msg.get("senderName", "Unknown")
-        text = msg.get("text", "")
+        text = msg.get("text", "").strip()
         ts = msg.get("timestamp", "")
-        media = " [photo]" if msg.get("hasMedia") else ""
+        has_media = msg.get("hasMedia", False)
+        if not text and not has_media:
+            continue
+        media = " [photo attached]" if has_media else ""
+        if not text and has_media:
+            text = "(sent a photo)"
         formatted.append(f"[{ts}] {sender}: {text}{media}")
 
     conversation_text = "\n".join(formatted)

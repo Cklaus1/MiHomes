@@ -42,6 +42,7 @@ class AIProvider(Protocol):
         user_message: str,
         schema: dict,
         context_data: str | None = None,
+        attachments: list[Attachment] | None = None,
     ) -> dict:
         """Request structured JSON output conforming to schema."""
         ...

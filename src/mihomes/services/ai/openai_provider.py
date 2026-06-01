@@ -102,6 +102,7 @@ class OpenAIProvider:
         user_message: str,
         schema: dict,
         context_data: str | None = None,
+        attachments=None,
     ) -> dict:
         message_content = user_message
         if context_data:

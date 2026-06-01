@@ -72,6 +72,7 @@ class OllamaProvider:
         user_message: str,
         schema: dict,
         context_data: str | None = None,
+        attachments=None,
     ) -> dict:
         """Request structured output — instructs model to respond in JSON."""
         json_prompt = (

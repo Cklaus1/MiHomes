@@ -116,6 +116,7 @@ class NIMProvider:
         user_message: str,
         schema: dict,
         context_data: str | None = None,
+        attachments=None,
     ) -> dict:
         """Request structured JSON output from NIM."""
         message_content = user_message

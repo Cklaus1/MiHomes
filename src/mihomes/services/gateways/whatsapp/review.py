@@ -1,5 +1,8 @@
 """WhatsApp conversation review — AI-powered passive issue detection."""
 
+import base64
+import mimetypes
+import os
 from datetime import datetime, timezone, timedelta
 
 from sqlalchemy.orm import Session
@@ -9,6 +12,7 @@ from mihomes.models.issue import Issue, IssueStatus
 from mihomes.models.staff import Staff
 from mihomes.models.property import Property
 from mihomes.services.ai.ai_config import get_ai_api_key, get_ai_model, get_ai_provider_name
+from mihomes.services.ai.file_processor import Attachment
 from mihomes.services.ai.provider import get_provider
 from mihomes.services.slug import resolve_identifier
 
@@ -153,23 +157,50 @@ def analyze_messages(
 
     # Format messages for AI — skip entirely empty (no text, no media)
     formatted = []
+    image_attachments: list[Attachment] = []
     for msg in messages:
         sender = msg.get("senderName", "Unknown")
         text = msg.get("text", "").strip()
         ts = msg.get("timestamp", "")
         has_media = msg.get("hasMedia", False)
+        media_path = msg.get("mediaPath")
         if not text and not has_media:
             continue
-        media = " [photo attached]" if has_media else ""
+
+        # Load image from disk if available
+        if has_media and media_path and os.path.isfile(media_path):
+            try:
+                mime = mimetypes.guess_type(media_path)[0] or "image/jpeg"
+                if mime.startswith("image/"):
+                    with open(media_path, "rb") as f:
+                        b64 = base64.b64encode(f.read()).decode()
+                    image_attachments.append(Attachment(
+                        filename=os.path.basename(media_path),
+                        is_image=True,
+                        base64_data=b64,
+                        media_type=mime,
+                    ))
+                    media_label = f" [image: {os.path.basename(media_path)}]"
+                else:
+                    media_label = " [file attached]"
+            except OSError:
+                media_label = " [photo attached]"
+        elif has_media:
+            media_label = " [photo attached]"
+        else:
+            media_label = ""
+
         if not text and has_media:
             text = "(sent a photo)"
-        formatted.append(f"[{ts}] {sender}: {text}{media}")
+        formatted.append(f"[{ts}] {sender}: {text}{media_label}")
 
     conversation_text = "\n".join(formatted)
 
     system_prompt = (
         "You are analyzing a WhatsApp staff group chat for a property management system. "
-        "Extract ALL actionable items from the conversation.\n\n"
+        "Extract ALL actionable items from the conversation. "
+        "Photos attached to messages are real images from the property — analyze their visual content "
+        "when classifying and describing items (e.g. damage visible in a photo should inform severity).\n\n"
         "Classify each message or message cluster into:\n"
         "- issue: reporting something broken, damaged, malfunctioning, or needing repair (e.g. 'toilet is broken', 'AC not working')\n"
         "- task: requesting a specific action be performed (e.g. 'please clean the pool', 'order more towels')\n"
@@ -208,6 +239,7 @@ def analyze_messages(
     result = provider.structured_output(
         system_prompt, conversation_text, REVIEW_SCHEMA,
         context_data=context or None,
+        attachments=image_attachments or None,
     )
 
     return result

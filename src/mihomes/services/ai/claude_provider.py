@@ -132,11 +132,28 @@ class ClaudeProvider:
         user_message: str,
         schema: dict,
         context_data: str | None = None,
+        attachments: list[Attachment] | None = None,
     ) -> dict:
         """Request structured output from Claude using tool_use."""
         message_content = user_message
         if context_data:
             message_content = f"{user_message}\n\n<data>\n{context_data}\n</data>"
+
+        if attachments:
+            content: list[dict] = []
+            for att in attachments:
+                if att.is_image:
+                    content.append({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": att.media_type,
+                            "data": att.base64_data,
+                        },
+                    })
+            content.append({"type": "text", "text": message_content})
+        else:
+            content = message_content  # type: ignore[assignment]
 
         tool = {
             "name": "structured_response",
@@ -149,7 +166,7 @@ class ClaudeProvider:
                 model=self.model,
                 max_tokens=4096,
                 system=system_prompt,
-                messages=[{"role": "user", "content": message_content}],
+                messages=[{"role": "user", "content": content}],
                 tools=[tool],
                 tool_choice={"type": "tool", "name": "structured_response"},
             )

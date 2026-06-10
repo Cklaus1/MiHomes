@@ -62,7 +62,7 @@
     </button>
     {% endfor %}
     {% if all_categories|length > 12 %}
-    <button id="show-more-cats" onclick="showAllCategories()"
+    <button id="show-more-cats" data-count="{{ all_categories|length - 12 }}" onclick="toggleCategories()"
             class="px-3 py-1 text-xs font-medium rounded-full border border-dashed border-gray-300 text-gray-400 hover:border-gray-400 hover:text-gray-600 transition-colors">
       +{{ all_categories|length - 12 }} more
     </button>
@@ -859,7 +859,7 @@ function applyFilters() {
     const cats = (card.dataset.categories || '').split('|').filter(Boolean);
     const propOk = !activePropertyFilter || props.includes(activePropertyFilter);
     const catOk = !activeCategoryFilter || cats.some(c => c.toLowerCase() === activeCategoryFilter.toLowerCase());
-    card.parentElement.classList.toggle('hidden', !(propOk && catOk));
+    card.classList.toggle('hidden', !(propOk && catOk));
   });
 }
 
@@ -887,18 +887,23 @@ function filterByCategory(cat) {
   applyFilters();
 }
 
-function showAllCategories() {
+let catsExpanded = false;
+function toggleCategories() {
+  catsExpanded = !catsExpanded;
   document.querySelectorAll('.cat-pill[data-overflow]').forEach(el => {
-    el.style.display = '';
-    el.removeAttribute('data-overflow');
+    el.style.display = catsExpanded ? '' : 'none';
   });
-  document.getElementById('show-more-cats')?.remove();
+  const btn = document.getElementById('show-more-cats');
+  if (btn) btn.textContent = catsExpanded ? 'Show less' : '+' + btn.dataset.count + ' more';
 }
 
 function initCatPills() {
+  catsExpanded = false;
   document.querySelectorAll('.cat-pill[data-overflow]').forEach(el => {
     el.style.display = 'none';
   });
+  const btn = document.getElementById('show-more-cats');
+  if (btn) btn.textContent = '+' + btn.dataset.count + ' more';
 }
 
 function setVendorTab(tab) {

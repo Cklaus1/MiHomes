@@ -257,7 +257,7 @@ def _fetch_staff(session: Session, property_slug: str | None) -> str:
     from mihomes.services.staff import list_staff
 
     lines = ["## Staff"]
-    staff = list_staff(session)
+    staff = list_staff(session, category="Staff")
     if not staff:
         lines.append("No staff.")
     else:

@@ -3,7 +3,7 @@
 from sqlalchemy.orm import Session
 
 from mihomes.models.property import Property
-from mihomes.models.staff import Staff, StaffRole
+from mihomes.models.staff import Staff, StaffRole, category_for_role
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
 from mihomes.services.update_helpers import safe_update
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
@@ -46,6 +46,7 @@ def list_staff(
     session: Session,
     *,
     role: StaffRole | None = None,
+    category: str | None = None,
     active_only: bool = True,
 ) -> list[Staff]:
     query = session.query(Staff)
@@ -53,7 +54,12 @@ def list_staff(
         query = query.filter(Staff.active.is_(True))
     if role is not None:
         query = query.filter(Staff.role == role)
-    return query.order_by(Staff.name).all()
+    rows = query.order_by(Staff.name).all()
+    # `category` (Staff / Resident / Associate / Family / Owner) is derived from
+    # role in Python, so filter after the query.
+    if category is not None:
+        rows = [r for r in rows if category_for_role(r.role) == category]
+    return rows
 
 
 def get_staff(session: Session, id_or_slug: str) -> Staff:

@@ -16,6 +16,7 @@ staff_property_association = Table(
 
 
 class StaffRole(str, enum.Enum):
+    # Staff (household employee) roles
     HOUSEKEEPER = "housekeeper"
     GROUNDSKEEPER = "groundskeeper"
     PROPERTY_MANAGER = "property-manager"
@@ -24,6 +25,33 @@ class StaffRole(str, enum.Enum):
     SECURITY = "security"
     PERSONAL_ASSISTANT = "personal-assistant"
     OTHER = "other"
+    # Non-staff people types (residents, owner family, associates)
+    RESIDENT = "resident"
+    OWNER = "owner"
+    FAMILY_MEMBER = "family-member"
+    ASSOCIATE = "associate"
+
+
+# Directory category derived from a person's role. Any role not listed here
+# (i.e. the household-employee roles) falls under "Staff".
+ROLE_CATEGORY: dict[StaffRole, str] = {
+    StaffRole.RESIDENT: "Resident",
+    StaffRole.OWNER: "Family / Owner",
+    StaffRole.FAMILY_MEMBER: "Family / Owner",
+    StaffRole.ASSOCIATE: "Associate",
+}
+
+CATEGORY_ORDER = ["Staff", "Resident", "Associate", "Family / Owner"]
+
+
+def category_for_role(role: StaffRole) -> str:
+    """Map a role to its directory category."""
+    return ROLE_CATEGORY.get(role, "Staff")
+
+
+def is_staff_role(role: StaffRole) -> bool:
+    """True for actual household-employee roles (not residents/owners/associates)."""
+    return category_for_role(role) == "Staff"
 
 
 class Staff(Base, TimestampMixin, SlugMixin):

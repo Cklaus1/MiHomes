@@ -75,7 +75,7 @@ def _ctx(
         "columns": columns,
         "priority_groups": priority_groups,
         "properties": prop_svc.list_properties(db),
-        "staff": staff_svc.list_staff(db),
+        "staff": staff_svc.list_staff(db, category="Staff"),
         "overdue_ids": overdue_ids,
         "priorities": [p.value for p in TaskPriority],
         "statuses": [s.value for s in TaskStatus],

@@ -25,7 +25,7 @@ def _ctx(db: Session, status: str | None = None) -> dict:
         "work_orders": work_orders,
         "properties": prop_svc.list_properties(db),
         "vendors": vendor_svc.list_vendors(db),
-        "staff": staff_svc.list_staff(db),
+        "staff": staff_svc.list_staff(db, category="Staff"),
         "notes_map": {wo.id: note_svc.list_notes(db, f"workorder:{wo.id}") for wo in work_orders},
         "filter_status": status,
     }

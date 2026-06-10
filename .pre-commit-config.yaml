@@ -1,0 +1,19 @@
+# Pre-commit hooks for MiHomes.
+#
+# Uses the locally-installed ruff (language: system) instead of pulling a hook
+# repo from GitHub, so it works offline / on restricted networks. Install once:
+#
+#     pip install -e ".[dev]"      # gets ruff + pre-commit
+#     pre-commit install            # activates the git hook
+#
+# Thereafter `git commit` lints (and auto-fixes) only the Python files you
+# staged. Config lives in pyproject.toml under [tool.ruff].
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff (lint + autofix staged Python)
+        entry: ruff check --fix --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true

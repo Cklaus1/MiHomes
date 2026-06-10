@@ -1,16 +1,16 @@
 """Work Orders routes."""
 
-from datetime import datetime, date
+from datetime import date
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
-from mihomes.services import work_order as wo_svc
 from mihomes.services import note as note_svc
 from mihomes.services import property as prop_svc
-from mihomes.services import vendor as vendor_svc
 from mihomes.services import staff as staff_svc
+from mihomes.services import vendor as vendor_svc
+from mihomes.services import work_order as wo_svc
 from mihomes.web.deps import get_db, templates
 
 router = APIRouter()
@@ -121,8 +121,8 @@ def edit_work_order(
         new_vendor = vendor_svc.create_vendor(db, vendor_name_other.strip())
         kwargs["vendor_id"] = new_vendor.id
     elif vendor_slug and vendor_slug != "other":
-        from mihomes.services.slug import resolve_identifier
         from mihomes.models.vendor import Vendor
+        from mihomes.services.slug import resolve_identifier
         v = resolve_identifier(db, Vendor, vendor_slug)
         kwargs["vendor_id"] = v.id
     elif vendor_slug == "":

@@ -5,8 +5,8 @@ from sqlalchemy.orm import Session
 from mihomes.models.property import Property
 from mihomes.models.staff import Staff, StaffRole, category_for_role
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
-from mihomes.services.update_helpers import safe_update
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
+from mihomes.services.update_helpers import safe_update
 from mihomes.services.validators import validate_name
 
 

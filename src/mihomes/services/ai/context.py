@@ -1,6 +1,6 @@
 """Context assembly — build structured text from existing services for AI prompts."""
 
-from datetime import date, timedelta
+from datetime import date
 
 from sqlalchemy.orm import Session
 
@@ -105,8 +105,8 @@ def assemble_context(
 
 
 def _fetch_properties(session: Session, property_slug: str | None) -> str:
-    from mihomes.services.property import list_properties, get_property
     from mihomes.services.issue import list_issues
+    from mihomes.services.property import list_properties
 
     lines = ["## Properties"]
     props = list_properties(session)
@@ -269,6 +269,7 @@ def _fetch_staff(session: Session, property_slug: str | None) -> str:
 
 def _fetch_assets(session: Session, property_slug: str | None) -> str:
     from sqlalchemy import func
+
     from mihomes.models.asset import Asset
 
     base = session.query(Asset).filter(Asset.active.is_(True))
@@ -307,6 +308,7 @@ def _fetch_assets(session: Session, property_slug: str | None) -> str:
 
 def _fetch_books(session: Session, property_slug: str | None) -> str:
     from sqlalchemy import func
+
     from mihomes.models.book import Book
 
     base = session.query(Book).filter(Book.active.is_(True))
@@ -375,7 +377,7 @@ def _fetch_work_orders(session: Session, property_slug: str | None) -> str:
 
 def _fetch_weather(session: Session, property_slug: str | None) -> str:
     from mihomes.models.property import Property
-    from mihomes.services.weather import get_forecast_for_property, forecast_summary
+    from mihomes.services.weather import forecast_summary, get_forecast_for_property
 
     query = session.query(Property)
     if property_slug:

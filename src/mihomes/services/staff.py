@@ -81,12 +81,30 @@ def update_staff(session: Session, id_or_slug: str, **kwargs) -> Staff:
 
 
 def delete_staff(session: Session, id_or_slug: str) -> str:
+    from mihomes.models.issue import Issue
+    from mihomes.models.staff_pto import StaffPTORequest
     from mihomes.models.task import Task
+    from mihomes.models.work_order import WorkOrder
+
     member = resolve_identifier(session, Staff, id_or_slug)
     name = member.name
-    # Nullify task assignments rather than cascade-deleting tasks
+    # Clear every reference to this person before deleting, or FK enforcement
+    # (PRAGMA foreign_keys=ON) would block the delete. Nullify the optional
+    # references; PTO requests have a NOT NULL staff_id so they're removed.
     session.query(Task).filter(Task.assignee_id == member.id).update(
         {"assignee_id": None}, synchronize_session="fetch"
+    )
+    session.query(WorkOrder).filter(WorkOrder.assignee_id == member.id).update(
+        {"assignee_id": None}, synchronize_session="fetch"
+    )
+    session.query(Issue).filter(Issue.reported_by_id == member.id).update(
+        {"reported_by_id": None}, synchronize_session="fetch"
+    )
+    session.query(Issue).filter(Issue.resolved_by_id == member.id).update(
+        {"resolved_by_id": None}, synchronize_session="fetch"
+    )
+    session.query(StaffPTORequest).filter(StaffPTORequest.staff_id == member.id).delete(
+        synchronize_session="fetch"
     )
     record_change(session, "staff", member.id, "delete", snapshot_instance(member))
     session.delete(member)

@@ -7,9 +7,10 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from mihomes.models.recurring_expense import ExpenseFrequency
-from mihomes.services import recurring as recurring_svc
 from mihomes.services import note as note_svc
+from mihomes.services import recurring as recurring_svc
 from mihomes.web.deps import get_db, templates
+from mihomes.web.forms import parse_money
 from mihomes.web.routes.budget import _ctx as _budget_ctx
 
 router = APIRouter()
@@ -69,7 +70,12 @@ def edit_recurring(
     if name:
         kwargs["name"] = name
     if amount:
-        kwargs["amount"] = float(amount)
+        try:
+            kwargs["amount"] = parse_money(amount, "Amount")
+        except ValueError as e:
+            ctx = _ctx(db)
+            ctx["error"] = str(e)
+            return templates.TemplateResponse(request, "budget.html", ctx)
     if frequency:
         kwargs["frequency"] = ExpenseFrequency(frequency)
     if category:

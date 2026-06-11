@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+
 from sqlalchemy.orm import Session
 
 # ── Tool schemas (Anthropic tool_use format) ──────────────────────────────────
@@ -282,8 +283,9 @@ def execute_tool(session: Session, name: str, inputs: dict[str, Any]) -> str:
 # ── Individual executors ──────────────────────────────────────────────────────
 
 def _query_library(session: Session, inp: dict) -> str:
+    from sqlalchemy import func
+
     from mihomes.models.book import Book
-    from sqlalchemy import func, or_
 
     q = session.query(Book).filter(Book.active.is_(True))
 
@@ -341,8 +343,9 @@ def _query_library(session: Session, inp: dict) -> str:
 
 
 def _query_assets(session: Session, inp: dict) -> str:
-    from mihomes.models.asset import Asset, AssetType
     from sqlalchemy import func
+
+    from mihomes.models.asset import Asset, AssetType
 
     q = session.query(Asset).filter(Asset.active.is_(True))
 
@@ -389,8 +392,9 @@ def _query_assets(session: Session, inp: dict) -> str:
 
 
 def _query_tasks(session: Session, inp: dict) -> str:
-    from mihomes.models.task import Task, TaskStatus, TaskPriority
     from datetime import date, timedelta
+
+    from mihomes.models.task import Task, TaskPriority, TaskStatus
 
     q = session.query(Task)
 
@@ -526,9 +530,11 @@ def _query_work_orders(session: Session, inp: dict) -> str:
 
 
 def _query_budget(session: Session, inp: dict) -> str:
-    from mihomes.models.budget import Transaction
-    from sqlalchemy import func
     from datetime import date
+
+    from sqlalchemy import func
+
+    from mihomes.models.budget import Transaction
 
     year = int(inp.get("year", date.today().year))
     start = date(year, 1, 1)
@@ -609,7 +615,7 @@ def _query_vendors(session: Session, inp: dict) -> str:
 
 
 def _query_staff(session: Session, inp: dict) -> str:
-    from mihomes.models.staff import Staff
+    from mihomes.models.staff import Staff, is_staff_role
 
     q = session.query(Staff)
     if inp.get("property_slug"):
@@ -622,7 +628,10 @@ def _query_staff(session: Session, inp: dict) -> str:
     if inp.get("search"):
         q = q.filter(Staff.name.ilike(f"%{inp['search']}%"))
 
-    staff = q.all()
+    # The staff table also holds residents/owners/associates (the Directory);
+    # this tool answers about actual employees only — keep it consistent with
+    # the staff context in context.py.
+    staff = [s for s in q.all() if is_staff_role(s.role)]
     if not staff:
         return "No staff found matching the criteria."
 
@@ -637,8 +646,9 @@ def _query_staff(session: Session, inp: dict) -> str:
 
 
 def _query_contracts(session: Session, inp: dict) -> str:
-    from mihomes.models.contract import Contract
     from datetime import date, timedelta
+
+    from mihomes.models.contract import Contract
 
     q = session.query(Contract)
     if inp.get("property_slug"):
@@ -696,7 +706,7 @@ def _query_insurance(session: Session, inp: dict) -> str:
 
 
 def _query_consumables(session: Session, inp: dict) -> str:
-    from mihomes.models.consumable import Consumable, ConsumableStatus
+    from mihomes.models.consumable import Consumable
 
     q = session.query(Consumable)
     if inp.get("property_slug"):
@@ -733,22 +743,13 @@ def _query_consumables(session: Session, inp: dict) -> str:
 
 
 def _query_inventory(session: Session, inp: dict) -> str:
-    from sqlalchemy import text, func
+    from sqlalchemy import text
 
     conditions = ["1=1"]
     params: dict = {}
 
     if inp.get("property_slug"):
-        from mihomes.models.property import Property
-        from mihomes.services.slug import resolve_identifier
-        from mihomes.db import get_session
-        # Resolve property id
         from mihomes.models.property import Property as Prop
-        prop = (
-            inp.get("_resolved_prop")
-            or _resolve_property(inp.get("property_slug", ""), inp.get("_session"))  # fallback
-        )
-        # Use session passed in
         prop_obj = session.query(Prop).filter(
             (Prop.slug == inp["property_slug"]) | (Prop.name.ilike(f"%{inp['property_slug']}%"))
         ).first()
@@ -815,8 +816,9 @@ def _query_inventory(session: Session, inp: dict) -> str:
 
 
 def _query_events(session: Session, inp: dict) -> str:
-    from mihomes.models.event import Event, EventStatus
     from datetime import date
+
+    from mihomes.models.event import Event, EventStatus
 
     q = session.query(Event)
     if inp.get("property_slug"):

@@ -2,16 +2,24 @@
 
 from sqlalchemy.orm import Session
 
-from mihomes.models.property import Property
-from mihomes.models.staff import Staff
-from mihomes.models.vendor import Vendor
-from mihomes.models.task import Task
+from mihomes.models.asset import Asset
+from mihomes.models.document import Document
+from mihomes.models.event import Event, Guest
 from mihomes.models.issue import Issue
 from mihomes.models.note import Note
-from mihomes.models.asset import Asset
+from mihomes.models.property import Property
+from mihomes.models.staff import Staff, category_for_role
+from mihomes.models.task import Task
+from mihomes.models.vendor import Vendor
 from mihomes.models.work_order import WorkOrder
-from mihomes.models.event import Event, Guest
-from mihomes.models.document import Document
+
+# Directory category → search result type (all link to /staff/).
+_PERSON_TYPE = {
+    "Staff": "staff",
+    "Resident": "resident",
+    "Associate": "associate",
+    "Family / Owner": "family",
+}
 
 
 def global_search(session: Session, query: str, *, entity_type: str | None = None) -> list[dict]:
@@ -31,7 +39,10 @@ def global_search(session: Session, query: str, *, entity_type: str | None = Non
 
     if entity_type is None or entity_type == "staff":
         for s in session.query(Staff).filter(Staff.name.ilike(q)).all():
-            results.append({"type": "staff", "id": s.id, "name": s.name, "slug": s.slug})
+            # The staff table backs the whole Directory; label each result by
+            # its derived category so residents/owners aren't shown as "staff".
+            results.append({"type": _PERSON_TYPE.get(category_for_role(s.role), "staff"),
+                            "id": s.id, "name": s.name, "slug": s.slug})
 
     if entity_type is None or entity_type == "vendor":
         for v in session.query(Vendor).filter(

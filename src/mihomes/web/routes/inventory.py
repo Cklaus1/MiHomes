@@ -8,8 +8,18 @@ from sqlalchemy.orm import Session
 
 from mihomes.models.consumable import Consumable, ConsumableStatus
 from mihomes.services import property as prop_svc
-from mihomes.services.consumable import list_consumables, create_consumable, update_stock, mark_ordered, mark_restocked, add_price_entry, edit_price_entry, delete_price_entry
+from mihomes.services.consumable import (
+    add_price_entry,
+    create_consumable,
+    delete_price_entry,
+    edit_price_entry,
+    list_consumables,
+    mark_ordered,
+    mark_restocked,
+    update_stock,
+)
 from mihomes.web.deps import get_db, templates
+from mihomes.web.forms import parse_money
 
 router = APIRouter()
 
@@ -59,17 +69,25 @@ def add_item(
     filter_category: str = Form(""),
     db: Session = Depends(get_db),
 ):
+    try:
+        par_level_val = parse_money(par_level, "Par level")
+        quantity_val = parse_money(quantity_in_stock, "Quantity in stock")
+        unit_price_val = parse_money(unit_price, "Unit price")
+    except ValueError as e:
+        ctx = _ctx(db, filter_property or None, filter_category or None)
+        ctx["error"] = str(e)
+        return templates.TemplateResponse(request, "inventory.html", ctx)
     item = create_consumable(
         db,
         name=name,
         property_id_or_slug=property_slug,
         category=category or None,
         unit=unit or None,
-        par_level=float(par_level) if par_level else None,
-        quantity_in_stock=float(quantity_in_stock) if quantity_in_stock else None,
+        par_level=par_level_val,
+        quantity_in_stock=quantity_val,
     )
-    if unit_price:
-        add_price_entry(db, item.slug, float(unit_price), date.today(), entry_type="purchase")
+    if unit_price_val is not None:
+        add_price_entry(db, item.slug, unit_price_val, date.today(), entry_type="purchase")
     db.commit()
     return templates.TemplateResponse(request, "inventory.html",
                                       _ctx(db, filter_property or None, filter_category or None))

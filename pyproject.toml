@@ -56,6 +56,7 @@ select = ["E", "F", "I", "B"]
 ignore = [
     "E501",  # line length — not enforced; long strings/URLs are common
     "B008",  # function call in default arg — FastAPI Depends()/Form() idiom
+    "E701",  # multiple statements on one line — codebase uses compact `if x: kwargs[...] = ...`
 ]
 
 [tool.coverage.run]

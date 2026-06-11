@@ -1,19 +1,47 @@
 """Assets & Inventory routes."""
 
-from fastapi import APIRouter, Depends, Form, Request
+import base64
+import uuid
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
-from mihomes.models.asset import AssetType, AssetCondition
+from mihomes.models.asset import AssetCondition, AssetType
 from mihomes.models.book import BookCondition
+from mihomes.models.document import DocumentType
 from mihomes.services import asset as asset_svc
 from mihomes.services import book as book_svc
+from mihomes.services import document as doc_svc
 from mihomes.services import note as note_svc
 from mihomes.services import property as prop_svc
 from mihomes.services import space as space_svc
+from mihomes.services.ai.assessors import parse_room_scan
 from mihomes.web.deps import get_db, templates
+from mihomes.web.forms import parse_money, read_image_uploads
 
 router = APIRouter()
+
+UPLOADS_DIR = Path(__file__).parent.parent / "static" / "uploads"
+
+_MEDIA_EXT = {"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/webp": ".webp"}
+
+
+def _save_room_photo(att) -> str:
+    """Persist a scan photo to static/uploads and return its served path."""
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    suffix = _MEDIA_EXT.get(att.media_type, Path(att.filename).suffix.lower() or ".jpg")
+    fname = f"{uuid.uuid4().hex}{suffix}"
+    (UPLOADS_DIR / fname).write_bytes(base64.b64decode(att.base64_data))
+    return f"/static/uploads/{fname}"
+
+
+def _ai_scan_error(msg: str) -> str:
+    lower = msg.lower()
+    if any(k in lower for k in ("not found", "not configured", "no provider", "api key", "authentication")):
+        return "AI isn't configured. Set up a Claude API key (mihomes ai setup) to scan rooms."
+    return msg
 
 
 def _properties_ctx(db: Session) -> dict:
@@ -140,6 +168,117 @@ def create_asset(
     if from_property:
         return templates.TemplateResponse(request, "assets_spaces.html", _spaces_ctx(db, from_property))
     return templates.TemplateResponse(request, "assets_properties.html", _properties_ctx(db))
+
+
+# ── Scan Room: camera → AI vision → bulk add ──────────────────────────────────
+
+def _scan_review_ctx(property_slug: str, space_slug: str, room_name: str,
+                     items: list[dict], photo_path: str = "", error: str | None = None) -> dict:
+    return {
+        "property_slug": property_slug,
+        "space_slug": space_slug,
+        "room_name": room_name,
+        "items": items,
+        "photo_path": photo_path,
+        "error": error,
+        "asset_types": [t.value for t in AssetType],
+        "conditions": [c.value for c in AssetCondition],
+    }
+
+
+@router.post("/scan", response_class=HTMLResponse)
+async def scan_room(
+    request: Request,
+    property_slug: str = Form(...),
+    space_slug: str = Form(""),
+    files: list[UploadFile] = File(default=[]),
+    db: Session = Depends(get_db),
+):
+    prop = prop_svc.get_property(db, property_slug)
+    space = space_svc.get_space(db, space_slug) if space_slug and space_slug != "unassigned" else None
+    room_name = space.name if space else prop.name
+
+    items: list[dict] = []
+    photo_path = ""
+    error = None
+    try:
+        attachments = await read_image_uploads(files)
+        photo_path = _save_room_photo(attachments[0])
+        items = parse_room_scan(db, attachments, room_name=room_name)
+        if not items:
+            error = "No assets detected. Try a clearer or wider shot of the room."
+    except ValueError as e:
+        error = str(e)  # upload validation / provider guard — already user-facing
+    except Exception as e:  # external AI call boundary (mirrors ai.py)
+        error = _ai_scan_error(str(e))
+
+    return templates.TemplateResponse(
+        request, "partials/asset_scan_review.html",
+        _scan_review_ctx(property_slug, space_slug, room_name, items, photo_path, error),
+    )
+
+
+@router.post("/scan/confirm", response_class=HTMLResponse)
+def scan_confirm(
+    request: Request,
+    property_slug: str = Form(...),
+    space_slug: str = Form(""),
+    photo_path: str = Form(""),
+    include: list[str] = Form(default=[]),
+    name: list[str] = Form(default=[]),
+    asset_type: list[str] = Form(default=[]),
+    condition: list[str] = Form(default=[]),
+    value: list[str] = Form(default=[]),
+    note: list[str] = Form(default=[]),
+    db: Session = Depends(get_db),
+):
+    space_arg = None if (not space_slug or space_slug == "unassigned") else space_slug
+    include_set = set(include)
+    created = 0
+    for i in range(len(name)):
+        if str(i) not in include_set or not name[i].strip():
+            continue
+        try:
+            at = AssetType(asset_type[i]) if i < len(asset_type) and asset_type[i] else AssetType.EQUIPMENT
+        except ValueError:
+            at = AssetType.EQUIPMENT
+        try:
+            cond = AssetCondition(condition[i]) if i < len(condition) and condition[i] else AssetCondition.GOOD
+        except ValueError:
+            cond = AssetCondition.GOOD
+        try:
+            val = parse_money(value[i]) if i < len(value) else None
+        except ValueError:
+            val = None
+        asset_svc.create_asset(
+            db,
+            name=name[i].strip(),
+            asset_type=at,
+            property_id_or_slug=property_slug,
+            space_id_or_slug=space_arg,
+            condition=cond,
+            purchase_price=val,
+            notes=(note[i].strip() or None) if i < len(note) else None,
+        )
+        created += 1
+
+    # Keep one room reference photo, linked to the room (or property if unassigned).
+    if photo_path and created:
+        if space_arg:
+            space = space_svc.get_space(db, space_arg)
+            ent_type, ent_id = "space", space.id
+        else:
+            ent_type, ent_id = "property", prop_svc.get_property(db, property_slug).id
+        doc_svc.create_document(
+            db,
+            title=f"Room scan — {ent_type} {ent_id}",
+            file_path=photo_path,
+            document_type=DocumentType.OTHER,
+            entity_type=ent_type,
+            entity_id=ent_id,
+        )
+
+    return templates.TemplateResponse(request, "assets.html", _list_ctx(db, property_slug, space_slug or "unassigned"))
 
 
 @router.post("/{slug}/notes", response_class=HTMLResponse)

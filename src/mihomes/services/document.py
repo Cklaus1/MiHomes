@@ -12,7 +12,7 @@ from mihomes.services.update_helpers import safe_update
 # Allowed entity types for polymorphic linking
 VALID_ENTITY_TYPES = {
     "property", "asset", "vendor", "work_order", "contract",
-    "insurance", "event", "staff",
+    "insurance", "event", "staff", "space",
 }
 
 

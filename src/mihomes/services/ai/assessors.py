@@ -2,9 +2,8 @@
 
 from sqlalchemy.orm import Session
 
-from mihomes.services.ai.ai_config import get_ai_api_key, get_ai_model, get_ai_provider_name
+from mihomes.services.ai.ai_config import get_ai_api_key, get_ai_provider_name
 from mihomes.services.ai.provider import get_provider
-
 
 IMPORT_SCHEMAS = {
     "vendor": {
@@ -143,6 +142,60 @@ def suggest_tags_and_priority(
         user_text += f"\nProperty: {property_name}"
 
     return provider.structured_output(system_prompt, user_text, schema)
+
+
+ASSET_SCAN_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Short descriptive name, e.g. 'Leather sofa', 'Samsung 65\" TV'"},
+                    "asset_type": {"type": "string", "enum": ["appliance", "valuable", "equipment", "vehicle"]},
+                    "condition": {"type": "string", "enum": ["excellent", "good", "fair", "poor"]},
+                    "make": {"type": "string"},
+                    "model": {"type": "string"},
+                    "estimated_value": {"type": "number", "description": "Rough resale/replacement value in USD (a best-guess estimate)"},
+                    "note": {"type": "string", "description": "Any distinguishing detail (color, location in room, visible damage)"},
+                },
+                "required": ["name", "asset_type"],
+            },
+        }
+    },
+    "required": ["items"],
+}
+
+
+def parse_room_scan(session: Session, attachments, room_name: str | None = None) -> list[dict]:
+    """Identify trackable assets from photo(s) of a room using AI vision.
+
+    Returns a list of item dicts (see ASSET_SCAN_SCHEMA). Requires the Claude
+    provider — only it sends image attachments to the model.
+    """
+    provider_name = get_ai_provider_name(session)
+    if provider_name.lower() not in ("claude", "anthropic"):
+        raise ValueError(
+            f"Room scanning needs the Claude provider for image analysis "
+            f"(current provider: {provider_name})."
+        )
+    api_key = get_ai_api_key(session, provider_name)
+    provider = get_provider(provider_name, api_key)
+
+    where = f" of the {room_name}" if room_name else ""
+    system_prompt = (
+        "You are an estate inventory assistant. From the attached photo(s)"
+        f"{where}, identify the distinct, durable physical assets worth tracking "
+        "in a home inventory (furniture, electronics, appliances, equipment, art, "
+        "valuables). For each, give a short name, the best-fitting asset_type, a "
+        "condition estimate, make/model if legible, and a rough USD value estimate. "
+        "Ignore disposable, trivial, or fixed structural items (e.g. trash, food, "
+        "outlets, flooring). If unsure of a value, give your best estimate."
+    )
+    user_msg = "List the trackable assets visible in these photo(s)."
+    result = provider.structured_output(system_prompt, user_msg, ASSET_SCAN_SCHEMA, attachments=attachments)
+    return result.get("items", [])
 
 
 def parse_import_text(

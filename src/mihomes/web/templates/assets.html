@@ -14,7 +14,12 @@
 {% endblock %}
 
 {% block actions %}
-<div id="tab-actions-assets" {% if active_tab == 'books' %}class="hidden"{% endif %}>
+<div id="tab-actions-assets" class="flex items-center gap-2 {% if active_tab == 'books' %}hidden{% endif %}">
+  <button onclick="document.getElementById('scan-room-modal').classList.remove('hidden')"
+          class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-brand-300 text-brand-700 text-sm font-medium rounded-lg hover:bg-brand-50 transition-colors">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+    Scan Room
+  </button>
   <button onclick="document.getElementById('add-asset-modal').classList.remove('hidden')"
           class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
@@ -149,6 +154,39 @@
 </div><!-- /panel-books -->
 
 <!-- Add Asset modal -->
+<!-- Scan Room modal -->
+<div id="scan-room-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onclick="if(event.target===this)this.classList.add('hidden')">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-1">
+      <h2 class="text-lg font-semibold text-gray-900">Scan {{ space.name if space else 'Room' }}</h2>
+      <button onclick="document.getElementById('scan-room-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+    </div>
+    <p class="text-xs text-gray-500 mb-4">Take or upload photo(s) of the room — the AI lists the assets it sees, and you review them before adding. Values are rough estimates.</p>
+
+    <form hx-post="/assets/scan" hx-target="#scan-review" hx-swap="innerHTML"
+          hx-encoding="multipart/form-data" hx-indicator="#scan-spinner">
+      <input type="hidden" name="property_slug" value="{{ prop.slug }}">
+      <input type="hidden" name="space_slug" value="{{ space_slug }}">
+      <label class="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-gray-300 rounded-xl p-6 cursor-pointer hover:border-brand-400 transition-colors">
+        <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+        <span class="text-sm text-gray-600">Tap to take a photo, or choose images</span>
+        <input type="file" name="files" accept="image/*" capture="environment" multiple
+               class="hidden" onchange="document.getElementById('scan-filecount').textContent = this.files.length ? this.files.length + ' photo(s) selected' : ''">
+      </label>
+      <div id="scan-filecount" class="text-xs text-gray-400 mt-1.5 text-center"></div>
+      <button type="submit" class="mt-3 w-full py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
+        Scan for assets
+      </button>
+      <div id="scan-spinner" class="htmx-indicator mt-3 flex items-center justify-center gap-2 text-sm text-gray-500">
+        <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+        Analyzing photos…
+      </div>
+    </form>
+
+    <div id="scan-review" class="mt-4"></div>
+  </div>
+</div>
+
 <div id="add-asset-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onclick="if(event.target===this)this.classList.add('hidden')">
   <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
     <div class="flex items-center justify-between mb-5">

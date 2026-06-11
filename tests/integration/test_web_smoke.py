@@ -18,6 +18,7 @@ from sqlalchemy.pool import StaticPool
 from mihomes.models import Base
 from mihomes.models.staff import StaffRole
 from mihomes.services import property as prop_svc
+from mihomes.services import space as space_svc
 from mihomes.services import staff as staff_svc
 from mihomes.services import vendor as vendor_svc
 from mihomes.web.app import create_app
@@ -37,6 +38,7 @@ def client():
 
     with TestSessionLocal() as s:
         prop = prop_svc.create_property(s, "Test Manor")
+        space_svc.create_space(s, "Living Room", prop.slug)
         staff_svc.create_staff(
             s, "Marcia Staff", role=StaffRole.HOUSEKEEPER, property_id_or_slug=prop.slug
         )
@@ -201,3 +203,60 @@ def test_vendor_create_appears(client):
     )
     html = client.get("/vendors/").text
     assert "Bright Pools" in html
+
+
+# --- Scan Room (camera → AI → bulk add) ------------------------------------
+
+import base64 as _b64  # noqa: E402
+
+# 1x1 transparent PNG
+_PNG_1x1 = _b64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+)
+
+
+def test_scan_room_returns_review(client, monkeypatch):
+    import mihomes.web.routes.assets as assets_routes
+    monkeypatch.setattr(assets_routes, "parse_room_scan", lambda db, attachments, room_name=None: [
+        {"name": "Leather Sofa", "asset_type": "valuable", "condition": "good", "estimated_value": 1500},
+        {"name": "Floor Lamp", "asset_type": "equipment", "condition": "fair", "estimated_value": 80},
+    ])
+    monkeypatch.setattr(assets_routes, "_save_room_photo", lambda att: "/static/uploads/test.png")
+
+    r = client.post(
+        "/assets/scan",
+        data={"property_slug": "test-manor", "space_slug": "living-room"},
+        files=[("files", ("room.png", _PNG_1x1, "image/png"))],
+    )
+    assert r.status_code == 200
+    assert "Leather Sofa" in r.text and "Floor Lamp" in r.text
+
+
+def test_scan_confirm_creates_selected_assets(client):
+    r = client.post("/assets/scan/confirm", data={
+        "property_slug": "test-manor",
+        "space_slug": "living-room",
+        "photo_path": "/static/uploads/test.png",
+        "include": ["0"],  # only the first row
+        "name": ["Leather Sofa", "Floor Lamp"],
+        "asset_type": ["valuable", "equipment"],
+        "condition": ["good", "fair"],
+        "value": ["1500", ""],
+        "note": ["", ""],
+    })
+    assert r.status_code == 200
+
+    from mihomes.models.asset import Asset
+    from mihomes.models.document import Document
+    with client._SessionLocal() as s:
+        sofa = s.query(Asset).filter_by(name="Leather Sofa").one()
+        assert sofa.space_id is not None          # linked to the room
+        assert sofa.purchase_price == 1500.0       # estimate stored as Value
+        assert s.query(Asset).filter_by(name="Floor Lamp").first() is None  # excluded row
+        assert s.query(Document).filter_by(entity_type="space").count() == 1  # room photo kept
+
+
+def test_scan_rejects_missing_photo(client):
+    r = client.post("/assets/scan", data={"property_slug": "test-manor", "space_slug": "living-room"})
+    assert r.status_code == 200  # friendly error, not a 500
+    assert "at least one photo" in r.text.lower()

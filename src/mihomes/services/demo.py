@@ -4,20 +4,20 @@ from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 
+from mihomes.models.budget import BudgetPeriod
+from mihomes.models.issue import IssueSeverity
+from mihomes.models.property import PropertyStatus, PropertyType
+from mihomes.models.staff import StaffRole
+from mihomes.models.task import RecurrenceFrequency, TaskPriority
+from mihomes.services import budget as budget_svc
+from mihomes.services import event as event_svc
+from mihomes.services import issue as issue_svc
+from mihomes.services import note as note_svc
 from mihomes.services import property as prop_svc
 from mihomes.services import space as space_svc
 from mihomes.services import staff as staff_svc
-from mihomes.services import vendor as vendor_svc
 from mihomes.services import task as task_svc
-from mihomes.services import issue as issue_svc
-from mihomes.services import budget as budget_svc
-from mihomes.services import note as note_svc
-from mihomes.services import event as event_svc
-from mihomes.models.property import PropertyType, PropertyStatus
-from mihomes.models.staff import StaffRole
-from mihomes.models.task import TaskPriority, RecurrenceFrequency
-from mihomes.models.issue import IssueSeverity
-from mihomes.models.budget import BudgetPeriod
+from mihomes.services import vendor as vendor_svc
 
 
 def load_demo_data(session: Session) -> None:
@@ -218,8 +218,8 @@ def load_demo_data(session: Session) -> None:
                                description="Electric bill")
 
     # === Assets ===
-    from mihomes.services.asset import create_asset
     from mihomes.models.asset import AssetType
+    from mihomes.services.asset import create_asset
     create_asset(session, "Sub-Zero Refrigerator", AssetType.APPLIANCE, str(beach.id),
                  model_name="BI-36U", warranty_expires=date(today.year + 1, 6, 15))
     create_asset(session, "Wolf Range", AssetType.APPLIANCE, str(beach.id),
@@ -232,15 +232,15 @@ def load_demo_data(session: Session) -> None:
     # === Contracts ===
     from mihomes.services.contract import create_contract
     create_contract(session, "coastal-plumbing", str(beach.id), date(today.year, 1, 1),
-                    end_date=date(today.year, 12, 31), annual_cost=12000, auto_renew=True,
+                    end_date=date(today.year, 12, 31), cost=12000, auto_renew=True,
                     service_category="plumbing")
     create_contract(session, "peak-landscaping", str(mountain.id), date(today.year, 4, 1),
-                    end_date=date(today.year, 10, 31), annual_cost=8000,
+                    end_date=date(today.year, 10, 31), cost=8000,
                     service_category="landscaping")
 
     # === Insurance ===
-    from mihomes.services.insurance import create_policy
     from mihomes.models.insurance import InsuranceType
+    from mihomes.services.insurance import create_policy
     create_policy(session, "State Farm", InsuranceType.HOMEOWNERS,
                   property_id_or_slug=str(beach.id), coverage_limit=2000000,
                   annual_premium=12000, renewal_date=date(today.year + 1, 1, 15))

@@ -22,7 +22,7 @@ def create_contract(
     service_category: str | None = None,
     auto_renew: bool = False,
     notice_period_days: int = 30,
-    annual_cost: float | None = None,
+    cost: float | None = None,
     currency: str = "USD",
     notes: str | None = None,
 ) -> Contract:
@@ -32,7 +32,7 @@ def create_contract(
         vendor_id=vendor.id, property_id=prop.id, start_date=start_date,
         end_date=end_date, service_category=service_category,
         auto_renew=auto_renew, notice_period_days=notice_period_days,
-        annual_cost=annual_cost, currency=currency, notes=notes,
+        cost=cost, currency=currency, notes=notes,
     )
     session.add(contract)
     session.flush()
@@ -52,7 +52,7 @@ def list_contracts(
         query = query.filter(Contract.property_id == prop.id)
     if expiring_days:
         cutoff = date.today() + timedelta(days=expiring_days)
-        query = query.filter(Contract.end_date != None, Contract.end_date <= cutoff)
+        query = query.filter(Contract.end_date.is_not(None), Contract.end_date <= cutoff)
     return query.order_by(Contract.end_date.asc().nullslast()).all()
 
 

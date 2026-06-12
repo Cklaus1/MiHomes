@@ -673,7 +673,7 @@ def _query_contracts(session: Session, inp: dict) -> str:
         vendor_name = c.vendor.company_name if c.vendor else "unknown vendor"
         prop_name = c.property.name if c.property else "unknown"
         end = str(c.end_date) if c.end_date else "ongoing"
-        cost = f" ${c.annual_cost:,.0f}/yr" if c.annual_cost else ""
+        cost = f" ${c.annualized_cost:,.0f}/yr" if c.annualized_cost else ""
         renew = " (auto-renew)" if c.auto_renew else ""
         lines.append(f"- {vendor_name} → {prop_name}: ends {end}{cost}{renew}")
     return "\n".join(lines)

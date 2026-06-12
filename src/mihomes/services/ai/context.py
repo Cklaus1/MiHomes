@@ -212,7 +212,7 @@ def _fetch_contracts(session: Session, property_slug: str | None) -> str:
     else:
         for c in contracts[:15]:
             end = str(c.end_date) if c.end_date else "ongoing"
-            cost = f"${c.annual_cost:,.0f}/yr" if c.annual_cost else ""
+            cost = f"${c.annualized_cost:,.0f}/yr" if c.annualized_cost else ""
             renew = " (auto-renew)" if c.auto_renew else ""
             vendor_name = c.vendor.company_name if c.vendor else "unknown vendor"
             prop_name = c.property.name if c.property else "unknown"

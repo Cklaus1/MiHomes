@@ -8,12 +8,12 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
+from mihomes.models.document import DocumentType
 from mihomes.services import contract as contract_svc
-from mihomes.services import note as note_svc
 from mihomes.services import document as doc_svc
+from mihomes.services import note as note_svc
 from mihomes.services import property as prop_svc
 from mihomes.services import vendor as vendor_svc
-from mihomes.models.document import DocumentType
 from mihomes.web.deps import get_db, templates
 
 router = APIRouter()
@@ -47,7 +47,7 @@ def create_contract(
     start_date: str = Form(...),
     end_date: str = Form(""),
     service_category: str = Form(""),
-    annual_cost: str = Form(""),
+    cost: str = Form(""),
     auto_renew: str = Form(""),
     notice_period_days: str = Form("30"),
     notes: str = Form(""),
@@ -60,7 +60,7 @@ def create_contract(
         start_date=date.fromisoformat(start_date),
         end_date=date.fromisoformat(end_date) if end_date else None,
         service_category=service_category or None,
-        annual_cost=float(annual_cost) if annual_cost else None,
+        cost=float(cost) if cost else None,
         auto_renew=bool(auto_renew),
         notice_period_days=int(notice_period_days) if notice_period_days else 30,
         notes=notes or None,
@@ -139,7 +139,7 @@ def edit_contract(
     notes: str = Form(""),
     start_date: str = Form(""),
     end_date: str = Form(""),
-    annual_cost: str = Form(""),
+    cost: str = Form(""),
     notice_period_days: str = Form(""),
     auto_renew: str = Form(""),
     db: Session = Depends(get_db),
@@ -148,7 +148,7 @@ def edit_contract(
     kwargs = dict(notes=notes or None)
     if start_date: kwargs["start_date"] = date_type.fromisoformat(start_date)
     if end_date: kwargs["end_date"] = date_type.fromisoformat(end_date)
-    if annual_cost: kwargs["annual_cost"] = float(annual_cost)
+    if cost: kwargs["cost"] = float(cost)
     if notice_period_days: kwargs["notice_period_days"] = int(notice_period_days)
     kwargs["auto_renew"] = auto_renew == "1"
     contract_svc.update_contract(db, contract_id, **kwargs)

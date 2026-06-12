@@ -13,26 +13,27 @@ from mihomes.web.deps import get_db, templates
 
 router = APIRouter()
 
+_RESOLVED_STATUSES = {IssueStatus.RESOLVED, IssueStatus.VERIFIED}
 
-def _ctx(db: Session, property_id=None, status=None) -> dict:
-    open_only = status == "open" if status else False
-    resolved_only = status == "resolved" if status else False
+
+def _ctx(db: Session, property_id=None, active_tab: str = "current") -> dict:
     issues = issue_svc.list_issues(
         db,
         property_id_or_slug=str(property_id) if property_id else None,
-        open_only=open_only,
-        resolved_only=resolved_only,
     )
+    open_issues = [i for i in issues if i.status not in _RESOLVED_STATUSES]
+    resolved_issues = [i for i in issues if i.status in _RESOLVED_STATUSES]
     return {
         "page": "issues",
-        "issues": issues,
+        "open_issues": open_issues,
+        "resolved_issues": resolved_issues,
         "properties": prop_svc.list_properties(db),
         "staff": staff_svc.list_staff(db),
         "severities": [s.value for s in IssueSeverity],
         "statuses": [s.value for s in IssueStatus],
         "notes_map": {i.id: note_svc.list_notes(db, f"issue:{i.id}") for i in issues},
         "filter_property": property_id,
-        "filter_status": status,
+        "active_tab": active_tab,
     }
 
 
@@ -40,10 +41,10 @@ def _ctx(db: Session, property_id=None, status=None) -> dict:
 def list_issues(
     request: Request,
     property_id: int | None = None,
-    status: str | None = None,
+    tab: str = "current",
     db: Session = Depends(get_db),
 ):
-    return templates.TemplateResponse(request, "issues.html", _ctx(db, property_id, status))
+    return templates.TemplateResponse(request, "issues.html", _ctx(db, property_id, active_tab=tab))
 
 
 @router.post("/", response_class=HTMLResponse)
@@ -64,7 +65,7 @@ def create_issue(
         description=description or None,
         reported_by_id=int(reported_by_id) if reported_by_id else None,
     )
-    return templates.TemplateResponse(request, "issues.html", _ctx(db))
+    return templates.TemplateResponse(request, "issues.html", _ctx(db, active_tab="current"))
 
 
 @router.post("/{slug}/resolve", response_class=HTMLResponse)
@@ -75,7 +76,7 @@ def resolve_issue(
     db: Session = Depends(get_db),
 ):
     issue_svc.resolve_issue(db, slug, resolved_by_id=int(resolved_by_id) if resolved_by_id else None)
-    return templates.TemplateResponse(request, "issues.html", _ctx(db))
+    return templates.TemplateResponse(request, "issues.html", _ctx(db, active_tab="current"))
 
 
 @router.post("/{slug}/edit", response_class=HTMLResponse)
@@ -101,13 +102,15 @@ def edit_issue(
     if resolved_by_id:
         kwargs["resolved_by_id"] = int(resolved_by_id)
     issue_svc.update_issue(db, slug, **kwargs)
-    return templates.TemplateResponse(request, "issues.html", _ctx(db))
+    new_status = kwargs.get("status")
+    tab = "history" if new_status in _RESOLVED_STATUSES else "current"
+    return templates.TemplateResponse(request, "issues.html", _ctx(db, active_tab=tab))
 
 
 @router.post("/{slug}/delete", response_class=HTMLResponse)
 def delete_issue(request: Request, slug: str, db: Session = Depends(get_db)):
     issue_svc.delete_issue(db, slug)
-    return templates.TemplateResponse(request, "issues.html", _ctx(db))
+    return templates.TemplateResponse(request, "issues.html", _ctx(db, active_tab="current"))
 
 
 @router.post("/{slug}/notes", response_class=HTMLResponse)

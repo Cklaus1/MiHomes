@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Issues — MiHomes{% endblock %}
 {% block heading %}Issues{% endblock %}
-{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ issues|length }} issue{{ 's' if issues|length != 1 else '' }}</p>{% endblock %}
+{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ open_issues|length }} open · {{ resolved_issues|length }} resolved</p>{% endblock %}
 
 {% block actions %}
 <button onclick="document.getElementById('add-issue-modal').classList.remove('hidden')"
@@ -16,21 +16,34 @@
 <!-- Filter bar -->
 <div class="flex flex-wrap gap-3 mb-5">
   <form class="flex gap-2" hx-get="/issues" hx-target="body" hx-swap="innerHTML" hx-push-url="true">
+    <input type="hidden" name="tab" value="{{ active_tab }}">
     <select name="property_id" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
       <option value="">All properties</option>
       {% for p in properties %}<option value="{{ p.id }}" {% if filter_property == p.id %}selected{% endif %}>{{ p.name }}</option>{% endfor %}
-    </select>
-    <select name="status" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
-      <option value="">All statuses</option>
-      {% for s in statuses %}<option value="{{ s }}" {% if filter_status == s %}selected{% endif %}>{{ s.title() }}</option>{% endfor %}
     </select>
     <button type="submit" class="text-sm px-3 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-700 hover:bg-gray-50">Filter</button>
   </form>
 </div>
 
-<!-- Issues table -->
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-  {% if issues %}
+<!-- Page-level tabs -->
+<div class="flex border-b border-gray-200 mb-0">
+  <button id="page-tab-current" onclick="switchPageTab('current')"
+          class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px mr-1
+            {% if active_tab == 'current' %}border-brand-600 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
+    Current Issues
+    <span class="ml-1.5 text-xs bg-gray-100 text-gray-600 rounded-full px-1.5 py-0.5">{{ open_issues|length }}</span>
+  </button>
+  <button id="page-tab-history" onclick="switchPageTab('history')"
+          class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px mr-1
+            {% if active_tab == 'history' %}border-brand-600 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
+    History
+    <span class="ml-1.5 text-xs bg-gray-100 text-gray-600 rounded-full px-1.5 py-0.5">{{ resolved_issues|length }}</span>
+  </button>
+</div>
+
+<!-- Current Issues panel -->
+<div id="page-panel-current" class="bg-white rounded-b-xl rounded-tr-xl border border-gray-200 overflow-hidden {% if active_tab != 'current' %}hidden{% endif %}">
+  {% if open_issues %}
   <table class="w-full text-sm">
     <thead>
       <tr class="border-b border-gray-100">
@@ -40,11 +53,12 @@
         <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
         <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Reported By</th>
         <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Date</th>
+        <th class="px-4 py-3"></th>
       </tr>
     </thead>
     <tbody class="divide-y divide-gray-50">
-      {% for issue in issues %}
-      <tr class="hover:bg-gray-50 cursor-pointer transition-colors {% if issue.status.value == 'resolved' %}opacity-60{% endif %}"
+      {% for issue in open_issues %}
+      <tr class="hover:bg-gray-50 cursor-pointer transition-colors"
           onclick="openModal('issue-modal-{{ issue.id }}')">
         <td class="px-5 py-3">
           <div class="font-medium text-gray-900">{{ issue.title }}</div>
@@ -64,11 +78,10 @@
         </td>
         <td class="px-4 py-3">
           <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
-            {% if issue.status.value == 'resolved' %}bg-emerald-100 text-emerald-700
-            {% elif issue.status.value == 'open' %}bg-red-100 text-red-700
-            {% elif issue.status.value == 'reported' %}bg-amber-100 text-amber-700
-            {% elif issue.status.value == 'in-progress' %}bg-blue-100 text-blue-700
-            {% else %}bg-gray-100 text-gray-600{% endif %}">
+            {% if issue.status.value == 'in-progress' %}bg-blue-100 text-blue-700
+            {% elif issue.status.value == 'scheduled' %}bg-purple-100 text-purple-700
+            {% elif issue.status.value == 'assessed' %}bg-indigo-100 text-indigo-700
+            {% else %}bg-amber-100 text-amber-700{% endif %}">
             {{ issue.status.value.replace('-', ' ').title() }}
           </span>
         </td>
@@ -78,17 +91,102 @@
         <td class="px-4 py-3 text-gray-400 text-xs hidden lg:table-cell">
           {% if issue.created_at %}{{ issue.created_at.strftime('%b %d, %Y') }}{% endif %}
         </td>
+        <td class="px-4 py-3 text-right" onclick="event.stopPropagation()">
+          <button onclick="toggleResolveRow({{ issue.id }})"
+                  class="text-xs font-medium text-emerald-600 hover:text-emerald-700 border border-emerald-200 rounded-md px-2.5 py-1 hover:bg-emerald-50 transition-colors">
+            Resolve
+          </button>
+        </td>
+      </tr>
+      <!-- Inline resolve form row -->
+      <tr id="resolve-row-{{ issue.id }}" class="hidden">
+        <td colspan="7" class="px-5 py-3 bg-emerald-50 border-t border-emerald-100">
+          <form hx-post="/issues/{{ issue.slug }}/resolve" hx-target="body" hx-swap="innerHTML"
+                class="flex flex-wrap items-center gap-3">
+            <span class="text-sm font-medium text-gray-700">Mark as resolved</span>
+            <div class="flex items-center gap-2">
+              <label class="text-sm text-gray-500 whitespace-nowrap">Resolved by:</label>
+              <select name="resolved_by_id"
+                      class="border border-gray-200 rounded-lg px-2.5 py-1 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                <option value="">— Not specified —</option>
+                {% for member in staff %}<option value="{{ member.id }}">{{ member.name }}</option>{% endfor %}
+              </select>
+            </div>
+            <button type="submit"
+                    class="text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg px-3 py-1 transition-colors">
+              Confirm
+            </button>
+            <button type="button" onclick="toggleResolveRow({{ issue.id }})"
+                    class="text-sm text-gray-500 border border-gray-200 bg-white rounded-lg px-3 py-1 hover:bg-gray-50 transition-colors">
+              Cancel
+            </button>
+          </form>
+        </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
   {% else %}
-  <div class="px-5 py-12 text-center text-sm text-gray-400">No issues found.</div>
+  <div class="px-5 py-12 text-center text-sm text-gray-400">No open issues — all clear!</div>
   {% endif %}
 </div>
 
-<!-- Issue detail modals (rendered outside table) -->
-{% for issue in issues %}
+<!-- History panel -->
+<div id="page-panel-history" class="bg-white rounded-b-xl rounded-tr-xl border border-gray-200 overflow-hidden {% if active_tab != 'history' %}hidden{% endif %}">
+  {% if resolved_issues %}
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="border-b border-gray-100">
+        <th class="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Issue</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">Property</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Severity</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Resolved By</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Resolved</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-50">
+      {% for issue in resolved_issues %}
+      <tr class="hover:bg-gray-50 cursor-pointer transition-colors opacity-75"
+          onclick="openModal('issue-modal-{{ issue.id }}')">
+        <td class="px-5 py-3">
+          <div class="font-medium text-gray-700">{{ issue.title }}</div>
+          {% if issue.description %}<div class="text-xs text-gray-400 mt-0.5 truncate max-w-[240px]">{{ issue.description }}</div>{% endif %}
+        </td>
+        <td class="px-4 py-3 text-gray-500 hidden sm:table-cell text-xs">
+          {% if issue.property %}{{ issue.property.name }}{% else %}—{% endif %}
+        </td>
+        <td class="px-4 py-3">
+          <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+            {% if issue.severity.value == 'critical' %}bg-red-100 text-red-700
+            {% elif issue.severity.value == 'high' %}bg-orange-100 text-orange-700
+            {% elif issue.severity.value == 'medium' %}bg-amber-100 text-amber-700
+            {% else %}bg-gray-100 text-gray-600{% endif %}">
+            {{ issue.severity.value.title() }}
+          </span>
+        </td>
+        <td class="px-4 py-3">
+          <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-700">
+            {{ issue.status.value.replace('-', ' ').title() }}
+          </span>
+        </td>
+        <td class="px-4 py-3 text-gray-500 text-xs hidden md:table-cell">
+          {% if issue.resolved_by %}{{ issue.resolved_by.name }}{% else %}—{% endif %}
+        </td>
+        <td class="px-4 py-3 text-gray-400 text-xs hidden lg:table-cell">
+          {% if issue.resolved_at %}{{ issue.resolved_at.strftime('%b %d, %Y') }}{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="px-5 py-12 text-center text-sm text-gray-400">No resolved issues yet.</div>
+  {% endif %}
+</div>
+
+<!-- Issue detail modals (all issues) -->
+{% for issue in open_issues + resolved_issues %}
 <div id="issue-modal-{{ issue.id }}"
      class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
      onclick="if(event.target===this)closeModal('issue-modal-{{ issue.id }}')">
@@ -154,10 +252,11 @@
               <dd class="flex items-center gap-2 pt-0.5">
                 <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
                   {% if issue.status.value == 'resolved' %}bg-emerald-100 text-emerald-700
-                  {% elif issue.status.value == 'open' %}bg-red-100 text-red-700
-                  {% elif issue.status.value == 'reported' %}bg-amber-100 text-amber-700
+                  {% elif issue.status.value == 'verified' %}bg-emerald-100 text-emerald-700
                   {% elif issue.status.value == 'in-progress' %}bg-blue-100 text-blue-700
-                  {% else %}bg-gray-100 text-gray-600{% endif %}">
+                  {% elif issue.status.value == 'scheduled' %}bg-purple-100 text-purple-700
+                  {% elif issue.status.value == 'assessed' %}bg-indigo-100 text-indigo-700
+                  {% else %}bg-amber-100 text-amber-700{% endif %}">
                   {{ issue.status.value.replace('-',' ').title() }}
                 </span>
                 {% if issue.status.value not in ('resolved', 'verified') %}
@@ -349,6 +448,23 @@ function switchTab(prefix, id, tab) {
     btn.classList.toggle('border-transparent', t !== tab);
     btn.classList.toggle('text-gray-500', t !== tab);
   });
+}
+function switchPageTab(tab) {
+  ['current','history'].forEach(t => {
+    const panel = document.getElementById('page-panel-'+t);
+    if (panel) panel.classList.toggle('hidden', t !== tab);
+    const btn = document.getElementById('page-tab-'+t);
+    if (btn) {
+      btn.classList.toggle('border-brand-600', t === tab);
+      btn.classList.toggle('text-brand-600', t === tab);
+      btn.classList.toggle('border-transparent', t !== tab);
+      btn.classList.toggle('text-gray-500', t !== tab);
+    }
+  });
+}
+function toggleResolveRow(id) {
+  const row = document.getElementById('resolve-row-'+id);
+  if (row) row.classList.toggle('hidden');
 }
 function autoResize(el){el.style.height='auto';el.style.height=el.scrollHeight+'px';}
 function enterEdit(prefix, id) {

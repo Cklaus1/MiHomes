@@ -103,10 +103,17 @@
           <input type="date" name="end_date" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
         </div>
       </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Billing Frequency</label>
+        <select name="billing_frequency" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          <option value="">— Not specified —</option>
+          {% for val, label in billing_frequencies %}<option value="{{ val }}">{{ label }}</option>{% endfor %}
+        </select>
+      </div>
       <div class="grid grid-cols-2 gap-3">
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Total Cost ($)</label>
-          <input type="number" name="cost" min="0" step="0.01" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          <label class="block text-sm font-medium text-gray-700 mb-1">Cost ($)</label>
+          <input type="number" name="cost" min="0" step="0.01" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" placeholder="Per period or total" />
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Notice Period (days)</label>
@@ -169,8 +176,9 @@
           <div class="grid grid-cols-2 gap-3 mb-4">
             <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Start Date</div><div class="font-medium text-sm text-gray-800">{{ contract.start_date.strftime('%b %d, %Y') if contract.start_date else '—' }}</div></div>
             <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">End Date</div><div class="font-medium text-sm text-gray-800">{{ contract.end_date.strftime('%b %d, %Y') if contract.end_date else 'Ongoing' }}</div></div>
-            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Total Cost</div><div class="font-medium text-sm text-gray-800">{{ '$' + '{:,.2f}'.format(contract.cost) + ' ' + contract.currency if contract.cost else '—' }}</div></div>
-            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Est. Annual</div><div class="font-medium text-sm {% if contract.end_date %}text-gray-800{% else %}text-gray-400{% endif %}">{% if contract.annualized_cost %}${{ '{:,.0f}'.format(contract.annualized_cost) }}{% if not contract.end_date %}<span class="text-xs ml-1">(no end date)</span>{% endif %}{% else %}—{% endif %}</div></div>
+            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Cost</div><div class="font-medium text-sm text-gray-800">{{ contract.cost_display or '—' }}</div></div>
+            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Billing</div><div class="font-medium text-sm text-gray-800">{% if contract.billing_frequency %}{{ contract.billing_frequency.replace('-', ' ').title() }}{% else %}<span class="text-gray-400">—</span>{% endif %}</div></div>
+            <div class="bg-gray-50 rounded-xl p-3 col-span-2"><div class="text-xs text-gray-400 mb-0.5">Est. Annual Cost</div><div class="font-medium text-sm text-gray-800">{% if contract.annualized_cost %}${{ '{:,.0f}'.format(contract.annualized_cost) }} / yr{% else %}—{% endif %}</div></div>
             <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Notice Period</div><div class="font-medium text-sm text-gray-800">{{ contract.notice_period_days }} days</div></div>
             <div class="bg-gray-50 rounded-xl p-3 col-span-2"><div class="text-xs text-gray-400 mb-0.5">Auto-Renew</div><div class="font-medium text-sm {{ 'text-emerald-700' if contract.auto_renew else 'text-gray-500' }}">{{ 'Yes — renews automatically' if contract.auto_renew else 'No — fixed term' }}</div></div>
           </div>
@@ -205,9 +213,17 @@
                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
               <div>
-                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Total Cost ($)</div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Billing Frequency</div>
+                <select name="billing_frequency" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                  <option value="">— Not specified —</option>
+                  {% for val, label in billing_frequencies %}<option value="{{ val }}" {% if contract.billing_frequency == val %}selected{% endif %}>{{ label }}</option>{% endfor %}
+                </select>
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Cost ($)</div>
                 <input type="number" name="cost" step="0.01" min="0"
                        value="{{ contract.cost or '' }}"
+                       placeholder="Per period or total"
                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
               <div>

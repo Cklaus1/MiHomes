@@ -22,6 +22,7 @@ def create_contract(
     service_category: str | None = None,
     auto_renew: bool = False,
     notice_period_days: int = 30,
+    billing_frequency: str | None = None,
     cost: float | None = None,
     currency: str = "USD",
     notes: str | None = None,
@@ -32,7 +33,7 @@ def create_contract(
         vendor_id=vendor.id, property_id=prop.id, start_date=start_date,
         end_date=end_date, service_category=service_category,
         auto_renew=auto_renew, notice_period_days=notice_period_days,
-        cost=cost, currency=currency, notes=notes,
+        billing_frequency=billing_frequency, cost=cost, currency=currency, notes=notes,
     )
     session.add(contract)
     session.flush()

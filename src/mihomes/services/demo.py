@@ -232,10 +232,10 @@ def load_demo_data(session: Session) -> None:
     # === Contracts ===
     from mihomes.services.contract import create_contract
     create_contract(session, "coastal-plumbing", str(beach.id), date(today.year, 1, 1),
-                    end_date=date(today.year, 12, 31), cost=12000, auto_renew=True,
+                    billing_frequency="monthly", cost=1000, auto_renew=True,
                     service_category="plumbing")
     create_contract(session, "peak-landscaping", str(mountain.id), date(today.year, 4, 1),
-                    end_date=date(today.year, 10, 31), cost=8000,
+                    end_date=date(today.year, 10, 31), billing_frequency="semi-annual", cost=4000,
                     service_category="landscaping")
 
     # === Insurance ===

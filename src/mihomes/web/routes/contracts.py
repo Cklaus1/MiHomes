@@ -31,6 +31,14 @@ def _ctx(db: Session, auto_renew: bool | None = None) -> dict:
         "notes_map": {c.id: note_svc.list_notes(db, f"contract:{c.id}") for c in contracts},
         "docs_map": {c.id: doc_svc.list_documents(db, entity_type="contract", entity_id=c.id) for c in contracts},
         "filter_auto_renew": auto_renew,
+        "billing_frequencies": [
+            ("monthly", "Monthly"),
+            ("bimonthly", "Bimonthly (every 2 months)"),
+            ("quarterly", "Quarterly (every 3 months)"),
+            ("semi-annual", "Semi-Annual (every 6 months)"),
+            ("annual", "Annual"),
+            ("one-time", "One-Time (fixed term)"),
+        ],
     }
 
 
@@ -47,6 +55,7 @@ def create_contract(
     start_date: str = Form(...),
     end_date: str = Form(""),
     service_category: str = Form(""),
+    billing_frequency: str = Form(""),
     cost: str = Form(""),
     auto_renew: str = Form(""),
     notice_period_days: str = Form("30"),
@@ -60,6 +69,7 @@ def create_contract(
         start_date=date.fromisoformat(start_date),
         end_date=date.fromisoformat(end_date) if end_date else None,
         service_category=service_category or None,
+        billing_frequency=billing_frequency or None,
         cost=float(cost) if cost else None,
         auto_renew=bool(auto_renew),
         notice_period_days=int(notice_period_days) if notice_period_days else 30,
@@ -139,6 +149,7 @@ def edit_contract(
     notes: str = Form(""),
     start_date: str = Form(""),
     end_date: str = Form(""),
+    billing_frequency: str = Form(""),
     cost: str = Form(""),
     notice_period_days: str = Form(""),
     auto_renew: str = Form(""),
@@ -148,6 +159,7 @@ def edit_contract(
     kwargs = dict(notes=notes or None)
     if start_date: kwargs["start_date"] = date_type.fromisoformat(start_date)
     if end_date: kwargs["end_date"] = date_type.fromisoformat(end_date)
+    kwargs["billing_frequency"] = billing_frequency or None
     if cost: kwargs["cost"] = float(cost)
     if notice_period_days: kwargs["notice_period_days"] = int(notice_period_days)
     kwargs["auto_renew"] = auto_renew == "1"

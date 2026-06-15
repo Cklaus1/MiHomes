@@ -250,6 +250,7 @@
     </div>
     <form hx-post="/calendar/appointments/" hx-target="body" hx-swap="innerHTML" class="space-y-4">
       <input type="hidden" name="month" value="{{ month_date.strftime('%Y-%m') }}">
+      <input type="hidden" name="filter_property_id" value="{{ filter_property or '' }}">
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-1">Title <span class="text-red-500">*</span></label>
         <input type="text" name="title" required

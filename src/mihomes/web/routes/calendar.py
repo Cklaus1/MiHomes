@@ -159,6 +159,7 @@ def create_appointment(
     appointment_type: str = Form("vendor_visit"),
     notes: str = Form(""),
     month: str = Form(""),
+    filter_property_id: str = Form(""),
     db: Session = Depends(get_db),
 ):
     parsed_time = None
@@ -180,7 +181,9 @@ def create_appointment(
         month_date = date.fromisoformat(month + "-01") if month else date.today().replace(day=1)
     except ValueError:
         month_date = date.today().replace(day=1)
-    return templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date, property_id))
+    # Use the calendar's active filter, not the appointment's property
+    cal_filter = int(filter_property_id) if filter_property_id else None
+    return templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date, cal_filter))
 
 
 @router.post("/appointments/{appointment_id}/edit", response_class=HTMLResponse)

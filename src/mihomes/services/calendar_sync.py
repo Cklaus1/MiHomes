@@ -1,13 +1,12 @@
 """Calendar sync service — bidirectional sync between MiHomes and Google Calendar."""
 
 import os
-from datetime import datetime, date, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from sqlalchemy.orm import Session
 
 from mihomes.services.task import get_upcoming_tasks
-
 
 TOKEN_FILE = Path(os.path.expanduser("~/.mihomes/google_token.json"))
 VENDOR_CATEGORIES = {
@@ -72,6 +71,35 @@ def push_task_to_google(task, session=None) -> bool:
         return False
 
 
+def push_appointment_to_google(appt, session=None) -> bool:
+    """Push a single appointment to Google Calendar. Skips if already pushed."""
+    if not is_google_auth_available():
+        return False
+    if appt.gcal_event_id:
+        return True
+    try:
+        provider = _get_provider()
+        hour = appt.start_time.hour if appt.start_time else 9
+        minute = appt.start_time.minute if appt.start_time else 0
+        start = datetime(appt.date.year, appt.date.month, appt.date.day,
+                         hour, minute, tzinfo=timezone.utc)
+        end = datetime(appt.date.year, appt.date.month, appt.date.day,
+                       hour + 1, minute, tzinfo=timezone.utc)
+        vendor_note = f" ({appt.vendor.company_name})" if appt.vendor else ""
+        result = provider.create_event(
+            title=f"[MiHomes] {appt.title}{vendor_note}",
+            start=start,
+            end=end,
+            description=appt.notes or "",
+        )
+        if session and result.get("event_id"):
+            appt.gcal_event_id = result["event_id"]
+            session.flush()
+        return True
+    except Exception:
+        return False
+
+
 def push_upcoming_to_google(session: Session, days: int = 30,
                              property_id_or_slug: str | None = None) -> dict:
     """Push all upcoming tasks with due dates to Google Calendar.
@@ -82,7 +110,6 @@ def push_upcoming_to_google(session: Session, days: int = 30,
     if not is_google_auth_available():
         return {"pushed": 0, "errors": [], "skipped": "not authenticated"}
 
-    from mihomes.models.task import Task
     tasks = get_upcoming_tasks(session, days=days,
                                property_id_or_slug=property_id_or_slug)
     # Only push tasks with a due date that haven't been pushed yet
@@ -131,8 +158,8 @@ def pull_from_google(session: Session, days: int = 60) -> dict:
     if not events:
         return {"pulled": 0, "errors": []}
 
-    from mihomes.services.property import list_properties, occupy_property
     from mihomes.models.task import Task
+    from mihomes.services.property import list_properties, occupy_property
     props = list_properties(session)
 
     pulled, tasks_created, errors = 0, 0, []

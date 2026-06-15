@@ -6,9 +6,30 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from mihomes.web.routes import alerts, assets, books, contracts, dashboard, documents, properties, recurring, tasks, issues, staff, vendors, budget, work_orders, search, templates_route, weather as weather_route, library as library_route, inventory as inventory_route
 from mihomes.web.routes import ai as ai_route
-from mihomes.web.routes import playbooks_route
+from mihomes.web.routes import (
+    alerts,
+    assets,
+    books,
+    budget,
+    contracts,
+    dashboard,
+    documents,
+    issues,
+    playbooks_route,
+    properties,
+    recurring,
+    search,
+    staff,
+    tasks,
+    templates_route,
+    vendors,
+    work_orders,
+)
+from mihomes.web.routes import calendar as calendar_route
+from mihomes.web.routes import inventory as inventory_route
+from mihomes.web.routes import library as library_route
+from mihomes.web.routes import weather as weather_route
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 STATIC_DIR = Path(__file__).parent / "static"
@@ -42,6 +63,7 @@ def create_app() -> FastAPI:
     app.include_router(library_route.router, prefix="/library")
     app.include_router(playbooks_route.router, prefix="/playbooks")
     app.include_router(inventory_route.router, prefix="/inventory")
+    app.include_router(calendar_route.router, prefix="/calendar")
 
     return app
 

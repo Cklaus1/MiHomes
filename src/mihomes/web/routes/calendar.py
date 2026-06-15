@@ -79,7 +79,7 @@ def _ctx(db: Session, month_date: date, property_id: int | None = None) -> dict:
                 day_events.setdefault(d, []).append(e)
             d = d + timedelta(days=1)
 
-    # Pull live Google Calendar events for this month (skip ones MiHomes already pushed)
+    # Pull live Google Calendar events — sync times back + show external events
     day_gcal: dict[date, list] = {}
     from mihomes.services.calendar_sync import _get_provider, is_google_auth_available
     if is_google_auth_available():
@@ -88,13 +88,28 @@ def _ctx(db: Session, month_date: date, property_id: int | None = None) -> dict:
             start_dt = datetime(month_start.year, month_start.month, month_start.day, tzinfo=timezone.utc)
             end_dt = datetime(month_end.year, month_end.month, month_end.day, 23, 59, tzinfo=timezone.utc)
             raw = provider.list_events(start_dt, end_dt)
+
+            # Index appointments by gcal_event_id for fast lookup
+            appts_by_gcal_id = {a.gcal_event_id: a for a in appointments if a.gcal_event_id}
+
             for ev in raw:
-                if ev.get("title", "").startswith("[MiHomes]"):
-                    continue
+                ev_id = ev.get("id", "")
                 ev_start = ev.get("start")
                 ev_end = ev.get("end") or ev_start
                 if not ev_start:
                     continue
+
+                if ev.get("title", "").startswith("[MiHomes]"):
+                    # Our appointment — sync time back if Google's copy changed
+                    if ev_id in appts_by_gcal_id:
+                        appt = appts_by_gcal_id[ev_id]
+                        gcal_time = ev_start.time() if isinstance(ev_start, datetime) else None
+                        if gcal_time and gcal_time != appt.start_time:
+                            appt_svc.update_appointment(db, appt.id, start_time=gcal_time)
+                            appt.start_time = gcal_time  # update in-memory for this render
+                    continue
+
+                # External event — show on calendar
                 d = ev_start.date() if isinstance(ev_start, datetime) else ev_start
                 end_d = ev_end.date() if isinstance(ev_end, datetime) else ev_end
                 while d <= end_d and d <= month_end:

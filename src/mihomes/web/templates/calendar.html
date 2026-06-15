@@ -82,7 +82,7 @@
       {% set badge_cls = type_colors.get(a.appointment_type, type_colors['other'])[0] %}
       <button onclick="openModal('appt-modal-{{ a.id }}')"
               class="w-full text-left text-xs px-1.5 py-0.5 rounded mb-0.5 truncate {{ badge_cls }} hover:opacity-75 transition-opacity block">
-        {% if a.start_time %}<span class="opacity-70">{{ a.start_time.strftime('%H:%M') }}</span> {% endif %}{{ a.title }}
+        {% if a.start_time %}[{{ a.start_time | time_label }}] {% endif %}{{ a.title }}
       </button>
       {% endfor %}
       <!-- Guest event badges -->
@@ -96,7 +96,7 @@
       {% for ge in gcal_items %}
       <div class="w-full text-xs px-1.5 py-0.5 rounded mb-0.5 truncate bg-indigo-100 text-indigo-700 cursor-default"
            title="{{ ge.get('title', '') }}">
-        <span class="opacity-60 mr-0.5">G</span>{{ ge.get('title', '') }}
+        {% if ge.get('start') %}[{{ ge.get('start') | time_label }}] {% endif %}{{ ge.get('title', '') }}
       </div>
       {% endfor %}
     </div>
@@ -116,7 +116,7 @@
       <div>
         <h2 class="text-lg font-bold text-gray-900">{{ a.title }}</h2>
         <p class="text-xs text-gray-500 mt-0.5">
-          {{ a.date.strftime('%A, %B') }} {{ a.date.day }}, {{ a.date.year }}{% if a.start_time %} · {{ a.start_time.strftime('%H:%M') }}{% endif %}
+          {{ a.date.strftime('%A, %B') }} {{ a.date.day }}, {{ a.date.year }}{% if a.start_time %} · {{ a.start_time | time_label }}{% endif %}
         </p>
       </div>
       <div class="flex items-center gap-2 flex-shrink-0">

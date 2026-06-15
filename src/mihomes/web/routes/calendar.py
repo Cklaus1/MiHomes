@@ -29,8 +29,8 @@ _EVENT_COLOR = ("bg-teal-100 text-teal-700", "bg-teal-500")
 def _build_calendar_weeks(month_date: date) -> list[list[date]]:
     """Return a 6-row × 7-col grid of dates for the given month (Mon-start)."""
     first = month_date.replace(day=1)
-    # Monday=0 offset
-    start = first - timedelta(days=first.weekday())
+    # Sunday=0 offset: (weekday+1)%7 gives days to subtract back to Sunday
+    start = first - timedelta(days=(first.weekday() + 1) % 7)
     weeks = []
     day = start
     for _ in range(6):

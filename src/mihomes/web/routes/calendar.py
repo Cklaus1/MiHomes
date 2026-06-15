@@ -1,6 +1,6 @@
 """Calendar routes — appointments and property events in a monthly view."""
 
-from datetime import date, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
@@ -79,6 +79,31 @@ def _ctx(db: Session, month_date: date, property_id: int | None = None) -> dict:
                 day_events.setdefault(d, []).append(e)
             d = d + timedelta(days=1)
 
+    # Pull live Google Calendar events for this month (skip ones MiHomes already pushed)
+    day_gcal: dict[date, list] = {}
+    from mihomes.services.calendar_sync import _get_provider, is_google_auth_available
+    if is_google_auth_available():
+        try:
+            provider = _get_provider()
+            start_dt = datetime(month_start.year, month_start.month, month_start.day, tzinfo=timezone.utc)
+            end_dt = datetime(month_end.year, month_end.month, month_end.day, 23, 59, tzinfo=timezone.utc)
+            raw = provider.list_events(start_dt, end_dt)
+            for ev in raw:
+                if ev.get("title", "").startswith("[MiHomes]"):
+                    continue
+                ev_start = ev.get("start")
+                ev_end = ev.get("end") or ev_start
+                if not ev_start:
+                    continue
+                d = ev_start.date() if isinstance(ev_start, datetime) else ev_start
+                end_d = ev_end.date() if isinstance(ev_end, datetime) else ev_end
+                while d <= end_d and d <= month_end:
+                    if d >= month_start:
+                        day_gcal.setdefault(d, []).append(ev)
+                    d += timedelta(days=1)
+        except Exception:
+            pass
+
     prev_month = (month_start - timedelta(days=1)).replace(day=1)
     next_month = month_end + timedelta(days=1)
 
@@ -92,6 +117,7 @@ def _ctx(db: Session, month_date: date, property_id: int | None = None) -> dict:
         "calendar_weeks": _build_calendar_weeks(month_date),
         "day_appointments": day_appointments,
         "day_events": day_events,
+        "day_gcal": day_gcal,
         "appointments": appointments,
         "properties": prop_svc.list_properties(db),
         "vendors": vendor_svc.list_vendors(db),

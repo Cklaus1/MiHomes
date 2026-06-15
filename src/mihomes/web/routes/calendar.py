@@ -16,6 +16,32 @@ from mihomes.web.deps import get_db, templates
 
 router = APIRouter()
 
+def _us_holidays(year: int) -> dict[date, str]:
+    """Return US federal holidays for the given year."""
+    import calendar as _cal
+
+    def nth_weekday(y: int, month: int, weekday: int, n: int) -> date:
+        d = date(y, month, 1)
+        delta = (weekday - d.weekday()) % 7
+        return d + timedelta(days=delta + (n - 1) * 7)
+
+    def last_weekday(y: int, month: int, weekday: int) -> date:
+        last = date(y, month, _cal.monthrange(y, month)[1])
+        return last - timedelta(days=(last.weekday() - weekday) % 7)
+
+    return {
+        date(year, 1, 1): "New Year's Day",
+        nth_weekday(year, 1, 0, 3): "MLK Day",
+        nth_weekday(year, 2, 0, 3): "Presidents' Day",
+        last_weekday(year, 5, 0): "Memorial Day",
+        date(year, 6, 19): "Juneteenth",
+        date(year, 7, 4): "Independence Day",
+        nth_weekday(year, 9, 0, 1): "Labor Day",
+        nth_weekday(year, 11, 3, 4): "Thanksgiving",
+        date(year, 12, 25): "Christmas Day",
+    }
+
+
 _TYPE_COLORS = {
     "vendor_visit": ("bg-emerald-100 text-emerald-700", "bg-emerald-500"),
     "inspection": ("bg-orange-100 text-orange-700", "bg-orange-500"),
@@ -119,6 +145,13 @@ def _ctx(db: Session, month_date: date, property_id: int | None = None) -> dict:
         except Exception:
             pass
 
+    # Build holiday map for the displayed month (spanning year boundary if needed)
+    all_holidays = _us_holidays(month_start.year)
+    if month_end.year != month_start.year:
+        all_holidays.update(_us_holidays(month_end.year))
+    day_holidays = {d: name for d, name in all_holidays.items()
+                    if month_start <= d <= month_end}
+
     prev_month = (month_start - timedelta(days=1)).replace(day=1)
     next_month = month_end + timedelta(days=1)
 
@@ -133,6 +166,8 @@ def _ctx(db: Session, month_date: date, property_id: int | None = None) -> dict:
         "day_appointments": day_appointments,
         "day_events": day_events,
         "day_gcal": day_gcal,
+        "day_holidays": day_holidays,
+        "month_events": month_events,
         "appointments": appointments,
         "properties": prop_svc.list_properties(db),
         "vendors": vendor_svc.list_vendors(db),
@@ -244,6 +279,21 @@ def delete_appointment(
     db: Session = Depends(get_db),
 ):
     appt_svc.delete_appointment(db, appointment_id)
+    try:
+        month_date = date.fromisoformat(month + "-01") if month else date.today().replace(day=1)
+    except ValueError:
+        month_date = date.today().replace(day=1)
+    return templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date))
+
+
+@router.post("/events/{event_id}/delete", response_class=HTMLResponse)
+def delete_event_from_calendar(
+    request: Request,
+    event_id: int,
+    month: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    event_svc.delete_event(db, str(event_id))
     try:
         month_date = date.fromisoformat(month + "-01") if month else date.today().replace(day=1)
     except ValueError:

@@ -1,13 +1,14 @@
 """Property routes."""
 
-from fastapi import APIRouter, Depends, Form, Request, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from mihomes.models.property import PropertyStatus, PropertyType
 from mihomes.models.task import TaskStatus
 from mihomes.services import issue as issue_svc
 from mihomes.services import property as prop_svc
+from mihomes.services import space as space_svc
 from mihomes.services import staff as staff_svc
 from mihomes.services import task as task_svc
 from mihomes.services.health_score import compute_property_health
@@ -74,6 +75,7 @@ def property_detail(request: Request, slug: str, db: Session = Depends(get_db)):
     open_tasks = task_svc.list_tasks(db, property_id_or_slug=slug, status=TaskStatus.PENDING)
     open_issues = issue_svc.list_issues(db, property_id_or_slug=slug, open_only=True)
     assigned_staff = staff_svc.list_by_property(db, slug)
+    spaces = space_svc.list_spaces(db, property_id_or_slug=slug)
     return templates.TemplateResponse(
         request,
         "property_detail.html",
@@ -84,6 +86,8 @@ def property_detail(request: Request, slug: str, db: Session = Depends(get_db)):
             "open_tasks": open_tasks,
             "open_issues": open_issues,
             "assigned_staff": assigned_staff,
+            "spaces": spaces,
+            "space_types": ["bedroom", "bathroom", "kitchen", "living", "dining", "office", "storage", "garage", "outdoor", "other"],
             "property_types": [t.value for t in PropertyType],
             "property_statuses": [s.value for s in PropertyStatus],
         },
@@ -147,3 +151,30 @@ def delete_property(request: Request, slug: str, db: Session = Depends(get_db)):
         "properties.html",
         {"page": "properties", "properties": properties},
     )
+
+
+def _rooms_ctx(db, slug: str) -> dict:
+    spaces = space_svc.list_spaces(db, property_id_or_slug=slug)
+    return {
+        "spaces": spaces,
+        "prop_slug": slug,
+        "space_types": ["bedroom", "bathroom", "kitchen", "living", "dining", "office", "storage", "garage", "outdoor", "other"],
+    }
+
+
+@router.post("/{slug}/spaces", response_class=HTMLResponse)
+def create_space(
+    request: Request,
+    slug: str,
+    name: str = Form(...),
+    space_type: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    space_svc.create_space(db, name, slug, space_type=space_type or None)
+    return templates.TemplateResponse(request, "partials/rooms_list.html", _rooms_ctx(db, slug))
+
+
+@router.post("/{slug}/spaces/{space_slug}/delete", response_class=HTMLResponse)
+def delete_space(request: Request, slug: str, space_slug: str, db: Session = Depends(get_db)):
+    space_svc.delete_space(db, space_slug)
+    return templates.TemplateResponse(request, "partials/rooms_list.html", _rooms_ctx(db, slug))

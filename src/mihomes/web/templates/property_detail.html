@@ -121,6 +121,18 @@
 
 </div>
 
+<!-- Rooms -->
+<div class="mt-4 bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <div class="px-5 py-3 border-b border-gray-100">
+    <h2 class="text-sm font-semibold text-gray-700">Rooms ({{ spaces|length }})</h2>
+  </div>
+  <div id="rooms-list">
+    {% with prop_slug=prop.slug %}
+    {% include "partials/rooms_list.html" %}
+    {% endwith %}
+  </div>
+</div>
+
 {% if assigned_staff %}
 <div class="mt-4 bg-white rounded-xl border border-gray-200 overflow-hidden">
   <div class="px-5 py-3 border-b border-gray-100">

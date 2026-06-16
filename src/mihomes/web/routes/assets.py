@@ -45,6 +45,9 @@ def _ai_scan_error(msg: str) -> str:
     return msg
 
 
+_SPACE_TYPES = ["bedroom", "bathroom", "kitchen", "living", "dining", "office", "storage", "garage", "outdoor", "other"]
+
+
 def _properties_ctx(db: Session) -> dict:
     properties = prop_svc.list_properties(db)
     all_assets = asset_svc.list_assets(db, active_only=False)
@@ -55,6 +58,7 @@ def _properties_ctx(db: Session) -> dict:
         "page": "assets",
         "properties": properties,
         "asset_counts": counts,
+        "space_types": _SPACE_TYPES,
     }
 
 
@@ -118,6 +122,18 @@ def _list_ctx(db: Session, property_slug: str, space_slug: str, asset_type: str 
 
 @router.get("/")
 def asset_properties(request: Request, db: Session = Depends(get_db)):
+    return templates.TemplateResponse(request, "assets_properties.html", _properties_ctx(db))
+
+
+@router.post("/create-room", response_class=HTMLResponse)
+def create_room(
+    request: Request,
+    name: str = Form(...),
+    property_slug: str = Form(...),
+    space_type: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    space_svc.create_space(db, name, property_slug, space_type=space_type or None)
     return templates.TemplateResponse(request, "assets_properties.html", _properties_ctx(db))
 
 

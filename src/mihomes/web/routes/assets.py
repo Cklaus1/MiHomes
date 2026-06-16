@@ -80,6 +80,7 @@ def _spaces_ctx(db: Session, property_slug: str) -> dict:
         "space_counts": space_counts,
         "unassigned_count": unassigned,
         "total": len(assets),
+        "space_types": _SPACE_TYPES,
     }
 
 
@@ -134,7 +135,7 @@ def create_room(
     db: Session = Depends(get_db),
 ):
     space_svc.create_space(db, name, property_slug, space_type=space_type or None)
-    return templates.TemplateResponse(request, "assets_properties.html", _properties_ctx(db))
+    return templates.TemplateResponse(request, "assets_spaces.html", _spaces_ctx(db, property_slug))
 
 
 # ── Level 2: space selector ───────────────────────────────────────────────────

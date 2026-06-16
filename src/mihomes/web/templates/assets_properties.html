@@ -3,13 +3,7 @@
 {% block heading %}Rooms{% endblock %}
 {% block subheading %}<p class="text-sm text-gray-500 mt-0.5">Select a property to browse its rooms</p>{% endblock %}
 
-{% block actions %}
-<button onclick="document.getElementById('add-room-modal').classList.remove('hidden')"
-        class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
-  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-  Add Room
-</button>
-{% endblock %}
+{% block actions %}{% endblock %}
 
 {% block content %}
 {% set type_icons = {'estate':'🏛','investment':'📈','vacation':'🏖','primary':'🏠','seasonal':'❄','other':'🏘'} %}

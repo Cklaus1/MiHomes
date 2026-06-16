@@ -2,7 +2,7 @@
 
 from sqlalchemy.orm import Session
 
-from mihomes.services.ai.ai_config import get_ai_api_key, get_ai_provider_name
+from mihomes.services.ai.ai_config import get_ai_api_key, get_ai_model, get_ai_provider_name
 from mihomes.services.ai.provider import get_provider
 
 IMPORT_SCHEMAS = {
@@ -125,7 +125,8 @@ def suggest_tags_and_priority(
 
     provider_name = get_ai_provider_name(session)
     api_key = get_ai_api_key(session, provider_name)
-    provider = get_provider(provider_name, api_key)
+    model = get_ai_model(session, provider_name)
+    provider = get_provider(provider_name, api_key, model=model)
 
     system_prompt = (
         f"You are an estate management AI. Given the title and optional description of a new {entity_type}, "
@@ -176,7 +177,8 @@ def parse_room_scan(session: Session, attachments, room_name: str | None = None)
     """
     provider_name = get_ai_provider_name(session)
     api_key = get_ai_api_key(session, provider_name)
-    provider = get_provider(provider_name, api_key)
+    model = get_ai_model(session, provider_name)
+    provider = get_provider(provider_name, api_key, model=model)
 
     where = f" of the {room_name}" if room_name else ""
     system_prompt = (
@@ -206,7 +208,8 @@ def parse_import_text(
 
     provider_name = get_ai_provider_name(session)
     api_key = get_ai_api_key(session, provider_name)
-    provider = get_provider(provider_name, api_key)
+    model = get_ai_model(session, provider_name)
+    provider = get_provider(provider_name, api_key, model=model)
 
     system_prompt = (
         f"You are a data extraction assistant. Parse the following text into structured {entity_type} records. "

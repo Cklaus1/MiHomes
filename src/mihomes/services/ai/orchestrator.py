@@ -5,7 +5,6 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session
@@ -14,7 +13,7 @@ from mihomes.config import MIHOMES_DIR
 from mihomes.models.ai_conversation import AIConversation
 from mihomes.services.ai.ai_config import get_ai_api_key, get_ai_model, get_ai_provider_name
 from mihomes.services.ai.context import assemble_context
-from mihomes.services.ai.provider import AIProvider, get_provider
+from mihomes.services.ai.provider import get_provider
 from mihomes.services.ai.roles import ROLES, route_query
 
 if TYPE_CHECKING:
@@ -60,7 +59,7 @@ def ask(
     provider_name = get_ai_provider_name(session)
     api_key = get_ai_api_key(session, provider_name)
     model = get_ai_model(session, provider_name)
-    provider = get_provider(provider_name, api_key)
+    provider = get_provider(provider_name, api_key, model=model)
 
     # Route to role(s)
     roles = route_query(query, explicit_role=role)
@@ -153,12 +152,12 @@ def budget_review(
 ) -> AIResponse:
     """Deep financial review — variance analysis, anomalies, and optimization recommendations."""
     from datetime import date
-    from mihomes.services.financial_report import spending_by_category, spending_by_vendor, forecast
-    from mihomes.services.property import list_properties
-    from mihomes.models.budget import Budget, Transaction
-    from mihomes.models.recurring_expense import RecurringExpense
-    from mihomes.services.slug import resolve_identifier
+
     from mihomes.models.property import Property
+    from mihomes.models.recurring_expense import RecurringExpense
+    from mihomes.services.financial_report import spending_by_category, spending_by_vendor
+    from mihomes.services.property import list_properties
+    from mihomes.services.slug import resolve_identifier
 
     today = date.today()
     year_start = date(today.year, 1, 1)
@@ -231,7 +230,7 @@ def budget_review(
     provider_name = get_ai_provider_name(session)
     api_key = get_ai_api_key(session, provider_name)
     model = get_ai_model(session, provider_name)
-    provider = get_provider(provider_name, api_key)
+    provider = get_provider(provider_name, api_key, model=model)
 
     role = ROLES["financial"]
     session_id = _get_session_id(False)

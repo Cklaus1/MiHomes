@@ -3,19 +3,18 @@
 import base64
 import mimetypes
 import os
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
 from mihomes.models.asset import Asset
 from mihomes.models.issue import Issue, IssueStatus
-from mihomes.models.staff import Staff
 from mihomes.models.property import Property
+from mihomes.models.staff import Staff
 from mihomes.services.ai.ai_config import get_ai_api_key, get_ai_model, get_ai_provider_name
 from mihomes.services.ai.file_processor import Attachment
 from mihomes.services.ai.provider import get_provider
 from mihomes.services.slug import resolve_identifier
-
 
 REVIEW_SCHEMA = {
     "type": "object",
@@ -234,7 +233,8 @@ def analyze_messages(
 
     provider_name = get_ai_provider_name(session)
     api_key = get_ai_api_key(session, provider_name)
-    provider = get_provider(provider_name, api_key)
+    model = get_ai_model(session, provider_name)
+    provider = get_provider(provider_name, api_key, model=model)
 
     result = provider.structured_output(
         system_prompt, conversation_text, REVIEW_SCHEMA,

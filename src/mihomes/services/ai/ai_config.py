@@ -40,7 +40,13 @@ def get_ai_provider_name(session: Session) -> str:
 
 
 def get_ai_model(session: Session, provider: str = "claude") -> str:
-    """Get configured model name with sensible defaults."""
+    """Get configured model name with sensible defaults.
+
+    Checks ai.<provider>_model first, then ai.model, then built-in defaults.
+    """
+    provider_specific = get_config(session, f"ai.{provider}_model")
+    if provider_specific:
+        return provider_specific
     stored = get_config(session, "ai.model")
     if stored:
         return stored
@@ -48,6 +54,6 @@ def get_ai_model(session: Session, provider: str = "claude") -> str:
         "claude": "claude-sonnet-4-20250514",
         "openai": "gpt-4o",
         "ollama": "llama3.1",
-        "nim": "qwen/qwen3.5-122b-a10b",
+        "nim": "meta/llama-3.2-11b-vision-instruct",
     }
     return defaults.get(provider, "claude-sonnet-4-20250514")

@@ -48,7 +48,7 @@ class AIProvider(Protocol):
         ...
 
 
-def get_provider(provider_name: str = "claude", api_key: str | None = None) -> AIProvider:
+def get_provider(provider_name: str = "claude", api_key: str | None = None, model: str | None = None) -> AIProvider:
     """Factory: returns the configured AIProvider instance."""
     if provider_name == "claude":
         from mihomes.services.ai.claude_provider import ClaudeProvider
@@ -61,6 +61,6 @@ def get_provider(provider_name: str = "claude", api_key: str | None = None) -> A
         return OllamaProvider()
     elif provider_name == "nim":
         from mihomes.services.ai.nim_provider import NIMProvider
-        return NIMProvider(api_key=api_key)
+        return NIMProvider(api_key=api_key, model=model)
     else:
         raise AIProviderError(f"Unknown AI provider: {provider_name}. Supported: claude, openai, ollama, nim")

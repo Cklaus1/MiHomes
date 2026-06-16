@@ -22,7 +22,8 @@ def test_parse_room_scan_forwards_images_and_returns_items(session, monkeypatch)
     stub = _StubProvider(items)
     monkeypatch.setattr(assessors, "get_ai_provider_name", lambda s: "claude")
     monkeypatch.setattr(assessors, "get_ai_api_key", lambda s, n: "key")
-    monkeypatch.setattr(assessors, "get_provider", lambda n, k: stub)
+    monkeypatch.setattr(assessors, "get_ai_model", lambda s, n: "claude-sonnet-4-20250514")
+    monkeypatch.setattr(assessors, "get_provider", lambda n, k, model=None: stub)
 
     out = assessors.parse_room_scan(session, attachments=["IMG"], room_name="Living Room")
 
@@ -37,7 +38,8 @@ def test_parse_room_scan_works_with_any_provider(session, monkeypatch):
     stub = _StubProvider(items)
     monkeypatch.setattr(assessors, "get_ai_provider_name", lambda s: "nim")
     monkeypatch.setattr(assessors, "get_ai_api_key", lambda s, n: "key")
-    monkeypatch.setattr(assessors, "get_provider", lambda n, k: stub)
+    monkeypatch.setattr(assessors, "get_ai_model", lambda s, n: "meta/llama-3.2-90b-vision-instruct")
+    monkeypatch.setattr(assessors, "get_provider", lambda n, k, model=None: stub)
 
     out = assessors.parse_room_scan(session, attachments=["IMG"])
     assert out == items

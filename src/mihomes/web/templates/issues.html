@@ -292,6 +292,12 @@
               <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Property</dt>
               <dd class="text-gray-700 pt-0.5">{% if issue.property %}{{ issue.property.name }}{% else %}—{% endif %}</dd>
             </div>
+            {% if issue.space %}
+            <div>
+              <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Room</dt>
+              <dd class="text-gray-700 pt-0.5">{{ issue.space.name }}</dd>
+            </div>
+            {% endif %}
             <div>
               <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Reported</dt>
               <dd class="text-gray-700 pt-0.5">{{ issue.created_at.strftime('%b %d, %Y') if issue.created_at else '—' }}</dd>
@@ -407,8 +413,22 @@
       </div>
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-1">Property</label>
-        <select name="property_id" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+        <select name="property_id" required id="new-issue-property"
+                onchange="filterRooms(this.value)"
+                class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
           {% for p in properties %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Room <span class="text-gray-400 font-normal">(optional)</span></label>
+        <select name="space_id" id="new-issue-room"
+                class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          <option value="">— No specific room —</option>
+          {% for p in properties %}
+            {% for space in spaces.get(p.id, []) %}
+            <option value="{{ space.id }}" data-property="{{ p.id }}">{{ p.name }} — {{ space.name }}</option>
+            {% endfor %}
+          {% endfor %}
         </select>
       </div>
       <div>
@@ -439,6 +459,15 @@
 <script>
 function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+function filterRooms(propertyId) {
+  const sel = document.getElementById('new-issue-room');
+  if (!sel) return;
+  Array.from(sel.options).forEach(opt => {
+    if (!opt.value) return; // keep the blank option
+    opt.hidden = opt.dataset.property !== String(propertyId);
+  });
+  sel.value = ''; // reset room selection when property changes
+}
 function switchTab(prefix, id, tab) {
   ['details','notes'].forEach(t => {
     document.getElementById(prefix+'-panel-'+id+'-'+t).classList.toggle('hidden', t !== tab);

@@ -8,6 +8,7 @@ from mihomes.models.issue import IssueSeverity, IssueStatus
 from mihomes.services import issue as issue_svc
 from mihomes.services import note as note_svc
 from mihomes.services import property as prop_svc
+from mihomes.services import space as space_svc
 from mihomes.services import staff as staff_svc
 from mihomes.web.deps import get_db, templates
 
@@ -28,6 +29,7 @@ def _ctx(db: Session, property_id=None, active_tab: str = "current") -> dict:
         "open_issues": open_issues,
         "resolved_issues": resolved_issues,
         "properties": prop_svc.list_properties(db),
+        "spaces": {p.id: space_svc.list_spaces(db, str(p.id)) for p in prop_svc.list_properties(db)},
         "staff": staff_svc.list_staff(db),
         "severities": [s.value for s in IssueSeverity],
         "statuses": [s.value for s in IssueStatus],
@@ -55,6 +57,7 @@ def create_issue(
     severity: str = Form("medium"),
     description: str = Form(""),
     reported_by_id: str | None = Form(None),
+    space_id: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     issue_svc.create_issue(
@@ -64,6 +67,7 @@ def create_issue(
         severity=IssueSeverity(severity),
         description=description or None,
         reported_by_id=int(reported_by_id) if reported_by_id else None,
+        space_id_or_slug=space_id or None,
     )
     return templates.TemplateResponse(request, "issues.html", _ctx(db, active_tab="current"))
 

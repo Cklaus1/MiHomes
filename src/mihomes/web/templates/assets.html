@@ -163,6 +163,13 @@
 
 <!-- Issues panel -->
 <div id="panel-issues" {% if active_tab != 'issues' %}class="hidden"{% endif %}>
+  <div class="flex justify-end mb-3">
+    <button onclick="document.getElementById('report-room-issue-modal').classList.remove('hidden')"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+      Report Issue in this Room
+    </button>
+  </div>
   {% if space_issues %}
   <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
     <table class="w-full text-sm">
@@ -728,4 +735,52 @@ function exitEdit(prefix, id) {
 }
 document.addEventListener('DOMContentLoaded',()=>document.querySelectorAll('textarea[data-autoresize]').forEach(t=>t.addEventListener('input',()=>autoResize(t))));
 </script>
+
+{% if space %}
+<!-- Report Issue in this Room modal -->
+<div id="report-room-issue-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+     onclick="if(event.target===this)this.classList.add('hidden')">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-5">
+      <div>
+        <h2 class="text-lg font-semibold text-gray-900">Report Issue</h2>
+        <p class="text-xs text-gray-500 mt-0.5">Room: {{ space.name }}</p>
+      </div>
+      <button onclick="document.getElementById('report-room-issue-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <form hx-post="/issues" hx-target="body" hx-swap="innerHTML" class="space-y-4">
+      <input type="hidden" name="property_id" value="{{ prop.id }}">
+      <input type="hidden" name="space_id" value="{{ space.id }}">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Title <span class="text-red-500">*</span></label>
+        <input type="text" name="title" required
+               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+               placeholder="e.g. Water stain on ceiling" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Severity</label>
+        <select name="severity" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          {% for s in [('critical','Critical'),('high','High'),('medium','Medium'),('low','Low')] %}
+          <option value="{{ s[0] }}" {% if s[0] == 'medium' %}selected{% endif %}>{{ s[1] }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+        <textarea name="description" rows="3"
+                  class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  placeholder="Optional details…"></textarea>
+      </div>
+      <div class="flex gap-3 pt-1">
+        <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Submit</button>
+        <button type="button" onclick="document.getElementById('report-room-issue-modal').classList.add('hidden')"
+                class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-50">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
 {% endblock %}

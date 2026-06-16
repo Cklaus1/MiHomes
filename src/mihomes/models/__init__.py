@@ -20,8 +20,8 @@ class TimestampMixin:
     )
     updated_at: Mapped[datetime | None] = mapped_column(
         DateTime,
-        default=None,
         onupdate=lambda: datetime.now(timezone.utc),
+        nullable=True,
     )
 
 

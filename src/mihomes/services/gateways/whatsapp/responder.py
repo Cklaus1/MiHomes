@@ -1,5 +1,8 @@
 """WhatsApp responder — logs issues/tasks and answers questions via AI."""
 
+import base64
+import mimetypes
+import os
 import re
 from datetime import date, datetime
 
@@ -7,6 +10,120 @@ from sqlalchemy.orm import Session
 
 from mihomes.services.gateways.whatsapp.client import WhatsAppClient
 from mihomes.services.gateways.whatsapp.review import analyze_messages
+
+
+def handle_inventory_scan(
+    session: Session,
+    messages: list[dict],
+    property_slug: str,
+    reply_jid: str,
+    client: WhatsAppClient,
+) -> dict:
+    """Process photos from the inventory group — identify and create assets."""
+    from mihomes.models.asset import AssetCondition, AssetType
+    from mihomes.models.property import Property
+    from mihomes.models.space import Space
+    from mihomes.services.ai.assessors import parse_room_scan
+    from mihomes.services.ai.file_processor import Attachment
+    from mihomes.services.asset import create_asset
+
+    # Collect images and room name from captions
+    image_attachments: list[Attachment] = []
+    room_name: str | None = None
+
+    for msg in messages:
+        text = (msg.get("text") or "").strip()
+        if text and not room_name:
+            room_name = text
+
+        media_path = msg.get("mediaPath")
+        if msg.get("hasMedia") and media_path and os.path.isfile(media_path):
+            try:
+                mime = mimetypes.guess_type(media_path)[0] or "image/jpeg"
+                if mime.startswith("image/"):
+                    with open(media_path, "rb") as f:
+                        b64 = base64.b64encode(f.read()).decode()
+                    image_attachments.append(Attachment(
+                        filename=os.path.basename(media_path),
+                        is_image=True,
+                        base64_data=b64,
+                        media_type=mime,
+                    ))
+            except OSError:
+                pass
+
+    if not image_attachments:
+        client.send_group_message(
+            reply_jid,
+            "🏠 No photos found — send a photo of the room to scan it.\n"
+            "_Tip: add the room name as a caption (e.g. 'Master Bedroom')_",
+        )
+        return {"replied": 1, "logged": 0, "errors": []}
+
+    # Fuzzy-match room name to a Space
+    space_slug: str | None = None
+    if room_name and property_slug:
+        prop = session.query(Property).filter(Property.slug == property_slug).first()
+        if prop:
+            spaces = session.query(Space).filter(Space.property_id == prop.id).all()
+            room_lower = room_name.lower()
+            for space in spaces:
+                if room_lower in space.name.lower() or space.name.lower() in room_lower:
+                    space_slug = space.slug
+                    room_name = space.name
+                    break
+
+    room_label = f" {room_name}" if room_name else ""
+    client.send_group_message(reply_jid, f"🏠 Scanning{room_label}... ⏳")
+
+    try:
+        items = parse_room_scan(session, image_attachments, room_name=room_name)
+    except Exception as e:
+        client.send_group_message(reply_jid, f"🏠 ⚠️ Scan failed — {e}")
+        return {"replied": 1, "logged": 0, "errors": [str(e)]}
+
+    if not items:
+        client.send_group_message(reply_jid, "🏠 No trackable assets identified in the photo(s).")
+        return {"replied": 1, "logged": 0, "errors": []}
+
+    created, errors = [], []
+    for item in items:
+        try:
+            name = item.get("name") or "Unknown Asset"
+            try:
+                asset_type = AssetType(item.get("asset_type", "equipment"))
+            except ValueError:
+                asset_type = AssetType.EQUIPMENT
+            try:
+                condition = AssetCondition((item.get("condition") or "good").lower())
+            except ValueError:
+                condition = AssetCondition.GOOD
+
+            value = item.get("estimated_value")
+            asset = create_asset(
+                session, name=name, asset_type=asset_type,
+                property_id_or_slug=property_slug,
+                space_id_or_slug=space_slug,
+                make=item.get("make"),
+                model_name=item.get("model"),
+                condition=condition,
+                purchase_price=float(value) if value else None,
+                notes=item.get("notes"),
+            )
+            line = f"• {asset.name}"
+            if value:
+                line += f" (~${float(value):,.0f})"
+            created.append(line)
+        except Exception as e:
+            errors.append(str(e))
+
+    lines = [f"🏠 Added {len(created)} item(s){' in ' + room_name if room_name else ''} ✓"]
+    lines.extend(created[:20])
+    if len(created) > 20:
+        lines.append(f"  …and {len(created) - 20} more")
+    client.send_group_message(reply_jid, "\n".join(lines))
+
+    return {"replied": 2, "logged": len(created), "errors": errors}
 
 
 def _parse_event_date(timestamp_str: str | None) -> date | None:
@@ -174,6 +291,13 @@ def process_and_respond(
     )
     if not reply_jid:
         return {"replied": 0, "logged": 0, "errors": ["No linked group JID found"]}
+
+    # Route inventory group messages straight to the room scanner
+    from mihomes.services.config_service import get_config
+    inventory_jid = get_config(session, "whatsapp.inventory_group_jid")
+    if inventory_jid and reply_jid == inventory_jid:
+        inv_property = (messages[0].get("propertySlug") or property_slug or "belle-estate")
+        return handle_inventory_scan(session, messages, inv_property, reply_jid, client)
 
     def _send_error_to_group(detail: str) -> None:
         try:

@@ -175,11 +175,6 @@ def parse_room_scan(session: Session, attachments, room_name: str | None = None)
     provider — only it sends image attachments to the model.
     """
     provider_name = get_ai_provider_name(session)
-    if provider_name.lower() not in ("claude", "anthropic"):
-        raise ValueError(
-            f"Room scanning needs the Claude provider for image analysis "
-            f"(current provider: {provider_name})."
-        )
     api_key = get_ai_api_key(session, provider_name)
     provider = get_provider(provider_name, api_key)
 

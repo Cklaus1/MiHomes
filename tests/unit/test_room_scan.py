@@ -1,6 +1,5 @@
 """Tests for AI room-scan asset extraction (services/ai/assessors.parse_room_scan)."""
 
-import pytest
 
 from mihomes.services.ai import assessors
 
@@ -32,7 +31,13 @@ def test_parse_room_scan_forwards_images_and_returns_items(session, monkeypatch)
     assert "Living Room" in stub.calls[0]["system"]  # room context in the prompt
 
 
-def test_parse_room_scan_requires_claude(session, monkeypatch):
-    monkeypatch.setattr(assessors, "get_ai_provider_name", lambda s: "openai")
-    with pytest.raises(ValueError, match="Claude"):
-        assessors.parse_room_scan(session, attachments=["IMG"])
+def test_parse_room_scan_works_with_any_provider(session, monkeypatch):
+    """Scan is no longer Claude-only — any vision-capable provider should work."""
+    items = [{"name": "Desk", "asset_type": "equipment", "condition": "good"}]
+    stub = _StubProvider(items)
+    monkeypatch.setattr(assessors, "get_ai_provider_name", lambda s: "nim")
+    monkeypatch.setattr(assessors, "get_ai_api_key", lambda s, n: "key")
+    monkeypatch.setattr(assessors, "get_provider", lambda n, k: stub)
+
+    out = assessors.parse_room_scan(session, attachments=["IMG"])
+    assert out == items

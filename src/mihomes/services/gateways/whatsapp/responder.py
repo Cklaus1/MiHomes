@@ -84,6 +84,7 @@ def _handle_approval_message(session: Session, message: dict, client) -> bool:
     Returns True if handled, False if it should flow through normal analysis.
     """
     import re
+
     from mihomes.services.config_service import get_config
     from mihomes.services.staff_pto import approve_pto, deny_pto, notify_staff
 
@@ -151,8 +152,11 @@ def process_and_respond(
     if not messages:
         return {"replied": 0, "logged": 0, "errors": []}
 
+    import logging
+
     from mihomes.services.ai.provider import AIProviderError
     client = WhatsAppClient()
+    _log = logging.getLogger("mihomes.whatsapp")
 
     # Pre-check: handle APPROVE/DENY replies from the approver before AI analysis
     remaining_messages = []
@@ -163,21 +167,34 @@ def process_and_respond(
     if not messages:
         return {"replied": 0, "logged": 0, "errors": []}
 
-    try:
-        result = analyze_messages(session, messages, property_name=property_slug, property_slug=property_slug)
-    except AIProviderError as e:
-        import logging
-        logging.getLogger("mihomes.whatsapp").error("AI provider error during message analysis: %s", e)
-        return {"replied": 0, "logged": 0, "errors": [f"AI provider error: {e}"]}
-    items = result.get("items", [])
-
-    # Find the group JID to reply to
+    # Resolve reply target early so we can report errors to the group
     reply_jid = next(
         (m["jid"] for m in messages if m.get("jid") and (m.get("propertySlug") or property_slug)),
         None,
     )
     if not reply_jid:
         return {"replied": 0, "logged": 0, "errors": ["No linked group JID found"]}
+
+    def _send_error_to_group(detail: str) -> None:
+        try:
+            client.send_group_message(
+                reply_jid,
+                f"🏠 ⚠️ Bot error — couldn't process message(s). Please log manually.\n_{detail}_",
+            )
+        except Exception:
+            pass
+
+    try:
+        result = analyze_messages(session, messages, property_name=property_slug, property_slug=property_slug)
+    except AIProviderError as e:
+        _log.error("AI provider error during message analysis: %s", e)
+        _send_error_to_group(str(e))
+        return {"replied": 0, "logged": 0, "errors": [f"AI provider error: {e}"]}
+    except Exception as e:
+        _log.error("Unexpected error during message analysis: %s", e)
+        _send_error_to_group(str(e))
+        return {"replied": 0, "logged": 0, "errors": [f"Unexpected error: {e}"]}
+    items = result.get("items", [])
 
     logged = 0
     replied = 0
@@ -207,8 +224,8 @@ def process_and_respond(
             if not reporter or not pto_dates:
                 continue
             try:
-                from mihomes.services.staff_pto import create_pto_request, notify_approver
                 from mihomes.models.staff import Staff
+                from mihomes.services.staff_pto import create_pto_request, notify_approver
                 staff = session.query(Staff).filter(Staff.name.ilike(f"%{reporter}%")).first()
                 if not staff:
                     continue
@@ -258,8 +275,8 @@ def process_and_respond(
 
         try:
             if category == "issue":
-                from mihomes.services.issue import create_issue
                 from mihomes.models.issue import IssueSeverity
+                from mihomes.services.issue import create_issue
                 sev_val = item.get("severity", "medium")
                 try:
                     sev = IssueSeverity(sev_val)

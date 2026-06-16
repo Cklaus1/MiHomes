@@ -426,11 +426,27 @@ def monitor(
 
     console.print(f"[bold green]Monitoring WhatsApp groups[/bold green] (polling every {interval}s) — Ctrl+C to stop\n")
 
+    import json
     from datetime import timedelta
+    from pathlib import Path as _Path
 
-    # Initialized outside the inner loop so they survive crashes and restarts
+    _IDS_FILE = _Path.home() / ".mihomes" / "processed_msg_ids.json"
+
+    def _load_ids() -> set:
+        try:
+            return set(json.loads(_IDS_FILE.read_text()))
+        except Exception:
+            return set()
+
+    def _save_ids(ids: set) -> None:
+        try:
+            _IDS_FILE.write_text(json.dumps(list(ids)[-1000:]))
+        except Exception:
+            pass
+
+    # Load persisted IDs so restarts don't reprocess already-handled messages
     last_check = datetime.now(timezone.utc) - timedelta(minutes=15)
-    processed_ids: set = set()
+    processed_ids: set = _load_ids()
 
     def _run_monitor_loop():
         nonlocal last_check, processed_ids
@@ -465,6 +481,7 @@ def monitor(
                     processed_ids.update(m["id"] for m in new_msgs if m.get("id"))
                     if len(processed_ids) > 2000:
                         processed_ids = set(list(processed_ids)[-1000:])
+                    _save_ids(processed_ids)
 
                 last_check = now
                 time.sleep(interval)

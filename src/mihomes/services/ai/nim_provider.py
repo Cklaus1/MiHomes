@@ -11,7 +11,7 @@ except ImportError:
     openai = None
 
 NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
-DEFAULT_MODEL = "meta/llama-3.1-8b-instruct"
+DEFAULT_MODEL = "meta/llama-3.2-11b-vision-instruct"
 
 
 class NIMProvider:
@@ -41,6 +41,23 @@ class NIMProvider:
             timeout=120.0,
         )
 
+    def _build_content(self, text: str, attachments=None) -> list | str:
+        """Build multimodal content list when images present, plain string otherwise."""
+        if not attachments:
+            return text
+        images = [a for a in attachments if getattr(a, "is_image", False) and a.base64_data]
+        if not images:
+            return text
+        content = []
+        for a in images:
+            mime = a.content_type if hasattr(a, "content_type") and a.content_type else "image/jpeg"
+            content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:{mime};base64,{a.base64_data}"},
+            })
+        content.append({"type": "text", "text": text})
+        return content
+
     def complete(
         self,
         system_prompt: str,
@@ -49,12 +66,9 @@ class NIMProvider:
         attachments=None,
     ) -> str:
         """Send a completion request to NVIDIA NIM."""
-        message_content = user_message
-        if attachments:
-            from mihomes.services.ai.file_processor import attachments_to_text_block
-            message_content = attachments_to_text_block(attachments) + "\n\n" + message_content
+        text = user_message
         if context_data:
-            message_content = f"{message_content}\n\n<estate_data>\n{context_data}\n</estate_data>"
+            text = f"{text}\n\n<estate_data>\n{context_data}\n</estate_data>"
 
         try:
             response = self.client.chat.completions.create(
@@ -62,16 +76,16 @@ class NIMProvider:
                 max_tokens=4096,
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": message_content},
+                    {"role": "user", "content": self._build_content(text, attachments)},
                 ],
             )
             return response.choices[0].message.content
         except openai.AuthenticationError as e:
-            raise AIAuthError(f"Invalid NVIDIA API key: {e}")
+            raise AIAuthError(f"Invalid NVIDIA API key: {e}") from e
         except openai.RateLimitError as e:
-            raise AIRateLimitError(f"NIM rate limited: {e}")
+            raise AIRateLimitError(f"NIM rate limited: {e}") from e
         except openai.APIError as e:
-            raise AIProviderError(f"NVIDIA NIM API error: {e}")
+            raise AIProviderError(f"NVIDIA NIM API error: {e}") from e
 
     def stream(
         self,
@@ -81,12 +95,9 @@ class NIMProvider:
         attachments=None,
     ):
         """Stream tokens from NVIDIA NIM."""
-        message_content = user_message
-        if attachments:
-            from mihomes.services.ai.file_processor import attachments_to_text_block
-            message_content = attachments_to_text_block(attachments) + "\n\n" + message_content
+        text = user_message
         if context_data:
-            message_content = f"{message_content}\n\n<estate_data>\n{context_data}\n</estate_data>"
+            text = f"{text}\n\n<estate_data>\n{context_data}\n</estate_data>"
 
         try:
             response = self.client.chat.completions.create(
@@ -94,7 +105,7 @@ class NIMProvider:
                 max_tokens=4096,
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": message_content},
+                    {"role": "user", "content": self._build_content(text, attachments)},
                 ],
                 stream=True,
             )
@@ -104,11 +115,11 @@ class NIMProvider:
                     if delta:
                         yield delta
         except openai.AuthenticationError as e:
-            raise AIAuthError(f"Invalid NVIDIA API key: {e}")
+            raise AIAuthError(f"Invalid NVIDIA API key: {e}") from e
         except openai.RateLimitError as e:
-            raise AIRateLimitError(f"NIM rate limited: {e}")
+            raise AIRateLimitError(f"NIM rate limited: {e}") from e
         except openai.APIError as e:
-            raise AIProviderError(f"NVIDIA NIM API error: {e}")
+            raise AIProviderError(f"NVIDIA NIM API error: {e}") from e
 
     def structured_output(
         self,
@@ -119,9 +130,9 @@ class NIMProvider:
         attachments=None,
     ) -> dict:
         """Request structured JSON output from NIM."""
-        message_content = user_message
+        text = user_message
         if context_data:
-            message_content = f"{user_message}\n\n<estate_data>\n{context_data}\n</estate_data>"
+            text = f"{text}\n\n<estate_data>\n{context_data}\n</estate_data>"
 
         json_system = (
             f"{system_prompt}\n\n"
@@ -135,17 +146,17 @@ class NIMProvider:
                 max_tokens=4096,
                 messages=[
                     {"role": "system", "content": json_system},
-                    {"role": "user", "content": message_content},
+                    {"role": "user", "content": self._build_content(text, attachments)},
                 ],
                 response_format={"type": "json_object"},
             )
             text = response.choices[0].message.content.strip()
             return json.loads(text)
         except openai.AuthenticationError as e:
-            raise AIAuthError(f"Invalid NVIDIA API key: {e}")
+            raise AIAuthError(f"Invalid NVIDIA API key: {e}") from e
         except openai.RateLimitError as e:
-            raise AIRateLimitError(f"NIM rate limited: {e}")
+            raise AIRateLimitError(f"NIM rate limited: {e}") from e
         except openai.APIError as e:
-            raise AIProviderError(f"NVIDIA NIM API error: {e}")
-        except json.JSONDecodeError:
-            raise AIProviderError("NIM did not return valid JSON for structured output")
+            raise AIProviderError(f"NVIDIA NIM API error: {e}") from e
+        except json.JSONDecodeError as e:
+            raise AIProviderError("NIM did not return valid JSON for structured output") from e

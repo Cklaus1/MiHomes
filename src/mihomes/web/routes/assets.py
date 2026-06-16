@@ -14,6 +14,7 @@ from mihomes.models.document import DocumentType
 from mihomes.services import asset as asset_svc
 from mihomes.services import book as book_svc
 from mihomes.services import document as doc_svc
+from mihomes.services import issue as issue_svc
 from mihomes.services import note as note_svc
 from mihomes.services import property as prop_svc
 from mihomes.services import space as space_svc
@@ -108,6 +109,8 @@ def _list_ctx(db: Session, property_slug: str, space_slug: str, asset_type: str 
         "filter_type": asset_type,
         "books": books,
         "active_tab": "assets",
+        "space_issues": [i for i in issue_svc.list_issues(db, property_id_or_slug=property_slug) if space and i.space_id == space.id] if space else [],
+        "space_notes": note_svc.list_notes(db, f"space:{space.id}") if space else [],
     }
 
 
@@ -373,6 +376,42 @@ def add_price_entry(
     if from_property:
         return templates.TemplateResponse(request, "assets_spaces.html", _spaces_ctx(db, from_property))
     return templates.TemplateResponse(request, "assets_properties.html", _properties_ctx(db))
+
+
+@router.post("/{property_slug}/{space_slug}/notes", response_class=HTMLResponse)
+def add_space_note(
+    request: Request,
+    property_slug: str,
+    space_slug: str,
+    content: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    space = space_svc.get_space(db, space_slug)
+    note_svc.add_note(db, f"space:{space.id}", content)
+    notes = note_svc.list_notes(db, f"space:{space.id}")
+    return templates.TemplateResponse(request, "partials/notes_section.html", {
+        "notes": notes,
+        "post_url": f"/assets/{property_slug}/{space_slug}/notes",
+        "delete_url_prefix": f"/assets/{property_slug}/{space_slug}/notes",
+    })
+
+
+@router.delete("/{property_slug}/{space_slug}/notes/{note_id}", response_class=HTMLResponse)
+def delete_space_note(
+    request: Request,
+    property_slug: str,
+    space_slug: str,
+    note_id: int,
+    db: Session = Depends(get_db),
+):
+    note_svc.delete_note(db, note_id)
+    space = space_svc.get_space(db, space_slug)
+    notes = note_svc.list_notes(db, f"space:{space.id}")
+    return templates.TemplateResponse(request, "partials/notes_section.html", {
+        "notes": notes,
+        "post_url": f"/assets/{property_slug}/{space_slug}/notes",
+        "delete_url_prefix": f"/assets/{property_slug}/{space_slug}/notes",
+    })
 
 
 @router.post("/{slug}/delete", response_class=HTMLResponse)

@@ -3,7 +3,7 @@
 {% block heading %}{{ space.name if space else 'Unassigned' }}{% endblock %}
 {% block subheading %}
 <div class="flex items-center gap-1.5 text-sm text-gray-500 mt-0.5">
-  <a href="/assets" class="hover:text-brand-600 transition-colors">Assets</a>
+  <a href="/assets" class="hover:text-brand-600 transition-colors">Rooms</a>
   <svg class="w-3.5 h-3.5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
   <a href="/assets/{{ prop.slug }}" class="hover:text-brand-600 transition-colors">{{ prop.name }}</a>
   <svg class="w-3.5 h-3.5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
@@ -14,7 +14,7 @@
 {% endblock %}
 
 {% block actions %}
-<div id="tab-actions-assets" class="flex items-center gap-2 {% if active_tab == 'books' %}hidden{% endif %}">
+<div id="tab-actions-assets" class="flex items-center gap-2 {% if active_tab != 'assets' %}hidden{% endif %}">
   <button onclick="document.getElementById('scan-room-modal').classList.remove('hidden')"
           class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-brand-300 text-brand-700 text-sm font-medium rounded-lg hover:bg-brand-50 transition-colors">
     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
@@ -42,12 +42,20 @@
 <!-- Tab bar -->
 <div class="flex gap-1 mb-5 border-b border-gray-200">
   <button id="tab-btn-assets" onclick="switchSpaceTab('assets')"
-          class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if active_tab != 'books' %}border-brand-500 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
+          class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if active_tab == 'assets' %}border-brand-500 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
     Assets <span class="ml-1 px-1.5 py-0.5 rounded-full text-xs bg-gray-100 text-gray-500">{{ assets|length }}</span>
   </button>
   <button id="tab-btn-books" onclick="switchSpaceTab('books')"
           class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if active_tab == 'books' %}border-brand-500 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
     Books <span class="ml-1 px-1.5 py-0.5 rounded-full text-xs bg-gray-100 text-gray-500">{{ books|length }}</span>
+  </button>
+  <button id="tab-btn-issues" onclick="switchSpaceTab('issues')"
+          class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if active_tab == 'issues' %}border-brand-500 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
+    Issues <span class="ml-1 px-1.5 py-0.5 rounded-full text-xs bg-gray-100 text-gray-500">{{ space_issues|length }}</span>
+  </button>
+  <button id="tab-btn-notes" onclick="switchSpaceTab('notes')"
+          class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if active_tab == 'notes' %}border-brand-500 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
+    Notes <span class="ml-1 px-1.5 py-0.5 rounded-full text-xs bg-gray-100 text-gray-500">{{ space_notes|length }}</span>
   </button>
 </div>
 
@@ -152,6 +160,76 @@
 </div>
 {% endif %}
 </div><!-- /panel-books -->
+
+<!-- Issues panel -->
+<div id="panel-issues" {% if active_tab != 'issues' %}class="hidden"{% endif %}>
+  {% if space_issues %}
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-gray-100 bg-gray-50">
+          <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Issue</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Severity</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Reported</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50">
+        {% for issue in space_issues %}
+        <tr class="hover:bg-gray-50 transition-colors">
+          <td class="px-4 py-3">
+            <div class="font-medium text-gray-900">{{ issue.title }}</div>
+            {% if issue.description %}<div class="text-xs text-gray-400 truncate max-w-xs">{{ issue.description }}</div>{% endif %}
+          </td>
+          <td class="px-4 py-3">
+            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+              {% if issue.severity.value == 'critical' %}bg-red-100 text-red-700
+              {% elif issue.severity.value == 'high' %}bg-orange-100 text-orange-700
+              {% elif issue.severity.value == 'medium' %}bg-amber-100 text-amber-700
+              {% else %}bg-gray-100 text-gray-600{% endif %}">
+              {{ issue.severity.value.title() }}
+            </span>
+          </td>
+          <td class="px-4 py-3">
+            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+              {% if issue.status.value == 'resolved' %}bg-emerald-100 text-emerald-700
+              {% elif issue.status.value == 'in-progress' %}bg-blue-100 text-blue-700
+              {% else %}bg-amber-100 text-amber-700{% endif %}">
+              {{ issue.status.value.replace('-',' ').title() }}
+            </span>
+          </td>
+          <td class="px-4 py-3 text-gray-400 text-xs hidden md:table-cell">
+            {{ issue.created_at.strftime('%b %d, %Y') if issue.created_at else '—' }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center">
+    <div class="text-3xl mb-2">✅</div>
+    <div class="text-gray-500 font-medium">No issues in this room</div>
+  </div>
+  {% endif %}
+  <div class="mt-3 flex justify-end">
+    <a href="/issues?property_id={{ prop.id }}"
+       class="text-sm text-brand-600 hover:text-brand-700">View all property issues →</a>
+  </div>
+</div><!-- /panel-issues -->
+
+<!-- Notes panel -->
+<div id="panel-notes" {% if active_tab != 'notes' %}class="hidden"{% endif %}>
+  {% if space and space.id %}
+  <div class="bg-white rounded-xl border border-gray-200 p-5" data-notes-container>
+    {% with notes=space_notes, post_url="/assets/"+prop.slug+"/"+space_slug+"/notes", delete_url_prefix="/assets/"+prop.slug+"/"+space_slug+"/notes" %}
+    {% include "partials/notes_section.html" %}
+    {% endwith %}
+  </div>
+  {% else %}
+  <div class="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center text-sm text-gray-400">Notes are not available for unassigned assets.</div>
+  {% endif %}
+</div><!-- /panel-notes -->
 
 <!-- Add Asset modal -->
 <!-- Scan Room modal -->
@@ -615,7 +693,7 @@ function filterRows(inputId, tbodyId) {
 function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
 function switchSpaceTab(tab) {
-  ['assets','books'].forEach(t => {
+  ['assets','books','issues','notes'].forEach(t => {
     document.getElementById('panel-'+t)?.classList.toggle('hidden', t !== tab);
     document.getElementById('tab-actions-'+t)?.classList.toggle('hidden', t !== tab);
     const btn = document.getElementById('tab-btn-'+t);

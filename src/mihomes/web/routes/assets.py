@@ -45,7 +45,7 @@ def _ai_scan_error(msg: str) -> str:
     return msg
 
 
-_SPACE_TYPES = ["bedroom", "bathroom", "kitchen", "living", "dining", "office", "storage", "garage", "outdoor", "other"]
+_SPACE_TYPES = ["bedroom", "bathroom", "kitchen", "living", "dining", "office", "entertainment", "storage", "garage", "outdoor", "other"]
 
 
 def _properties_ctx(db: Session) -> dict:

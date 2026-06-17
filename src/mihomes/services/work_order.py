@@ -10,8 +10,8 @@ from mihomes.models.staff import Staff
 from mihomes.models.vendor import Vendor
 from mihomes.models.work_order import WorkOrder, WorkOrderStatus
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
-from mihomes.services.update_helpers import safe_update
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
+from mihomes.services.update_helpers import safe_update
 
 # Valid state transitions: {from_status: [allowed_to_statuses]}
 VALID_TRANSITIONS: dict[WorkOrderStatus, list[WorkOrderStatus]] = {
@@ -86,6 +86,10 @@ def list_work_orders(
     if status:
         query = query.filter(WorkOrder.status == status)
     return query.order_by(WorkOrder.created_at.desc()).all()
+
+
+def list_work_orders_by_issue(session: Session, issue_id: int) -> list[WorkOrder]:
+    return session.query(WorkOrder).filter(WorkOrder.issue_id == issue_id).order_by(WorkOrder.created_at.desc()).all()
 
 
 def get_work_order(session: Session, id_or_slug: str) -> WorkOrder:

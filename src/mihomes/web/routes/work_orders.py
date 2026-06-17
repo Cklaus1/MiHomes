@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
+from mihomes.services import issue as issue_svc
 from mihomes.services import note as note_svc
 from mihomes.services import property as prop_svc
 from mihomes.services import staff as staff_svc
@@ -27,6 +28,7 @@ def _ctx(db: Session, status: str | None = None) -> dict:
         "vendors": vendor_svc.list_vendors(db),
         "staff": staff_svc.list_staff(db, category="Staff"),
         "notes_map": {wo.id: note_svc.list_notes(db, f"workorder:{wo.id}") for wo in work_orders},
+        "issues": issue_svc.list_issues(db),
         "filter_status": status,
     }
 
@@ -46,13 +48,14 @@ def create_work_order(
     vendor_name_other: str = Form(""),
     estimated_cost: str = Form(""),
     due_date: str = Form(""),
+    issue_id: str = Form(""),
     db: Session = Depends(get_db),
 ):
     resolved_vendor_slug = vendor_slug
     if vendor_slug == "other" and vendor_name_other.strip():
         new_vendor = vendor_svc.create_vendor(db, vendor_name_other.strip())
         resolved_vendor_slug = new_vendor.slug
-    wo_svc.create_work_order(
+    wo = wo_svc.create_work_order(
         db,
         title=title,
         property_id_or_slug=property_slug,
@@ -61,6 +64,8 @@ def create_work_order(
         estimated_cost=float(estimated_cost) if estimated_cost else None,
         due_date=date.fromisoformat(due_date) if due_date else None,
     )
+    if issue_id:
+        wo_svc.update_work_order(db, wo.slug, issue_id=int(issue_id))
     return templates.TemplateResponse(request, "work_orders.html", _ctx(db))
 
 
@@ -101,12 +106,14 @@ def edit_work_order(
     status: str = Form(""),
     vendor_slug: str = Form(""),
     vendor_name_other: str = Form(""),
+    issue_id: str = Form(""),
     db: Session = Depends(get_db),
 ):
     kwargs = dict(
         title=title,
         description=description or None,
         completion_notes=completion_notes or None,
+        issue_id=int(issue_id) if issue_id else None,
     )
     if estimated_cost:
         kwargs["estimated_cost"] = float(estimated_cost)

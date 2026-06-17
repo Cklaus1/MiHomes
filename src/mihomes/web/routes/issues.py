@@ -10,6 +10,7 @@ from mihomes.services import note as note_svc
 from mihomes.services import property as prop_svc
 from mihomes.services import space as space_svc
 from mihomes.services import staff as staff_svc
+from mihomes.services import work_order as wo_svc
 from mihomes.web.deps import get_db, templates
 
 router = APIRouter()
@@ -36,6 +37,7 @@ def _ctx(db: Session, property_id=None, active_tab: str = "current") -> dict:
         "notes_map": {i.id: note_svc.list_notes(db, f"issue:{i.id}") for i in issues},
         "filter_property": property_id,
         "active_tab": active_tab,
+        "wo_map": {i.id: wo_svc.list_work_orders_by_issue(db, i.id) for i in issues},
     }
 
 

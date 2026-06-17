@@ -324,6 +324,52 @@ def process_and_respond(
     replied = 0
     errors = []
 
+    # Build phone → staff lookup for reporter identification
+    from mihomes.models.staff import Staff
+    phone_to_staff: dict[str, object] = {}
+    for msg in messages:
+        phone = (msg.get("senderPhone") or "").replace("+", "").replace("-", "").replace(" ", "")
+        if phone and phone not in phone_to_staff:
+            matched = session.query(Staff).filter(
+                Staff.whatsapp_phone.isnot(None)
+            ).all()
+            for s in matched:
+                s_phone = (s.whatsapp_phone or "").replace("+", "").replace("-", "").replace(" ", "")
+                if s_phone and s_phone in phone or phone in s_phone:
+                    phone_to_staff[phone] = s
+                    break
+
+    def _resolve_reporter(item: dict, msg_list: list) -> int | None:
+        """Return staff.id for the issue reporter, matching by phone then name."""
+        # Try phone match from messages
+        for msg in msg_list:
+            phone = (msg.get("senderPhone") or "").replace("+", "").replace("-", "").replace(" ", "")
+            if phone and phone in phone_to_staff:
+                return phone_to_staff[phone].id
+        # Fallback: name match from AI-extracted reported_by
+        name = item.get("reported_by")
+        if name:
+            s = session.query(Staff).filter(Staff.name.ilike(f"%{name}%")).first()
+            if s:
+                return s.id
+        return None
+
+    def _resolve_room(room_name: str | None, prop_slug: str | None) -> str | None:
+        """Fuzzy-match a room name against spaces for the property."""
+        if not room_name or not prop_slug:
+            return None
+        from mihomes.models.property import Property
+        from mihomes.models.space import Space
+        prop = session.query(Property).filter(Property.slug == prop_slug).first()
+        if not prop:
+            return None
+        spaces = session.query(Space).filter(Space.property_id == prop.id).all()
+        room_lower = room_name.lower()
+        for space in spaces:
+            if room_lower in space.name.lower() or space.name.lower() in room_lower:
+                return space.slug
+        return None
+
     for item in items:
         category = item.get("category", "")
         title = item.get("title", "Unknown")
@@ -406,7 +452,15 @@ def process_and_respond(
                     sev = IssueSeverity(sev_val)
                 except ValueError:
                     sev = IssueSeverity.MEDIUM
-                create_issue(session, title, prop, severity=sev, description=item.get("description"))
+                reporter_id = _resolve_reporter(item, messages)
+                room_slug = _resolve_room(item.get("room"), prop)
+                create_issue(
+                    session, title, prop,
+                    severity=sev,
+                    description=item.get("description"),
+                    reported_by_id=reporter_id,
+                    space_id_or_slug=room_slug,
+                )
                 logged += 1
             elif category == "task":
                 from mihomes.services.task import create_task

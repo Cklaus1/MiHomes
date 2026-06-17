@@ -87,7 +87,7 @@ def property_detail(request: Request, slug: str, db: Session = Depends(get_db)):
             "open_issues": open_issues,
             "assigned_staff": assigned_staff,
             "spaces": spaces,
-            "space_types": ["bedroom", "bathroom", "kitchen", "living", "dining", "office", "entertainment", "storage", "garage", "outdoor", "other"],
+            "space_types": ["bedroom", "bathroom", "kitchen", "living", "dining", "office", "entertainment", "recreation", "storage", "garage", "outdoor", "other"],
             "property_types": [t.value for t in PropertyType],
             "property_statuses": [s.value for s in PropertyStatus],
         },
@@ -158,7 +158,7 @@ def _rooms_ctx(db, slug: str) -> dict:
     return {
         "spaces": spaces,
         "prop_slug": slug,
-        "space_types": ["bedroom", "bathroom", "kitchen", "living", "dining", "office", "entertainment", "storage", "garage", "outdoor", "other"],
+        "space_types": ["bedroom", "bathroom", "kitchen", "living", "dining", "office", "entertainment", "recreation", "storage", "garage", "outdoor", "other"],
     }
 
 

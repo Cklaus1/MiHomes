@@ -126,6 +126,30 @@ def asset_properties(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "assets_properties.html", _properties_ctx(db))
 
 
+@router.post("/{property_slug}/{space_slug}/edit-room", response_class=HTMLResponse)
+def edit_room(
+    request: Request,
+    property_slug: str,
+    space_slug: str,
+    name: str = Form(...),
+    space_type: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    space_svc.update_space(db, space_slug, name=name, space_type=space_type or None)
+    return templates.TemplateResponse(request, "assets_spaces.html", _spaces_ctx(db, property_slug))
+
+
+@router.post("/{property_slug}/{space_slug}/delete-room", response_class=HTMLResponse)
+def delete_room(
+    request: Request,
+    property_slug: str,
+    space_slug: str,
+    db: Session = Depends(get_db),
+):
+    space_svc.delete_space(db, space_slug)
+    return templates.TemplateResponse(request, "assets_spaces.html", _spaces_ctx(db, property_slug))
+
+
 @router.post("/create-room", response_class=HTMLResponse)
 def create_room(
     request: Request,

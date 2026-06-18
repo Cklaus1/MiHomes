@@ -111,6 +111,7 @@ def _list_ctx(db: Session, property_slug: str, space_slug: str, asset_type: str 
         "conditions": [c.value for c in AssetCondition],
         "book_conditions": [c.value for c in BookCondition],
         "notes_map": {a.id: note_svc.list_notes(db, f"asset:{a.id}") for a in assets},
+        "asset_docs_map": {a.id: doc_svc.list_documents(db, entity_type="asset", entity_id=a.id) for a in assets},
         "filter_type": asset_type,
         "books": books,
         "active_tab": "assets",
@@ -417,6 +418,52 @@ def add_price_entry(
     if from_property:
         return templates.TemplateResponse(request, "assets_spaces.html", _spaces_ctx(db, from_property))
     return templates.TemplateResponse(request, "assets_properties.html", _properties_ctx(db))
+
+
+@router.post("/{slug}/documents", response_class=HTMLResponse)
+async def add_asset_document(
+    request: Request,
+    slug: str,
+    title: str = Form(...),
+    doc_type: str = Form("photo"),
+    file: UploadFile = File(...),
+    from_property: str = Form(""),
+    from_space: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    asset = asset_svc.get_asset(db, slug)
+    suffix = Path(file.filename).suffix.lower()
+    filename = f"{uuid.uuid4().hex}{suffix}"
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    (UPLOADS_DIR / filename).write_bytes(await file.read())
+    doc_svc.create_document(
+        db, title=title, file_path=f"/static/uploads/{filename}",
+        document_type=DocumentType(doc_type),
+        entity_type="asset", entity_id=asset.id,
+    )
+    docs = doc_svc.list_documents(db, entity_type="asset", entity_id=asset.id)
+    return templates.TemplateResponse(request, "partials/docs_section.html", {
+        "docs": docs,
+        "post_url": f"/assets/{slug}/documents",
+        "delete_url_prefix": f"/assets/{slug}/documents",
+    })
+
+
+@router.delete("/{slug}/documents/{doc_id}", response_class=HTMLResponse)
+def delete_asset_document(
+    request: Request,
+    slug: str,
+    doc_id: int,
+    db: Session = Depends(get_db),
+):
+    doc_svc.delete_document(db, str(doc_id))
+    asset = asset_svc.get_asset(db, slug)
+    docs = doc_svc.list_documents(db, entity_type="asset", entity_id=asset.id)
+    return templates.TemplateResponse(request, "partials/docs_section.html", {
+        "docs": docs,
+        "post_url": f"/assets/{slug}/documents",
+        "delete_url_prefix": f"/assets/{slug}/documents",
+    })
 
 
 @router.post("/{property_slug}/{space_slug}/notes", response_class=HTMLResponse)

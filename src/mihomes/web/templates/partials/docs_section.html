@@ -2,10 +2,17 @@
 <div class="space-y-2 max-h-40 overflow-y-auto mb-3">
   {% if docs %}
     {% for doc in docs %}
+    {% set is_image = doc.file_path and (doc.file_path.endswith('.jpg') or doc.file_path.endswith('.jpeg') or doc.file_path.endswith('.png') or doc.file_path.endswith('.webp') or doc.document_type.value == 'photo') %}
     <div class="bg-white rounded-lg px-3 py-2.5 border border-gray-100 flex items-start gap-2 group">
+      {% if is_image %}
+      <a href="{{ doc.file_path }}" target="_blank" class="flex-shrink-0">
+        <img src="{{ doc.file_path }}" alt="{{ doc.title }}" class="w-10 h-10 object-cover rounded-md border border-gray-200" />
+      </a>
+      {% else %}
       <svg class="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
       </svg>
+      {% endif %}
       <div class="flex-1 min-w-0">
         <div class="text-sm font-medium text-gray-800 truncate">{{ doc.title }}</div>
         <div class="text-xs text-gray-400">
@@ -44,11 +51,13 @@
            class="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white" />
     <select name="doc_type"
             class="border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+      <option value="photo" selected>Photo</option>
       <option value="contract">Contract</option>
       <option value="warranty">Warranty</option>
       <option value="insurance">Insurance</option>
       <option value="permit">Permit</option>
-      <option value="other" selected>Other</option>
+      <option value="report">Report</option>
+      <option value="other">Other</option>
     </select>
   </div>
   <div class="flex gap-2 items-center">

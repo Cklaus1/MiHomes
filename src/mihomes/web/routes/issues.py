@@ -1,9 +1,13 @@
 """Issue routes."""
 
-from fastapi import APIRouter, Depends, Form, Request
+import uuid
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
+from mihomes.models.document import DocumentType
 from mihomes.models.issue import IssueSeverity, IssueStatus
 from mihomes.services import document as doc_svc
 from mihomes.services import issue as issue_svc
@@ -144,4 +148,46 @@ def delete_note(request: Request, slug: str, note_id: int, db: Session = Depends
         "notes": notes,
         "post_url": f"/issues/{slug}/notes",
         "delete_url_prefix": f"/issues/{slug}/notes",
+    })
+
+
+_UPLOADS_DIR = Path(__file__).parent.parent / "static" / "uploads"
+
+
+@router.post("/{slug}/documents", response_class=HTMLResponse)
+async def add_document(
+    request: Request,
+    slug: str,
+    title: str = Form(...),
+    doc_type: str = Form("other"),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    issue = issue_svc.get_issue(db, slug)
+    suffix = Path(file.filename).suffix.lower()
+    filename = f"{uuid.uuid4().hex}{suffix}"
+    _UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    (_UPLOADS_DIR / filename).write_bytes(await file.read())
+    doc_svc.create_document(
+        db, title=title, file_path=f"/static/uploads/{filename}",
+        document_type=DocumentType(doc_type),
+        entity_type="issue", entity_id=issue.id,
+    )
+    docs = doc_svc.list_documents(db, entity_type="issue", entity_id=issue.id)
+    return templates.TemplateResponse(request, "partials/docs_section.html", {
+        "docs": docs,
+        "post_url": f"/issues/{slug}/documents",
+        "delete_url_prefix": f"/issues/{slug}/documents",
+    })
+
+
+@router.delete("/{slug}/documents/{doc_id}", response_class=HTMLResponse)
+def delete_document(request: Request, slug: str, doc_id: int, db: Session = Depends(get_db)):
+    doc_svc.delete_document(db, str(doc_id))
+    issue = issue_svc.get_issue(db, slug)
+    docs = doc_svc.list_documents(db, entity_type="issue", entity_id=issue.id)
+    return templates.TemplateResponse(request, "partials/docs_section.html", {
+        "docs": docs,
+        "post_url": f"/issues/{slug}/documents",
+        "delete_url_prefix": f"/issues/{slug}/documents",
     })

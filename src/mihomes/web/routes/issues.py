@@ -5,6 +5,7 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from mihomes.models.issue import IssueSeverity, IssueStatus
+from mihomes.services import document as doc_svc
 from mihomes.services import issue as issue_svc
 from mihomes.services import note as note_svc
 from mihomes.services import property as prop_svc
@@ -38,6 +39,7 @@ def _ctx(db: Session, property_id=None, active_tab: str = "current") -> dict:
         "filter_property": property_id,
         "active_tab": active_tab,
         "wo_map": {i.id: wo_svc.list_work_orders_by_issue(db, i.id) for i in issues},
+        "docs_map": {i.id: doc_svc.list_documents(db, entity_type="issue", entity_id=i.id) for i in issues},
     }
 
 
@@ -95,6 +97,7 @@ def edit_issue(
     status: str = Form(""),
     reported_by_id: str | None = Form(None),
     resolved_by_id: str | None = Form(None),
+    space_id: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     kwargs = dict(
@@ -102,6 +105,7 @@ def edit_issue(
         severity=IssueSeverity(severity),
         description=description or None,
         reported_by_id=int(reported_by_id) if reported_by_id else None,
+        space_id=int(space_id) if space_id else None,
     )
     if status:
         kwargs["status"] = IssueStatus(status)

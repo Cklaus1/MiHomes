@@ -445,7 +445,9 @@ def process_and_respond(
 
         try:
             if category == "issue":
+                from mihomes.models.document import DocumentType
                 from mihomes.models.issue import IssueSeverity
+                from mihomes.services.document import create_document
                 from mihomes.services.issue import create_issue
                 sev_val = item.get("severity", "medium")
                 try:
@@ -454,13 +456,41 @@ def process_and_respond(
                     sev = IssueSeverity.MEDIUM
                 reporter_id = _resolve_reporter(item, messages)
                 room_slug = _resolve_room(item.get("room"), prop)
-                create_issue(
+                issue = create_issue(
                     session, title, prop,
                     severity=sev,
                     description=item.get("description"),
                     reported_by_id=reporter_id,
                     space_id_or_slug=room_slug,
                 )
+                # Save any photos from the batch as Documents linked to the issue
+                import uuid as _uuid
+                from pathlib import Path as _Path
+                uploads_dir = _Path(__file__).parents[4] / "web" / "static" / "uploads"
+                uploads_dir.mkdir(parents=True, exist_ok=True)
+                for idx, msg in enumerate(messages):
+                    media_path = msg.get("mediaPath")
+                    if not media_path or not os.path.isfile(media_path):
+                        continue
+                    try:
+                        mime = mimetypes.guess_type(media_path)[0] or "image/jpeg"
+                        if not mime.startswith("image/"):
+                            continue
+                        ext = _Path(media_path).suffix.lower() or ".jpg"
+                        fname = f"{_uuid.uuid4().hex}{ext}"
+                        dest = uploads_dir / fname
+                        import shutil as _shutil
+                        _shutil.copy2(media_path, dest)
+                        create_document(
+                            session,
+                            title=f"Photo {idx + 1} — {title}",
+                            file_path=f"/static/uploads/{fname}",
+                            document_type=DocumentType.OTHER,
+                            entity_type="issue",
+                            entity_id=issue.id,
+                        )
+                    except Exception:
+                        pass
                 logged += 1
             elif category == "task":
                 from mihomes.services.task import create_task

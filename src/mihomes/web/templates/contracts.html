@@ -161,7 +161,7 @@
       {% for tid, tlabel in [('details','Details'),('documents','Documents'),('notes','Notes')] %}
       <button onclick="switchTab('contract','{{ contract.id }}','{{ tid }}')" id="contract-tab-{{ contract.id }}-{{ tid }}"
               class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if tid=='details' %}border-brand-500 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
-        {{ tlabel }}{% if tid=='documents' and c_docs %} ({{ c_docs|length }}){% endif %}{% if tid=='notes' and c_notes %} ({{ c_notes|length }}){% endif %}
+        {{ tlabel }}{% if tid=='documents' and c_docs %} ({{ c_docs|length }}){% endif %}{% if tid=='notes' %}<span id="badge-contract-notes-{{ contract.id }}">{{ c_notes|length }}</span>{% endif %}
       </button>
       {% endfor %}
     </div>
@@ -268,7 +268,7 @@
       <!-- Notes tab -->
       <div id="contract-panel-{{ contract.id }}-notes" class="px-6 py-5 hidden">
         <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Notes & Comments</div>
-        <div data-notes-container>
+        <div data-notes-container data-notes-badge="badge-contract-notes-{{ contract.id }}">
           {% with notes=c_notes, post_url="/contracts/"+contract.id|string+"/notes", delete_url_prefix="/contracts/"+contract.id|string+"/notes" %}{% include "partials/notes_section.html" %}{% endwith %}
         </div>
       </div>

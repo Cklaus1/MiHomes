@@ -148,5 +148,18 @@
   </div>
 
   {% block scripts %}{% endblock %}
+<script>
+/* After any notes-container swap, recount note items and update the nearest badge. */
+document.addEventListener('htmx:afterSettle', function(e) {
+  const container = e.detail.elt;
+  if (!container || !container.hasAttribute('data-notes-container')) return;
+  const count = container.querySelectorAll('[data-note-item]').length;
+  const badgeId = container.dataset.notesBadge;
+  if (badgeId) {
+    const badge = document.getElementById(badgeId);
+    if (badge) badge.textContent = count;
+  }
+});
+</script>
 </body>
 </html>

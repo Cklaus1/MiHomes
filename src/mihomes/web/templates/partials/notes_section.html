@@ -2,7 +2,7 @@
 <div class="space-y-2 max-h-48 overflow-y-auto mb-3">
   {% if notes %}
     {% for note in notes %}
-    <div class="bg-white rounded-lg px-3 py-2.5 border border-gray-100 flex items-start gap-2 group">
+    <div class="bg-white rounded-lg px-3 py-2.5 border border-gray-100 flex items-start gap-2 group" data-note-item>
       <div class="flex-1 min-w-0">
         <p class="text-sm text-gray-700 whitespace-pre-wrap">{{ note.content }}</p>
         <p class="text-xs text-gray-400 mt-1">{{ note.created_at.strftime('%b %d, %Y %H:%M') if note.created_at else '' }}</p>

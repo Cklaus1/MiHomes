@@ -325,10 +325,12 @@ def process_and_respond(
     errors = []
 
     # Build phone → staff lookup for reporter identification
+    # Bridge sends 'sender' as '15551234567@s.whatsapp.net' — extract the number part
     from mihomes.models.staff import Staff
     phone_to_staff: dict[str, object] = {}
     for msg in messages:
-        phone = (msg.get("senderPhone") or "").replace("+", "").replace("-", "").replace(" ", "")
+        raw = msg.get("sender") or msg.get("senderPhone") or ""
+        phone = raw.split("@")[0].replace("+", "").replace("-", "").replace(" ", "")
         if phone and phone not in phone_to_staff:
             matched = session.query(Staff).filter(
                 Staff.whatsapp_phone.isnot(None)
@@ -343,7 +345,8 @@ def process_and_respond(
         """Return staff.id for the issue reporter, matching by phone then name."""
         # Try phone match from messages
         for msg in msg_list:
-            phone = (msg.get("senderPhone") or "").replace("+", "").replace("-", "").replace(" ", "")
+            raw = msg.get("sender") or msg.get("senderPhone") or ""
+            phone = raw.split("@")[0].replace("+", "").replace("-", "").replace(" ", "")
             if phone and phone in phone_to_staff:
                 return phone_to_staff[phone].id
         # Fallback: name match from AI-extracted reported_by
@@ -441,7 +444,6 @@ def process_and_respond(
             continue
 
         event_date = _parse_event_date(item.get("timestamp"))
-        scheduled = event_date is not None
 
         try:
             if category == "issue":
@@ -497,26 +499,12 @@ def process_and_respond(
                 assignee = _resolve_staff_slug(session, item.get("assigned_to"))
                 create_task(session, title, prop, description=item.get("description"), assignee_id_or_slug=assignee)
                 logged += 1
-                if scheduled:
-                    from mihomes.services.event import create_event
-                    create_event(session, title, prop, event_date, description=item.get("description"))
             elif category == "vendor_activity":
-                # Always create a task — vendor visits for maintenance/repairs need tracking.
-                # Also create a dated event if a specific date was mentioned.
                 from mihomes.services.task import create_task
                 assignee = _resolve_staff_slug(session, item.get("assigned_to"))
-                new_task = create_task(session, title, prop, description=item.get("description"),
-                                       due_date=event_date, assignee_id_or_slug=assignee)
+                create_task(session, title, prop, description=item.get("description"),
+                            due_date=event_date, assignee_id_or_slug=assignee)
                 logged += 1
-                # Auto-push vendor tasks to Google Calendar
-                try:
-                    from mihomes.services.calendar_sync import push_task_to_google
-                    push_task_to_google(new_task, session=session)
-                except Exception:
-                    pass
-                if scheduled:
-                    from mihomes.services.event import create_event
-                    create_event(session, title, prop, event_date, description=item.get("description"))
         except Exception as e:
             errors.append(f"Failed to create '{title}': {e}")
             continue  # Don't send confirmation if logging failed
@@ -528,8 +516,6 @@ def process_and_respond(
                 confirmation = f'🏠 "{title}" logged ✓\n\n{expert_note}'
             else:
                 confirmation = f'🏠 "{title}" logged ✓'
-        elif scheduled:
-            confirmation = f'🏠 scheduled "{title}" ✓'
         else:
             confirmation = f'🏠 "{title}" logged ✓'
 

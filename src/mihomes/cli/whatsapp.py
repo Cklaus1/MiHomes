@@ -313,16 +313,22 @@ def link_group(
     try:
         client = _get_client()
         groups = client.get_groups()
-        match = [g for g in groups if group_name.lower() in g["name"].lower()]
+        # Exact JID match takes priority, then exact name, then partial name
+        jid_match = [g for g in groups if g["jid"] == group_name]
+        if jid_match:
+            match = jid_match
+        else:
+            exact = [g for g in groups if g["name"].lower() == group_name.lower()]
+            match = exact if exact else [g for g in groups if group_name.lower() in g["name"].lower()]
         if not match:
             format_error(f"No group matching '{group_name}' found")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
         if len(match) > 1:
             console.print("[yellow]Multiple matches:[/yellow]")
             for g in match:
                 console.print(f"  - {g['name']} ({g['jid']})")
             format_error("Be more specific")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
         group = match[0]
         client.link_group(group["jid"], property)

@@ -115,6 +115,87 @@ def status_cmd():
 
 
 # ---------------------------------------------------------------------------
+# discover
+# ---------------------------------------------------------------------------
+
+@app.command("discover")
+def discover_cmd():
+    """Fetch recent updates and show all chats the bot has seen.
+
+    Use this to find a group's chat ID after adding the bot.
+    Send any message (or /start) in the group first, then run this command.
+    """
+    try:
+        client = _get_client()
+    except TelegramError as e:
+        format_error(str(e))
+        raise typer.Exit(1) from e
+
+    with get_session() as session:
+        chat_links = _load_chat_links(session)
+        from mihomes.services.config_service import get_config
+        stored = get_config(session, "telegram.last_update_id")
+
+    # Fetch the most recent 100 updates without advancing the offset
+    # so we don't skip messages the monitor hasn't processed yet
+    last_id = int(stored) if stored else None
+    offset = (last_id - 100) if last_id else None
+    if offset and offset < 0:
+        offset = None
+
+    try:
+        updates = client.get_updates(offset=offset, timeout=0, limit=100)
+    except TelegramError as e:
+        format_error(str(e))
+        raise typer.Exit(1) from e
+
+    if not updates:
+        console.print(
+            "[yellow]No recent updates found.[/yellow]\n\n"
+            "The bot hasn't received any messages yet. Try:\n"
+            "  1. Send [bold]/start[/bold] in the group\n"
+            "  2. Run [cyan]mihomes telegram discover[/cyan] again"
+        )
+        return
+
+    # Collect unique chats from updates
+    seen: dict[str, dict] = {}
+    for update in updates:
+        msg = update.get("message")
+        if not msg:
+            continue
+        chat = msg.get("chat") or {}
+        chat_id = str(chat.get("id", ""))
+        if chat_id and chat_id not in seen:
+            seen[chat_id] = {
+                "id": chat_id,
+                "title": chat.get("title") or chat.get("first_name") or "Direct Message",
+                "type": chat.get("type", "unknown"),
+                "linked_to": chat_links.get(chat_id, ""),
+            }
+
+    if not seen:
+        console.print("[yellow]Updates found but no message chats — make sure the bot can read messages (disable privacy mode or make it admin).[/yellow]")
+        return
+
+    table = Table(title="Chats the Bot Has Seen")
+    table.add_column("Chat ID", style="bold cyan")
+    table.add_column("Name", style="bold")
+    table.add_column("Type")
+    table.add_column("Linked To")
+    for info in seen.values():
+        linked = f"[green]{info['linked_to']}[/green]" if info["linked_to"] else "[dim]not linked[/dim]"
+        table.add_row(info["id"], info["title"], info["type"], linked)
+    console.print(table)
+
+    unlinked = [c for c in seen.values() if not c["linked_to"]]
+    if unlinked:
+        console.print("\n[dim]To link a chat:[/dim]")
+        for c in unlinked:
+            console.print(f"[dim]  mihomes telegram link-chat {c['id']} --property <slug>[/dim]")
+
+
+# ---------------------------------------------------------------------------
 # link-chat / unlink-chat
 # ---------------------------------------------------------------------------
 

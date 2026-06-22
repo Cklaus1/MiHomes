@@ -318,6 +318,11 @@ def monitor(
                 if updates:
                     new_last_id = max(u["update_id"] for u in updates)
 
+                    # Acknowledge FIRST — advance the offset before processing so
+                    # a crash or Ctrl+C mid-run never replays these updates on restart.
+                    last_update_id = new_last_id
+                    _save_update_id(new_last_id)
+
                     messages = []
                     for update in updates:
                         msg = client.normalize_update(update, chat_links)
@@ -358,9 +363,6 @@ def monitor(
                         if len(processed_ids) > 2000:
                             processed_ids = set(list(processed_ids)[-1000:])
                         _save_ids(processed_ids)
-
-                    last_update_id = new_last_id
-                    _save_update_id(new_last_id)
 
                 time.sleep(interval)
 

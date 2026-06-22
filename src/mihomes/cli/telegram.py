@@ -192,7 +192,7 @@ def discover_cmd():
     if unlinked:
         console.print("\n[dim]To link a chat:[/dim]")
         for c in unlinked:
-            console.print(f"[dim]  mihomes telegram link-chat {c['id']} --property <slug>[/dim]")
+            console.print(f"[dim]  mihomes telegram link-chat --chat-id {c['id']} --property <slug>[/dim]")
 
 
 # ---------------------------------------------------------------------------
@@ -201,7 +201,7 @@ def discover_cmd():
 
 @app.command("link-chat")
 def link_chat(
-    chat_id: str = typer.Argument(..., help="Telegram chat ID (negative number for groups, e.g. -1001234567890)"),
+    chat_id: str = typer.Option(..., "--chat-id", "-c", help="Telegram chat ID (e.g. -5211888862)"),
     property: str = typer.Option(..., "--property", "-p", help="Property slug to link to"),
 ):
     """Link a Telegram group chat to a property."""
@@ -215,7 +215,7 @@ def link_chat(
 
 @app.command("unlink-chat")
 def unlink_chat(
-    chat_id: str = typer.Argument(..., help="Telegram chat ID to unlink"),
+    chat_id: str = typer.Option(..., "--chat-id", "-c", help="Telegram chat ID to unlink"),
 ):
     """Unlink a Telegram chat from its property."""
     with get_session() as session:

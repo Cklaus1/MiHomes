@@ -82,18 +82,18 @@ def help_cmd():
 def stats_cmd():
     """Quick counts of everything in the system."""
     from mihomes.db import get_session
+    from mihomes.models.asset import Asset
+    from mihomes.models.audit_log import AuditLog
+    from mihomes.models.contract import Contract
+    from mihomes.models.document import Document
+    from mihomes.models.event import Event
+    from mihomes.models.insurance import InsurancePolicy
+    from mihomes.models.issue import Issue, IssueStatus
     from mihomes.models.property import Property
     from mihomes.models.staff import Staff
-    from mihomes.models.vendor import Vendor
     from mihomes.models.task import Task, TaskStatus
-    from mihomes.models.issue import Issue, IssueStatus
-    from mihomes.models.asset import Asset
+    from mihomes.models.vendor import Vendor
     from mihomes.models.work_order import WorkOrder, WorkOrderStatus
-    from mihomes.models.event import Event
-    from mihomes.models.document import Document
-    from mihomes.models.contract import Contract
-    from mihomes.models.insurance import InsurancePolicy
-    from mihomes.models.audit_log import AuditLog
 
     with get_session() as session:
         stats = [
@@ -126,6 +126,7 @@ def stats_cmd():
 def version_cmd():
     """Show MiHomes version and system info."""
     import sys
+
     from mihomes.config import DB_PATH, is_initialized
 
     rprint(f"[bold]MiHomes[/bold] v{__version__}")
@@ -134,17 +135,17 @@ def version_cmd():
 
 
 # Register sub-apps
+from mihomes.cli.alerts import app as alerts_app  # noqa: E402
+from mihomes.cli.budget import budget_app, expense_app  # noqa: E402
+from mihomes.cli.config import app as config_app  # noqa: E402
+from mihomes.cli.issue import app as issue_app  # noqa: E402
+from mihomes.cli.note import app as note_app  # noqa: E402
 from mihomes.cli.property import app as property_app  # noqa: E402
 from mihomes.cli.space import app as space_app  # noqa: E402
-from mihomes.cli.zone import app as zone_app  # noqa: E402
 from mihomes.cli.staff import app as staff_app  # noqa: E402
-from mihomes.cli.vendor import app as vendor_app  # noqa: E402
 from mihomes.cli.task import app as task_app  # noqa: E402
-from mihomes.cli.issue import app as issue_app  # noqa: E402
-from mihomes.cli.budget import budget_app, expense_app  # noqa: E402
-from mihomes.cli.note import app as note_app  # noqa: E402
-from mihomes.cli.config import app as config_app  # noqa: E402
-from mihomes.cli.alerts import app as alerts_app  # noqa: E402
+from mihomes.cli.vendor import app as vendor_app  # noqa: E402
+from mihomes.cli.zone import app as zone_app  # noqa: E402
 
 app.add_typer(property_app, name="property")
 app.add_typer(space_app, name="space")
@@ -159,21 +160,21 @@ app.add_typer(note_app, name="note")
 app.add_typer(config_app, name="config")
 app.add_typer(alerts_app, name="alerts")
 
-from mihomes.cli.dashboard import app as dashboard_app  # noqa: E402
 from mihomes.cli.audit import app as audit_app  # noqa: E402
+from mihomes.cli.dashboard import app as dashboard_app  # noqa: E402
 
 app.add_typer(dashboard_app, name="dashboard")
 app.add_typer(audit_app, name="audit")
 
 # Phase 1b sub-apps
-from mihomes.cli.contract import app as contract_app  # noqa: E402
-from mihomes.cli.recurring import app as recurring_app  # noqa: E402
-from mihomes.cli.insurance import app as insurance_app  # noqa: E402
-from mihomes.cli.template import app as template_app  # noqa: E402
-from mihomes.cli.tag import app as tag_app  # noqa: E402
-from mihomes.cli.search import app as search_app  # noqa: E402
 from mihomes.cli.backup import app as backup_app  # noqa: E402
+from mihomes.cli.contract import app as contract_app  # noqa: E402
 from mihomes.cli.doctor import app as doctor_app  # noqa: E402
+from mihomes.cli.insurance import app as insurance_app  # noqa: E402
+from mihomes.cli.recurring import app as recurring_app  # noqa: E402
+from mihomes.cli.search import app as search_app  # noqa: E402
+from mihomes.cli.tag import app as tag_app  # noqa: E402
+from mihomes.cli.template import app as template_app  # noqa: E402
 
 app.add_typer(contract_app, name="contract")
 app.add_typer(recurring_app, name="recurring")
@@ -193,11 +194,11 @@ app.add_typer(cron_app, name="cron")
 
 # Phase 3a sub-apps
 from mihomes.cli.asset import app as asset_app  # noqa: E402
-from mihomes.cli.work_order import app as workorder_app  # noqa: E402
+from mihomes.cli.document import app as document_app  # noqa: E402
 from mihomes.cli.event import app as event_app  # noqa: E402
 from mihomes.cli.guest import app as guest_app  # noqa: E402
-from mihomes.cli.document import app as document_app  # noqa: E402
 from mihomes.cli.report import app as report_app  # noqa: E402
+from mihomes.cli.work_order import app as workorder_app  # noqa: E402
 
 app.add_typer(asset_app, name="asset")
 app.add_typer(workorder_app, name="workorder")
@@ -222,18 +223,20 @@ from mihomes.cli.archive import app as archive_app  # noqa: E402
 
 app.add_typer(archive_app, name="archive")
 
-# WhatsApp + CSV
-from mihomes.cli.whatsapp import app as whatsapp_app  # noqa: E402
+# Telegram + CSV
 from mihomes.cli.csv_cmd import export_app, import_app  # noqa: E402
+from mihomes.cli.telegram import app as telegram_app  # noqa: E402
 
-app.add_typer(whatsapp_app, name="whatsapp")
+app.add_typer(telegram_app, name="telegram")
 app.add_typer(export_app, name="export")
 app.add_typer(import_app, name="import-csv")
 
 # Playbooks
 from mihomes.cli.playbook import app as playbook_app  # noqa: E402
+
 app.add_typer(playbook_app, name="playbook")
 
 # Register init command directly on root app
 from mihomes.cli.init import register_init  # noqa: E402
+
 register_init(app)

@@ -71,6 +71,7 @@ omit = [
     "*/services/ai/ollama_provider.py",
     # Gateway integrations — require real network connections
     "*/services/gateways/whatsapp/*",
+    "*/services/gateways/telegram/*",
     "*/services/gateways/calendar/provider.py",
 ]
 exclude_lines = [

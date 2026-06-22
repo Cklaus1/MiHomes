@@ -88,8 +88,38 @@ Last updated: 2026-05-14
 
 ## What's Next
 
+### Active: Telegram Bot (telegram-bot branch)
+Replace the WhatsApp/Baileys bridge with a Telegram bot — no Node.js, no pairing, plain urllib REST to the Bot API.
+
+**Files to create:**
+- [x] `src/mihomes/services/gateways/telegram/__init__.py`
+- [x] `src/mihomes/services/gateways/telegram/client.py` — urllib REST client (getUpdates, sendMessage, getFile, getMe)
+- [x] `src/mihomes/services/gateways/telegram/review.py` — reuse WhatsApp review.py (same message dict contract, update prompt string only)
+- [x] `src/mihomes/services/gateways/telegram/responder.py` — adapt from WhatsApp responder (swap JID → chat_id, swap client calls)
+- [x] `src/mihomes/services/gateways/telegram/extractor.py` — adapt from WhatsApp extractor
+- [x] `src/mihomes/cli/telegram.py` — CLI: setup, status, chats, link-chat, unlink-chat, send, monitor, review, watchdog
+
+**Files to modify:**
+- [x] `scripts/watchdog.py` — replaced bridge health check with Telegram bot health check
+- [x] `src/mihomes/cli/__init__.py` — registered `telegram` app
+- [x] `pyproject.toml` — updated coverage omit
+
+**Config keys (no DB migration):**
+- `telegram.bot_token` — from BotFather
+- `telegram.chat_links` — JSON `{chat_id: property_slug}`
+- `telegram.last_update_id` — deduplication offset
+- `telegram.pto_approver_id` — Telegram user_id of approver (replaces phone-based lookup)
+
+**Design decisions:**
+- Internal message dict keys unchanged (`jid`, `senderName`, `text`, `hasMedia`, `mediaPath`, `propertySlug`) — `chat_id` fills the `jid` slot
+- No `python-telegram-bot` dependency — plain urllib REST matches existing WhatsApp client pattern
+- Staff reporter matching: name-only (Telegram gives no phone numbers)
+- Media: download to `~/.mihomes/media/telegram/` before review pipeline sees it
+
+**Prerequisite (user):** Create a bot via BotFather in Telegram → get token → `mihomes config set telegram.bot_token <token>`
+
 ### Unblock (Highest Priority)
-- [ ] **Fix Baileys pairing error** on `wacli-integration` — investigate session auth, try fresh QR pairing with updated Baileys version. This unblocks the entire WhatsApp intelligence layer.
+- [x] ~~Fix Baileys pairing error~~ — replaced by Telegram bot (no pairing required)
 
 ### Web UI (ui-frontend branch)
 - [ ] **Merge ui-frontend → main** — branch is stable enough; divergence debt compounds weekly

@@ -313,9 +313,32 @@ def analyze_messages(
 
     if image_attachments and max_images and len(image_attachments) > max_images:
         # Provider has a per-request image limit — batch and merge results.
+        # book_addition / asset_addition items are merged by accumulating their
+        # sub-arrays (books / assets) so no entries are lost to deduplication.
         all_items: list[dict] = []
         all_skipped: list[dict] = []
         seen_titles: set[tuple] = set()
+        # Accumulators for array-based categories keyed by category name
+        array_field = {"book_addition": "books", "asset_addition": "assets"}
+        merged: dict[str, dict] = {}  # category -> merged item
+
+        def _merge_item(item: dict) -> None:
+            cat = item.get("category", "")
+            field = array_field.get(cat)
+            if field:
+                if cat not in merged:
+                    merged[cat] = dict(item)
+                else:
+                    # Accumulate sub-array entries; pick best room if missing
+                    merged[cat][field] = merged[cat].get(field) or []
+                    merged[cat][field].extend(item.get(field) or [])
+                    if not merged[cat].get("room") and item.get("room"):
+                        merged[cat]["room"] = item["room"]
+            else:
+                key = (cat, item.get("title", "").lower())
+                if key not in seen_titles:
+                    seen_titles.add(key)
+                    all_items.append(item)
 
         for i in range(0, len(image_attachments), max_images):
             batch = image_attachments[i:i + max_images]
@@ -325,10 +348,7 @@ def analyze_messages(
                 attachments=batch,
             )
             for item in batch_result.get("items", []):
-                key = (item.get("category"), item.get("title", "").lower())
-                if key not in seen_titles:
-                    seen_titles.add(key)
-                    all_items.append(item)
+                _merge_item(item)
             all_skipped.extend(batch_result.get("skipped", []))
 
         # One text-only pass to catch non-image intents not covered above
@@ -339,10 +359,10 @@ def analyze_messages(
                 attachments=None,
             )
             for item in text_result.get("items", []):
-                key = (item.get("category"), item.get("title", "").lower())
-                if key not in seen_titles:
-                    seen_titles.add(key)
-                    all_items.append(item)
+                _merge_item(item)
+
+        # Flush merged array-category items into all_items
+        all_items.extend(merged.values())
 
         return {"items": all_items, "skipped": all_skipped}
 

@@ -206,6 +206,13 @@ def _resolve_staff_slug(session: Session, name: str | None) -> str | None:
     return staff.slug if staff else None
 
 
+def _resolve_vendor(session: Session, name: str | None):
+    if not name:
+        return None
+    from mihomes.models.vendor import Vendor
+    return session.query(Vendor).filter(Vendor.name.ilike(f"%{name}%")).first()
+
+
 def _handle_approval_message(session: Session, message: dict, client: TelegramClient) -> bool:
     """Check if a message from the configured approver is an APPROVE/DENY command."""
     from mihomes.services.config_service import get_config
@@ -393,7 +400,7 @@ def process_and_respond(
                 errors.append(f"Failed to log PTO request: {e}")
             continue
 
-        # --- Supply needs: silently update inventory ---
+        # --- Supply needs: update inventory + confirm ---
         if category == "supply_need":
             if not prop:
                 continue
@@ -407,8 +414,278 @@ def process_and_respond(
                     updated_by=item.get("reported_by") or "Telegram",
                 )
                 logged += 1
+                try:
+                    client.send_message(reply_chat_id, f'"{title}" inventory updated ✓')
+                    replied += 1
+                except Exception as e:
+                    errors.append(f"Failed to confirm supply update: {e}")
             except Exception as e:
                 errors.append(f"Failed to log supply '{title}': {e}")
+            continue
+
+        # --- Task completion: mark task done in DB ---
+        if category == "task_completion":
+            try:
+                from mihomes.models.property import Property as _Property
+                from mihomes.models.task import Task, TaskStatus
+                from mihomes.services.task import complete_task
+                task_ref = item.get("task_ref") or title
+                prop_obj = session.query(_Property).filter(_Property.slug == prop).first() if prop else None
+                matched_task = None
+                if prop_obj and task_ref:
+                    matched_task = (
+                        session.query(Task)
+                        .filter(
+                            Task.property_id == prop_obj.id,
+                            Task.title.ilike(f"%{task_ref}%"),
+                            Task.status.in_([TaskStatus.PENDING, TaskStatus.IN_PROGRESS]),
+                        )
+                        .order_by(Task.created_at.desc())
+                        .first()
+                    )
+                if matched_task:
+                    complete_task(session, matched_task.slug, notes=item.get("description"))
+                    logged += 1
+                    client.send_message(reply_chat_id, f'"{matched_task.title}" marked complete ✓')
+                else:
+                    client.send_message(reply_chat_id, "Noted ✓")
+                replied += 1
+            except Exception as e:
+                errors.append(f"Failed to complete task: {e}")
+            continue
+
+        # --- Book addition: create Book records from photos + text ---
+        if category == "book_addition":
+            if not prop:
+                continue
+            books_data = item.get("books") or []
+            if not books_data:
+                try:
+                    client.send_message(reply_chat_id, "No books identified — send photos of the covers or list titles to add.")
+                    replied += 1
+                except Exception:
+                    pass
+                continue
+            from mihomes.models.book import BookCondition
+            from mihomes.services.book import create_book
+            room_slug = _resolve_room(item.get("room"), prop)
+            created_titles, book_errors = [], []
+            for b in books_data:
+                b_title = (b.get("title") or "").strip()
+                if not b_title:
+                    continue
+                try:
+                    cond_val = b.get("condition", "good")
+                    try:
+                        condition = BookCondition(cond_val)
+                    except ValueError:
+                        condition = BookCondition.GOOD
+                    book = create_book(
+                        session, title=b_title, property_id_or_slug=prop,
+                        space_id_or_slug=room_slug,
+                        author=b.get("author"), genre=b.get("genre"),
+                        isbn=b.get("isbn"), condition=condition,
+                    )
+                    created_titles.append(book.title)
+                except Exception as e:
+                    book_errors.append(f"'{b_title}': {e}")
+            if created_titles:
+                logged += len(created_titles)
+                lines = [f"Added {len(created_titles)} book(s) to library ✓"]
+                lines.extend(f"• {t}" for t in created_titles[:20])
+                if len(created_titles) > 20:
+                    lines.append(f"  …and {len(created_titles) - 20} more")
+                try:
+                    client.send_message(reply_chat_id, "\n".join(lines))
+                    replied += 1
+                except Exception as e:
+                    errors.append(f"Failed to confirm book addition: {e}")
+            errors.extend(book_errors)
+            continue
+
+        # --- Asset addition: create Asset records from photos + text ---
+        if category == "asset_addition":
+            if not prop:
+                continue
+            assets_data = item.get("assets") or []
+            if not assets_data:
+                try:
+                    client.send_message(reply_chat_id, "No assets identified — send photos or describe items to add.")
+                    replied += 1
+                except Exception:
+                    pass
+                continue
+            from mihomes.models.asset import AssetCondition, AssetType
+            from mihomes.services.asset import create_asset
+            room_slug = _resolve_room(item.get("room"), prop)
+            created_names, asset_errors = [], []
+            for a in assets_data:
+                a_name = (a.get("name") or "").strip()
+                if not a_name:
+                    continue
+                try:
+                    try:
+                        a_type = AssetType(a.get("asset_type", "equipment"))
+                    except ValueError:
+                        a_type = AssetType.EQUIPMENT
+                    try:
+                        a_cond = AssetCondition(a.get("condition", "good"))
+                    except ValueError:
+                        a_cond = AssetCondition.GOOD
+                    asset = create_asset(
+                        session, name=a_name, asset_type=a_type,
+                        property_id_or_slug=prop, space_id_or_slug=room_slug,
+                        make=a.get("make"), model_name=a.get("model"),
+                        condition=a_cond,
+                        purchase_price=float(a["estimated_value"]) if a.get("estimated_value") else None,
+                    )
+                    created_names.append(asset.name)
+                except Exception as e:
+                    asset_errors.append(f"'{a_name}': {e}")
+            if created_names:
+                logged += len(created_names)
+                lines = [f"Added {len(created_names)} asset(s) ✓"]
+                lines.extend(f"• {n}" for n in created_names[:20])
+                try:
+                    client.send_message(reply_chat_id, "\n".join(lines))
+                    replied += 1
+                except Exception as e:
+                    errors.append(f"Failed to confirm asset addition: {e}")
+            errors.extend(asset_errors)
+            continue
+
+        # --- Issue resolution: resolve a matching open issue ---
+        if category == "issue_resolution":
+            if not prop:
+                continue
+            try:
+                from mihomes.models.issue import Issue, IssueStatus
+                from mihomes.models.property import Property as _Property
+                from mihomes.services.issue import resolve_issue
+                issue_ref = item.get("issue_ref") or item.get("related_asset") or title
+                prop_obj = session.query(_Property).filter(_Property.slug == prop).first()
+                matched_issue = None
+                if prop_obj and issue_ref:
+                    matched_issue = (
+                        session.query(Issue)
+                        .filter(
+                            Issue.property_id == prop_obj.id,
+                            Issue.title.ilike(f"%{issue_ref}%"),
+                            Issue.status.notin_([IssueStatus.RESOLVED, IssueStatus.VERIFIED]),
+                        )
+                        .order_by(Issue.created_at.desc())
+                        .first()
+                    )
+                if matched_issue:
+                    resolve_issue(session, matched_issue.slug, notes=item.get("resolution_notes") or item.get("description"))
+                    logged += 1
+                    client.send_message(reply_chat_id, f'"{matched_issue.title}" resolved ✓')
+                else:
+                    client.send_message(reply_chat_id, "Noted ✓ (couldn't match an open issue — resolve manually if needed)")
+                replied += 1
+            except Exception as e:
+                errors.append(f"Failed to resolve issue: {e}")
+            continue
+
+        # --- Work order request: create a WorkOrder ---
+        if category == "work_order_request":
+            if not prop:
+                continue
+            try:
+                from mihomes.services.work_order import create_work_order
+                vendor = _resolve_vendor(session, item.get("vendor_name"))
+                wo = create_work_order(
+                    session, title=title, property_id_or_slug=prop,
+                    description=item.get("description"),
+                    vendor_id_or_slug=vendor.slug if vendor else None,
+                    estimated_cost=item.get("amount"),
+                )
+                logged += 1
+                client.send_message(reply_chat_id, f'Work order "{wo.title}" created ✓')
+                replied += 1
+            except Exception as e:
+                errors.append(f"Failed to create work order '{title}': {e}")
+            continue
+
+        # --- Appointment request: schedule a vendor/inspection visit ---
+        if category == "appointment_request":
+            if not prop:
+                continue
+            try:
+                from mihomes.models.appointment import AppointmentType
+                from mihomes.services.appointment import create_appointment
+                appt_date = _parse_event_date(item.get("date") or item.get("timestamp"))
+                vendor = _resolve_vendor(session, item.get("vendor_name"))
+                appt_type_val = item.get("appointment_type") or "vendor_visit"
+                try:
+                    appt_type = AppointmentType(appt_type_val)
+                except (ValueError, AttributeError):
+                    appt_type = AppointmentType.VENDOR_VISIT
+                appt = create_appointment(
+                    session, title=title, property_id_or_slug=prop,
+                    appt_date=appt_date or date.today(),
+                    vendor_id=vendor.id if vendor else None,
+                    appointment_type=appt_type,
+                    notes=item.get("description"),
+                )
+                logged += 1
+                date_str = appt.date.strftime("%b %d") if appt.date else "TBD"
+                client.send_message(reply_chat_id, f'"{title}" scheduled for {date_str} ✓')
+                replied += 1
+            except Exception as e:
+                errors.append(f"Failed to schedule appointment '{title}': {e}")
+            continue
+
+        # --- Expense log: record a transaction ---
+        if category == "expense_log":
+            if not prop:
+                continue
+            amount = item.get("amount")
+            if not amount:
+                try:
+                    client.send_message(reply_chat_id, 'Expense noted but no amount found — log manually.')
+                    replied += 1
+                except Exception:
+                    pass
+                continue
+            try:
+                from mihomes.services.budget import add_transaction
+                vendor = _resolve_vendor(session, item.get("vendor_name"))
+                tx_date = _parse_event_date(item.get("date") or item.get("timestamp")) or date.today()
+                add_transaction(
+                    session,
+                    amount=float(amount),
+                    property_id_or_slug=prop,
+                    category=item.get("expense_category") or "operations",
+                    tx_date=tx_date,
+                    vendor_id_or_slug=vendor.slug if vendor else None,
+                    vendor_name=item.get("vendor_name") if not vendor else None,
+                    description=title,
+                    source="telegram",
+                )
+                logged += 1
+                amount_str = f"${float(amount):,.2f}"
+                client.send_message(reply_chat_id, f'Expense {amount_str} logged ✓')
+                replied += 1
+            except Exception as e:
+                errors.append(f"Failed to log expense '{title}': {e}")
+            continue
+
+        # --- Note addition: attach a note to an existing record ---
+        if category == "note_addition":
+            note_text = item.get("note_text") or item.get("description")
+            entity_type_val = item.get("entity_type") or "issue"
+            entity_ref_val = item.get("entity_ref") or item.get("issue_ref") or item.get("task_ref")
+            if not note_text or not entity_ref_val:
+                continue
+            try:
+                from mihomes.services.note import add_note
+                add_note(session, entity_ref=f"{entity_type_val}:{entity_ref_val}", content=note_text)
+                logged += 1
+                client.send_message(reply_chat_id, 'Note added ✓')
+                replied += 1
+            except Exception as e:
+                errors.append(f"Failed to add note: {e}")
             continue
 
         # --- Issues, tasks, vendor activity: log + confirm ---

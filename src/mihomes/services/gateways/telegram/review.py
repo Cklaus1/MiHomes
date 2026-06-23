@@ -26,7 +26,13 @@ REVIEW_SCHEMA = {
                 "properties": {
                     "category": {
                         "type": "string",
-                        "enum": ["issue", "task", "task_completion", "supply_need", "vendor_activity", "question", "pto_request", "informational"],
+                        "enum": [
+                            "issue", "task", "task_completion", "supply_need",
+                            "vendor_activity", "question", "pto_request",
+                            "book_addition", "asset_addition", "issue_resolution",
+                            "work_order_request", "appointment_request",
+                            "expense_log", "note_addition", "informational",
+                        ],
                     },
                     "title": {"type": "string"},
                     "description": {"type": "string"},
@@ -40,6 +46,58 @@ REVIEW_SCHEMA = {
                     "quantity_in_stock": {"type": "number"},
                     "quantity_to_order": {"type": "number"},
                     "unit": {"type": "string"},
+                    # book_addition
+                    "books": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "title": {"type": "string"},
+                                "author": {"type": "string"},
+                                "genre": {"type": "string"},
+                                "isbn": {"type": "string"},
+                                "condition": {
+                                    "type": "string",
+                                    "enum": ["excellent", "good", "fair", "poor", "damaged"],
+                                },
+                            },
+                            "required": ["title"],
+                        },
+                    },
+                    # asset_addition
+                    "assets": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string"},
+                                "asset_type": {
+                                    "type": "string",
+                                    "enum": ["appliance", "vehicle", "valuable", "equipment", "consumable"],
+                                },
+                                "condition": {
+                                    "type": "string",
+                                    "enum": ["excellent", "good", "fair", "poor"],
+                                },
+                                "estimated_value": {"type": "number"},
+                                "make": {"type": "string"},
+                                "model": {"type": "string"},
+                            },
+                            "required": ["name"],
+                        },
+                    },
+                    # shared across several new categories
+                    "vendor_name": {"type": "string"},
+                    "amount": {"type": "number"},
+                    "expense_category": {"type": "string"},
+                    "date": {"type": "string"},
+                    "entity_type": {"type": "string"},
+                    "entity_ref": {"type": "string"},
+                    "note_text": {"type": "string"},
+                    "resolution_notes": {"type": "string"},
+                    "issue_ref": {"type": "string"},
+                    "task_ref": {"type": "string"},
+                    "appointment_type": {"type": "string"},
                 },
                 "required": ["category", "title"],
             },
@@ -195,30 +253,47 @@ def analyze_messages(
         "You are analyzing a Telegram staff group chat for a property management system. "
         "Extract ALL actionable items from the conversation. "
         "Photos attached to messages are real images from the property — analyze their visual content "
-        "when classifying and describing items (e.g. damage visible in a photo should inform severity).\n\n"
-        "Classify each message or message cluster into:\n"
-        "- issue: reporting something broken, damaged, malfunctioning, or needing repair (e.g. 'toilet is broken', 'AC not working')\n"
+        "when classifying and describing items.\n\n"
+        "Classify each message or message cluster into one of these categories:\n\n"
+        "MAINTENANCE & OPERATIONS:\n"
+        "- issue: reporting something broken, damaged, malfunctioning, or needing repair (e.g. 'toilet is broken', 'AC not working'). "
+        "Damage visible in photos should inform severity.\n"
+        "- issue_resolution: staff confirming something is now fixed or resolved (e.g. 'the AC is working now', 'plumber finished', 'toilet fixed'). "
+        "Extract issue_ref (the name/description of the issue resolved) and resolution_notes if provided.\n"
         "- task: requesting a specific action be performed (e.g. 'please clean the pool', 'order more towels')\n"
-        "- task_completion: confirming work was completed (e.g. 'done', 'finished the cleaning')\n"
+        "- task_completion: confirming a task was completed (e.g. 'done', 'finished the pool cleaning'). "
+        "Extract task_ref (the task name) if mentioned.\n"
+        "- work_order_request: requesting creation of a formal work order for a vendor job (e.g. 'create a work order for the roof leak', 'we need a work order for the HVAC'). "
+        "Extract vendor_name and amount (estimated cost) if mentioned.\n"
+        "- vendor_activity: a vendor visit or service that is happening or has happened\n"
         "- supply_need: something needs purchasing or restocking. "
-        "Extract quantity_in_stock if the message says how much is left (e.g. '1 bottle left', 'only 2 rolls'). "
-        "Extract quantity_to_order if the message says how much to buy (e.g. 'need to order 3', 'get 2 more'). "
-        "Extract unit if mentioned (bottles, rolls, bags, boxes, etc.).\n"
-        "- vendor_activity: a vendor visit or service happening\n"
-        "- question: asking for information, status, schedules, or updates (e.g. 'what is the AC status?', 'when is the next pool check?', 'has the plumber been called?', 'check AC repair status')\n"
-        "- pto_request: a staff member requesting time off (e.g. 'can I have Friday off', 'requesting PTO Dec 24-26', 'I need next Monday off'). Extract dates into pto_dates as YYYY-MM-DD strings.\n"
-        "- informational: social chat, greetings, personal messages, or anything unrelated to the home\n\n"
-        "IMPORTANT DISTINCTION — question vs task:\n"
-        "- If the message is asking for INFORMATION or STATUS → question\n"
-        "- If the message is reporting a PROBLEM → issue\n"
-        "- If the message is requesting an ACTION to be performed → task\n"
-        "'Check X status', 'what is the status of X', 'has X been done', 'when is X scheduled' are ALL questions.\n\n"
-        "For questions: 'title' = concise restatement, 'description' = full question text verbatim.\n"
-        "For issues/tasks: extract title, description, severity (if issue), reporter, assigned_to (name of person the task is assigned to if mentioned), related asset, "
-        "and room (the specific room or area mentioned, e.g. 'master bedroom', 'kitchen', 'pool area' — omit if not mentioned).\n\n"
-        "Only classify as 'question' if genuinely about the home, property, maintenance, staff, vendors, estate, or this bot/system. "
-        "Questions like 'are you working?', 'are you running?', 'is the bot active?' are ALWAYS questions — never informational. "
-        "Greetings and off-topic chat are 'informational'.\n\n"
+        "Extract quantity_in_stock, quantity_to_order, and unit if mentioned.\n\n"
+        "SCHEDULING & FINANCE:\n"
+        "- appointment_request: scheduling a vendor visit, inspection, or service (e.g. 'schedule Orkin for Thursday', 'pest control coming Friday at 2pm'). "
+        "Extract vendor_name, date (YYYY-MM-DD), and appointment_type (vendor_visit, inspection, delivery, maintenance, other).\n"
+        "- expense_log: logging a cost, invoice, or payment (e.g. 'Orkin invoice was $450', 'paid $200 for pool chemicals'). "
+        "Extract amount, vendor_name, expense_category (e.g. maintenance, landscaping, utilities, operations), and date.\n\n"
+        "LIBRARY & ASSETS:\n"
+        "- book_addition: adding books to the property library (e.g. 'add these to the library', 'these books are in the study'). "
+        "When photos are attached, READ the book covers and spines directly from the images to extract title, author, and genre for each book. "
+        "Populate the 'books' array with one entry per book identified. Also extract room if mentioned.\n"
+        "- asset_addition: adding physical items to the asset inventory (e.g. 'add this to assets', 'log the new pressure washer', 'track this equipment'). "
+        "When photos are attached, identify each trackable asset visible (furniture, electronics, appliances, equipment, valuables). "
+        "Populate the 'assets' array. Also extract room if mentioned.\n\n"
+        "NOTES & COMMUNICATION:\n"
+        "- note_addition: attaching a note to an existing record (e.g. 'add note to the pool pump issue: part ordered', 'note on the Orkin contract: renewed'). "
+        "Extract entity_type (issue, task, asset, vendor, workorder, contract), entity_ref (name/slug of the record), and note_text.\n"
+        "- question: asking for information, status, schedules, or updates (e.g. 'what is the AC status?', 'when is the next pool check?'). "
+        "Questions like 'are you working?', 'is the bot active?' are ALWAYS questions.\n"
+        "- pto_request: a staff member requesting time off. Extract pto_dates as YYYY-MM-DD strings.\n"
+        "- informational: social chat, greetings, personal messages, or anything genuinely unrelated to the property\n\n"
+        "IMPORTANT DISTINCTIONS:\n"
+        "- issue vs issue_resolution: 'toilet broken' → issue. 'toilet is fixed' → issue_resolution.\n"
+        "- task vs task_completion: 'please clean pool' → task. 'pool cleaning done' → task_completion.\n"
+        "- appointment_request vs vendor_activity: 'schedule Orkin for Thursday' → appointment_request. 'Orkin was here today' → vendor_activity.\n"
+        "- question vs task: asking for INFO → question. requesting ACTION → task.\n\n"
+        "For questions: title = concise restatement, description = full question text verbatim.\n"
+        "For issues/tasks: extract title, description, severity, reporter, assigned_to, related_asset, and room.\n\n"
         "Also list skipped items with brief reasons.\n"
         "Be thorough — even terse messages like 'deer treatment' are task requests.\n"
         "Correlate related messages (e.g., low tire + possible hole = severity upgrade)."

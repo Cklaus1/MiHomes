@@ -23,6 +23,8 @@ class NIMProvider:
     API keys start with 'nvapi-' and are obtained at build.nvidia.com.
     """
 
+    max_images_per_request: int = 1
+
     def __init__(self, api_key: str | None = None, model: str | None = None):
         if openai is None:
             raise AIProviderError(

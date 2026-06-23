@@ -309,6 +309,43 @@ def analyze_messages(
     model = get_ai_model(session, provider_name)
     provider = get_provider(provider_name, api_key, model=model)
 
+    max_images = getattr(provider, "max_images_per_request", None)
+
+    if image_attachments and max_images and len(image_attachments) > max_images:
+        # Provider has a per-request image limit — batch and merge results.
+        all_items: list[dict] = []
+        all_skipped: list[dict] = []
+        seen_titles: set[tuple] = set()
+
+        for i in range(0, len(image_attachments), max_images):
+            batch = image_attachments[i:i + max_images]
+            batch_result = provider.structured_output(
+                system_prompt, conversation_text, REVIEW_SCHEMA,
+                context_data=context or None,
+                attachments=batch,
+            )
+            for item in batch_result.get("items", []):
+                key = (item.get("category"), item.get("title", "").lower())
+                if key not in seen_titles:
+                    seen_titles.add(key)
+                    all_items.append(item)
+            all_skipped.extend(batch_result.get("skipped", []))
+
+        # One text-only pass to catch non-image intents not covered above
+        if formatted:
+            text_result = provider.structured_output(
+                system_prompt, conversation_text, REVIEW_SCHEMA,
+                context_data=context or None,
+                attachments=None,
+            )
+            for item in text_result.get("items", []):
+                key = (item.get("category"), item.get("title", "").lower())
+                if key not in seen_titles:
+                    seen_titles.add(key)
+                    all_items.append(item)
+
+        return {"items": all_items, "skipped": all_skipped}
+
     result = provider.structured_output(
         system_prompt, conversation_text, REVIEW_SCHEMA,
         context_data=context or None,

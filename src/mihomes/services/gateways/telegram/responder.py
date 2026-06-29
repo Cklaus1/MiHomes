@@ -724,7 +724,7 @@ def process_and_respond(
                 # Save any photos as Documents linked to the issue
                 import uuid as _uuid
                 from pathlib import Path as _Path
-                uploads_dir = _Path(__file__).parents[4] / "web" / "static" / "uploads"
+                uploads_dir = _Path(__file__).parents[3] / "web" / "static" / "uploads"
                 uploads_dir.mkdir(parents=True, exist_ok=True)
                 for idx, msg in enumerate(messages):
                     media_path = msg.get("mediaPath")

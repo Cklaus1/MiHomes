@@ -87,20 +87,23 @@ def ask(
     # Call AI
     response_text = provider.complete(system_prompt, query, context_data=context, attachments=attachments)
 
-    # Store conversation
-    convo = AIConversation(
-        session_id=session_id,
-        role=primary_role.name,
-        user_message=query,
-        ai_response=response_text,
-        context_summary=f"Roles: {', '.join(r.name for r in roles)}; property: {property_slug or 'all'}",
-        provider=provider_name,
-        model=model,
-    )
-    session.add(convo)
-    session.flush()
+    # Log conversation in a separate session so a DB lock here never
+    # corrupts the caller's transaction or rolls back real work.
+    try:
+        from mihomes.db import get_session as _get_log_session
+        with _get_log_session() as _log:
+            _log.add(AIConversation(
+                session_id=session_id,
+                role=primary_role.name,
+                user_message=query,
+                ai_response=response_text,
+                context_summary=f"Roles: {', '.join(r.name for r in roles)}; property: {property_slug or 'all'}",
+                provider=provider_name,
+                model=model,
+            ))
+    except Exception:
+        pass
 
-    # Save session ID
     _save_session_id(session_id)
 
     return AIResponse(
@@ -244,17 +247,20 @@ def budget_review(
 
     response_text = provider.complete(role.system_prompt, query, context_data=full_context)
 
-    convo = AIConversation(
-        session_id=session_id,
-        role=role.name,
-        user_message=query,
-        ai_response=response_text,
-        context_summary=f"budget_review; property: {property_slug or 'all'}",
-        provider=provider_name,
-        model=model,
-    )
-    session.add(convo)
-    session.flush()
+    try:
+        from mihomes.db import get_session as _get_log_session
+        with _get_log_session() as _log:
+            _log.add(AIConversation(
+                session_id=session_id,
+                role=role.name,
+                user_message=query,
+                ai_response=response_text,
+                context_summary=f"budget_review; property: {property_slug or 'all'}",
+                provider=provider_name,
+                model=model,
+            ))
+    except Exception:
+        pass
     _save_session_id(session_id)
 
     return AIResponse(text=response_text, role=role.display_name, session_id=session_id)

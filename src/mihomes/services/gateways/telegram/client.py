@@ -119,6 +119,10 @@ class TelegramClient:
         if not msg:
             return None
 
+        # Skip system events — new member joins, member leaves, etc.
+        if msg.get("new_chat_members") or msg.get("left_chat_member"):
+            return None
+
         from_user = msg.get("from") or {}
         if from_user.get("is_bot"):
             return None

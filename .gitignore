@@ -22,6 +22,9 @@ npm-debug.log*
 .env
 .env.*
 
+# Runtime-generated upload storage
+src/web/
+
 # Home Assistant — runtime files, credentials, and generated data
 ha-config/.storage/
 ha-config/.cache/

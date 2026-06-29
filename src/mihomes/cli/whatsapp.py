@@ -473,15 +473,26 @@ def monitor(
                     new_msgs = [m for m in new_msgs if m.get("propertySlug") == property]
 
                 if new_msgs:
-                    console.print(f"[dim]{now.strftime('%H:%M:%S')}[/dim] {len(new_msgs)} new message(s) — analyzing...")
-                    with get_session() as session:
-                        result = process_and_respond(session, new_msgs, property_slug=property)
+                    from collections import defaultdict
+                    by_property: dict = defaultdict(list)
+                    for m in new_msgs:
+                        by_property[m.get("propertySlug")].append(m)
 
-                    if result["logged"]:
-                        console.print(f"  [green]✓[/green] {result['logged']} item(s) logged")
-                    if result["replied"]:
-                        console.print(f"  [green]✓[/green] {result['replied']} reply(ies) sent")
-                    for err in result["errors"]:
+                    total_logged = total_replied = 0
+                    all_errors: list = []
+                    for prop_slug, prop_msgs in by_property.items():
+                        console.print(f"[dim]{now.strftime('%H:%M:%S')}[/dim] {len(prop_msgs)} message(s) for '{prop_slug}' — analyzing...")
+                        with get_session() as session:
+                            result = process_and_respond(session, prop_msgs, property_slug=prop_slug)
+                        total_logged += result["logged"]
+                        total_replied += result["replied"]
+                        all_errors.extend(result["errors"])
+
+                    if total_logged:
+                        console.print(f"  [green]✓[/green] {total_logged} item(s) logged")
+                    if total_replied:
+                        console.print(f"  [green]✓[/green] {total_replied} reply(ies) sent")
+                    for err in all_errors:
                         console.print(f"  [yellow]⚠[/yellow] {err}")
 
                     processed_ids.update(m["id"] for m in new_msgs if m.get("id"))

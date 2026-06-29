@@ -180,6 +180,10 @@ def _ai_response(session: Session, prompt: str, role: str, property_slug: str | 
     except Exception as e:
         import logging
         logging.getLogger("mihomes.telegram").warning("AI response failed: %s", e)
+        try:
+            session.rollback()
+        except Exception:
+            pass
         return None
 
 

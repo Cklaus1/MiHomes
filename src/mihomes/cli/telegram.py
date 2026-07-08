@@ -275,26 +275,28 @@ def monitor(
         f"(polling every {interval}s) — Ctrl+C to stop\n"
     )
 
-    _IDS_FILE = _LOG_DIR / "telegram-monitor-ids.json"
+    from mihomes.services.config_service import get_config, set_config
 
     def _load_ids() -> set:
+        # Stored in the database (not a local file) so it always travels
+        # with the database on backup/restore/migration — a dedup list that
+        # lives next to the data it protects can never drift out of sync
+        # with it the way a sidecar file on local disk can.
+        with get_session() as s:
+            stored = get_config(s, "telegram.processed_ids")
         try:
-            return set(json.loads(_IDS_FILE.read_text()))
-        except Exception:
+            return set(json.loads(stored)) if stored else set()
+        except (json.JSONDecodeError, TypeError):
             return set()
 
     def _save_ids(ids: set) -> None:
-        try:
-            _LOG_DIR.mkdir(parents=True, exist_ok=True)
-            _IDS_FILE.write_text(json.dumps(list(ids)[-2000:]))
-        except Exception:
-            pass
+        with get_session() as s:
+            set_config(s, "telegram.processed_ids", json.dumps(list(ids)[-2000:]))
 
     processed_ids: set = _load_ids()
 
     # Load last_update_id from config so restarts don't replay old messages
     with get_session() as session:
-        from mihomes.services.config_service import get_config, set_config
         stored = get_config(session, "telegram.last_update_id")
         last_update_id: int | None = int(stored) if stored else None
         chat_links = _load_chat_links(session)

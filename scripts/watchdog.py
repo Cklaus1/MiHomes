@@ -20,14 +20,24 @@ INVENTORY_DIGEST_DAY = 0  # Monday (weekday index)
 
 
 def _pid_running(pid: int) -> bool:
+    if sys.platform == "win32":
+        try:
+            result = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV"],
+                capture_output=True, text=True,
+            )
+            return str(pid) in result.stdout
+        except Exception:
+            return False
     try:
-        result = subprocess.run(
-            ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV"],
-            capture_output=True, text=True,
-        )
-        return str(pid) in result.stdout
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
     except Exception:
         return False
+    return True
 
 
 def _bot_reachable() -> bool:

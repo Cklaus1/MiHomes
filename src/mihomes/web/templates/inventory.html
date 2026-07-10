@@ -133,6 +133,12 @@
           <!-- Quick actions -->
           <td class="px-4 py-3 whitespace-nowrap text-right">
             <div class="flex items-center justify-end gap-2">
+              <button type="button"
+                      onclick="openThresholdsModal('{{ item.slug }}', '{{ item.name | replace("'", "\\'") }}', {{ item.par_level | default('null', true) }}, {{ item.low_stock_threshold | default('null', true) }})"
+                      title="Edit par level / low-stock threshold"
+                      class="text-gray-400 hover:text-brand-600 p-1 rounded hover:bg-brand-50 transition-colors">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+              </button>
               {% if item.status.value == 'ordered' %}
               <form method="post" action="/inventory/{{ item.slug }}/stock"
                     class="flex items-center gap-1" onsubmit="this.querySelector('button').disabled=true">
@@ -239,9 +245,51 @@
         <input type="number" name="unit_price" min="0" step="0.01"
                class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
       </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Custom low-stock threshold</label>
+        <input type="number" name="low_stock_threshold" min="0" step="0.01" placeholder="Leave blank for default"
+               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        <p class="text-xs text-gray-400 mt-1">Default: flagged low below 1 unit if par level is 1, or below 2 units if par level is greater than 1.</p>
+      </div>
       <div class="flex gap-3 pt-1">
         <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Add Item</button>
         <button type="button" onclick="document.getElementById('add-item-modal').classList.add('hidden')"
+                class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-50">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Shared "Edit Thresholds" modal -->
+<div id="thresholds-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+     onclick="if(event.target===this)closeThresholdsModal()">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h3 class="text-base font-semibold text-gray-900">Edit Stock Thresholds</h3>
+        <p class="text-xs text-gray-400 mt-0.5" id="thresholds-modal-subtitle"></p>
+      </div>
+      <button onclick="closeThresholdsModal()" class="text-gray-400 hover:text-gray-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <form id="thresholds-modal-form" method="post" action="" class="space-y-3">
+      <input type="hidden" name="property_slug" value="{{ filter_property or '' }}">
+      <input type="hidden" name="category" value="{{ filter_category or '' }}">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Par Level</label>
+        <input type="number" name="par_level" id="thresholds-modal-par" min="0" step="1"
+               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Custom low-stock threshold</label>
+        <input type="number" name="low_stock_threshold" id="thresholds-modal-threshold" min="0" step="0.01" placeholder="Leave blank for default"
+               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        <p class="text-xs text-gray-400 mt-1">Default: flagged low below 1 unit if par level is 1, or below 2 units if par level is greater than 1.</p>
+      </div>
+      <div class="flex gap-3 pt-1">
+        <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Save</button>
+        <button type="button" onclick="closeThresholdsModal()"
                 class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-50">Cancel</button>
       </div>
     </form>
@@ -461,6 +509,18 @@ function openOrderedModal(slug, name) {
 
 function closeOrderedModal() {
   document.getElementById('ordered-modal').classList.add('hidden');
+}
+
+function openThresholdsModal(slug, name, parLevel, lowStockThreshold) {
+  document.getElementById('thresholds-modal-subtitle').textContent = name;
+  document.getElementById('thresholds-modal-form').action = '/inventory/' + slug + '/settings';
+  document.getElementById('thresholds-modal-par').value = parLevel === null ? '' : parLevel;
+  document.getElementById('thresholds-modal-threshold').value = lowStockThreshold === null ? '' : lowStockThreshold;
+  document.getElementById('thresholds-modal').classList.remove('hidden');
+}
+
+function closeThresholdsModal() {
+  document.getElementById('thresholds-modal').classList.add('hidden');
 }
 
 function openPriceModal(id) {

@@ -183,6 +183,26 @@
           Synced to Google Calendar
         </p>
         {% endif %}
+        {% if a.recurring_expense_id %}
+        <div class="mb-4">
+          {% if a.completed %}
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+            Serviced — added to budget
+          </span>
+          {% else %}
+          <form hx-post="/calendar/appointments/{{ a.id }}/mark-serviced" hx-target="body" hx-swap="innerHTML" class="flex items-center gap-2">
+            <input type="hidden" name="month" value="{{ month_date.strftime('%Y-%m') }}">
+            <button type="submit"
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-xs font-medium rounded-lg hover:bg-emerald-700 transition-colors">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+              Mark Serviced
+            </button>
+            <span class="text-xs text-gray-400">Adds this recurring service's cost to the budget</span>
+          </form>
+          {% endif %}
+        </div>
+        {% endif %}
         <div class="flex justify-end pt-4 border-t border-gray-100">
           <button onclick="enterEdit('appt','{{ a.id }}')"
                   class="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">

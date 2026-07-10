@@ -38,7 +38,15 @@ def _make_chart(labels: list, values: list, label: str = "Spending") -> str:
     })
 
 
-def _ctx(db: Session, active_tab: str = "overview") -> dict:
+def _ctx(
+    db: Session,
+    active_tab: str = "overview",
+    *,
+    analysis_property_id: int | None = None,
+    txn_search: str | None = None,
+    txn_date_from: str | None = None,
+    txn_date_to: str | None = None,
+) -> dict:
     properties = prop_svc.list_properties(db)
     today = date.today()
     period_start = today.replace(day=1)
@@ -53,7 +61,12 @@ def _ctx(db: Session, active_tab: str = "overview") -> dict:
             reports.extend(rows)
         except Exception:
             pass
-    transactions = budget_svc.list_transactions(db)
+    transactions = budget_svc.list_transactions(
+        db,
+        search=txn_search or None,
+        date_from=date.fromisoformat(txn_date_from) if txn_date_from else None,
+        date_to=date.fromisoformat(txn_date_to) if txn_date_to else None,
+    )
     expenses = recurring_svc.list_recurring_expenses(db, active_only=False)
 
     # Spending analysis — current year to date
@@ -65,7 +78,11 @@ def _ctx(db: Session, active_tab: str = "overview") -> dict:
         "Total Spending",
     ) if comparison_data else "{}"
 
-    analysis_prop = properties[0] if properties else None
+    analysis_prop = None
+    if analysis_property_id:
+        analysis_prop = next((p for p in properties if p.id == analysis_property_id), None)
+    if analysis_prop is None:
+        analysis_prop = properties[0] if properties else None
     category_data: list = []
     category_chart = "{}"
     vendor_data: list = []
@@ -92,7 +109,10 @@ def _ctx(db: Session, active_tab: str = "overview") -> dict:
         "active_tab": active_tab,
         "properties": properties,
         "reports": reports,
-        "transactions": transactions[:20],
+        "transactions": transactions[:50],
+        "txn_search": txn_search or "",
+        "txn_date_from": txn_date_from or "",
+        "txn_date_to": txn_date_to or "",
         "periods": [p.value for p in BudgetPeriod],
         "expenses": expenses,
         "vendors": vendor_svc.list_vendors(db),
@@ -110,8 +130,22 @@ def _ctx(db: Session, active_tab: str = "overview") -> dict:
 
 
 @router.get("/")
-def budget_overview(request: Request, db: Session = Depends(get_db)):
-    return templates.TemplateResponse(request, "budget.html", _ctx(db))
+def budget_overview(
+    request: Request,
+    tab: str = "overview",
+    property_id: int | None = None,
+    txn_q: str = "",
+    txn_date_from: str = "",
+    txn_date_to: str = "",
+    db: Session = Depends(get_db),
+):
+    return templates.TemplateResponse(request, "budget.html", _ctx(
+        db, tab,
+        analysis_property_id=property_id,
+        txn_search=txn_q or None,
+        txn_date_from=txn_date_from or None,
+        txn_date_to=txn_date_to or None,
+    ))
 
 
 @router.post("/transactions", response_class=HTMLResponse)

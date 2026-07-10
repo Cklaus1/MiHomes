@@ -99,6 +99,51 @@ def test_search_page_renders(client):
     assert resp.status_code == 200
 
 
+def test_search_dropdown_renders_matching_results(client):
+    resp = client.get("/search/dropdown", params={"q": "acme"})
+    assert resp.status_code == 200
+    assert "Acme Pest" in resp.text
+
+
+def test_search_dropdown_empty_query_returns_prompt(client):
+    resp = client.get("/search/dropdown", params={"q": ""})
+    assert resp.status_code == 200
+    assert "Type to search" in resp.text
+
+
+def test_search_dropdown_no_matches(client):
+    resp = client.get("/search/dropdown", params={"q": "zzz-no-such-thing-zzz"})
+    assert resp.status_code == 200
+    assert "No results" in resp.text
+
+
+# --- Recurring expenses (budget page must survive one existing) -----------
+
+def test_create_recurring_expense_then_budget_page_loads(client):
+    prop_slug = client.get("/properties/").text  # ensure properties route works first
+    from mihomes.services import property as prop_svc
+    with client._SessionLocal() as s:
+        prop = prop_svc.list_properties(s)[0]
+        prop_slug = prop.slug
+
+    resp = client.post("/recurring/", data={
+        "name": "Pest Control",
+        "amount": "132.25",
+        "frequency": "custom_months",
+        "property_slug": prop_slug,
+        "category": "pest_control",
+        "interval_count": "2",
+    })
+    assert resp.status_code == 200
+    assert "Pest Control" in resp.text
+
+    # The real regression: once a recurring expense exists, every budget tab
+    # renders its notes_map — this must not 500.
+    resp = client.get("/budget/")
+    assert resp.status_code == 200
+    assert "Pest Control" in resp.text
+
+
 # --- Directory (formerly Staff) --------------------------------------------
 
 def test_directory_lists_all_people(client):

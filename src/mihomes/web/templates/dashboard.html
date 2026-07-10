@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 
 {% block title %}Dashboard — MiHomes{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/marked@4.3.0/marked.min.js"></script>
+{% endblock %}
 {% block heading %}Portfolio Overview{% endblock %}
 {% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ properties|length }} propert{{ 'y' if properties|length == 1 else 'ies' }} · {{ alerts|length }} active alert{{ 's' if alerts|length != 1 else '' }}</p>{% endblock %}
 
@@ -189,4 +193,153 @@
   </div>
 
 </div>
+
+<!-- AI Quick Ask -->
+<div class="mt-4 bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      <div class="w-6 h-6 rounded-lg bg-brand-100 flex items-center justify-center">
+        <svg class="w-3.5 h-3.5 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+        </svg>
+      </div>
+      <h2 class="text-sm font-semibold text-gray-700">Ask the AI Advisor</h2>
+    </div>
+    <a href="/ai/" class="text-xs text-brand-600 hover:text-brand-700">Full AI Advisor →</a>
+  </div>
+  <div class="p-4">
+    <!-- Quick prompts -->
+    <div class="flex flex-wrap gap-2 mb-3">
+      {% for prompt in ['What should I prioritize this week?', 'Any overdue maintenance?', 'Summarize recent activity'] %}
+      <button onclick="dashSetQuery(this.textContent)"
+              class="px-3 py-1 text-xs text-brand-600 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-full transition-colors">
+        {{ prompt }}
+      </button>
+      {% endfor %}
+    </div>
+    <!-- Input row -->
+    <div class="flex gap-3 items-start">
+      <textarea id="dash-query" rows="2"
+                placeholder="Ask anything about your estate…"
+                class="flex-1 border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
+                onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();dashAskSubmit();}"></textarea>
+      <button id="dash-submit" onclick="dashAskSubmit()"
+              class="flex-shrink-0 inline-flex items-center gap-2 px-4 py-2.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors">
+        <svg id="dash-spinner" class="w-4 h-4 animate-spin hidden" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+        </svg>
+        <svg id="dash-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+        </svg>
+        Ask
+      </button>
+    </div>
+    <!-- Response area -->
+    <div id="dash-response" class="hidden mt-4"></div>
+  </div>
+</div>
+
+<style>
+  .dash-prose p { font-size:0.875rem; color:#374151; line-height:1.65; margin:0.35rem 0; }
+  .dash-prose ul, .dash-prose ol { padding-left:1.25rem; margin:0.35rem 0; }
+  .dash-prose li { font-size:0.875rem; color:#374151; margin:0.15rem 0; line-height:1.55; }
+  .dash-prose h1,.dash-prose h2,.dash-prose h3 { font-weight:600; color:#111827; margin:0.75rem 0 0.25rem; }
+  .dash-prose h1 { font-size:1rem; }
+  .dash-prose h2 { font-size:0.9375rem; }
+  .dash-prose h3 { font-size:0.875rem; }
+  .dash-prose strong { font-weight:600; color:#111827; }
+  .dash-prose :first-child { margin-top:0 !important; }
+  @keyframes dash-blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  .dash-cursor { animation:dash-blink 0.7s step-end infinite; color:#0284c7; }
+</style>
+
+<script>
+function dashSetQuery(text) {
+  document.getElementById('dash-query').value = text;
+  document.getElementById('dash-query').focus();
+}
+
+function dashSetStreaming(on) {
+  const btn = document.getElementById('dash-submit');
+  const spinner = document.getElementById('dash-spinner');
+  const icon = document.getElementById('dash-icon');
+  if (btn) btn.disabled = on;
+  if (spinner) spinner.classList.toggle('hidden', !on);
+  if (icon) icon.classList.toggle('hidden', on);
+}
+
+async function dashAskSubmit() {
+  const queryEl = document.getElementById('dash-query');
+  const query = queryEl.value.trim();
+  if (!query) return;
+
+  const responseEl = document.getElementById('dash-response');
+  responseEl.className = 'mt-4 bg-gray-50 rounded-xl border border-gray-200 p-4';
+  responseEl.innerHTML = '<div class="flex items-center gap-2 text-sm text-gray-400"><svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg> Thinking…</div>';
+  dashSetStreaming(true);
+
+  const formData = new FormData();
+  formData.append('query', query);
+  formData.append('role', '');
+  formData.append('property_id', '');
+  formData.append('session_id', '');
+
+  let rawText = '';
+  let firstToken = true;
+  try {
+    const resp = await fetch('/ai/ask-stream', { method: 'POST', body: formData });
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop();
+
+      for (const part of parts) {
+        for (const line of part.split('\n')) {
+          if (!line.startsWith('data: ')) continue;
+          const data = line.slice(6);
+
+          if (data === '[DONE]') {
+            if (typeof marked !== 'undefined' && rawText) {
+              responseEl.innerHTML = '<div class="dash-prose">' + marked.parse(rawText) + '</div>';
+            } else {
+              responseEl.innerHTML = '<div class="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">' + rawText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</div>';
+            }
+            dashSetStreaming(false);
+            queryEl.value = '';
+            return;
+          }
+
+          try {
+            const msg = JSON.parse(data);
+            if (msg.e) {
+              responseEl.innerHTML = '<div class="text-sm text-red-600">' + msg.e + '</div>';
+              dashSetStreaming(false);
+              return;
+            }
+            if (msg.t !== undefined) {
+              rawText += msg.t;
+              if (firstToken) {
+                firstToken = false;
+                responseEl.innerHTML = '';
+              }
+              const escaped = rawText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+              responseEl.innerHTML = '<div class="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">' + escaped + '<span class="dash-cursor">▋</span></div>';
+            }
+          } catch(_) {}
+        }
+      }
+    }
+  } catch(err) {
+    responseEl.innerHTML = '<div class="text-sm text-red-600">Connection error. Please try again.</div>';
+    dashSetStreaming(false);
+  }
+}
+</script>
 {% endblock %}

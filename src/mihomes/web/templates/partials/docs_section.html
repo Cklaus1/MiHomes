@@ -1,57 +1,85 @@
 {# Reusable documents section. Expects: docs, post_url, delete_url_prefix #}
-<div class="space-y-2 max-h-40 overflow-y-auto mb-3">
+<div class="space-y-2 max-h-64 overflow-y-auto mb-3">
   {% if docs %}
     {% for doc in docs %}
-    {% set is_image = doc.file_path and (doc.file_path.endswith('.jpg') or doc.file_path.endswith('.jpeg') or doc.file_path.endswith('.png') or doc.file_path.endswith('.webp') or doc.document_type.value == 'photo') %}
-    <div class="bg-white rounded-lg px-3 py-2.5 border border-gray-100 flex items-start gap-2 group">
+    {% set fp = doc.file_path or '' %}
+    {% set is_image = fp.endswith('.jpg') or fp.endswith('.jpeg') or fp.endswith('.png') or fp.endswith('.webp') or fp.endswith('.gif') or doc.document_type.value == 'photo' %}
+    {% set is_pdf = fp.endswith('.pdf') %}
+    {% set filename = fp.split('/')[-1] %}
+    <div class="bg-white rounded-lg px-3 py-2.5 border border-gray-100 flex items-center gap-3 group">
+      <!-- Thumbnail / icon -->
       {% if is_image %}
-      <a href="{{ doc.file_path }}" target="_blank" class="flex-shrink-0">
-        <img src="{{ doc.file_path }}" alt="{{ doc.title }}" class="w-10 h-10 object-cover rounded-md border border-gray-200" />
-      </a>
+      <button onclick="previewDoc('{{ fp }}','{{ doc.title | replace("'", "\\'") }}','image')"
+              class="flex-shrink-0 focus:outline-none">
+        <img src="{{ fp }}" alt="{{ doc.title }}"
+             class="w-10 h-10 object-cover rounded-md border border-gray-200 hover:opacity-90 transition-opacity cursor-zoom-in" />
+      </button>
+      {% elif is_pdf %}
+      <button onclick="previewDoc('{{ fp }}','{{ doc.title | replace("'", "\\'") }}','pdf')"
+              class="flex-shrink-0 w-10 h-10 flex items-center justify-center rounded-md border border-gray-200 bg-red-50 hover:bg-red-100 transition-colors cursor-pointer focus:outline-none">
+        <svg class="w-5 h-5 text-red-500" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zm-1 1.5L18.5 9H13V3.5zM8.5 15h-1v-4h1c.83 0 1.5.67 1.5 1.5v1c0 .83-.67 1.5-1.5 1.5zm3.5 0h-1v-4h1c1.1 0 2 .9 2 2s-.9 2-2 2zm4.5-3h-1.5v1H17v1h-1.5v1H14v-4h3.5v1z"/>
+        </svg>
+      </button>
       {% else %}
-      <svg class="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-      </svg>
+      <div class="flex-shrink-0 w-10 h-10 flex items-center justify-center rounded-md border border-gray-200 bg-gray-50">
+        <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+        </svg>
+      </div>
       {% endif %}
+
+      <!-- Title + type + link -->
       <div class="flex-1 min-w-0">
         <div class="text-sm font-medium text-gray-800 truncate">{{ doc.title }}</div>
-        <div class="text-xs text-gray-400">
-          {{ doc.document_type.value }} ·
-          {% if doc.file_path.startswith('/static/') or doc.file_path.startswith('http') %}
-            <a href="{{ doc.file_path }}" target="_blank" rel="noopener"
-               class="text-brand-600 hover:underline truncate">{{ doc.file_path.split('/')[-1] }}</a>
+        <div class="text-xs text-gray-400 flex items-center gap-1.5 mt-0.5">
+          <span class="capitalize">{{ doc.document_type.value }}</span>
+          <span>·</span>
+          {% if is_image %}
+          <button onclick="previewDoc('{{ fp }}','{{ doc.title | replace("'", "\\'") }}','image')"
+                  class="text-brand-600 hover:underline truncate max-w-[160px] text-left">{{ filename }}</button>
+          {% elif is_pdf %}
+          <button onclick="previewDoc('{{ fp }}','{{ doc.title | replace("'", "\\'") }}','pdf')"
+                  class="text-brand-600 hover:underline truncate max-w-[160px] text-left">{{ filename }}</button>
+          {% elif fp.startswith('/static/') or fp.startswith('http') %}
+          <a href="{{ fp }}" target="_blank" rel="noopener"
+             class="text-brand-600 hover:underline truncate max-w-[160px]">{{ filename }} ↗</a>
           {% else %}
-            {{ doc.file_path }}
+          <span class="truncate max-w-[160px]">{{ fp }}</span>
           {% endif %}
         </div>
       </div>
+
+      <!-- Delete button -->
       <button hx-delete="{{ delete_url_prefix }}/{{ doc.id }}"
               hx-target="closest [data-docs-container]"
               hx-swap="innerHTML"
-              hx-confirm="Remove this document?"
-              class="flex-shrink-0 text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity mt-0.5">
-        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              hx-confirm="Remove this attachment?"
+              class="flex-shrink-0 text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
         </svg>
       </button>
     </div>
     {% endfor %}
   {% else %}
-  <div class="text-sm text-gray-400 text-center py-2">No documents attached.</div>
+  <div class="text-sm text-gray-400 text-center py-3">No attachments yet.</div>
   {% endif %}
 </div>
+
 <form hx-post="{{ post_url }}"
       hx-target="closest [data-docs-container]"
       hx-swap="innerHTML"
       hx-encoding="multipart/form-data"
-      hx-on::after-request="this.reset()"
+      hx-on::after-request="this.reset(); this.querySelector('[data-file-label]').textContent='Choose file…'"
       class="space-y-2">
   <div class="flex gap-2">
     <input type="text" name="title" placeholder="Document title" required
            class="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white" />
     <select name="doc_type"
             class="border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
-      <option value="photo" selected>Photo</option>
+      <option value="invoice">Invoice</option>
+      <option value="photo">Photo</option>
       <option value="contract">Contract</option>
       <option value="warranty">Warranty</option>
       <option value="insurance">Insurance</option>
@@ -65,9 +93,9 @@
       <svg class="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
       </svg>
-      <span class="text-sm text-gray-400 truncate" id="file-label-{{ post_url | replace('/', '-') }}">Choose file…</span>
+      <span class="text-sm text-gray-400 truncate" data-file-label>Choose file…</span>
       <input type="file" name="file" required class="sr-only"
-             onchange="document.getElementById('file-label-{{ post_url | replace('/', '-') }}').textContent = this.files[0]?.name || 'Choose file…'" />
+             onchange="this.closest('label').querySelector('[data-file-label]').textContent = this.files[0]?.name || 'Choose file…'" />
     </label>
     <button type="submit"
             class="px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors flex-shrink-0">

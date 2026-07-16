@@ -343,6 +343,59 @@ mihomes vendor list
 
 ---
 
+## The Telegram Bot — Keeping It Running Without Duplicates
+
+The Telegram bot (the one that replies in the household group chat) runs on the **VM** — a separate always-on machine, not your PC. It's supposed to be the *only* thing answering messages. If it ever runs in two places at once, you'll get duplicate or inconsistent replies to the same message. This happened once already — here's how to avoid it again.
+
+### The one rule
+
+**Never run `mihomes telegram monitor` or `mihomes telegram watchdog` directly on your own PC.** Not even "just to test." Your PC should only ever be used to *check* on the bot — never to *run* it. The VM is the only machine that should run it, ever.
+
+### Starting your day
+
+Nothing to do. The bot keeps running on the VM whether your PC is on, off, or asleep. You don't need to start anything.
+
+If you want to double check it's alive, on the VM run:
+```
+mihomes telegram status
+```
+This shows `Local watchdog: Running (PID ...)` if it's healthy. If it says "Not running," something's down — see "If the bot stops responding" below.
+
+### During the day
+
+- To test the bot, just send it a message in Telegram and wait for a reply. That's it.
+- Don't SSH into the VM and manually run `mihomes telegram monitor` "to check if it's working" — that starts a second, competing copy of the bot, which is exactly what caused duplicate replies before.
+
+### Leaving work / turning off your PC
+
+Nothing to do. Closing your PC or your terminal doesn't stop the bot — it keeps running on the VM regardless. You never need to "turn it off" before leaving.
+
+### If the bot stops responding, or you see duplicate/inconsistent replies
+
+1. On the VM, check what's running:
+   ```
+   tmux ls
+   ```
+   You should see exactly two things: `mihomes-bot` and `mihomes-watchdog`. If you see anything else, or nothing at all, something's wrong.
+
+2. On your own PC, check nothing is running there by mistake:
+   ```
+   mihomes telegram status
+   ```
+   This should say `Local watchdog: Not running`. If it ever says "Running," stop it immediately:
+   ```
+   mihomes telegram stop
+   ```
+
+3. If the VM's watchdog isn't running, restart it:
+   ```
+   mihomes telegram watchdog
+   ```
+
+4. If you're ever unsure whether two things are running at once, the golden rule is: **only one machine, and only one process on that machine, should ever be polling Telegram.** If in doubt, stop everything (`mihomes telegram stop` on both your PC and the VM) and start fresh with just `mihomes telegram watchdog` on the VM.
+
+---
+
 ## Quick Overview of Everything
 
 ```
@@ -399,5 +452,8 @@ Cut this out and keep it handy.
 | Run a playbook | `mihomes playbook run <name> --property X` |
 | Rank resumes | `mihomes ai rank-resumes <folder> --role <role>` |
 | Log an expense | `mihomes expense add --property X --amount Y --category Z --description "..."` |
+| Check bot status (VM only) | `mihomes telegram status` |
+| Stop a local bot copy by mistake | `mihomes telegram stop` |
+| Restart the bot on the VM | `mihomes telegram watchdog` |
 | Dashboard | `mihomes dashboard` |
 | Help on any command | `mihomes <command> --help` |

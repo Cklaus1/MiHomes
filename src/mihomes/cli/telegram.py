@@ -596,6 +596,30 @@ def autostart_cmd(
             console.print(f"[dim]Add to cron or systemd: {sys.executable} {watchdog_script}[/dim]")
 
 
+def _pid_running(pid: int) -> bool:
+    """Cross-platform liveness check for a previously recorded PID."""
+    if sys.platform == "win32":
+        try:
+            si_check = subprocess.STARTUPINFO()
+            si_check.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            si_check.wShowWindow = subprocess.SW_HIDE
+            r = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV"],
+                               capture_output=True, text=True,
+                               creationflags=0x08000000, startupinfo=si_check)
+            return str(pid) in r.stdout
+        except Exception:
+            return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except Exception:
+        return False
+    return True
+
+
 def _start_watchdog_now(watchdog_script: Path, monitor_property: str = "belle-estate"):
     """Start the watchdog process silently."""
     log_dir = _LOG_DIR
@@ -605,13 +629,7 @@ def _start_watchdog_now(watchdog_script: Path, monitor_property: str = "belle-es
     if pid_file.exists():
         try:
             pid = int(pid_file.read_text().strip())
-            si_check = subprocess.STARTUPINFO()
-            si_check.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            si_check.wShowWindow = subprocess.SW_HIDE
-            r = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV"],
-                               capture_output=True, text=True,
-                               creationflags=0x08000000, startupinfo=si_check)
-            if str(pid) in r.stdout:
+            if _pid_running(pid):
                 return
         except (ValueError, OSError):
             pass

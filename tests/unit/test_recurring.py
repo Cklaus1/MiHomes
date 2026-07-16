@@ -4,13 +4,14 @@ from datetime import date, timedelta
 
 import pytest
 
+from mihomes.models.budget import Transaction
 from mihomes.models.property import Property, PropertyType
 from mihomes.models.recurring_expense import ExpenseFrequency, RecurringExpense
-from mihomes.models.budget import Transaction
 from mihomes.services.recurring import (
     _next_due_date,
     create_recurring_expense,
     generate_transactions,
+    generate_upcoming_appointments,
     list_recurring_expenses,
 )
 
@@ -24,12 +25,13 @@ def prop(session):
 
 
 class TestNextDueDate:
-    def _make_expense(self, freq, last_generated=None, start_date=None):
+    def _make_expense(self, freq, last_generated=None, start_date=None, interval_count=None):
         from types import SimpleNamespace
         return SimpleNamespace(
             frequency=freq,
             last_generated=last_generated,
             start_date=start_date or date(2026, 1, 1),
+            interval_count=interval_count,
         )
 
     def test_no_last_generated_returns_start_date(self):
@@ -59,6 +61,23 @@ class TestNextDueDate:
     def test_annual(self):
         exp = self._make_expense(ExpenseFrequency.ANNUAL, last_generated=date(2026, 3, 15))
         assert _next_due_date(exp) == date(2027, 3, 15)
+
+    def test_custom_weeks(self):
+        exp = self._make_expense(ExpenseFrequency.CUSTOM_WEEKS, last_generated=date(2026, 1, 1), interval_count=3)
+        assert _next_due_date(exp) == date(2026, 1, 22)
+
+    def test_custom_weeks_defaults_to_one_if_unset(self):
+        exp = self._make_expense(ExpenseFrequency.CUSTOM_WEEKS, last_generated=date(2026, 1, 1))
+        assert _next_due_date(exp) == date(2026, 1, 8)
+
+    def test_custom_months(self):
+        # e.g. Orkin pest control every 2 months
+        exp = self._make_expense(ExpenseFrequency.CUSTOM_MONTHS, last_generated=date(2026, 1, 15), interval_count=2)
+        assert _next_due_date(exp) == date(2026, 3, 15)
+
+    def test_custom_months_defaults_to_one_if_unset(self):
+        exp = self._make_expense(ExpenseFrequency.CUSTOM_MONTHS, last_generated=date(2026, 1, 15))
+        assert _next_due_date(exp) == date(2026, 2, 15)
 
 
 class TestCreateRecurringExpense:
@@ -160,7 +179,6 @@ class TestGenerateTransactions:
             session, "Future Expense", 200.0, ExpenseFrequency.MONTHLY,
             str(prop.id), "misc", date.today() + timedelta(days=10),
         )
-        tx_count_before = session.query(Transaction).count()
         generate_transactions(session)
         # No new transaction for this future expense
         new_txs = session.query(Transaction).filter(
@@ -169,7 +187,7 @@ class TestGenerateTransactions:
         assert new_txs == 0
 
     def test_skips_ended_expense(self, session, prop):
-        exp = create_recurring_expense(
+        create_recurring_expense(
             session, "Ended Expense", 50.0, ExpenseFrequency.MONTHLY,
             str(prop.id), "misc", date(2025, 1, 1),
             end_date=date(2025, 6, 1),
@@ -201,3 +219,56 @@ class TestGenerateTransactions:
             Transaction.description == "Recurring: Inactive Recurring"
         ).first()
         assert tx is None
+
+
+class TestGenerateUpcomingAppointments:
+    def test_creates_appointment_for_bimonthly_service(self, session, prop):
+        # e.g. Orkin pest control every 2 months
+        create_recurring_expense(
+            session, "Pest Control", 132.25, ExpenseFrequency.CUSTOM_MONTHS,
+            str(prop.id), "pest_control", date.today(), interval_count=2,
+        )
+        created = generate_upcoming_appointments(session, horizon_days=180)
+        assert len(created) >= 1
+        assert created[0].title == "Pest Control"
+        assert created[0].recurring_expense_id is not None
+        assert created[0].completed is False
+
+    def test_is_idempotent_no_duplicate_on_second_call(self, session, prop):
+        create_recurring_expense(
+            session, "Pool Service", 80.0, ExpenseFrequency.MONTHLY,
+            str(prop.id), "pool", date.today(),
+        )
+        first = generate_upcoming_appointments(session, horizon_days=180)
+        second = generate_upcoming_appointments(session, horizon_days=180)
+        assert len(second) == 0
+        assert len(first) >= 1
+
+    def test_skips_ended_expense(self, session, prop):
+        create_recurring_expense(
+            session, "Old Service", 50.0, ExpenseFrequency.MONTHLY,
+            str(prop.id), "misc", date(2025, 1, 1), end_date=date(2025, 6, 1),
+        )
+        created = generate_upcoming_appointments(session, horizon_days=180)
+        assert len(created) == 0
+
+    def test_generates_multiple_occurrences_within_horizon(self, session, prop):
+        create_recurring_expense(
+            session, "Weekly Cleaning", 60.0, ExpenseFrequency.WEEKLY,
+            str(prop.id), "cleaning", date.today(),
+        )
+        created = generate_upcoming_appointments(session, horizon_days=30)
+        # ~4-5 weekly occurrences within a 30-day horizon
+        assert len(created) >= 4
+
+    def test_stops_generating_past_end_date_even_within_horizon(self, session, prop):
+        # A still-active expense (end_date in the future) must not get
+        # appointments generated for dates past its own end_date, even though
+        # those dates fall within the horizon window.
+        create_recurring_expense(
+            session, "Seasonal Treatment", 150.0, ExpenseFrequency.MONTHLY,
+            str(prop.id), "misc", date.today(),
+            end_date=date.today() + timedelta(days=60),
+        )
+        created = generate_upcoming_appointments(session, horizon_days=180)
+        assert all(a.date <= date.today() + timedelta(days=60) for a in created)

@@ -107,7 +107,42 @@ def update_work_order(session: Session, id_or_slug: str, **kwargs) -> WorkOrder:
     changes = diff_instance(old_snap, new_snap)
     if changes:
         record_change(session, "work_order", wo.id, "update", changes)
+
+    if wo.status in (WorkOrderStatus.COMPLETED, WorkOrderStatus.VERIFIED):
+        _resync_transaction(session, wo)
+
     return wo
+
+
+def _resync_transaction(session: Session, wo: WorkOrder) -> None:
+    """Keep a completed work order's budget transaction in sync with its current cost/vendor.
+
+    A work order's transaction is otherwise a one-time snapshot taken at
+    completion — without this, editing the cost or vendor afterward would
+    silently leave the two permanently diverged.
+    """
+    from mihomes.models.budget import Transaction
+
+    tx = session.query(Transaction).filter(
+        Transaction.source == "work_order",
+        Transaction.work_order_id == wo.id,
+    ).first()
+    if tx is None:
+        return
+    cost = wo.actual_cost or wo.estimated_cost
+    if cost is None:
+        return
+    old_tx_snap = snapshot_instance(tx)
+    safe_update(tx, {
+        "amount": cost,
+        "vendor_id": wo.vendor_id,
+        "vendor_name": wo.vendor_name if not wo.vendor_id else None,
+        "description": f"Work order: {wo.title}",
+    })
+    session.flush()
+    tx_changes = diff_instance(old_tx_snap, snapshot_instance(tx))
+    if tx_changes:
+        record_change(session, "transaction", tx.id, "resync", tx_changes)
 
 
 def transition_status(session: Session, id_or_slug: str, target: WorkOrderStatus) -> WorkOrder:

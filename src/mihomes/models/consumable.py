@@ -27,6 +27,7 @@ class Consumable(Base, TimestampMixin, SlugMixin):
     quantity_in_stock: Mapped[float | None] = mapped_column(Float, nullable=True)
     quantity_to_order: Mapped[float | None] = mapped_column(Float, nullable=True)
     par_level: Mapped[float | None] = mapped_column(Float, nullable=True)
+    low_stock_threshold: Mapped[float | None] = mapped_column(Float, nullable=True)
     unit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     last_ordered_at: Mapped[date | None] = mapped_column(Date, nullable=True)
     status: Mapped[ConsumableStatus] = mapped_column(

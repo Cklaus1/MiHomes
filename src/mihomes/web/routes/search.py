@@ -39,6 +39,18 @@ ENTITY_URLS = {
 }
 
 
+@router.get("/dropdown")
+def search_dropdown(request: Request, q: str = "", db: Session = Depends(get_db)):
+    results = []
+    if q.strip():
+        results = search_svc.global_search(db, q.strip())[:8]
+    return templates.TemplateResponse(request, "partials/search_results_dropdown.html", {
+        "q": q,
+        "results": results,
+        "entity_urls": ENTITY_URLS,
+    })
+
+
 @router.get("/")
 def search(
     request: Request,

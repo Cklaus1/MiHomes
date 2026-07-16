@@ -124,6 +124,21 @@
         </div>
         <div class="flex items-center gap-3">
           {% block actions %}{% endblock %}
+          <!-- Global search — live input with results dropdown -->
+          <div class="relative" id="global-search-wrap">
+            <svg class="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+            </svg>
+            <input type="text" name="q" id="global-search-input" autocomplete="off"
+                   placeholder="Search…" title="Search (Ctrl+K)"
+                   hx-get="/search/dropdown" hx-trigger="keyup changed delay:250ms, focus"
+                   hx-target="#global-search-results" hx-swap="innerHTML"
+                   onfocus="document.getElementById('global-search-results').classList.remove('hidden')"
+                   class="w-36 sm:w-52 focus:w-64 pl-8 pr-10 py-1.5 text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:bg-white transition-all" />
+            <kbd class="hidden sm:inline absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-mono bg-white border border-gray-200 rounded px-1 py-0.5 text-gray-400 pointer-events-none">⌘K</kbd>
+            <div id="global-search-results"
+                 class="hidden absolute right-0 mt-1 w-80 bg-white border border-gray-200 rounded-xl shadow-lg z-50 max-h-96 overflow-y-auto"></div>
+          </div>
           <span id="htmx-loading" class="htmx-indicator">
             <svg class="w-5 h-5 animate-spin text-brand-500" fill="none" viewBox="0 0 24 24">
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
@@ -148,6 +163,28 @@
   </div>
 
   {% block scripts %}{% endblock %}
+
+  <!-- Global document preview overlay -->
+  <div id="preview-overlay" class="hidden fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4"
+       onclick="if(event.target===this)closePreview()">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl flex flex-col overflow-hidden"
+         style="max-height:90vh" onclick="event.stopPropagation()">
+      <div class="flex items-center justify-between px-5 py-3 border-b border-gray-200 flex-shrink-0">
+        <span id="preview-title" class="text-sm font-semibold text-gray-900 truncate mr-4"></span>
+        <div class="flex items-center gap-4 flex-shrink-0">
+          <a id="preview-open-link" href="#" target="_blank" rel="noopener"
+             class="text-xs text-brand-600 hover:text-brand-700 font-medium">Open in new tab ↗</a>
+          <button onclick="closePreview()" class="text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-gray-100">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div id="preview-content" class="flex-1 overflow-auto flex items-center justify-center p-4 min-h-0 bg-gray-50"></div>
+    </div>
+  </div>
+
 <script>
 /* After any notes-container swap, recount note items and update the nearest badge. */
 document.addEventListener('htmx:afterSettle', function(e) {
@@ -160,6 +197,49 @@ document.addEventListener('htmx:afterSettle', function(e) {
     if (badge) badge.textContent = count;
   }
 });
+
+/* Cmd+K / Ctrl+K → focus the header search input */
+document.addEventListener('keydown', function(e) {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+    e.preventDefault();
+    const searchInput = document.getElementById('global-search-input');
+    if (searchInput) {
+      searchInput.focus();
+      searchInput.select();
+    }
+  }
+  if (e.key === 'Escape') {
+    document.getElementById('global-search-results')?.classList.add('hidden');
+  }
+});
+
+/* Close the search results dropdown when clicking outside it */
+document.addEventListener('click', function(e) {
+  const wrap = document.getElementById('global-search-wrap');
+  if (wrap && !wrap.contains(e.target)) {
+    document.getElementById('global-search-results')?.classList.add('hidden');
+  }
+});
+
+/* Document preview overlay */
+function previewDoc(url, title, type) {
+  document.getElementById('preview-title').textContent = title;
+  document.getElementById('preview-open-link').href = url;
+  const container = document.getElementById('preview-content');
+  if (type === 'image') {
+    container.innerHTML = '<img src="' + url + '" alt="' + title.replace(/"/g, '&quot;') + '" style="max-width:100%;max-height:75vh;object-fit:contain;border-radius:8px;" />';
+  } else if (type === 'pdf') {
+    container.innerHTML = '<iframe src="' + url + '" style="width:100%;height:75vh;border:none;border-radius:4px;" title="' + title.replace(/"/g, '&quot;') + '"></iframe>';
+  }
+  document.getElementById('preview-overlay').classList.remove('hidden');
+  document.addEventListener('keydown', _previewEscHandler);
+}
+function closePreview() {
+  document.getElementById('preview-overlay').classList.add('hidden');
+  document.getElementById('preview-content').innerHTML = '';
+  document.removeEventListener('keydown', _previewEscHandler);
+}
+function _previewEscHandler(e) { if (e.key === 'Escape') closePreview(); }
 </script>
 </body>
 </html>

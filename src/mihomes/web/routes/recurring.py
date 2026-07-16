@@ -37,6 +37,7 @@ def create_recurring(
     start_date: str = Form(""),
     end_date: str = Form(""),
     notes: str = Form(""),
+    interval_count: str = Form(""),
     db: Session = Depends(get_db),
 ):
     recurring_svc.create_recurring_expense(
@@ -50,6 +51,7 @@ def create_recurring(
         vendor_id_or_slug=vendor_slug or None,
         end_date=date.fromisoformat(end_date) if end_date else None,
         notes=notes or None,
+        interval_count=int(interval_count) if interval_count else None,
     )
     return templates.TemplateResponse(request, "budget.html", _ctx(db))
 
@@ -64,6 +66,7 @@ def edit_recurring(
     category: str = Form(""),
     end_date: str = Form(""),
     notes: str = Form(""),
+    interval_count: str = Form(""),
     db: Session = Depends(get_db),
 ):
     kwargs: dict = {}
@@ -83,6 +86,7 @@ def edit_recurring(
     if end_date:
         kwargs["end_date"] = date.fromisoformat(end_date)
     kwargs["notes"] = notes or None
+    kwargs["interval_count"] = int(interval_count) if interval_count else None
     recurring_svc.update_recurring_expense(db, expense_id, **kwargs)
     return templates.TemplateResponse(request, "budget.html", _ctx(db))
 
@@ -90,6 +94,7 @@ def edit_recurring(
 @router.post("/generate", response_class=HTMLResponse)
 def generate_transactions(request: Request, db: Session = Depends(get_db)):
     recurring_svc.generate_transactions(db)
+    recurring_svc.generate_upcoming_appointments(db)
     return templates.TemplateResponse(request, "budget.html", _ctx(db))
 
 

@@ -128,7 +128,9 @@
           {% if url %}onclick="window.location='{{ url }}'"{% endif %}>
         <div>
           <div class="text-sm font-medium text-gray-900">{{ item.name }}</div>
-          {% if item.slug %}
+          {% if item.subtitle %}
+          <div class="text-xs text-gray-400 mt-0.5">{{ item.subtitle }}</div>
+          {% elif item.slug %}
           <div class="text-xs text-gray-400 mt-0.5">{{ item.slug }}</div>
           {% endif %}
         </div>

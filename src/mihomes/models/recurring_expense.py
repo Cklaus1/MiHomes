@@ -15,6 +15,8 @@ class ExpenseFrequency(str, enum.Enum):
     MONTHLY = "monthly"
     QUARTERLY = "quarterly"
     ANNUAL = "annual"
+    CUSTOM_WEEKS = "custom_weeks"
+    CUSTOM_MONTHS = "custom_months"
 
 
 class RecurringExpense(Base, TimestampMixin):
@@ -25,6 +27,7 @@ class RecurringExpense(Base, TimestampMixin):
     amount: Mapped[float] = mapped_column(Float, nullable=False)
     currency: Mapped[str] = mapped_column(String(10), default="USD")
     frequency: Mapped[ExpenseFrequency] = mapped_column(Enum(ExpenseFrequency), nullable=False)
+    interval_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     property_id: Mapped[int] = mapped_column(Integer, ForeignKey("properties.id"), nullable=False)
     vendor_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("vendors.id"), nullable=True)
     category: Mapped[str] = mapped_column(String(100), nullable=False)

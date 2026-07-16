@@ -1,6 +1,8 @@
 """
-MiHomes Watchdog — keeps the Telegram monitor alive.
-Runs as a background process, checks every 60s, restarts if the monitor dies.
+MiHomes Watchdog — keeps the messaging monitors alive.
+Runs as a background process, checks every 60s, restarts a monitor if it dies.
+Supervises the Telegram monitor always, and the WhatsApp monitor when
+`whatsapp.autostart` is enabled (both gateways can run side by side).
 """
 import json
 import os
@@ -13,10 +15,13 @@ PROJECT_ROOT = Path(__file__).parents[1]
 LOG_DIR = Path(os.path.expanduser("~/.mihomes"))
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 PID_FILE = LOG_DIR / "monitor.pid"
+WA_PID_FILE = LOG_DIR / "whatsapp_monitor.pid"
 WATCHDOG_PID_FILE = LOG_DIR / "watchdog.pid"
 CHECK_INTERVAL = 60       # seconds between monitor health checks
 CALENDAR_SYNC_INTERVAL = 900  # 15 minutes between Google Calendar syncs
 INVENTORY_DIGEST_DAY = 0  # Monday (weekday index)
+WA_BACKOFF_BASE = CHECK_INTERVAL   # first retry delay after a WhatsApp monitor death
+WA_BACKOFF_MAX = 900               # cap WhatsApp restart backoff at 15 min
 
 
 def _pid_running(pid: int) -> bool:
@@ -85,6 +90,46 @@ def _start_monitor():
     return proc.pid
 
 
+def _whatsapp_autostart_enabled() -> bool:
+    """True only when the operator has opted WhatsApp into supervision."""
+    try:
+        sys.path.insert(0, str(PROJECT_ROOT / "src"))
+        from mihomes.db import get_session
+        from mihomes.services.config_service import get_config
+        with get_session() as session:
+            return get_config(session, "whatsapp.autostart") == "true"
+    except Exception:
+        return False
+
+
+def _whatsapp_bridge_running() -> bool:
+    """The WhatsApp monitor exits immediately if the Baileys bridge is down,
+    so check the bridge before (re)starting it to avoid a restart hot-loop."""
+    try:
+        import urllib.request
+        urllib.request.urlopen("http://localhost:7867/status", timeout=2)
+        return True
+    except Exception:
+        return False
+
+
+def _start_whatsapp_monitor():
+    env = os.environ.copy()
+    env["MIHOMES_MONITOR"] = "1"
+
+    wa_log = open(LOG_DIR / "whatsapp-monitor.log", "a")
+    proc = subprocess.Popen(
+        [sys.executable, "-c", "from mihomes.cli import app; app()",
+         "whatsapp", "monitor"],
+        env=env,
+        cwd=str(PROJECT_ROOT),
+        stdout=wa_log, stderr=wa_log,
+        **_hidden_popen_kwargs(),
+    )
+    WA_PID_FILE.write_text(str(proc.pid))
+    return proc.pid
+
+
 def run():
     WATCHDOG_PID_FILE.write_text(str(os.getpid()))
     log = open(LOG_DIR / "watchdog.log", "a")
@@ -98,10 +143,12 @@ def run():
 
     last_calendar_sync = 0
     last_inventory_digest_date = None
+    wa_backoff = WA_BACKOFF_BASE   # current WhatsApp restart backoff (seconds)
+    wa_retry_at = 0.0              # earliest monotonic time to retry WhatsApp
 
     while True:
         try:
-            # --- Check monitor ---
+            # --- Check Telegram monitor ---
             monitor_up = False
             if PID_FILE.exists():
                 try:
@@ -111,9 +158,36 @@ def run():
                     pass
 
             if not monitor_up:
-                _log("Monitor down — restarting...")
+                _log("Telegram monitor down — restarting...")
                 new_pid = _start_monitor()
-                _log(f"Monitor started (PID {new_pid})")
+                _log(f"Telegram monitor started (PID {new_pid})")
+
+            # --- Check WhatsApp monitor (only when opted in) ---
+            if _whatsapp_autostart_enabled():
+                wa_up = False
+                if WA_PID_FILE.exists():
+                    try:
+                        wa_pid = int(WA_PID_FILE.read_text().strip())
+                        wa_up = _pid_running(wa_pid)
+                    except (ValueError, OSError):
+                        pass
+
+                if wa_up:
+                    wa_backoff = WA_BACKOFF_BASE   # healthy — reset backoff
+                elif time.monotonic() >= wa_retry_at:
+                    if not _whatsapp_bridge_running():
+                        # Bridge down: the monitor would exit instantly. Back off
+                        # instead of hot-looping; the bridge is supervised elsewhere.
+                        _log(f"WhatsApp bridge unreachable — deferring monitor restart {wa_backoff}s")
+                        wa_retry_at = time.monotonic() + wa_backoff
+                        wa_backoff = min(wa_backoff * 2, WA_BACKOFF_MAX)
+                    else:
+                        _log("WhatsApp monitor down — restarting...")
+                        new_wa_pid = _start_whatsapp_monitor()
+                        _log(f"WhatsApp monitor started (PID {new_wa_pid})")
+                        # If it dies again before next tick, apply backoff.
+                        wa_retry_at = time.monotonic() + wa_backoff
+                        wa_backoff = min(wa_backoff * 2, WA_BACKOFF_MAX)
 
             # --- Google Calendar sync (every 15 min) ---
             now = time.time()

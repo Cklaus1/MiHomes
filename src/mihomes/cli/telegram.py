@@ -2,6 +2,7 @@
 
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -93,11 +94,22 @@ def status_cmd():
     with get_session() as session:
         chat_links = _load_chat_links(session)
 
+    watchdog_pid_file = _LOG_DIR / "watchdog.pid"
+    local_watchdog_line = "[dim]Not running[/dim]"
+    if watchdog_pid_file.exists():
+        try:
+            pid = int(watchdog_pid_file.read_text().strip())
+            if _pid_running(pid):
+                local_watchdog_line = f"[green]Running[/green] (PID {pid})"
+        except (ValueError, OSError):
+            pass
+
     console.print(Panel(
         f"Bot: [bold]@{bot.get('username', '?')}[/bold] (ID: {bot.get('id', '?')})\n"
         f"Name: {bot.get('first_name', '?')}\n"
         f"Status: [green]Connected[/green]\n"
-        f"Linked chats: {len(chat_links)}",
+        f"Linked chats: {len(chat_links)}\n"
+        f"Local watchdog: {local_watchdog_line}",
         title="Telegram Bot",
         expand=False,
     ))
@@ -548,6 +560,55 @@ def watchdog_cmd():
     format_success("Watchdog started — monitor running silently in background")
 
 
+@app.command("stop")
+def stop_cmd():
+    """Stop the local watchdog + monitor on this device and remove Windows autostart, if present."""
+    from mihomes.services.config_service import set_config
+
+    stopped_any = False
+    still_running = False
+    for label, filename in (("watchdog", "watchdog.pid"), ("monitor", "monitor.pid")):
+        pid_file = _LOG_DIR / filename
+        if not pid_file.exists():
+            continue
+        try:
+            pid = int(pid_file.read_text().strip())
+        except (ValueError, OSError):
+            pid_file.unlink(missing_ok=True)
+            continue
+        if not _pid_running(pid):
+            pid_file.unlink(missing_ok=True)
+            continue
+        try:
+            os.kill(pid, signal.SIGTERM)
+            format_success(f"Stopped local {label} (PID {pid})")
+            stopped_any = True
+            pid_file.unlink(missing_ok=True)
+        except (ProcessLookupError, PermissionError, OSError) as e:
+            console.print(
+                f"[yellow]Could not stop {label} (PID {pid}):[/yellow] {e} "
+                f"— it may need an elevated terminal (e.g. Task Manager 'Run as administrator')"
+            )
+            still_running = True
+
+    if not stopped_any and not still_running:
+        console.print("[dim]No local watchdog or monitor was running.[/dim]")
+
+    task_result = _remove_autostart_task()
+    if task_result == "removed":
+        format_success("Removed Windows startup task 'MiHomesWatchdog'")
+    elif task_result == "error":
+        console.print(
+            "[yellow]Could not remove Windows startup task 'MiHomesWatchdog':[/yellow] "
+            "access denied — run from an elevated terminal (Task Scheduler > MiHomesWatchdog > Disable/Delete)"
+        )
+    elif sys.platform == "win32":
+        console.print("[dim]No Windows startup task was registered.[/dim]")
+
+    with get_session() as session:
+        set_config(session, "telegram.autostart", "false")
+
+
 @app.command("autostart")
 def autostart_cmd(
     enable: bool = typer.Argument(..., help="true to enable, false to disable"),
@@ -584,9 +645,14 @@ def autostart_cmd(
             _start_watchdog_now(watchdog_script, property)
             console.print("[dim]Watchdog started — monitor will run silently in the background.[/dim]")
         else:
-            result = _run(["schtasks", "/delete", "/tn", task_name, "/f"])
-            if result.returncode == 0:
+            task_result = _remove_autostart_task()
+            if task_result == "removed":
                 format_success(f"Startup task '{task_name}' removed")
+            elif task_result == "error":
+                console.print(
+                    f"[yellow]Could not remove startup task '{task_name}':[/yellow] "
+                    "access denied — run from an elevated terminal"
+                )
             else:
                 console.print("[dim]Task not found or already removed.[/dim]")
     else:
@@ -594,6 +660,29 @@ def autostart_cmd(
         format_success(f"Telegram autostart {status} (property: {property})")
         if enable:
             console.print(f"[dim]Add to cron or systemd: {sys.executable} {watchdog_script}[/dim]")
+
+
+def _remove_autostart_task() -> str:
+    """Remove the Windows login startup task, if registered.
+
+    Returns "removed", "not_found", or "error" (e.g. access denied — the task
+    was registered with /rl HIGHEST and needs an elevated caller to delete).
+    """
+    if sys.platform != "win32":
+        return "not_found"
+    si = subprocess.STARTUPINFO()
+    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    si.wShowWindow = subprocess.SW_HIDE
+    result = subprocess.run(
+        ["schtasks", "/delete", "/tn", "MiHomesWatchdog", "/f"],
+        capture_output=True, text=True,
+        creationflags=0x08000000, startupinfo=si,
+    )
+    if result.returncode == 0:
+        return "removed"
+    if "access is denied" in result.stderr.lower():
+        return "error"
+    return "not_found"
 
 
 def _pid_running(pid: int) -> bool:

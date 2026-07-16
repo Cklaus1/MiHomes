@@ -19,6 +19,7 @@ def create_appointment(
     *,
     vendor_id: int | None = None,
     contract_id: int | None = None,
+    recurring_expense_id: int | None = None,
     start_time: time | None = None,
     appointment_type: str = AppointmentType.VENDOR_VISIT,
     notes: str | None = None,
@@ -29,6 +30,7 @@ def create_appointment(
         property_id=prop.id,
         vendor_id=vendor_id,
         contract_id=contract_id,
+        recurring_expense_id=recurring_expense_id,
         date=appt_date,
         start_time=start_time,
         appointment_type=appointment_type,
@@ -86,3 +88,47 @@ def delete_appointment(session: Session, appointment_id: int) -> None:
     record_change(session, "appointment", appt.id, "delete", snapshot_instance(appt))
     session.delete(appt)
     session.flush()
+
+
+def mark_appointment_serviced(
+    session: Session,
+    appointment_id: int,
+    *,
+    actual_cost: float | None = None,
+) -> Appointment:
+    """Mark a recurring-service appointment as serviced and add its expense
+    to the budget. Explicit and one-time by design — a service visit only
+    counts once someone confirms it happened, mirroring how WorkOrder.complete()
+    creates its transaction, rather than adding the cost automatically just
+    because the calendar date passed (which could add a phantom charge if the
+    vendor skipped or rescheduled the visit).
+    """
+    from mihomes.models.recurring_expense import RecurringExpense
+    from mihomes.services.budget import add_transaction
+
+    appt = get_appointment(session, appointment_id)
+    if appt.recurring_expense_id is None:
+        raise ValueError("This appointment isn't linked to a recurring service.")
+    if appt.completed:
+        raise ValueError("This appointment has already been marked serviced.")
+
+    exp = session.get(RecurringExpense, appt.recurring_expense_id)
+    if exp is None:
+        raise ValueError("The recurring service this appointment belongs to no longer exists.")
+
+    appt.completed = True
+    session.flush()
+    record_change(session, "appointment", appt.id, "update", {"completed": {"old": False, "new": True}})
+
+    add_transaction(
+        session,
+        actual_cost if actual_cost is not None else exp.amount,
+        str(exp.property_id),
+        exp.category,
+        appt.date,
+        vendor_id_or_slug=str(exp.vendor_id) if exp.vendor_id else None,
+        description=f"Recurring service: {exp.name}",
+        source="recurring_expense",
+        appointment_id=appt.id,
+    )
+    return appt

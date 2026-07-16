@@ -16,6 +16,7 @@ from mihomes.services.consumable import (
     list_consumables,
     mark_ordered,
     mark_restocked,
+    update_consumable_settings,
     update_stock,
 )
 from mihomes.web.deps import get_db, templates
@@ -65,6 +66,7 @@ def add_item(
     par_level: str = Form(""),
     quantity_in_stock: str = Form(""),
     unit_price: str = Form(""),
+    low_stock_threshold: str = Form(""),
     filter_property: str = Form(""),
     filter_category: str = Form(""),
     db: Session = Depends(get_db),
@@ -73,6 +75,7 @@ def add_item(
         par_level_val = parse_money(par_level, "Par level")
         quantity_val = parse_money(quantity_in_stock, "Quantity in stock")
         unit_price_val = parse_money(unit_price, "Unit price")
+        low_stock_threshold_val = parse_money(low_stock_threshold, "Low-stock threshold")
     except ValueError as e:
         ctx = _ctx(db, filter_property or None, filter_category or None)
         ctx["error"] = str(e)
@@ -85,6 +88,7 @@ def add_item(
         unit=unit or None,
         par_level=par_level_val,
         quantity_in_stock=quantity_val,
+        low_stock_threshold=low_stock_threshold_val,
     )
     if unit_price_val is not None:
         add_price_entry(db, item.slug, unit_price_val, date.today(), entry_type="purchase")
@@ -118,6 +122,29 @@ def set_stock(
         update_stock(db, item.name, str(item.property_id),
                      quantity_in_stock=qty)
         db.commit()
+    return templates.TemplateResponse(request, "inventory.html",
+                                      _ctx(db, property_slug or None, category or None))
+
+
+@router.post("/{slug}/settings", response_class=HTMLResponse)
+def update_settings(
+    request: Request,
+    slug: str,
+    par_level: str = Form(""),
+    low_stock_threshold: str = Form(""),
+    property_slug: str = Form(""),
+    category: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    try:
+        par_level_val = parse_money(par_level, "Par level")
+        low_stock_threshold_val = parse_money(low_stock_threshold, "Low-stock threshold")
+    except ValueError as e:
+        ctx = _ctx(db, property_slug or None, category or None)
+        ctx["error"] = str(e)
+        return templates.TemplateResponse(request, "inventory.html", ctx)
+    update_consumable_settings(db, slug, par_level=par_level_val, low_stock_threshold=low_stock_threshold_val)
+    db.commit()
     return templates.TemplateResponse(request, "inventory.html",
                                       _ctx(db, property_slug or None, category or None))
 

@@ -1,11 +1,15 @@
 """Work Orders routes."""
 
+import uuid
 from datetime import date
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
+from mihomes.models.document import DocumentType
+from mihomes.services import document as doc_svc
 from mihomes.services import issue as issue_svc
 from mihomes.services import note as note_svc
 from mihomes.services import property as prop_svc
@@ -13,6 +17,8 @@ from mihomes.services import staff as staff_svc
 from mihomes.services import vendor as vendor_svc
 from mihomes.services import work_order as wo_svc
 from mihomes.web.deps import get_db, templates
+
+_UPLOADS_DIR = Path(__file__).parent.parent / "static" / "uploads"
 
 router = APIRouter()
 
@@ -28,6 +34,7 @@ def _ctx(db: Session, status: str | None = None) -> dict:
         "vendors": vendor_svc.list_vendors(db),
         "staff": staff_svc.list_staff(db, category="Staff"),
         "notes_map": {wo.id: note_svc.list_notes(db, f"workorder:{wo.id}") for wo in work_orders},
+        "docs_map": {wo.id: doc_svc.list_documents(db, entity_type="work_order", entity_id=wo.id) for wo in work_orders},
         "issues": issue_svc.list_issues(db),
         "filter_status": status,
     }
@@ -192,3 +199,42 @@ def cancel_work_order(
 ):
     wo_svc.cancel(db, slug, notes=notes or None)
     return templates.TemplateResponse(request, "work_orders.html", _ctx(db))
+
+
+@router.post("/{slug}/documents", response_class=HTMLResponse)
+async def add_document(
+    request: Request,
+    slug: str,
+    title: str = Form(...),
+    doc_type: str = Form("invoice"),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    wo = wo_svc.get_work_order(db, slug)
+    suffix = Path(file.filename).suffix.lower()
+    filename = f"{uuid.uuid4().hex}{suffix}"
+    _UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    (_UPLOADS_DIR / filename).write_bytes(await file.read())
+    doc_svc.create_document(
+        db, title=title, file_path=f"/static/uploads/{filename}",
+        document_type=DocumentType(doc_type),
+        entity_type="work_order", entity_id=wo.id,
+    )
+    docs = doc_svc.list_documents(db, entity_type="work_order", entity_id=wo.id)
+    return templates.TemplateResponse(request, "partials/docs_section.html", {
+        "docs": docs,
+        "post_url": f"/work-orders/{slug}/documents",
+        "delete_url_prefix": f"/work-orders/{slug}/documents",
+    })
+
+
+@router.delete("/{slug}/documents/{doc_id}", response_class=HTMLResponse)
+def delete_document(request: Request, slug: str, doc_id: int, db: Session = Depends(get_db)):
+    doc_svc.delete_document(db, str(doc_id))
+    wo = wo_svc.get_work_order(db, slug)
+    docs = doc_svc.list_documents(db, entity_type="work_order", entity_id=wo.id)
+    return templates.TemplateResponse(request, "partials/docs_section.html", {
+        "docs": docs,
+        "post_url": f"/work-orders/{slug}/documents",
+        "delete_url_prefix": f"/work-orders/{slug}/documents",
+    })

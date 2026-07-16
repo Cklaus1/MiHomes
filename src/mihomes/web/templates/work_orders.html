@@ -34,8 +34,11 @@
   {% endfor %}
 </div>
 
-{% if properties|length > 1 %}
-<div class="flex items-center gap-2 mb-3">
+<div class="flex items-center gap-2 mb-3 flex-wrap">
+  <input type="text" oninput="filterWOBySearch(this.value)"
+         placeholder="Search title, vendor, property…"
+         class="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500 w-64" />
+  {% if properties|length > 1 %}
   <label class="text-xs text-gray-400 font-medium whitespace-nowrap">Property:</label>
   <select onchange="filterWOByProperty(this.value)"
           class="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-brand-500 text-gray-700">
@@ -44,8 +47,8 @@
     <option value="{{ p.slug }}">{{ p.name }}</option>
     {% endfor %}
   </select>
+  {% endif %}
 </div>
-{% endif %}
 
 <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
   <table class="w-full text-sm">
@@ -63,6 +66,7 @@
       {% for wo in work_orders %}
       <tr class="wo-row hover:bg-gray-50 cursor-pointer transition-colors"
           data-property="{{ wo.property.slug if wo.property else '' }}"
+          data-search="{{ (wo.title ~ ' ' ~ (wo.vendor.company_name if wo.vendor else (wo.vendor_name or '')) ~ ' ' ~ (wo.property.name if wo.property else '')) | lower }}"
           onclick="openModal('wo-modal-{{ wo.id }}')">
         <td class="px-4 py-3"><div class="font-medium text-gray-900">{{ wo.title }}</div>{% if wo.description %}<div class="text-xs text-gray-400 truncate max-w-xs">{{ wo.description[:80] }}{% if wo.description|length > 80 %}…{% endif %}</div>{% endif %}</td>
         <td class="px-4 py-3"><span class="px-2 py-0.5 rounded-full text-xs font-medium {{ status_styles.get(wo.status.value,'bg-gray-100 text-gray-600') }}">{{ status_labels.get(wo.status.value, wo.status.value) }}</span></td>
@@ -163,11 +167,12 @@
       </div>
     </div>
 
+    {% set wo_docs = docs_map.get(wo.id, []) %}
     <div class="flex border-b border-gray-200 px-6 flex-shrink-0">
-      {% for tid, tlabel in [('details','Details'),('notes','Notes')] %}
+      {% for tid, tlabel in [('details','Details'),('attachments','Attachments'),('notes','Notes')] %}
       <button onclick="switchTab('wo','{{ wo.id }}','{{ tid }}')" id="wo-tab-{{ wo.id }}-{{ tid }}"
               class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if tid=='details' %}border-brand-500 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
-        {{ tlabel }}{% if tid == 'notes' %}<span id="badge-wo-notes-{{ wo.id }}">{{ wo_notes|length }}</span>{% endif %}
+        {{ tlabel }}{% if tid == 'notes' %}<span id="badge-wo-notes-{{ wo.id }}"> {{ wo_notes|length }}</span>{% endif %}{% if tid == 'attachments' and wo_docs %}<span class="ml-1 text-xs text-gray-400">({{ wo_docs|length }})</span>{% endif %}
       </button>
       {% endfor %}
     </div>
@@ -371,6 +376,15 @@
 
       </div>
 
+      <!-- Attachments tab -->
+      <div id="wo-panel-{{ wo.id }}-attachments" class="px-6 py-5 hidden">
+        <div data-docs-container>
+          {% with docs=wo_docs, post_url="/work-orders/"+wo.slug+"/documents", delete_url_prefix="/work-orders/"+wo.slug+"/documents" %}
+          {% include "partials/docs_section.html" %}
+          {% endwith %}
+        </div>
+      </div>
+
       <!-- Notes tab -->
       <div id="wo-panel-{{ wo.id }}-notes" class="px-6 py-5 hidden">
         <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Notes & Comments</div>
@@ -390,7 +404,7 @@
 function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
 function switchTab(prefix, entityId, tab) {
-  ['details','notes'].forEach(t => {
+  ['details','attachments','notes'].forEach(t => {
     document.getElementById(prefix+'-panel-'+entityId+'-'+t)?.classList.add('hidden');
     const btn = document.getElementById(prefix+'-tab-'+entityId+'-'+t);
     if (btn) { btn.classList.remove('border-brand-500','text-brand-600'); btn.classList.add('border-transparent','text-gray-500'); }
@@ -422,9 +436,24 @@ function exitEdit(prefix, id) {
   document.getElementById(prefix+'-view-'+id).classList.remove('hidden');
 }
 document.addEventListener('DOMContentLoaded',()=>document.querySelectorAll('textarea[data-autoresize]').forEach(t=>t.addEventListener('input',()=>autoResize(t))));
+let woActivePropertyFilter = '';
+let woActiveSearchFilter = '';
+
 function filterWOByProperty(slug) {
+  woActivePropertyFilter = slug;
+  applyWOFilters();
+}
+
+function filterWOBySearch(text) {
+  woActiveSearchFilter = (text || '').trim().toLowerCase();
+  applyWOFilters();
+}
+
+function applyWOFilters() {
   document.querySelectorAll('.wo-row').forEach(row => {
-    row.classList.toggle('hidden', slug !== '' && row.dataset.property !== slug);
+    const matchesProperty = woActivePropertyFilter === '' || row.dataset.property === woActivePropertyFilter;
+    const matchesSearch = woActiveSearchFilter === '' || (row.dataset.search || '').includes(woActiveSearchFilter);
+    row.classList.toggle('hidden', !(matchesProperty && matchesSearch));
   });
 }
 </script>

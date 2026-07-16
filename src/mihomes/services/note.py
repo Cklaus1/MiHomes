@@ -18,6 +18,7 @@ def _get_model_class(entity_type: str):
         from mihomes.models.event import Event, Guest
         from mihomes.models.issue import Issue
         from mihomes.models.property import Property
+        from mihomes.models.recurring_expense import RecurringExpense
         from mihomes.models.space import Space
         from mihomes.models.staff import Staff
         from mihomes.models.task import Task
@@ -36,6 +37,7 @@ def _get_model_class(entity_type: str):
             "event": Event,
             "guest": Guest,
             "document": Document,
+            "recurring": RecurringExpense,
         })
     return ENTITY_TYPE_MAP.get(entity_type)
 

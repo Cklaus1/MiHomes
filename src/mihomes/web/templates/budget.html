@@ -61,7 +61,23 @@
     {% include "partials/budget_report.html" %}
   </div>
 
-  <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3 mt-6">Recent Transactions</h2>
+  <div class="flex items-center justify-between mb-3 mt-6 flex-wrap gap-2">
+    <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wide">Recent Transactions</h2>
+    <form method="get" action="/budget/" class="flex items-center gap-2 flex-wrap">
+      <input type="hidden" name="tab" value="overview" />
+      <input type="text" name="txn_q" value="{{ txn_search }}" placeholder="Search description, vendor, category…"
+             class="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500 w-56" />
+      <input type="date" name="txn_date_from" value="{{ txn_date_from }}"
+             class="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500" />
+      <span class="text-xs text-gray-400">to</span>
+      <input type="date" name="txn_date_to" value="{{ txn_date_to }}"
+             class="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500" />
+      <button type="submit" class="px-3 py-1.5 text-xs font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50">Filter</button>
+      {% if txn_search or txn_date_from or txn_date_to %}
+      <a href="/budget/?tab=overview" class="text-xs text-gray-400 hover:text-gray-600">Clear</a>
+      {% endif %}
+    </form>
+  </div>
   <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
     <div id="transaction-list">
       {% include "partials/transaction_list.html" %}
@@ -118,7 +134,11 @@
         <tr class="hover:bg-gray-50 cursor-pointer transition-colors" onclick="openModal('expense-modal-{{ expense.id }}')">
           <td class="px-4 py-3 font-medium text-gray-900">{{ expense.name }}</td>
           <td class="px-4 py-3 font-medium text-gray-700">${{ '{:,.2f}'.format(expense.amount) }}</td>
-          <td class="px-4 py-3 hidden md:table-cell"><span class="px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">{{ expense.frequency.value.title() }}</span></td>
+          <td class="px-4 py-3 hidden md:table-cell"><span class="px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">
+            {% if expense.frequency.value == 'custom_weeks' %}Every {{ expense.interval_count or 1 }}wk
+            {% elif expense.frequency.value == 'custom_months' %}Every {{ expense.interval_count or 1 }}mo
+            {% else %}{{ expense.frequency.value.title() }}{% endif %}
+          </span></td>
           <td class="px-4 py-3 text-gray-600 hidden md:table-cell">{{ expense.property.name if expense.property else '—' }}</td>
           <td class="px-4 py-3 hidden lg:table-cell">{% if expense.category %}<span class="px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-600">{{ expense.category }}</span>{% else %}—{% endif %}</td>
           <td class="px-4 py-3">
@@ -149,13 +169,21 @@
       {{ analysis_year }} year to date
       {% if analysis_prop %} · Category &amp; Vendor charts show <span class="font-medium text-gray-600">{{ analysis_prop.name }}</span>{% endif %}
     </p>
-    <div class="flex gap-1 bg-gray-100 p-1 rounded-xl">
-      <button onclick="switchAnalysisTab('comparison')" id="atab-comparison"
-              class="px-3 py-1 text-xs font-medium rounded-lg bg-white text-gray-900 shadow-sm transition-colors">All Properties</button>
-      <button onclick="switchAnalysisTab('category')" id="atab-category"
-              class="px-3 py-1 text-xs font-medium rounded-lg text-gray-500 hover:text-gray-700 transition-colors">By Category</button>
-      <button onclick="switchAnalysisTab('vendor')" id="atab-vendor"
-              class="px-3 py-1 text-xs font-medium rounded-lg text-gray-500 hover:text-gray-700 transition-colors">By Vendor</button>
+    <div class="flex items-center gap-3">
+      <select onchange="location.search = '?tab=analysis&property_id=' + this.value"
+              class="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-brand-500 text-gray-700">
+        {% for p in properties %}
+        <option value="{{ p.id }}" {% if analysis_prop and analysis_prop.id == p.id %}selected{% endif %}>{{ p.name }}</option>
+        {% endfor %}
+      </select>
+      <div class="flex gap-1 bg-gray-100 p-1 rounded-xl">
+        <button onclick="switchAnalysisTab('comparison')" id="atab-comparison"
+                class="px-3 py-1 text-xs font-medium rounded-lg bg-white text-gray-900 shadow-sm transition-colors">All Properties</button>
+        <button onclick="switchAnalysisTab('category')" id="atab-category"
+                class="px-3 py-1 text-xs font-medium rounded-lg text-gray-500 hover:text-gray-700 transition-colors">By Category</button>
+        <button onclick="switchAnalysisTab('vendor')" id="atab-vendor"
+                class="px-3 py-1 text-xs font-medium rounded-lg text-gray-500 hover:text-gray-700 transition-colors">By Vendor</button>
+      </div>
     </div>
   </div>
 
@@ -390,10 +418,16 @@
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Frequency <span class="text-red-500">*</span></label>
-          <select name="frequency" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
-            {% for f in frequencies %}<option value="{{ f }}">{{ f.title() }}</option>{% endfor %}
+          <select name="frequency" required onchange="toggleIntervalInput(this, 'create-interval-wrap', 'create-interval-unit')"
+                  class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+            {% for f in frequencies %}<option value="{{ f }}">{{ f.replace('_',' ').title() }}</option>{% endfor %}
           </select>
         </div>
+      </div>
+      <div id="create-interval-wrap" class="hidden">
+        <label class="block text-sm font-medium text-gray-700 mb-1">Every how many <span id="create-interval-unit">weeks</span>? <span class="text-red-500">*</span></label>
+        <input type="number" name="interval_count" min="1" step="1" placeholder="e.g. 2"
+               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
       </div>
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-1">Property <span class="text-red-500">*</span></label>
@@ -471,7 +505,11 @@
         <div id="expense-view-{{ expense.id }}">
           <div class="grid grid-cols-2 gap-3 mb-4">
             <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Amount</div><div class="font-medium text-sm text-gray-800">${{ '{:,.2f}'.format(expense.amount) }}</div></div>
-            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Frequency</div><div class="font-medium text-sm text-gray-800">{{ expense.frequency.value.title() }}</div></div>
+            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Frequency</div><div class="font-medium text-sm text-gray-800">
+              {% if expense.frequency.value == 'custom_weeks' %}Every {{ expense.interval_count or 1 }} week{{ 's' if (expense.interval_count or 1) != 1 else '' }}
+              {% elif expense.frequency.value == 'custom_months' %}Every {{ expense.interval_count or 1 }} month{{ 's' if (expense.interval_count or 1) != 1 else '' }}
+              {% else %}{{ expense.frequency.value.title() }}{% endif %}
+            </div></div>
             <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Start Date</div><div class="font-medium text-sm text-gray-800">{{ expense.start_date.strftime('%b %d, %Y') if expense.start_date else '—' }}</div></div>
             <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">End Date</div><div class="font-medium text-sm text-gray-800">{{ expense.end_date.strftime('%b %d, %Y') if expense.end_date else 'Ongoing' }}</div></div>
             <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Vendor</div><div class="font-medium text-sm text-gray-800">{{ expense.vendor.company_name if expense.vendor else '—' }}</div></div>
@@ -500,8 +538,9 @@
               </div>
               <div>
                 <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Frequency</div>
-                <select name="frequency" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
-                  {% for f in frequencies %}<option value="{{ f }}" {% if expense.frequency.value == f %}selected{% endif %}>{{ f.title() }}</option>{% endfor %}
+                <select name="frequency" onchange="toggleIntervalInput(this, 'edit-interval-wrap-{{ expense.id }}', 'edit-interval-unit-{{ expense.id }}')"
+                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                  {% for f in frequencies %}<option value="{{ f }}" {% if expense.frequency.value == f %}selected{% endif %}>{{ f.replace('_',' ').title() }}</option>{% endfor %}
                 </select>
               </div>
               <div>
@@ -511,6 +550,11 @@
               <div>
                 <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">End Date</div>
                 <input type="date" name="end_date" value="{{ expense.end_date.isoformat() if expense.end_date else '' }}" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div id="edit-interval-wrap-{{ expense.id }}" class="{% if expense.frequency.value not in ['custom_weeks', 'custom_months'] %}hidden{% endif %}">
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Every how many <span id="edit-interval-unit-{{ expense.id }}">{{ 'weeks' if expense.frequency.value == 'custom_weeks' else 'months' }}</span>?</div>
+                <input type="number" name="interval_count" min="1" step="1" value="{{ expense.interval_count or '' }}"
+                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
             </div>
             <div>
@@ -613,6 +657,18 @@ function switchBudgetTab(tab) {
   if (tab === 'analysis' && !chartsInitialized) {
     initSpendingCharts();
     chartsInitialized = true;
+  }
+}
+
+function toggleIntervalInput(selectEl, wrapId, unitId) {
+  const wrap = document.getElementById(wrapId);
+  const unit = document.getElementById(unitId);
+  if (!wrap) return;
+  if (selectEl.value === 'custom_weeks' || selectEl.value === 'custom_months') {
+    wrap.classList.remove('hidden');
+    if (unit) unit.textContent = selectEl.value === 'custom_weeks' ? 'weeks' : 'months';
+  } else {
+    wrap.classList.add('hidden');
   }
 }
 

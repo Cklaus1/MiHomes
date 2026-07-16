@@ -87,15 +87,17 @@ This playbook defines exactly what clean looks like — per room, per task. Ther
 
 ## Laundry Workflow
 
+**Before washing anything**: Check the care tag on every item first — fabric, color, and brand instructions vary, and washing on the wrong cycle or temperature can shrink, bleed, or damage the item. Sort and wash according to what each tag actually says rather than a single default cycle.
+
 **Linens** (weekly):
 1. Strip beds on assigned day
-2. Wash on hot cycle, tumble dry
+2. Check care tags — wash according to each item's tag (fabric/temperature/cycle)
 3. Fold and return same day — beds made before EOD
 4. Report any staining or damage immediately
 
 **Towels** (2x per week when occupied):
 1. Replace all used towels — even slightly used
-2. Wash hot, tumble dry
+2. Check care tags — wash according to each item's tag (fabric/temperature/cycle)
 3. Fold per standard: tri-fold for hand towels, roll for bath towels
 
 **Personal items** (resident laundry):

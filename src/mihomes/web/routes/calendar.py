@@ -271,6 +271,28 @@ def edit_appointment(
     return templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date))
 
 
+@router.post("/appointments/{appointment_id}/mark-serviced", response_class=HTMLResponse)
+def mark_appointment_serviced(
+    request: Request,
+    appointment_id: int,
+    actual_cost: str = Form(""),
+    month: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    try:
+        appt_svc.mark_appointment_serviced(
+            db, appointment_id,
+            actual_cost=float(actual_cost) if actual_cost else None,
+        )
+    except ValueError:
+        pass
+    try:
+        month_date = date.fromisoformat(month + "-01") if month else date.today().replace(day=1)
+    except ValueError:
+        month_date = date.today().replace(day=1)
+    return templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date))
+
+
 @router.post("/appointments/{appointment_id}/delete", response_class=HTMLResponse)
 def delete_appointment(
     request: Request,

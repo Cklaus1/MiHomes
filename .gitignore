@@ -12,6 +12,10 @@ build/
 node_modules/
 bridge/node_modules/
 npm-debug.log*
+cache/npm-packages/
+
+# Stray shell-redirect artifacts (e.g. `pip install "x>=1.0"` without quotes)
+=*
 
 # Secrets & credentials — never commit these
 *.pem

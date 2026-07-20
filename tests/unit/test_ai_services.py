@@ -277,10 +277,22 @@ class TestOrchestrator:
         assert resp.session_id is not None
 
     def test_ask_stores_conversation(self, session):
+        from contextlib import contextmanager
+
         from mihomes.services.ai.orchestrator import ask
         from mihomes.models.ai_conversation import AIConversation
+
+        # ask() logs the conversation in its own session (via mihomes.db.get_session)
+        # so a DB lock while logging can't roll back the caller's work. Point that
+        # logging session at the test DB so we can assert the row was written,
+        # without closing the fixture's session.
+        @contextmanager
+        def _log_session():
+            yield session
+
         patches = self._patch_ai()
-        with patches[0], patches[1], patches[2], patches[3]:
+        with patches[0], patches[1], patches[2], patches[3], \
+                patch("mihomes.db.get_session", _log_session):
             ask(session, "Test question")
         assert session.query(AIConversation).count() >= 1
 

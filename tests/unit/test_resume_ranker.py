@@ -44,14 +44,19 @@ class TestExtractText:
         f = tmp_path / "resume.pdf"
         f.write_bytes(b"%PDF-1.4")
         import sys
-        # Remove pdfplumber from available modules to simulate missing install
-        saved = sys.modules.pop("pdfplumber", None)
+        # Setting the sys.modules entry to None makes `import pdfplumber` raise
+        # ImportError, simulating the package not being installed. (Popping it
+        # instead would just trigger a successful re-import when it IS installed.)
+        saved = sys.modules.get("pdfplumber", None)
+        sys.modules["pdfplumber"] = None
         try:
             with pytest.raises((RuntimeError, ImportError)):
                 extract_text(f)
         finally:
             if saved is not None:
                 sys.modules["pdfplumber"] = saved
+            else:
+                sys.modules.pop("pdfplumber", None)
 
 
 # ── load_resumes ──────────────────────────────────────────────────────────────

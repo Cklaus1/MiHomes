@@ -1,0 +1,460 @@
+{% extends "base.html" %}
+{% block title %}Work Orders — MiHomes{% endblock %}
+{% block heading %}Work Orders{% endblock %}
+{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ work_orders|length }} work order{{ 's' if work_orders|length != 1 else '' }}</p>{% endblock %}
+
+{% block actions %}
+<button onclick="document.getElementById('add-wo-modal').classList.remove('hidden')"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
+  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+  Add Work Order
+</button>
+{% endblock %}
+
+{% block content %}
+{% set status_styles = {'draft':'bg-gray-100 text-gray-600','estimated':'bg-blue-100 text-blue-700','approved':'bg-indigo-100 text-indigo-700','assigned':'bg-purple-100 text-purple-700','in_progress':'bg-amber-100 text-amber-700','completed':'bg-emerald-100 text-emerald-700','verified':'bg-teal-100 text-teal-700','cancelled':'bg-red-100 text-red-600'} %}
+{% set status_labels = {'draft':'Draft','estimated':'Estimated','approved':'Approved','assigned':'Assigned','in_progress':'In Progress','completed':'Completed','verified':'Verified','cancelled':'Cancelled'} %}
+
+{% if all_work_orders %}
+<div class="flex flex-wrap gap-2 mb-6">
+  <a href="/work-orders"
+     class="block rounded-xl border px-3 py-2.5 text-center transition-all hover:shadow-sm min-w-[60px]
+            {% if not filter_status %}bg-brand-50 border-brand-400{% else %}bg-white border-gray-200 hover:border-brand-300{% endif %}">
+    <div class="text-lg font-bold {% if not filter_status %}text-brand-700{% else %}text-gray-900{% endif %}">{{ all_work_orders|length }}</div>
+    <span class="inline-block px-1.5 py-0.5 rounded text-xs font-medium {% if not filter_status %}bg-brand-100 text-brand-700{% else %}bg-gray-100 text-gray-600{% endif %}">All</span>
+  </a>
+  {% for s in ['draft','estimated','approved','assigned','in_progress','completed','verified','cancelled'] %}
+  {% set count = all_work_orders | selectattr('status', 'equalto', s) | list | length %}
+  <a href="{% if filter_status == s %}/work-orders{% else %}/work-orders?status={{ s }}{% endif %}"
+     class="block rounded-xl border px-3 py-2.5 text-center transition-all hover:shadow-sm min-w-[60px]
+            {% if filter_status == s %}bg-brand-50 border-brand-400{% else %}bg-white border-gray-200 hover:border-brand-300{% endif %}">
+    <div class="text-lg font-bold {% if filter_status == s %}text-brand-700{% else %}text-gray-900{% endif %}">{{ count }}</div>
+    <span class="inline-block px-1.5 py-0.5 rounded text-xs font-medium {{ status_styles.get(s,'bg-gray-100 text-gray-600') }}">{{ status_labels.get(s,s) }}</span>
+  </a>
+  {% endfor %}
+</div>
+
+<div class="flex items-center gap-2 mb-3 flex-wrap">
+  <input type="text" oninput="filterWOBySearch(this.value)"
+         placeholder="Search title, vendor, property…"
+         class="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500 w-64" />
+  {% if properties|length > 1 %}
+  <label class="text-xs text-gray-400 font-medium whitespace-nowrap">Property:</label>
+  <select onchange="filterWOByProperty(this.value)"
+          class="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-brand-500 text-gray-700">
+    <option value="">All properties</option>
+    {% for p in properties %}
+    <option value="{{ p.slug }}">{{ p.name }}</option>
+    {% endfor %}
+  </select>
+  {% endif %}
+</div>
+
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="border-b border-gray-100 bg-gray-50">
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Title</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Property</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Vendor</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Cost</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Due</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-50">
+      {% for wo in work_orders %}
+      <tr class="wo-row hover:bg-gray-50 cursor-pointer transition-colors"
+          data-property="{{ wo.property.slug if wo.property else '' }}"
+          data-search="{{ (wo.title ~ ' ' ~ (wo.vendor.company_name if wo.vendor else (wo.vendor_name or '')) ~ ' ' ~ (wo.property.name if wo.property else '')) | lower }}"
+          onclick="openModal('wo-modal-{{ wo.id }}')">
+        <td class="px-4 py-3"><div class="font-medium text-gray-900">{{ wo.title }}</div>{% if wo.description %}<div class="text-xs text-gray-400 truncate max-w-xs">{{ wo.description[:80] }}{% if wo.description|length > 80 %}…{% endif %}</div>{% endif %}</td>
+        <td class="px-4 py-3"><span class="px-2 py-0.5 rounded-full text-xs font-medium {{ status_styles.get(wo.status.value,'bg-gray-100 text-gray-600') }}">{{ status_labels.get(wo.status.value, wo.status.value) }}</span></td>
+        <td class="px-4 py-3 text-gray-600 hidden md:table-cell">{{ wo.property.name if wo.property else '—' }}</td>
+        <td class="px-4 py-3 text-gray-600 hidden md:table-cell">{{ wo.vendor.company_name if wo.vendor else (wo.vendor_name or '—') }}</td>
+        <td class="px-4 py-3 hidden lg:table-cell">{% if wo.actual_cost %}<div class="font-medium text-gray-800">${{ '{:,.2f}'.format(wo.actual_cost) }}</div>{% if wo.estimated_cost %}<div class="text-xs text-gray-400">Est: ${{ '{:,.2f}'.format(wo.estimated_cost) }}</div>{% endif %}{% elif wo.estimated_cost %}<span class="text-gray-500">~${{ '{:,.2f}'.format(wo.estimated_cost) }}</span>{% else %}<span class="text-gray-400">—</span>{% endif %}</td>
+        <td class="px-4 py-3 text-gray-600 hidden lg:table-cell">{{ wo.due_date.strftime('%b %d, %Y') if wo.due_date else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center">
+  <div class="text-3xl mb-2">🔨</div>
+  <div class="text-gray-500 font-medium">No work orders yet</div>
+  <button onclick="document.getElementById('add-wo-modal').classList.remove('hidden')" class="mt-3 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Create First Work Order</button>
+</div>
+{% endif %}
+
+<!-- Add Work Order modal -->
+<div id="add-wo-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onclick="if(event.target===this)this.classList.add('hidden')">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="text-lg font-semibold text-gray-900">New Work Order</h2>
+      <button onclick="document.getElementById('add-wo-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+    </div>
+    <form hx-post="/work-orders/" hx-target="body" hx-swap="innerHTML" class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Title <span class="text-red-500">*</span></label>
+        <input type="text" name="title" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Property <span class="text-red-500">*</span></label>
+        <select name="property_slug" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          <option value="">Select property…</option>
+          {% for p in properties %}<option value="{{ p.slug }}">{{ p.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Vendor</label>
+        <select name="vendor_slug" onchange="toggleOtherVendor(this,'add')" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          <option value="">None</option>
+          {% for v in vendors %}<option value="{{ v.slug }}">{{ v.company_name }}</option>{% endfor %}
+          <option value="other">Other — add new vendor</option>
+        </select>
+        <div id="vendor-other-add" class="hidden mt-2">
+          <input type="text" name="vendor_name_other" placeholder="Vendor name (will be added to Vendors list)…"
+                 class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Linked Issue <span class="text-gray-400 font-normal">(optional)</span></label>
+        <select name="issue_id" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          <option value="">— No linked issue —</option>
+          {% for issue in issues %}
+          <option value="{{ issue.id }}">[{{ issue.severity.value.title() }}] {{ issue.title }}{% if issue.property %} · {{ issue.property.name }}{% endif %}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+        <textarea name="description" rows="2" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"></textarea>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Estimated Cost ($)</label>
+          <input type="number" name="estimated_cost" min="0" step="0.01" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
+          <input type="date" name="due_date" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+      </div>
+      <div class="flex gap-3 pt-1">
+        <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Create</button>
+        <button type="button" onclick="document.getElementById('add-wo-modal').classList.add('hidden')" class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-50">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Detail modals -->
+{% for wo in work_orders %}
+{% set wo_notes = notes_map.get(wo.id, []) %}
+<div id="wo-modal-{{ wo.id }}" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onclick="if(event.target===this)closeModal('wo-modal-{{ wo.id }}')">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] flex flex-col" onclick="event.stopPropagation()">
+
+    <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
+      <div>
+        <h2 class="text-lg font-bold text-gray-900">{{ wo.title }}</h2>
+        <p class="text-xs text-gray-500 mt-0.5">{{ wo.property.name if wo.property else '' }}</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="px-2.5 py-1 rounded-full text-xs font-medium {{ status_styles.get(wo.status.value,'bg-gray-100 text-gray-600') }}">{{ status_labels.get(wo.status.value, wo.status.value) }}</span>
+        <button hx-post="/work-orders/{{ wo.slug }}/delete" hx-target="body" hx-swap="innerHTML" hx-confirm="Delete this work order?" class="text-gray-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors" title="Delete"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
+        <button onclick="closeModal('wo-modal-{{ wo.id }}')" class="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+      </div>
+    </div>
+
+    {% set wo_docs = docs_map.get(wo.id, []) %}
+    <div class="flex border-b border-gray-200 px-6 flex-shrink-0">
+      {% for tid, tlabel in [('details','Details'),('attachments','Attachments'),('notes','Notes')] %}
+      <button onclick="switchTab('wo','{{ wo.id }}','{{ tid }}')" id="wo-tab-{{ wo.id }}-{{ tid }}"
+              class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if tid=='details' %}border-brand-500 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
+        {{ tlabel }}{% if tid == 'notes' %}<span id="badge-wo-notes-{{ wo.id }}"> {{ wo_notes|length }}</span>{% endif %}{% if tid == 'attachments' and wo_docs %}<span class="ml-1 text-xs text-gray-400">({{ wo_docs|length }})</span>{% endif %}
+      </button>
+      {% endfor %}
+    </div>
+
+    <div class="flex-1 overflow-y-auto">
+
+      <!-- Details tab -->
+      <div id="wo-panel-{{ wo.id }}-details" class="px-6 py-5">
+
+        <!-- View div -->
+        <div id="wo-view-{{ wo.id }}">
+          {% if wo.description %}
+          <div class="mb-4">
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Description</div>
+            <div class="text-sm text-gray-700">{{ wo.description }}</div>
+          </div>
+          {% endif %}
+          <!-- Read-only metadata grid -->
+          <div class="grid grid-cols-2 gap-3 mb-3">
+            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Vendor</div><div class="font-medium text-sm text-gray-800">{{ wo.vendor.company_name if wo.vendor else (wo.vendor_name or '—') }}</div></div>
+            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Assignee</div><div class="font-medium text-sm text-gray-800">{{ wo.assignee.full_name if wo.assignee else '—' }}</div></div>
+            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Estimated Cost</div><div class="font-medium text-sm text-gray-800">{{ '$' + '{:,.2f}'.format(wo.estimated_cost) if wo.estimated_cost else '—' }}</div></div>
+            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Actual Cost</div><div class="font-medium text-sm {{ 'text-emerald-700' if wo.actual_cost else 'text-gray-400' }}">{{ '$' + '{:,.2f}'.format(wo.actual_cost) if wo.actual_cost else '—' }}</div></div>
+            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Due Date</div><div class="font-medium text-sm text-gray-800">{{ wo.due_date.strftime('%b %d, %Y') if wo.due_date else '—' }}</div></div>
+            <div class="bg-gray-50 rounded-xl p-3 col-span-2"><div class="text-xs text-gray-400 mb-0.5">Linked Issue</div>
+              {% if wo.issue %}
+              <a href="/issues" class="font-medium text-sm text-brand-600 hover:text-brand-700">{{ wo.issue.title }}</a>
+              <span class="ml-1.5 px-1.5 py-0.5 rounded text-xs font-medium
+                {% if wo.issue.severity.value == 'critical' %}bg-red-100 text-red-700
+                {% elif wo.issue.severity.value == 'high' %}bg-orange-100 text-orange-700
+                {% elif wo.issue.severity.value == 'medium' %}bg-amber-100 text-amber-700
+                {% else %}bg-gray-100 text-gray-600{% endif %}">{{ wo.issue.severity.value.title() }}</span>
+              {% else %}<div class="font-medium text-sm text-gray-400">—</div>{% endif %}
+            </div>
+            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Started</div><div class="font-medium text-sm text-gray-800">{{ wo.started_at.strftime('%b %d, %Y') if wo.started_at else '—' }}</div></div>
+            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Completed</div><div class="font-medium text-sm text-gray-800">{{ wo.completed_at.strftime('%b %d, %Y') if wo.completed_at else '—' }}</div></div>
+          </div>
+          {% if wo.completion_notes %}
+          <div class="mb-3">
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Completion Notes</div>
+            <div class="text-sm text-gray-700">{{ wo.completion_notes }}</div>
+          </div>
+          {% endif %}
+          <div class="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
+            <!-- Lifecycle actions -->
+            <div class="flex items-center gap-2">
+              {% set s = wo.status.value %}
+              {% if s in ['draft','estimated'] %}
+              <form hx-post="/work-orders/{{ wo.slug }}/approve" hx-target="body" hx-swap="innerHTML" style="display:inline">
+                <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors">Approve</button>
+              </form>
+              {% endif %}
+              {% if s in ['approved','assigned'] %}
+              <form hx-post="/work-orders/{{ wo.slug }}/start" hx-target="body" hx-swap="innerHTML" style="display:inline">
+                <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition-colors">Start</button>
+              </form>
+              {% endif %}
+              {% if s == 'in_progress' %}
+              <button type="button" onclick="document.getElementById('complete-form-{{ wo.id }}').classList.toggle('hidden')"
+                      class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors">Complete</button>
+              {% endif %}
+              {% if s == 'completed' %}
+              <form hx-post="/work-orders/{{ wo.slug }}/verify" hx-target="body" hx-swap="innerHTML" style="display:inline">
+                <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-lg transition-colors">Verify</button>
+              </form>
+              {% endif %}
+              {% if s not in ['verified','cancelled'] %}
+              <button type="button" onclick="document.getElementById('cancel-form-{{ wo.id }}').classList.toggle('hidden')"
+                      class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-600 border border-red-200 hover:bg-red-50 rounded-lg transition-colors">Cancel</button>
+              {% endif %}
+            </div>
+            <button type="button" onclick="enterEdit('wo','{{ wo.id }}')"
+                    class="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+              Edit
+            </button>
+          </div>
+          <!-- Complete form (hidden until triggered) -->
+          <div id="complete-form-{{ wo.id }}" class="hidden mt-3 p-4 bg-emerald-50 rounded-xl border border-emerald-200">
+            <form hx-post="/work-orders/{{ wo.slug }}/complete" hx-target="body" hx-swap="innerHTML" class="space-y-3">
+              <div class="text-xs font-semibold text-emerald-800 mb-2">Mark as Completed</div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">Actual Cost ($)</label>
+                <input type="number" name="actual_cost" step="0.01" min="0" placeholder="{{ wo.estimated_cost or '0.00' }}"
+                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">Completion Notes</label>
+                <textarea name="notes" rows="2" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"></textarea>
+              </div>
+              <div class="flex gap-2">
+                <button type="submit" class="flex-1 py-1.5 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg">Confirm Complete</button>
+                <button type="button" onclick="document.getElementById('complete-form-{{ wo.id }}').classList.add('hidden')" class="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
+              </div>
+            </form>
+          </div>
+          <!-- Cancel form (hidden until triggered) -->
+          <div id="cancel-form-{{ wo.id }}" class="hidden mt-3 p-4 bg-red-50 rounded-xl border border-red-200">
+            <form hx-post="/work-orders/{{ wo.slug }}/cancel" hx-target="body" hx-swap="innerHTML" class="space-y-3">
+              <div class="text-xs font-semibold text-red-800 mb-2">Cancel Work Order</div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">Reason (optional)</label>
+                <textarea name="notes" rows="2" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"></textarea>
+              </div>
+              <div class="flex gap-2">
+                <button type="submit" class="flex-1 py-1.5 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg">Confirm Cancel</button>
+                <button type="button" onclick="document.getElementById('cancel-form-{{ wo.id }}').classList.add('hidden')" class="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700">Back</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- Edit div -->
+        <div id="wo-edit-{{ wo.id }}" class="hidden">
+          <form hx-post="/work-orders/{{ wo.slug }}/edit" hx-target="body" hx-swap="innerHTML">
+            <div class="space-y-4">
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Linked Issue</div>
+                <select name="issue_id" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                  <option value="">— No linked issue —</option>
+                  {% for issue in issues %}
+                  <option value="{{ issue.id }}" {% if wo.issue_id == issue.id %}selected{% endif %}>
+                    [{{ issue.severity.value.title() }}] {{ issue.title }}{% if issue.property %} · {{ issue.property.name }}{% endif %}
+                  </option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Title</div>
+                <input type="text" name="title" value="{{ wo.title }}" required
+                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Description</div>
+                <textarea name="description" data-autoresize
+                          class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
+                          placeholder="No description…">{{ wo.description or '' }}</textarea>
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-3 my-4">
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Estimated Cost ($)</div>
+                <input type="number" name="estimated_cost" step="0.01" min="0"
+                       value="{{ wo.estimated_cost or '' }}"
+                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Actual Cost ($)</div>
+                <input type="number" name="actual_cost" step="0.01" min="0"
+                       value="{{ wo.actual_cost or '' }}"
+                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Due Date</div>
+                <input type="date" name="due_date"
+                       value="{{ wo.due_date.isoformat() if wo.due_date else '' }}"
+                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Status</div>
+                <select name="status" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                  {% for s, label in [('draft','Draft'),('estimated','Estimated'),('approved','Approved'),('assigned','Assigned'),('in_progress','In Progress'),('completed','Completed'),('verified','Verified'),('cancelled','Cancelled')] %}
+                  <option value="{{ s }}" {% if wo.status.value == s %}selected{% endif %}>{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
+            <!-- Vendor (editable) + assignee (read-only tile) -->
+            <div class="grid grid-cols-2 gap-3 mb-4">
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Vendor</div>
+                <select name="vendor_slug" onchange="toggleOtherVendor(this,'{{ wo.id }}')"
+                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                  <option value="">None</option>
+                  {% for v in vendors %}<option value="{{ v.slug }}" {% if wo.vendor and wo.vendor.slug == v.slug %}selected{% endif %}>{{ v.company_name }}</option>{% endfor %}
+                  <option value="other" {% if not wo.vendor and wo.vendor_name %}selected{% endif %}>Other — add new vendor</option>
+                </select>
+                <div id="vendor-other-{{ wo.id }}" class="{% if not wo.vendor and wo.vendor_name %}{% else %}hidden {% endif %}mt-2">
+                  <input type="text" name="vendor_name_other"
+                         placeholder="Vendor name (will be added to Vendors list)…"
+                         value="{{ wo.vendor_name or '' }}"
+                         class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                </div>
+              </div>
+              <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Assignee</div><div class="font-medium text-sm text-gray-800">{{ wo.assignee.full_name if wo.assignee else '—' }}</div></div>
+            </div>
+            <div>
+              <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Completion Notes</div>
+              <textarea name="completion_notes" data-autoresize
+                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
+                        placeholder="No completion notes yet…">{{ wo.completion_notes or '' }}</textarea>
+            </div>
+            <div class="flex justify-end gap-2 mt-4 pt-4 border-t border-gray-100">
+              <button type="button" onclick="exitEdit('wo','{{ wo.id }}')"
+                      class="px-4 py-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors">Cancel</button>
+              <button type="submit"
+                      class="px-4 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors">Save</button>
+            </div>
+          </form>
+        </div>
+
+      </div>
+
+      <!-- Attachments tab -->
+      <div id="wo-panel-{{ wo.id }}-attachments" class="px-6 py-5 hidden">
+        <div data-docs-container>
+          {% with docs=wo_docs, post_url="/work-orders/"+wo.slug+"/documents", delete_url_prefix="/work-orders/"+wo.slug+"/documents" %}
+          {% include "partials/docs_section.html" %}
+          {% endwith %}
+        </div>
+      </div>
+
+      <!-- Notes tab -->
+      <div id="wo-panel-{{ wo.id }}-notes" class="px-6 py-5 hidden">
+        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Notes & Comments</div>
+        <div data-notes-container data-notes-badge="badge-wo-notes-{{ wo.id }}">
+          {% with notes=wo_notes, post_url="/work-orders/"+wo.slug+"/notes", delete_url_prefix="/work-orders/"+wo.slug+"/notes" %}{% include "partials/notes_section.html" %}{% endwith %}
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endfor %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
+function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+function switchTab(prefix, entityId, tab) {
+  ['details','attachments','notes'].forEach(t => {
+    document.getElementById(prefix+'-panel-'+entityId+'-'+t)?.classList.add('hidden');
+    const btn = document.getElementById(prefix+'-tab-'+entityId+'-'+t);
+    if (btn) { btn.classList.remove('border-brand-500','text-brand-600'); btn.classList.add('border-transparent','text-gray-500'); }
+  });
+  document.getElementById(prefix+'-panel-'+entityId+'-'+tab)?.classList.remove('hidden');
+  const active = document.getElementById(prefix+'-tab-'+entityId+'-'+tab);
+  if (active) { active.classList.add('border-brand-500','text-brand-600'); active.classList.remove('border-transparent','text-gray-500'); }
+}
+function autoResize(el){el.style.height='auto';el.style.height=el.scrollHeight+'px';}
+function toggleOtherVendor(select, suffix) {
+  const wrapper = document.getElementById('vendor-other-' + suffix);
+  if (!wrapper) return;
+  if (select.value === 'other') {
+    wrapper.classList.remove('hidden');
+    wrapper.querySelector('input').focus();
+  } else {
+    wrapper.classList.add('hidden');
+    wrapper.querySelector('input').value = '';
+  }
+}
+function enterEdit(prefix, id) {
+  document.getElementById(prefix+'-view-'+id).classList.add('hidden');
+  const editEl = document.getElementById(prefix+'-edit-'+id);
+  editEl.classList.remove('hidden');
+  editEl.querySelectorAll('textarea[data-autoresize]').forEach(ta => autoResize(ta));
+}
+function exitEdit(prefix, id) {
+  document.getElementById(prefix+'-edit-'+id).classList.add('hidden');
+  document.getElementById(prefix+'-view-'+id).classList.remove('hidden');
+}
+document.addEventListener('DOMContentLoaded',()=>document.querySelectorAll('textarea[data-autoresize]').forEach(t=>t.addEventListener('input',()=>autoResize(t))));
+let woActivePropertyFilter = '';
+let woActiveSearchFilter = '';
+
+function filterWOByProperty(slug) {
+  woActivePropertyFilter = slug;
+  applyWOFilters();
+}
+
+function filterWOBySearch(text) {
+  woActiveSearchFilter = (text || '').trim().toLowerCase();
+  applyWOFilters();
+}
+
+function applyWOFilters() {
+  document.querySelectorAll('.wo-row').forEach(row => {
+    const matchesProperty = woActivePropertyFilter === '' || row.dataset.property === woActivePropertyFilter;
+    const matchesSearch = woActiveSearchFilter === '' || (row.dataset.search || '').includes(woActiveSearchFilter);
+    row.classList.toggle('hidden', !(matchesProperty && matchesSearch));
+  });
+}
+</script>
+{% endblock %}

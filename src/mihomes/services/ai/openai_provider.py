@@ -33,10 +33,14 @@ class OpenAIProvider:
         system_prompt: str,
         user_message: str,
         context_data: str | None = None,
+        attachments=None,
     ) -> str:
         message_content = user_message
+        if attachments:
+            from mihomes.services.ai.file_processor import attachments_to_text_block
+            message_content = attachments_to_text_block(attachments) + "\n\n" + message_content
         if context_data:
-            message_content = f"{user_message}\n\n<estate_data>\n{context_data}\n</estate_data>"
+            message_content = f"{message_content}\n\n<estate_data>\n{context_data}\n</estate_data>"
 
         try:
             response = self.client.chat.completions.create(
@@ -55,12 +59,50 @@ class OpenAIProvider:
         except openai.APIError as e:
             raise AIProviderError(f"OpenAI API error: {e}")
 
+    def stream(
+        self,
+        system_prompt: str,
+        user_message: str,
+        context_data: str | None = None,
+        attachments=None,
+    ):
+        """Stream tokens from OpenAI."""
+        message_content = user_message
+        if attachments:
+            from mihomes.services.ai.file_processor import attachments_to_text_block
+            message_content = attachments_to_text_block(attachments) + "\n\n" + message_content
+        if context_data:
+            message_content = f"{message_content}\n\n<estate_data>\n{context_data}\n</estate_data>"
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                max_tokens=4096,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": message_content},
+                ],
+                stream=True,
+            )
+            for chunk in response:
+                if chunk.choices:
+                    delta = chunk.choices[0].delta.content
+                    if delta:
+                        yield delta
+        except openai.AuthenticationError as e:
+            raise AIAuthError(f"Invalid API key: {e}")
+        except openai.RateLimitError as e:
+            raise AIRateLimitError(f"Rate limited: {e}")
+        except openai.APIError as e:
+            raise AIProviderError(f"OpenAI API error: {e}")
+
     def structured_output(
         self,
         system_prompt: str,
         user_message: str,
         schema: dict,
         context_data: str | None = None,
+        attachments=None,
     ) -> dict:
         message_content = user_message
         if context_data:

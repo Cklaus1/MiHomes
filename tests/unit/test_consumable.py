@@ -1,7 +1,6 @@
 """Tests for consumable inventory service."""
 
-import pytest
-from mihomes.models.consumable import Consumable, ConsumableStatus
+from mihomes.models.consumable import ConsumableStatus
 from mihomes.models.property import Property, PropertyType
 from mihomes.services.consumable import (
     _compute_status,
@@ -32,17 +31,29 @@ class TestComputeStatus:
     def test_negative_quantity_returns_out(self):
         assert _compute_status(-1, 6) == ConsumableStatus.OUT
 
-    def test_at_par_level_returns_low(self):
-        assert _compute_status(6, 6) == ConsumableStatus.LOW
+    def test_par_level_one_has_no_separate_low_zone(self):
+        # par_level == 1: nothing in between "fine" and "out" — OUT already
+        # covers running out, so there's no separate LOW warning zone.
+        assert _compute_status(1, 1) == ConsumableStatus.OK
+        assert _compute_status(0, 1) == ConsumableStatus.OUT
 
-    def test_below_par_level_returns_low(self):
-        assert _compute_status(3, 6) == ConsumableStatus.LOW
+    def test_par_level_above_one_flags_low_at_fixed_threshold(self):
+        # Default LOW threshold is a fixed "fewer than 2 units left,"
+        # not proportional to how high par_level is — flagging LOW at
+        # 19/20 in stock (the old qty <= par_level behavior) is a false alarm.
+        assert _compute_status(1, 6) == ConsumableStatus.LOW
+        assert _compute_status(2, 6) == ConsumableStatus.OK
+        assert _compute_status(19, 20) == ConsumableStatus.OK
 
     def test_above_par_level_returns_ok(self):
         assert _compute_status(10, 6) == ConsumableStatus.OK
 
     def test_no_par_level_with_stock_returns_ok(self):
         assert _compute_status(5, None) == ConsumableStatus.OK
+
+    def test_custom_threshold_overrides_default_formula(self):
+        assert _compute_status(4, 20, low_stock_threshold=5) == ConsumableStatus.LOW
+        assert _compute_status(5, 20, low_stock_threshold=5) == ConsumableStatus.OK
 
 
 class TestCreateConsumable:
@@ -65,7 +76,7 @@ class TestCreateConsumable:
         assert item.category == "cleaning"
         assert item.par_level == 4
         assert item.quantity_in_stock == 2
-        assert item.status == ConsumableStatus.LOW
+        assert item.status == ConsumableStatus.OK
         assert item.notes == "under sink"
 
     def test_status_computed_on_create(self, session):
@@ -107,7 +118,7 @@ class TestGetOrCreateConsumable:
 class TestUpdateStock:
     def test_update_quantity(self, session):
         prop = _make_property(session)
-        item = create_consumable(session, "Pool Salt", str(prop.id), par_level=5)
+        create_consumable(session, "Pool Salt", str(prop.id), par_level=5)
         updated = update_stock(session, "pool-salt", str(prop.id), quantity_in_stock=8)
         assert updated.quantity_in_stock == 8
         assert updated.status == ConsumableStatus.OK
@@ -115,7 +126,7 @@ class TestUpdateStock:
     def test_update_quantity_to_low(self, session):
         prop = _make_property(session)
         create_consumable(session, "Pool Salt", str(prop.id), par_level=5, quantity_in_stock=10)
-        updated = update_stock(session, "Pool Salt", str(prop.id), quantity_in_stock=3)
+        updated = update_stock(session, "Pool Salt", str(prop.id), quantity_in_stock=1)
         assert updated.status == ConsumableStatus.LOW
 
     def test_update_order_quantity(self, session):

@@ -1,0 +1,36 @@
+{# Reusable notes section. Expects: notes, post_url, delete_url_prefix #}
+<div class="space-y-2 max-h-48 overflow-y-auto mb-3">
+  {% if notes %}
+    {% for note in notes %}
+    <div class="bg-white rounded-lg px-3 py-2.5 border border-gray-100 flex items-start gap-2 group" data-note-item>
+      <div class="flex-1 min-w-0">
+        <p class="text-sm text-gray-700 whitespace-pre-wrap">{{ note.content }}</p>
+        <p class="text-xs text-gray-400 mt-1">{{ note.created_at.strftime('%b %d, %Y %H:%M') if note.created_at else '' }}</p>
+      </div>
+      <button hx-delete="{{ delete_url_prefix }}/{{ note.id }}"
+              hx-target="closest [data-notes-container]"
+              hx-swap="innerHTML"
+              hx-confirm="Delete this note?"
+              class="flex-shrink-0 text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity mt-0.5">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    {% endfor %}
+  {% else %}
+  <div class="text-sm text-gray-400 text-center py-2">No notes yet.</div>
+  {% endif %}
+</div>
+<form hx-post="{{ post_url }}"
+      hx-target="closest [data-notes-container]"
+      hx-swap="innerHTML"
+      hx-on::after-request="this.reset()"
+      class="flex gap-2">
+  <input type="text" name="content" placeholder="Add a note…" required
+         class="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white" />
+  <button type="submit"
+          class="px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors flex-shrink-0">
+    Add
+  </button>
+</form>

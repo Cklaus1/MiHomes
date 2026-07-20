@@ -1,0 +1,48 @@
+{# Review fragment returned by POST /assets/scan — swapped into #scan-review #}
+{% if error %}
+<div class="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+  <svg class="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+  <span>{{ error }}</span>
+</div>
+{% elif items %}
+<form hx-post="/assets/scan/confirm" hx-target="body" hx-swap="innerHTML">
+  <input type="hidden" name="property_slug" value="{{ property_slug }}">
+  <input type="hidden" name="space_slug" value="{{ space_slug }}">
+  <input type="hidden" name="photo_path" value="{{ photo_path }}">
+
+  <div class="flex items-center justify-between mb-2">
+    <p class="text-sm font-medium text-gray-700">{{ items|length }} item{{ 's' if items|length != 1 else '' }} detected — uncheck any you don't want, then add.</p>
+  </div>
+
+  <div class="space-y-2 max-h-[45vh] overflow-y-auto pr-1">
+    {% for it in items %}
+    <div class="grid grid-cols-12 gap-2 items-center bg-gray-50 rounded-lg p-2 border border-gray-100">
+      <input type="checkbox" name="include" value="{{ loop.index0 }}" checked
+             class="col-span-1 justify-self-center rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+      <input type="text" name="name" value="{{ it.name or '' }}"
+             class="col-span-4 border border-gray-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
+      <select name="asset_type" class="col-span-2 border border-gray-200 rounded px-1 py-1.5 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-brand-500">
+        {% for t in asset_types %}<option value="{{ t }}" {% if it.asset_type == t %}selected{% endif %}>{{ t.title() }}</option>{% endfor %}
+      </select>
+      <select name="condition" class="col-span-2 border border-gray-200 rounded px-1 py-1.5 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-brand-500">
+        {% for c in conditions %}<option value="{{ c }}" {% if it.condition == c %}selected{% endif %}>{{ c.title() }}</option>{% endfor %}
+      </select>
+      <input type="text" name="value" value="{{ it.estimated_value if it.estimated_value is not none else '' }}" placeholder="$ est."
+             class="col-span-3 border border-gray-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
+      <input type="hidden" name="note" value="{{ it.note or '' }}{% if it.make or it.model %} ({{ it.make or '' }} {{ it.model or '' }}){% endif %}" />
+    </div>
+    {% endfor %}
+  </div>
+
+  <p class="text-xs text-gray-400 mt-2">Values are AI estimates — adjust before adding. Serial numbers, exact prices, and warranties can be filled in later on each asset.</p>
+
+  <div class="flex justify-end gap-2 mt-3 pt-3 border-t border-gray-100">
+    <button type="button" onclick="document.getElementById('scan-room-modal').classList.add('hidden')"
+            class="px-4 py-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors">Cancel</button>
+    <button type="submit"
+            class="px-4 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors">Add selected</button>
+  </div>
+</form>
+{% else %}
+<div class="text-sm text-gray-400 bg-gray-50 rounded-lg p-4 text-center border border-gray-100">No assets detected.</div>
+{% endif %}

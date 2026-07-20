@@ -12,26 +12,32 @@ ENTITY_TYPE_MAP = {}
 def _get_model_class(entity_type: str):
     """Lazy-load entity type map to avoid circular imports."""
     if not ENTITY_TYPE_MAP:
-        from mihomes.models.property import Property
-        from mihomes.models.staff import Staff
-        from mihomes.models.vendor import Vendor
-        from mihomes.models.task import Task
-        from mihomes.models.issue import Issue
         from mihomes.models.asset import Asset
-        from mihomes.models.work_order import WorkOrder
-        from mihomes.models.event import Event, Guest
+        from mihomes.models.contract import Contract
         from mihomes.models.document import Document
+        from mihomes.models.event import Event, Guest
+        from mihomes.models.issue import Issue
+        from mihomes.models.property import Property
+        from mihomes.models.recurring_expense import RecurringExpense
+        from mihomes.models.space import Space
+        from mihomes.models.staff import Staff
+        from mihomes.models.task import Task
+        from mihomes.models.vendor import Vendor
+        from mihomes.models.work_order import WorkOrder
         ENTITY_TYPE_MAP.update({
             "property": Property,
+            "space": Space,
             "staff": Staff,
             "vendor": Vendor,
             "task": Task,
             "issue": Issue,
             "asset": Asset,
             "workorder": WorkOrder,
+            "contract": Contract,
             "event": Event,
             "guest": Guest,
             "document": Document,
+            "recurring": RecurringExpense,
         })
     return ENTITY_TYPE_MAP.get(entity_type)
 

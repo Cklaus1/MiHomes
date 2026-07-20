@@ -1,0 +1,544 @@
+{% extends "base.html" %}
+
+{% block title %}Inventory — MiHomes{% endblock %}
+{% block heading %}Inventory{% endblock %}
+{% block subheading %}
+<p class="text-sm text-gray-500 mt-0.5">
+  {{ total }} item{{ 's' if total != 1 else '' }}
+  {% if low_count %} · <span class="text-amber-600 font-medium">{{ low_count }} need{{ 's' if low_count == 1 else '' }} reorder</span>{% endif %}
+</p>
+{% endblock %}
+
+{% block actions %}
+<button onclick="document.getElementById('add-item-modal').classList.remove('hidden')"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
+  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+  Add Item
+</button>
+{% endblock %}
+
+{% block content %}
+
+<!-- Filters -->
+<div class="flex flex-wrap items-center gap-3 mb-5">
+  <a href="/inventory/"
+     class="px-3 py-1.5 rounded-full text-xs font-medium transition-colors
+            {% if not filter_property %}bg-brand-600 text-white{% else %}bg-white border border-gray-200 text-gray-600 hover:border-brand-400{% endif %}">
+    All Properties
+  </a>
+  {% for prop in properties %}
+  <a href="/inventory/?property_slug={{ prop.slug }}"
+     class="px-3 py-1.5 rounded-full text-xs font-medium transition-colors
+            {% if filter_property == prop.slug %}bg-brand-600 text-white{% else %}bg-white border border-gray-200 text-gray-600 hover:border-brand-400{% endif %}">
+    {{ prop.name }}
+  </a>
+  {% endfor %}
+
+  {% if all_categories %}
+  <div class="ml-2 h-4 border-l border-gray-200"></div>
+  <select onchange="location='?{% if filter_property %}property_slug={{ filter_property }}&{% endif %}category='+this.value"
+          class="border border-gray-200 rounded-lg px-3 py-1.5 text-xs text-gray-600 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500">
+    <option value="">All Locations</option>
+    {% for cat in all_categories %}
+    <option value="{{ cat }}" {% if filter_category == cat %}selected{% endif %}>{{ cat }}</option>
+    {% endfor %}
+  </select>
+  {% endif %}
+
+  <div class="relative ml-auto">
+    <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
+         fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/>
+    </svg>
+    <input id="inv-search" type="search" placeholder="Search items…"
+           oninput="filterItems(this.value)"
+           class="pl-9 pr-4 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white w-52" />
+  </div>
+</div>
+
+<!-- Inventory groups -->
+{% if groups %}
+<div class="space-y-4" id="inv-groups">
+  {% for category, items in groups.items() %}
+  <div class="inv-group bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+      <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide">{{ category }}</h3>
+      <span class="text-xs text-gray-400">{{ items|length }} item{{ 's' if items|length != 1 else '' }}</span>
+    </div>
+    <table class="w-full text-sm">
+      <tbody class="divide-y divide-gray-50">
+        {% for item in items %}
+        <tr class="inv-row hover:bg-gray-50 transition-colors" data-name="{{ item.name | lower }}">
+
+          <!-- Name -->
+          <td class="px-4 py-3 font-medium text-gray-900 w-full">
+            {{ item.name }}
+            {% if item.property %}
+            <span class="ml-2 text-xs text-gray-400">{{ item.property.name }}</span>
+            {% endif %}
+          </td>
+
+          <!-- Price + last ordered -->
+          <td class="px-4 py-3 whitespace-nowrap">
+            {% set _sorted = item.price_entries | sort(attribute='date', reverse=True) %}
+            {% set display_date = item.last_ordered_at if item.last_ordered_at else (_sorted[0].date if _sorted else none) %}
+            <button onclick="openPriceModal('{{ item.id }}')"
+                    class="flex flex-col items-start gap-0.5 group">
+              <span class="flex items-center gap-1 {% if item.unit_price %}text-gray-700 group-hover:text-brand-600{% else %}text-gray-300 group-hover:text-brand-500{% endif %} transition-colors">
+                <span class="text-sm font-medium">{% if item.unit_price %}${{ '{:,.2f}'.format(item.unit_price) }}{% else %}—{% endif %}</span>
+                {% if item.price_entries %}
+                <span class="text-xs text-gray-400 group-hover:text-brand-400">({{ item.price_entries|length }})</span>
+                {% endif %}
+                <svg class="w-3 h-3 text-gray-300 group-hover:text-brand-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
+                </svg>
+              </span>
+              {% if display_date %}
+              <span class="text-xs text-gray-400">{{ display_date.strftime('%b %d, %Y') }}</span>
+              {% endif %}
+            </button>
+          </td>
+
+          <!-- Stock level -->
+          <td class="px-4 py-3 whitespace-nowrap">
+            <div class="flex items-center gap-2">
+              {% if item.status.value == 'ok' %}
+              <span class="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0"></span>
+              {% elif item.status.value == 'low' %}
+              <span class="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0"></span>
+              {% elif item.status.value == 'out' %}
+              <span class="w-2 h-2 rounded-full bg-red-400 flex-shrink-0"></span>
+              {% else %}
+              <span class="w-2 h-2 rounded-full bg-blue-400 flex-shrink-0"></span>
+              {% endif %}
+              <span class="text-sm text-gray-700">
+                {% if item.quantity_in_stock is not none %}{{ item.quantity_in_stock | int }}{% else %}—{% endif %}
+                {% if item.par_level %}<span class="text-gray-400">/ {{ item.par_level | int }}</span>{% endif %}
+              </span>
+            </div>
+          </td>
+
+          <!-- Status badge -->
+          <td class="px-4 py-3 whitespace-nowrap">
+            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+              {% if item.status.value == 'ok' %}bg-emerald-50 text-emerald-700
+              {% elif item.status.value == 'low' %}bg-amber-50 text-amber-700
+              {% elif item.status.value == 'out' %}bg-red-50 text-red-700
+              {% else %}bg-blue-50 text-blue-700{% endif %}">
+              {{ item.status.value.title() }}
+            </span>
+          </td>
+
+          <!-- Quick actions -->
+          <td class="px-4 py-3 whitespace-nowrap text-right">
+            <div class="flex items-center justify-end gap-2">
+              <button type="button"
+                      onclick="openThresholdsModal('{{ item.slug }}', '{{ item.name | replace("'", "\\'") }}', {{ item.par_level | default('null', true) }}, {{ item.low_stock_threshold | default('null', true) }})"
+                      title="Edit par level / low-stock threshold"
+                      class="text-gray-400 hover:text-brand-600 p-1 rounded hover:bg-brand-50 transition-colors">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+              </button>
+              {% if item.status.value == 'ordered' %}
+              <form method="post" action="/inventory/{{ item.slug }}/stock"
+                    class="flex items-center gap-1" onsubmit="this.querySelector('button').disabled=true">
+                <input type="hidden" name="property_slug" value="{{ filter_property or '' }}">
+                <input type="hidden" name="category" value="{{ filter_category or '' }}">
+                <input type="number" name="quantity" min="0" step="1" placeholder="qty received"
+                       class="w-24 text-xs border border-blue-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 text-center bg-blue-50" />
+                <button type="submit"
+                        class="text-xs text-blue-600 hover:text-blue-700 font-medium px-2 py-1 rounded hover:bg-blue-50 transition-colors">
+                  Received
+                </button>
+              </form>
+              {% else %}
+              <form method="post" action="/inventory/{{ item.slug }}/stock"
+                    class="flex items-center gap-1" onsubmit="this.querySelector('button').disabled=true">
+                <input type="hidden" name="property_slug" value="{{ filter_property or '' }}">
+                <input type="hidden" name="category" value="{{ filter_category or '' }}">
+                <input type="number" name="quantity" min="0" step="1" placeholder="qty"
+                       class="w-16 text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-brand-500 text-center" />
+                <button type="submit"
+                        class="text-xs text-brand-600 hover:text-brand-700 font-medium px-2 py-1 rounded hover:bg-brand-50 transition-colors">
+                  Set
+                </button>
+              </form>
+              {% if item.status.value in ['low', 'out'] %}
+              <button type="button"
+                      onclick="openOrderedModal('{{ item.slug }}', '{{ item.name | replace("'", "\\'") }}')"
+                      class="text-xs text-blue-600 hover:text-blue-700 font-medium px-2 py-1 rounded hover:bg-blue-50 transition-colors">
+                Ordered
+              </button>
+              {% endif %}
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center">
+  <div class="text-3xl mb-3">📦</div>
+  <div class="text-gray-500 text-sm">No inventory items found.</div>
+  <button onclick="document.getElementById('add-item-modal').classList.remove('hidden')"
+          class="mt-3 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Add First Item</button>
+</div>
+{% endif %}
+
+
+<!-- Add Item modal -->
+<div id="add-item-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+     onclick="if(event.target===this)this.classList.add('hidden')">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="text-lg font-semibold text-gray-900">Add Inventory Item</h2>
+      <button onclick="document.getElementById('add-item-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <form method="post" action="/inventory/" class="space-y-3">
+      <input type="hidden" name="filter_property" value="{{ filter_property or '' }}">
+      <input type="hidden" name="filter_category" value="{{ filter_category or '' }}">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Name <span class="text-red-500">*</span></label>
+        <input type="text" name="name" required
+               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Property <span class="text-red-500">*</span></label>
+        <select name="property_slug" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          <option value="">Select property…</option>
+          {% for prop in properties %}<option value="{{ prop.slug }}">{{ prop.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Location / Category</label>
+          <input type="text" name="category" list="cat-suggestions" placeholder="e.g. Kitchen"
+                 class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          <datalist id="cat-suggestions">
+            {% for cat in all_categories %}<option value="{{ cat }}">{% endfor %}
+          </datalist>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Unit</label>
+          <input type="text" name="unit" placeholder="e.g. rolls, bottles"
+                 class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Current Stock</label>
+          <input type="number" name="quantity_in_stock" min="0" step="1"
+                 class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Par Level</label>
+          <input type="number" name="par_level" min="0" step="1"
+                 class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Unit Price ($)</label>
+        <input type="number" name="unit_price" min="0" step="0.01"
+               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Custom low-stock threshold</label>
+        <input type="number" name="low_stock_threshold" min="0" step="0.01" placeholder="Leave blank for default"
+               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        <p class="text-xs text-gray-400 mt-1">Default: flagged low below 1 unit if par level is 1, or below 2 units if par level is greater than 1.</p>
+      </div>
+      <div class="flex gap-3 pt-1">
+        <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Add Item</button>
+        <button type="button" onclick="document.getElementById('add-item-modal').classList.add('hidden')"
+                class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-50">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Shared "Edit Thresholds" modal -->
+<div id="thresholds-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+     onclick="if(event.target===this)closeThresholdsModal()">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h3 class="text-base font-semibold text-gray-900">Edit Stock Thresholds</h3>
+        <p class="text-xs text-gray-400 mt-0.5" id="thresholds-modal-subtitle"></p>
+      </div>
+      <button onclick="closeThresholdsModal()" class="text-gray-400 hover:text-gray-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <form id="thresholds-modal-form" method="post" action="" class="space-y-3">
+      <input type="hidden" name="property_slug" value="{{ filter_property or '' }}">
+      <input type="hidden" name="category" value="{{ filter_category or '' }}">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Par Level</label>
+        <input type="number" name="par_level" id="thresholds-modal-par" min="0" step="1"
+               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Custom low-stock threshold</label>
+        <input type="number" name="low_stock_threshold" id="thresholds-modal-threshold" min="0" step="0.01" placeholder="Leave blank for default"
+               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        <p class="text-xs text-gray-400 mt-1">Default: flagged low below 1 unit if par level is 1, or below 2 units if par level is greater than 1.</p>
+      </div>
+      <div class="flex gap-3 pt-1">
+        <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Save</button>
+        <button type="button" onclick="closeThresholdsModal()"
+                class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-50">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+
+<!-- Shared "Mark Ordered" modal -->
+<div id="ordered-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+     onclick="if(event.target===this)closeOrderedModal()">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h3 class="text-base font-semibold text-gray-900" id="ordered-modal-title">Mark as Ordered</h3>
+        <p class="text-xs text-gray-400 mt-0.5" id="ordered-modal-subtitle"></p>
+      </div>
+      <button onclick="closeOrderedModal()" class="text-gray-400 hover:text-gray-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <form id="ordered-modal-form" method="post" action="" class="space-y-3">
+      <input type="hidden" name="property_slug" value="{{ filter_property or '' }}">
+      <input type="hidden" name="category" value="{{ filter_category or '' }}">
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Date Ordered <span class="text-red-500">*</span></label>
+          <input type="date" name="order_date" id="ordered-modal-date" required
+                 class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Qty Ordered</label>
+          <input type="number" name="quantity_ordered" id="ordered-modal-qty" min="0.01" step="0.01" placeholder="e.g. 2"
+                 class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Price per Unit ($)</label>
+        <input type="number" name="price" min="0" step="0.01" placeholder="0.00"
+               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        <p class="text-xs text-gray-400 mt-1">Adds to price history if provided</p>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Note</label>
+        <input type="text" name="note" placeholder="e.g. Amazon order #123"
+               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+      </div>
+      <div class="flex gap-3 pt-1">
+        <button type="submit" class="flex-1 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700">Confirm Order</button>
+        <button type="button" onclick="closeOrderedModal()" class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-50">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Price history modals (one per item) -->
+{% for category, items in groups.items() %}
+{% for item in items %}
+<div id="price-modal-{{ item.id }}" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+     onclick="if(event.target===this)closePriceModal('{{ item.id }}')">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h3 class="text-base font-semibold text-gray-900">{{ item.name }}</h3>
+        <p class="text-xs text-gray-400 mt-0.5">Price History</p>
+      </div>
+      <button onclick="closePriceModal('{{ item.id }}')" class="text-gray-400 hover:text-gray-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <!-- Add price entry form -->
+    <form method="post" action="/inventory/{{ item.slug }}/price-entries" class="mb-4 p-3 bg-gray-50 rounded-xl space-y-2">
+      <input type="hidden" name="property_slug" value="{{ filter_property or '' }}">
+      <input type="hidden" name="category" value="{{ filter_category or '' }}">
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Price ($) <span class="text-red-400">*</span></label>
+          <input type="number" name="price" required min="0" step="0.01" placeholder="0.00"
+                 class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Date <span class="text-red-400">*</span></label>
+          <input type="date" name="entry_date" required
+                 class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Qty</label>
+          <input type="number" name="quantity" value="1" min="0.01" step="0.01"
+                 class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Type</label>
+          <select name="entry_type" class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+            <option value="purchase">Purchase</option>
+            <option value="valuation">Valuation</option>
+            <option value="estimate">Estimate</option>
+          </select>
+        </div>
+      </div>
+      <input type="text" name="note" placeholder="Note (optional)…"
+             class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+      <button type="submit" class="w-full py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">Add Entry</button>
+    </form>
+
+    <!-- Price history entries -->
+    {% set sorted_entries = item.price_entries | sort(attribute='date', reverse=True) %}
+    {% if sorted_entries %}
+    <div class="space-y-2 max-h-64 overflow-y-auto">
+      {% for entry in sorted_entries %}
+
+      <!-- View state -->
+      <div id="entry-view-{{ entry.id }}" class="flex items-center justify-between p-2.5 bg-white border border-gray-100 rounded-xl text-sm">
+        <div class="flex-1 min-w-0">
+          <div class="font-medium text-gray-800">
+            ${{ '{:,.2f}'.format(entry.price) }}
+            {% if entry.quantity != 1.0 %}<span class="text-gray-400 font-normal"> × {{ entry.quantity }}</span>{% endif %}
+          </div>
+          <div class="text-xs text-gray-400 mt-0.5 truncate">
+            {{ entry.date.strftime('%b %d, %Y') }} · <span class="capitalize">{{ entry.entry_type }}</span>{% if entry.note %} · {{ entry.note }}{% endif %}
+          </div>
+        </div>
+        <div class="flex items-center gap-1 flex-shrink-0 ml-2">
+          <div class="text-right mr-1">
+            <div class="font-semibold text-gray-900">${{ '{:,.2f}'.format(entry.price * entry.quantity) }}</div>
+            {% if entry.quantity != 1.0 %}<div class="text-xs text-gray-400">total</div>{% endif %}
+          </div>
+          <button type="button" onclick="showEntryEdit({{ entry.id }})"
+                  class="text-gray-400 hover:text-brand-600 p-1 rounded transition-colors flex-shrink-0" title="Edit">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+          </button>
+          <form method="post" action="/inventory/{{ item.slug }}/price-entries/{{ entry.id }}/delete"
+                onsubmit="return confirm('Delete this price entry?')" class="inline">
+            <input type="hidden" name="property_slug" value="{{ filter_property or '' }}">
+            <input type="hidden" name="category" value="{{ filter_category or '' }}">
+            <button type="submit" class="text-gray-400 hover:text-red-500 p-1 rounded transition-colors flex-shrink-0" title="Delete">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Edit state -->
+      <div id="entry-edit-{{ entry.id }}" class="hidden p-2.5 bg-blue-50 border border-blue-100 rounded-xl">
+        <form method="post" action="/inventory/{{ item.slug }}/price-entries/{{ entry.id }}/edit" class="space-y-2">
+          <input type="hidden" name="property_slug" value="{{ filter_property or '' }}">
+          <input type="hidden" name="category" value="{{ filter_category or '' }}">
+          <div class="grid grid-cols-2 gap-1.5">
+            <div>
+              <label class="block text-xs text-gray-500 mb-0.5">Price ($)</label>
+              <input type="number" name="price" required min="0" step="0.01" value="{{ entry.price }}"
+                     class="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500" />
+            </div>
+            <div>
+              <label class="block text-xs text-gray-500 mb-0.5">Date</label>
+              <input type="date" name="entry_date" required value="{{ entry.date.isoformat() }}"
+                     class="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500" />
+            </div>
+            <div>
+              <label class="block text-xs text-gray-500 mb-0.5">Qty</label>
+              <input type="number" name="quantity" min="0.01" step="0.01" value="{{ entry.quantity }}"
+                     class="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500" />
+            </div>
+            <div>
+              <label class="block text-xs text-gray-500 mb-0.5">Type</label>
+              <select name="entry_type" class="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500 bg-white">
+                <option value="purchase" {% if entry.entry_type == 'purchase' %}selected{% endif %}>Purchase</option>
+                <option value="valuation" {% if entry.entry_type == 'valuation' %}selected{% endif %}>Valuation</option>
+                <option value="estimate" {% if entry.entry_type == 'estimate' %}selected{% endif %}>Estimate</option>
+              </select>
+            </div>
+          </div>
+          <input type="text" name="note" placeholder="Note…" value="{{ entry.note or '' }}"
+                 class="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500" />
+          <div class="flex gap-2">
+            <button type="submit" class="flex-1 py-1 bg-brand-600 text-white text-xs font-medium rounded hover:bg-brand-700">Save</button>
+            <button type="button" onclick="hideEntryEdit({{ entry.id }})"
+                    class="flex-1 py-1 border border-gray-200 text-gray-600 text-xs rounded hover:bg-gray-50">Cancel</button>
+          </div>
+        </form>
+      </div>
+
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-center py-6 text-gray-400 text-sm">No price entries yet</div>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+{% endfor %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterItems(q) {
+  q = q.toLowerCase();
+  document.querySelectorAll('.inv-group').forEach(group => {
+    let visible = 0;
+    group.querySelectorAll('.inv-row').forEach(row => {
+      const match = !q || row.dataset.name.includes(q);
+      row.style.display = match ? '' : 'none';
+      if (match) visible++;
+    });
+    group.style.display = visible === 0 && q ? 'none' : '';
+  });
+}
+
+function openOrderedModal(slug, name) {
+  document.getElementById('ordered-modal-title').textContent = 'Mark as Ordered';
+  document.getElementById('ordered-modal-subtitle').textContent = name;
+  document.getElementById('ordered-modal-form').action = '/inventory/' + slug + '/ordered';
+  document.getElementById('ordered-modal-date').value = new Date().toISOString().split('T')[0];
+  document.getElementById('ordered-modal-qty').value = '';
+  document.getElementById('ordered-modal').classList.remove('hidden');
+}
+
+function closeOrderedModal() {
+  document.getElementById('ordered-modal').classList.add('hidden');
+}
+
+function openThresholdsModal(slug, name, parLevel, lowStockThreshold) {
+  document.getElementById('thresholds-modal-subtitle').textContent = name;
+  document.getElementById('thresholds-modal-form').action = '/inventory/' + slug + '/settings';
+  document.getElementById('thresholds-modal-par').value = parLevel === null ? '' : parLevel;
+  document.getElementById('thresholds-modal-threshold').value = lowStockThreshold === null ? '' : lowStockThreshold;
+  document.getElementById('thresholds-modal').classList.remove('hidden');
+}
+
+function closeThresholdsModal() {
+  document.getElementById('thresholds-modal').classList.add('hidden');
+}
+
+function openPriceModal(id) {
+  document.getElementById('price-modal-' + id).classList.remove('hidden');
+}
+
+function closePriceModal(id) {
+  document.getElementById('price-modal-' + id).classList.add('hidden');
+}
+
+function showEntryEdit(id) {
+  document.getElementById('entry-view-' + id).classList.add('hidden');
+  document.getElementById('entry-edit-' + id).classList.remove('hidden');
+}
+
+function hideEntryEdit(id) {
+  document.getElementById('entry-edit-' + id).classList.add('hidden');
+  document.getElementById('entry-view-' + id).classList.remove('hidden');
+}
+</script>
+{% endblock %}

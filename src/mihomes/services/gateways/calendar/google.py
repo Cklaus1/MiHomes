@@ -24,8 +24,13 @@ def _get_service():
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
+            try:
+                creds.refresh(Request())
+            except Exception:
+                # Refresh token revoked or expired — delete token and force full re-auth
+                TOKEN_FILE.unlink(missing_ok=True)
+                creds = None
+        if not creds:
             if not CREDENTIALS_FILE.exists():
                 raise FileNotFoundError(
                     f"Google credentials not found at {CREDENTIALS_FILE}. "

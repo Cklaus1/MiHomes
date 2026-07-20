@@ -1,0 +1,7 @@
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+  {% if prop.status.value == 'open' %}bg-emerald-100 text-emerald-700
+  {% elif prop.status.value == 'closed' %}bg-gray-100 text-gray-500
+  {% elif prop.status.value == 'caretaker-mode' %}bg-amber-100 text-amber-700
+  {% else %}bg-blue-100 text-blue-700{% endif %}">
+  {{ prop.status.value.replace('-', ' ').title() }}
+</span>

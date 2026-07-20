@@ -1,0 +1,164 @@
+<div id="weather-widget" class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-4">
+
+  <!-- Header -->
+  <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      <svg class="w-4 h-4 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"/>
+      </svg>
+      <h2 class="text-sm font-semibold text-gray-700">Weather</h2>
+    </div>
+    <button
+      hx-post="/weather/analyze"
+      hx-target="#weather-widget"
+      hx-swap="outerHTML"
+      hx-indicator="#weather-spinner"
+      class="flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:text-brand-700 transition-colors"
+    >
+      <span id="weather-spinner" class="htmx-indicator">
+        <svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+        </svg>
+      </span>
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+      </svg>
+      Analyze with AI
+    </button>
+  </div>
+
+  <!-- AI result banner -->
+  {% if result %}
+  <div class="px-5 py-3 border-b border-gray-100 {% if result.ai_error %}bg-amber-50{% else %}bg-emerald-50{% endif %}">
+    {% if result.ai_error %}
+    <div class="flex items-start gap-2 text-sm text-amber-800">
+      <svg class="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+      </svg>
+      <span>{{ result.ai_error }}</span>
+    </div>
+    {% else %}
+    <div class="text-sm text-emerald-800 font-medium mb-1">
+      Analysis complete —
+      {% if result.alerts_created %}{{ result.alerts_created }} alert{{ 's' if result.alerts_created != 1 else '' }} created{% endif %}{% if result.alerts_created and result.tasks_created %}, {% endif %}{% if result.tasks_created %}{{ result.tasks_created }} task{{ 's' if result.tasks_created != 1 else '' }} added{% endif %}{% if not result.alerts_created and not result.tasks_created %}no new alerts or tasks{% endif %}
+    </div>
+    {% if result.property_summaries %}
+    <ul class="mt-1 space-y-0.5">
+      {% for ps in result.property_summaries %}
+      <li class="text-xs text-emerald-700">
+        <span class="font-medium">{{ ps.prop_name }}:</span> {{ ps.tasks | join(', ') }}
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <!-- Zip code weather groups -->
+  {% if groups %}
+  <div class="divide-y divide-gray-50">
+    {% for group in groups %}
+    <div class="px-5 py-4">
+
+      <!-- Zip + current conditions row -->
+      <div class="flex items-center gap-3 mb-2">
+        <span class="text-3xl leading-none flex-shrink-0">{{ group.icon }}</span>
+        {% if group.forecast %}
+        <div>
+          <div class="flex items-baseline gap-2">
+            <span class="text-2xl font-bold text-gray-900">{{ group.forecast.current.temperature | round | int }}°F</span>
+            <span class="text-xs text-gray-400">Feels {{ group.forecast.current.feels_like | round | int }}°F</span>
+          </div>
+          <div class="text-xs text-gray-500">{{ group.forecast.current.description }} · {{ group.zip }}</div>
+        </div>
+        {% else %}
+        <div>
+          <div class="font-semibold text-gray-900 text-sm">{{ group.zip }}</div>
+          <div class="text-xs text-gray-400">Weather unavailable</div>
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- Property names -->
+      <div class="flex flex-wrap gap-1.5 mb-3">
+        {% for prop in group.props %}
+        <a href="/properties/{{ prop.slug }}"
+           class="inline-flex items-center px-2 py-0.5 bg-gray-100 hover:bg-brand-50 hover:text-brand-700 rounded text-xs text-gray-600 transition-colors">
+          {{ prop.name }}
+        </a>
+        {% endfor %}
+      </div>
+
+      {% if group.forecast %}
+
+      <!-- Stat pills -->
+      <div class="flex flex-wrap gap-2 mb-3">
+        <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 rounded text-xs text-gray-600">
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/>
+          </svg>
+          {{ group.forecast.current.wind_speed | round | int }} mph
+        </span>
+        <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 rounded text-xs text-gray-600">
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+          </svg>
+          {{ group.forecast.current.humidity }}% humidity
+        </span>
+        {% if group.forecast.current.precipitation > 0 %}
+        <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 rounded text-xs text-blue-700">
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M19 14.5a7 7 0 11-14 0C5 9 12 3 12 3s7 6 7 11.5z"/>
+          </svg>
+          {{ group.forecast.current.precipitation }}" now
+        </span>
+        {% endif %}
+      </div>
+
+      <!-- 3-day forecast strip -->
+      <div class="grid grid-cols-3 gap-2">
+        {% for day in group.forecast.daily[1:4] %}
+        <div class="bg-gray-50 rounded-lg px-3 py-2 text-center">
+          <div class="text-xs font-medium text-gray-500 mb-1">{{ day.date.strftime('%a') }}</div>
+          <div class="text-lg leading-none mb-1">
+            {% set wc = day.weather_code %}
+            {% if wc == 0 %}☀️
+            {% elif wc == 1 %}🌤️
+            {% elif wc == 2 %}⛅
+            {% elif wc == 3 %}☁️
+            {% elif wc in [45, 48] %}🌫️
+            {% elif wc in [51, 53, 55, 56, 57] %}🌦️
+            {% elif wc in [61, 63, 65, 66, 67, 80, 81, 82] %}🌧️
+            {% elif wc in [71, 73, 75, 77] %}❄️
+            {% elif wc in [85, 86] %}🌨️
+            {% elif wc in [95, 96, 99] %}⛈️
+            {% else %}🌡️
+            {% endif %}
+          </div>
+          <div class="text-xs font-semibold text-gray-800">{{ day.temp_high | round | int }}°</div>
+          <div class="text-xs text-gray-400">{{ day.temp_low | round | int }}°</div>
+          {% if day.precip_probability > 20 %}
+          <div class="text-xs text-blue-500 mt-0.5">{{ day.precip_probability }}%</div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="px-5 py-8 text-center text-sm text-gray-400">
+    No properties with weather data available.
+  </div>
+  {% endif %}
+
+</div>

@@ -116,11 +116,16 @@ def occupy_property(
     from_date: date | None = None,
     until_date: date | None = None,
 ) -> Property:
+    effective_from = from_date or date.today()
+    if until_date and until_date <= effective_from:
+        raise ValueError(
+            f"occupied_until ({until_date}) must be after occupied_since ({effective_from})"
+        )
     prop = update_property(
         session,
         id_or_slug,
         occupied=True,
-        occupied_since=from_date or date.today(),
+        occupied_since=effective_from,
         occupied_until=until_date,
     )
     # Auto-generate guest turnover tasks on occupancy

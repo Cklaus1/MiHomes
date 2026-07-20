@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% block title %}{{ prop.name }} — MiHomes{% endblock %}
+{% block heading %}{{ prop.name }}{% endblock %}
+{% block subheading %}
+<div class="flex items-center gap-3 mt-0.5">
+  <span id="status-badge">{% include "partials/property_status_badge.html" %}</span>
+  {% if prop.address %}<span class="text-sm text-gray-400">{{ prop.address }}</span>{% endif %}
+</div>
+{% endblock %}
+
+{% block actions %}
+{% if prop.status.value != 'open' %}
+<button hx-post="/properties/{{ prop.slug }}/occupy" hx-target="#status-badge" hx-swap="innerHTML" hx-indicator="#htmx-loading"
+        class="inline-flex items-center px-3 py-1.5 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700">
+  Mark Open
+</button>
+{% else %}
+<button hx-post="/properties/{{ prop.slug }}/vacate" hx-target="#status-badge" hx-swap="innerHTML" hx-indicator="#htmx-loading"
+        class="inline-flex items-center px-3 py-1.5 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">
+  Vacate
+</button>
+{% endif %}
+<button onclick="document.getElementById('edit-property-modal').classList.remove('hidden')"
+        class="inline-flex items-center px-3 py-1.5 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">
+  Edit
+</button>
+<button hx-post="/properties/{{ prop.slug }}/delete" hx-target="body" hx-swap="innerHTML" hx-confirm="Delete {{ prop.name }}? This cannot be undone."
+        class="inline-flex items-center px-3 py-1.5 text-red-600 border border-red-200 text-sm font-medium rounded-lg hover:bg-red-50">
+  Delete
+</button>
+{% endblock %}
+
+{% block content %}
+
+<!-- Health score -->
+{% if health %}
+<div class="bg-white rounded-xl border border-gray-200 p-5 mb-4 flex items-center gap-6">
+  <div class="relative w-20 h-20">
+    <svg class="w-20 h-20 -rotate-90" viewBox="0 0 36 36">
+      <circle cx="18" cy="18" r="15.9" fill="none" stroke="#f3f4f6" stroke-width="3.5"/>
+      <circle cx="18" cy="18" r="15.9" fill="none"
+              stroke="{% if health.score >= 75 %}#10b981{% elif health.score >= 50 %}#f59e0b{% else %}#ef4444{% endif %}"
+              stroke-width="3.5"
+              stroke-dasharray="{{ health.score }}, 100"
+              stroke-linecap="round"/>
+    </svg>
+    <div class="absolute inset-0 flex items-center justify-center text-xl font-bold text-gray-900">{{ health.score }}</div>
+  </div>
+  <div>
+    <div class="text-sm font-semibold text-gray-700">Health Score</div>
+    <div class="text-2xl font-bold mt-0.5 {% if health.score >= 75 %}text-emerald-600{% elif health.score >= 50 %}text-amber-600{% else %}text-red-600{% endif %}">
+      {{ health.grade }}
+    </div>
+    {% if health.breakdown %}
+    <div class="text-xs text-gray-400 mt-1 space-x-3">
+      {% for key, val in health.breakdown.items() %}
+      {% if val != 0 %}<span>{{ key }}: {{ val }}</span>{% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+  <!-- Open tasks -->
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+      <h2 class="text-sm font-semibold text-gray-700">Open Tasks ({{ open_tasks|length }})</h2>
+      <a href="/tasks?property_id={{ prop.id }}" class="text-xs text-brand-600 hover:text-brand-700">View all →</a>
+    </div>
+    {% if open_tasks %}
+    <ul class="divide-y divide-gray-50">
+      {% for task in open_tasks[:8] %}
+      <li class="px-5 py-3 flex items-center justify-between gap-3">
+        <div class="min-w-0">
+          <div class="text-sm text-gray-900 truncate">{{ task.title }}</div>
+          {% if task.due_date %}<div class="text-xs text-gray-400 mt-0.5">Due {{ task.due_date.strftime('%b %d') }}</div>{% endif %}
+        </div>
+        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium flex-shrink-0
+          {% if task.priority.value == 'urgent' %}bg-red-100 text-red-700
+          {% elif task.priority.value == 'high' %}bg-orange-100 text-orange-700
+          {% elif task.priority.value == 'medium' %}bg-amber-100 text-amber-700
+          {% else %}bg-gray-100 text-gray-600{% endif %}">
+          {{ task.priority.value }}
+        </span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="px-5 py-6 text-center text-sm text-gray-400">No open tasks 🎉</div>
+    {% endif %}
+  </div>
+
+  <!-- Open issues -->
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+      <h2 class="text-sm font-semibold text-gray-700">Open Issues ({{ open_issues|length }})</h2>
+      <a href="/issues?property_id={{ prop.id }}" class="text-xs text-brand-600 hover:text-brand-700">View all →</a>
+    </div>
+    {% if open_issues %}
+    <ul class="divide-y divide-gray-50">
+      {% for issue in open_issues[:8] %}
+      <li class="px-5 py-3 flex items-center justify-between gap-3">
+        <div class="text-sm text-gray-900 truncate">{{ issue.title }}</div>
+        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium flex-shrink-0
+          {% if issue.severity.value == 'critical' %}bg-red-100 text-red-700
+          {% elif issue.severity.value == 'high' %}bg-orange-100 text-orange-700
+          {% elif issue.severity.value == 'medium' %}bg-amber-100 text-amber-700
+          {% else %}bg-gray-100 text-gray-600{% endif %}">
+          {{ issue.severity.value }}
+        </span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="px-5 py-6 text-center text-sm text-gray-400">No open issues</div>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- Rooms -->
+<div class="mt-4 bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <div class="px-5 py-3 border-b border-gray-100">
+    <h2 class="text-sm font-semibold text-gray-700">Rooms ({{ spaces|length }})</h2>
+  </div>
+  <div id="rooms-list">
+    {% with prop_slug=prop.slug %}
+    {% include "partials/rooms_list.html" %}
+    {% endwith %}
+  </div>
+</div>
+
+{% if assigned_staff %}
+<div class="mt-4 bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <div class="px-5 py-3 border-b border-gray-100">
+    <h2 class="text-sm font-semibold text-gray-700">Assigned Staff ({{ assigned_staff|length }})</h2>
+  </div>
+  <div class="px-5 py-4 flex flex-wrap gap-3">
+    {% for member in assigned_staff %}
+    <div class="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
+      <div class="w-7 h-7 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xs font-semibold">{{ member.name[0].upper() }}</div>
+      <div>
+        <div class="text-sm font-medium text-gray-900">{{ member.name }}</div>
+        <div class="text-xs text-gray-400">{{ member.role.value.replace('-', ' ').title() }}</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<!-- Edit Property modal -->
+<div id="edit-property-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onclick="if(event.target===this)this.classList.add('hidden')">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="text-lg font-semibold text-gray-900">Edit {{ prop.name }}</h2>
+      <button onclick="document.getElementById('edit-property-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+    </div>
+    <form hx-post="/properties/{{ prop.slug }}/edit" hx-target="body" hx-swap="innerHTML" class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Name</label>
+        <input type="text" name="name" value="{{ prop.name }}" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Address</label>
+        <input type="text" name="address" value="{{ prop.address or '' }}" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Type</label>
+          <select name="property_type" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+            {% for t in property_types %}
+            <option value="{{ t }}" {% if prop.property_type.value == t %}selected{% endif %}>{{ t.replace('-', ' ').title() }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
+          <select name="status" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+            {% for s in property_statuses %}
+            <option value="{{ s }}" {% if prop.status.value == s %}selected{% endif %}>{{ s.replace('-', ' ').title() }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="flex gap-3 pt-1">
+        <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Save</button>
+        <button type="button" onclick="document.getElementById('edit-property-modal').classList.add('hidden')" class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-50">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}

@@ -9,6 +9,8 @@ from datetime import date
 
 from sqlalchemy.orm import Session
 
+from mihomes.services.config_service import get_config
+
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -64,11 +66,11 @@ def _describe_code(code: int) -> str:
     if code in (56, 57):
         return "Freezing drizzle"
     if code in (61, 63, 65):
-        return ("Light rain", "Rain", "Heavy rain")[code - 61]
+        return {61: "Light rain", 63: "Rain", 65: "Heavy rain"}[code]
     if code in (66, 67):
         return "Freezing rain"
     if code in (71, 73, 75):
-        return ("Light snow", "Snow", "Heavy snow")[code - 71]
+        return {71: "Light snow", 73: "Snow", 75: "Heavy snow"}[code]
     if code == 77:
         return "Snow grains"
     if code in (80, 81, 82):
@@ -197,7 +199,6 @@ def get_forecast_for_property(session: Session, prop) -> WeatherForecast | None:
     Returns None if no location can be resolved or geocoding fails.
     """
     if prop.latitude is None or prop.longitude is None:
-        from mihomes.services.config_service import get_config
         default_location = get_config(session, "weather.default_location")
 
         if prop.address:
@@ -227,25 +228,43 @@ def get_forecast_for_property(session: Session, prop) -> WeatherForecast | None:
 
 def generate_weather_alerts(session: Session) -> int:
     """
-    Check the 7-day forecast for every property and create Alert records
-    for significant weather events. Returns count of new alerts created.
+    Check the 7-day forecast and create Alert records for significant weather
+    events. Properties sharing the same zip code produce one alert each — the
+    first property in the group acts as the representative.
+    Returns count of new alerts created.
     """
+    import re
+    from collections import defaultdict
     from mihomes.models.alert import Alert, AlertSeverity, AlertStatus
     from mihomes.models.property import Property
 
-    properties = session.query(Property).all()
-    count = 0
+    _zip_re = re.compile(r'\b(\d{5})(?:-\d{4})?\b')
 
-    for prop in properties:
-        forecast = get_forecast_for_property(session, prop)
+    def _zip(prop) -> str:
+        if prop.address:
+            m = _zip_re.search(prop.address)
+            if m:
+                return m.group(1)
+        return str(prop.id)  # fallback: treat each property as its own group
+
+    # Group properties by zip; keep insertion order
+    buckets: dict[str, list] = defaultdict(list)
+    for prop in session.query(Property).all():
+        buckets[_zip(prop)].append(prop)
+
+    count = 0
+    for zip_code, props in buckets.items():
+        # Use only the first (primary) property in each zip group
+        primary = props[0]
+        forecast = get_forecast_for_property(session, primary)
         if forecast is None:
             continue
 
         for day in forecast.daily:
-            alerts_for_day = _assess_day(day, prop.name)
+            alerts_for_day = _assess_day(day, primary.name)
             for severity, message, alert_key in alerts_for_day:
-                # Deduplicate: one alert per property+key+date
-                dedup_key = f"weather_{alert_key}_{prop.id}_{day.date.isoformat()}"
+                # Deduplicate by zip code + event + date (not per property)
+                dedup_key = f"weather_{alert_key}_{zip_code}_{day.date.isoformat()}"
                 exists = session.query(Alert).filter(
                     Alert.alert_type == "weather",
                     Alert.message.like(f"%{dedup_key}%"),
@@ -257,9 +276,9 @@ def generate_weather_alerts(session: Session) -> int:
                 session.add(Alert(
                     alert_type="weather",
                     source_entity_type="property",
-                    source_entity_id=prop.id,
+                    source_entity_id=primary.id,
                     severity=severity,
-                    message=f"{message} at {prop.name} on {day.date} [{dedup_key}]",
+                    message=f"{message} at {primary.name} on {day.date} [{dedup_key}]",
                 ))
                 count += 1
 
@@ -269,6 +288,7 @@ def generate_weather_alerts(session: Session) -> int:
 
 def _assess_day(day: DailyForecast, prop_name: str) -> list[tuple]:
     """Return list of (AlertSeverity, message, key) for notable weather on a given day."""
+    from mihomes.models.alert import AlertSeverity
     results = []
 
     # Frost / freeze

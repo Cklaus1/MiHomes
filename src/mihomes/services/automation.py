@@ -1,12 +1,11 @@
 """Automation service — scheduled operations, escalation, digests, reorder alerts."""
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from mihomes.models.alert import Alert, AlertSeverity, AlertStatus
-from mihomes.models.asset import Asset, AssetType
+from mihomes.models.asset import Asset
 from mihomes.models.contract import Contract
 from mihomes.models.insurance import InsurancePolicy
 from mihomes.models.issue import Issue, IssueSeverity, IssueStatus
@@ -45,7 +44,7 @@ def generate_expiration_alerts(session: Session, days_ahead: int = 30) -> int:
 
     # Contracts expiring
     contracts = session.query(Contract).filter(
-        Contract.end_date != None,
+        Contract.end_date != None,  # noqa: E711  (SQLAlchemy IS NOT NULL)
         Contract.end_date <= cutoff,
         Contract.end_date >= today,
     ).all()
@@ -62,7 +61,7 @@ def generate_expiration_alerts(session: Session, days_ahead: int = 30) -> int:
 
     # Insurance expiring
     policies = session.query(InsurancePolicy).filter(
-        InsurancePolicy.renewal_date != None,
+        InsurancePolicy.renewal_date != None,  # noqa: E711  (SQLAlchemy IS NOT NULL)
         InsurancePolicy.renewal_date <= cutoff,
         InsurancePolicy.renewal_date >= today,
     ).all()
@@ -78,7 +77,7 @@ def generate_expiration_alerts(session: Session, days_ahead: int = 30) -> int:
 
     # Asset warranties expiring
     assets = session.query(Asset).filter(
-        Asset.warranty_expires != None,
+        Asset.warranty_expires != None,  # noqa: E711  (SQLAlchemy IS NOT NULL)
         Asset.warranty_expires <= cutoff,
         Asset.warranty_expires >= today,
         Asset.active.is_(True),
@@ -100,7 +99,6 @@ def generate_expiration_alerts(session: Session, days_ahead: int = 30) -> int:
 def generate_daily_digest(session: Session, property_slug: str | None = None) -> dict:
     """Generate a daily digest summary."""
     today = date.today()
-    tomorrow = today + timedelta(days=1)
     week_end = today + timedelta(days=7)
 
     # Tasks due today
@@ -123,6 +121,16 @@ def generate_daily_digest(session: Session, property_slug: str | None = None) ->
         overdue_q = overdue_q.filter(Task.property_id == prop.id)
     overdue = overdue_q.all()
 
+    # Tasks due in the next 7 days (excluding today)
+    upcoming_q = session.query(Task).filter(
+        Task.due_date > today,
+        Task.due_date <= week_end,
+        Task.status.notin_([TaskStatus.COMPLETED, TaskStatus.CANCELLED]),
+    )
+    if property_slug:
+        upcoming_q = upcoming_q.filter(Task.property_id == prop.id)
+    due_this_week = upcoming_q.order_by(Task.due_date).all()
+
     # Open critical/high issues
     issues_q = session.query(Issue).filter(
         Issue.severity.in_([IssueSeverity.CRITICAL, IssueSeverity.HIGH]),
@@ -139,6 +147,7 @@ def generate_daily_digest(session: Session, property_slug: str | None = None) ->
     return {
         "date": today.isoformat(),
         "tasks_due_today": [{"title": t.title, "property": t.property.name, "priority": t.priority.value} for t in tasks_today],
+        "due_this_week": [{"title": t.title, "property": t.property.name, "due": t.due_date.isoformat()} for t in due_this_week],
         "overdue_tasks": [{"title": t.title, "property": t.property.name, "days_overdue": (today - t.due_date).days} for t in overdue],
         "critical_issues": [{"title": i.title, "property": i.property.name, "severity": i.severity.value} for i in critical_issues],
         "alert_count": len(alerts),
@@ -159,6 +168,12 @@ def format_digest_brief(digest: dict) -> str:
         lines.append(f"DUE TODAY ({len(digest['tasks_due_today'])}):")
         for t in digest["tasks_due_today"]:
             lines.append(f"  - {t['title']} @ {t['property']} [{t['priority']}]")
+        lines.append("")
+
+    if digest.get("due_this_week"):
+        lines.append(f"DUE THIS WEEK ({len(digest['due_this_week'])}):")
+        for t in digest["due_this_week"]:
+            lines.append(f"  - {t['title']} @ {t['property']} (due {t['due']})")
         lines.append("")
 
     if digest["critical_issues"]:
@@ -193,8 +208,8 @@ def run_weather_task_suggestions(session: Session) -> int:
     Returns count of properties that received suggestions.
     """
     try:
-        from mihomes.services.weather_tasks import generate_suggestions_all_properties
         from mihomes.models.alert import Alert, AlertSeverity, AlertStatus
+        from mihomes.services.weather_tasks import generate_suggestions_all_properties
 
         results = generate_suggestions_all_properties(session)
         for slug, suggestions in results.items():

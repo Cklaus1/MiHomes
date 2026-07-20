@@ -1,15 +1,16 @@
 """Asset service — CRUD and asset queries."""
 
-from datetime import date, timedelta
+from datetime import date, timedelta  # timedelta used in get_lifecycle_data
 
 from sqlalchemy.orm import Session
 
-from mihomes.models.asset import Asset, AssetCondition, AssetType
+from mihomes.models.asset import Asset, AssetCondition, AssetType, PriceEntry
 from mihomes.models.property import Property
 from mihomes.models.space import Space
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
 from mihomes.services.update_helpers import safe_update
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
+from mihomes.services.validators import validate_name
 
 
 def create_asset(
@@ -36,6 +37,9 @@ def create_asset(
     replacement_cost_estimate: float | None = None,
     last_serviced: date | None = None,
 ) -> Asset:
+    name = validate_name(name, "asset")
+    if expected_lifespan_years is not None and expected_lifespan_years <= 0:
+        raise ValueError("expected_lifespan_years must be positive")
     prop = resolve_identifier(session, Property, property_id_or_slug)
     space_id = None
     if space_id_or_slug:
@@ -130,8 +134,7 @@ def get_lifecycle_data(asset: Asset) -> dict:
     age_years = age_days / 365.25
     remaining_years = asset.expected_lifespan_years - age_years
     pct_life_used = age_years / asset.expected_lifespan_years * 100
-    from datetime import timedelta
-    expected_eol = ref_date.replace(year=ref_date.year + int(asset.expected_lifespan_years))
+    expected_eol = ref_date + timedelta(days=int(asset.expected_lifespan_years * 365.25))
 
     return {
         "age_years": round(age_years, 1),
@@ -189,3 +192,38 @@ def list_by_type(session: Session, asset_type: AssetType) -> list[Asset]:
         Asset.asset_type == asset_type,
         Asset.active == True,  # noqa: E712
     ).order_by(Asset.name).all()
+
+
+def add_price_entry(
+    session: Session,
+    asset_id_or_slug: str,
+    price: float,
+    entry_date: date,
+    *,
+    quantity: float = 1.0,
+    entry_type: str = "purchase",
+    note: str | None = None,
+) -> PriceEntry:
+    asset = resolve_identifier(session, Asset, asset_id_or_slug)
+    entry = PriceEntry(
+        asset_id=asset.id,
+        date=entry_date,
+        price=price,
+        quantity=quantity,
+        entry_type=entry_type,
+        note=note,
+    )
+    session.add(entry)
+    asset.purchase_price = price
+    session.flush()
+    return entry
+
+
+def list_price_entries(session: Session, asset_id_or_slug: str) -> list[PriceEntry]:
+    asset = resolve_identifier(session, Asset, asset_id_or_slug)
+    return (
+        session.query(PriceEntry)
+        .filter(PriceEntry.asset_id == asset.id)
+        .order_by(PriceEntry.date.desc())
+        .all()
+    )

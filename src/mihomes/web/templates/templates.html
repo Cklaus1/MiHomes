@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% block title %}Templates — MiHomes{% endblock %}
+{% block heading %}Templates{% endblock %}
+{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ templates|length }} template{{ 's' if templates|length != 1 else '' }}</p>{% endblock %}
+
+{% block actions %}
+<button onclick="document.getElementById('add-template-modal').classList.remove('hidden')"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
+  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+  New Template
+</button>
+{% endblock %}
+
+{% block content %}
+
+{% if flash %}
+<div class="mb-5 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700 flex items-center gap-2">
+  <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+  {{ flash }}
+  <a href="/tasks/" class="ml-auto font-medium underline hover:no-underline">View Tasks →</a>
+</div>
+{% endif %}
+
+{% if templates %}
+<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+  {% for tmpl in templates %}
+  <div class="bg-white rounded-xl border border-gray-200 flex flex-col">
+
+    <!-- Card header -->
+    <div class="px-5 pt-5 pb-3">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <h3 class="font-semibold text-gray-900 text-sm truncate">{{ tmpl.name }}</h3>
+          {% if tmpl.description %}
+          <p class="text-xs text-gray-500 mt-0.5 line-clamp-2">{{ tmpl.description }}</p>
+          {% endif %}
+        </div>
+        <span class="flex-shrink-0 px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded-full font-medium">
+          {{ tmpl.items|length }} step{{ 's' if tmpl.items|length != 1 else '' }}
+        </span>
+      </div>
+    </div>
+
+    <!-- Steps list -->
+    {% if tmpl.items %}
+    <div class="px-5 pb-3 flex-1">
+      <ul class="space-y-1.5" id="steps-{{ tmpl.id }}">
+        {% for item in tmpl.items[:3] %}
+        <li class="flex items-start gap-2 text-xs text-gray-600">
+          <span class="flex-shrink-0 w-4 h-4 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center font-medium text-[10px] mt-0.5">{{ loop.index }}</span>
+          {{ item.title }}
+          {% if item.estimated_minutes %}<span class="text-gray-400 ml-auto flex-shrink-0">{{ item.estimated_minutes }}m</span>{% endif %}
+        </li>
+        {% endfor %}
+        {% if tmpl.items|length > 3 %}
+        <li class="text-xs text-gray-400 pl-6">+ {{ tmpl.items|length - 3 }} more step{{ 's' if tmpl.items|length - 3 != 1 else '' }}</li>
+        {% endif %}
+      </ul>
+    </div>
+    {% else %}
+    <div class="px-5 pb-3 flex-1">
+      <p class="text-xs text-gray-400 italic">No steps defined</p>
+    </div>
+    {% endif %}
+
+    <!-- Actions -->
+    <div class="px-5 py-3 border-t border-gray-100 flex items-center gap-2">
+      <button onclick="openRunModal('{{ tmpl.slug }}', '{{ tmpl.name | e }}')"
+              class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-xs font-medium rounded-lg hover:bg-brand-700 transition-colors">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        Run
+      </button>
+      <button hx-post="/templates/{{ tmpl.slug }}/delete"
+              hx-target="body" hx-swap="innerHTML"
+              hx-confirm="Delete '{{ tmpl.name }}'? This cannot be undone."
+              class="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+              title="Delete">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+      </button>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% else %}
+<div class="bg-white rounded-xl border border-gray-200 px-6 py-16 text-center">
+  <svg class="w-12 h-12 text-gray-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+  </svg>
+  <p class="text-sm font-medium text-gray-500">No templates yet</p>
+  <p class="text-xs text-gray-400 mt-1">Create reusable checklists to quickly spin up a set of tasks</p>
+</div>
+{% endif %}
+
+
+<!-- Run template modal -->
+<div id="run-template-modal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+     onclick="if(event.target===this)document.getElementById('run-template-modal').classList.add('hidden')">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-5">
+      <div>
+        <h2 class="text-lg font-semibold text-gray-900">Run Template</h2>
+        <p class="text-xs text-gray-500 mt-0.5" id="run-modal-name"></p>
+      </div>
+      <button onclick="document.getElementById('run-template-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <form id="run-template-form" hx-target="body" hx-swap="innerHTML" class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Property</label>
+        <select name="property_id" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          {% for p in properties %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Start date <span class="text-gray-400 font-normal">(first task due)</span></label>
+        <input type="date" name="due_date"
+               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+        <select name="priority" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          {% for p in priorities %}<option value="{{ p }}" {% if p == 'medium' %}selected{% endif %}>{{ p.title() }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="flex gap-3 pt-1">
+        <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Create Tasks</button>
+        <button type="button" onclick="document.getElementById('run-template-modal').classList.add('hidden')"
+                class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+
+<!-- Add template modal -->
+<div id="add-template-modal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+     onclick="if(event.target===this)document.getElementById('add-template-modal').classList.add('hidden')">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="text-lg font-semibold text-gray-900">New Template</h2>
+      <button onclick="document.getElementById('add-template-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <form hx-post="/templates" hx-target="body" hx-swap="innerHTML" class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Name</label>
+        <input type="text" name="name" required
+               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+               placeholder="e.g. Summer Opening Checklist" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Description <span class="text-gray-400 font-normal">(optional)</span></label>
+        <input type="text" name="description"
+               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+               placeholder="What is this template for?" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Steps <span class="text-gray-400 font-normal">(one per line)</span></label>
+        <textarea name="steps" rows="6"
+                  class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none font-mono"
+                  placeholder="Turn on water main&#10;Test all faucets&#10;Check HVAC filters&#10;Inspect roof&#10;Pool startup"></textarea>
+      </div>
+      <div class="flex gap-3 pt-1">
+        <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Create Template</button>
+        <button type="button" onclick="document.getElementById('add-template-modal').classList.add('hidden')"
+                class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openRunModal(slug, name) {
+  document.getElementById('run-modal-name').textContent = name;
+  document.getElementById('run-template-form').setAttribute('hx-post', '/templates/' + slug + '/run');
+  htmx.process(document.getElementById('run-template-form'));
+  document.getElementById('run-template-modal').classList.remove('hidden');
+}
+</script>
+
+{% endblock %}

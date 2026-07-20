@@ -16,6 +16,10 @@ class Vendor(Base, TimestampMixin, SlugMixin):
     email: Mapped[str | None] = mapped_column(String(200), nullable=True)
     service_categories: Mapped[list | None] = mapped_column(JSON, nullable=True)
     service_areas: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    contacts: Mapped[list | None] = mapped_column(JSON, nullable=True)  # [{"name","role","phone","email"}]
+    website: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    license_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
     insurance_info: Mapped[str | None] = mapped_column(Text, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    property_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)

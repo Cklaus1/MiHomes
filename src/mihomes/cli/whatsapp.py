@@ -14,7 +14,7 @@ from rich.table import Table
 
 from mihomes.cli.formatters import console, format_error, format_success, severity_color
 from mihomes.db import get_session
-from mihomes.services.gateways.whatsapp.client import WhatsAppClient, WhatsAppBridgeError
+from mihomes.services.gateways.whatsapp.client import WhatsAppBridgeError, WhatsAppClient
 
 app = typer.Typer(name="whatsapp", help="WhatsApp staff gateway")
 
@@ -112,8 +112,9 @@ def autostart_cmd(
         si = subprocess.STARTUPINFO()
         si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         si.wShowWindow = subprocess.SW_HIDE
-        _run = lambda cmd: subprocess.run(cmd, capture_output=True, text=True,
-                                           creationflags=0x08000000, startupinfo=si)
+        def _run(cmd):
+            return subprocess.run(cmd, capture_output=True, text=True,
+                                  creationflags=0x08000000, startupinfo=si)
 
         if enable:
             # Register Task Scheduler task — runs watchdog at every user login, silently
@@ -139,7 +140,7 @@ def autostart_cmd(
             if result.returncode == 0:
                 format_success(f"Startup task '{task_name}' removed")
             else:
-                console.print(f"[dim]Task not found or already removed.[/dim]")
+                console.print("[dim]Task not found or already removed.[/dim]")
     else:
         # Non-Windows: just toggle config, user manages startup themselves
         status = "enabled" if enable else "disabled"
@@ -150,9 +151,9 @@ def autostart_cmd(
 
 def _start_watchdog_now(watchdog_script, monitor_property: str = "belle-estate"):
     """Start the watchdog process immediately, silently."""
+    import os
     import subprocess
     import sys
-    import os
     from pathlib import Path
 
     log_dir = Path(os.path.expanduser("~/.mihomes"))
@@ -249,7 +250,7 @@ def status_cmd():
 
     except WhatsAppBridgeError as e:
         format_error(str(e))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command("setup")
@@ -300,7 +301,7 @@ def list_groups():
         console.print(table)
     except WhatsAppBridgeError as e:
         format_error(str(e))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command("link-group")
@@ -312,23 +313,29 @@ def link_group(
     try:
         client = _get_client()
         groups = client.get_groups()
-        match = [g for g in groups if group_name.lower() in g["name"].lower()]
+        # Exact JID match takes priority, then exact name, then partial name
+        jid_match = [g for g in groups if g["jid"] == group_name]
+        if jid_match:
+            match = jid_match
+        else:
+            exact = [g for g in groups if g["name"].lower() == group_name.lower()]
+            match = exact if exact else [g for g in groups if group_name.lower() in g["name"].lower()]
         if not match:
             format_error(f"No group matching '{group_name}' found")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
         if len(match) > 1:
             console.print("[yellow]Multiple matches:[/yellow]")
             for g in match:
                 console.print(f"  - {g['name']} ({g['jid']})")
             format_error("Be more specific")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
         group = match[0]
         client.link_group(group["jid"], property)
         format_success(f"Group '{group['name']}' linked to property '{property}'")
     except WhatsAppBridgeError as e:
         format_error(str(e))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command("unlink-group")
@@ -355,7 +362,7 @@ def unlink_group(
         format_success(f"Group '{group['name']}' unlinked")
     except WhatsAppBridgeError as e:
         format_error(str(e))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command("send")
@@ -370,7 +377,7 @@ def send_message(
         format_success(f"Message sent to {phone}")
     except WhatsAppBridgeError as e:
         format_error(str(e))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command("send-group")
@@ -397,7 +404,7 @@ def send_group_message(
         format_success(f"Message sent to group '{group['name']}'")
     except WhatsAppBridgeError as e:
         format_error(str(e))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command("monitor")
@@ -421,17 +428,34 @@ def monitor(
             raise typer.Exit(1)
     except WhatsAppBridgeError as e:
         format_error(str(e))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
     console.print(f"[bold green]Monitoring WhatsApp groups[/bold green] (polling every {interval}s) — Ctrl+C to stop\n")
 
-    import os as _os
+    import json
     from datetime import timedelta
+    from pathlib import Path as _Path
+
+    _IDS_FILE = _Path.home() / ".mihomes" / "processed_msg_ids.json"
+
+    def _load_ids() -> set:
+        try:
+            return set(json.loads(_IDS_FILE.read_text()))
+        except Exception:
+            return set()
+
+    def _save_ids(ids: set) -> None:
+        try:
+            _IDS_FILE.write_text(json.dumps(list(ids)[-1000:]))
+        except Exception:
+            pass
+
+    # Load persisted IDs so restarts don't reprocess already-handled messages
+    last_check = datetime.now(timezone.utc) - timedelta(minutes=15)
+    processed_ids: set = _load_ids()
 
     def _run_monitor_loop():
-        # Look back 15 minutes on startup to catch recent unprocessed messages
-        last_check = datetime.now(timezone.utc) - timedelta(minutes=15)
-        processed_ids: set = set()
+        nonlocal last_check, processed_ids
 
         while True:
             try:
@@ -449,20 +473,32 @@ def monitor(
                     new_msgs = [m for m in new_msgs if m.get("propertySlug") == property]
 
                 if new_msgs:
-                    console.print(f"[dim]{now.strftime('%H:%M:%S')}[/dim] {len(new_msgs)} new message(s) — analyzing...")
-                    with get_session() as session:
-                        result = process_and_respond(session, new_msgs, property_slug=property)
+                    from collections import defaultdict
+                    by_property: dict = defaultdict(list)
+                    for m in new_msgs:
+                        by_property[m.get("propertySlug")].append(m)
 
-                    if result["logged"]:
-                        console.print(f"  [green]✓[/green] {result['logged']} item(s) logged")
-                    if result["replied"]:
-                        console.print(f"  [green]✓[/green] {result['replied']} reply(ies) sent")
-                    for err in result["errors"]:
+                    total_logged = total_replied = 0
+                    all_errors: list = []
+                    for prop_slug, prop_msgs in by_property.items():
+                        console.print(f"[dim]{now.strftime('%H:%M:%S')}[/dim] {len(prop_msgs)} message(s) for '{prop_slug}' — analyzing...")
+                        with get_session() as session:
+                            result = process_and_respond(session, prop_msgs, property_slug=prop_slug)
+                        total_logged += result["logged"]
+                        total_replied += result["replied"]
+                        all_errors.extend(result["errors"])
+
+                    if total_logged:
+                        console.print(f"  [green]✓[/green] {total_logged} item(s) logged")
+                    if total_replied:
+                        console.print(f"  [green]✓[/green] {total_replied} reply(ies) sent")
+                    for err in all_errors:
                         console.print(f"  [yellow]⚠[/yellow] {err}")
 
                     processed_ids.update(m["id"] for m in new_msgs if m.get("id"))
                     if len(processed_ids) > 2000:
                         processed_ids = set(list(processed_ids)[-1000:])
+                    _save_ids(processed_ids)
 
                 last_check = now
                 time.sleep(interval)
@@ -502,7 +538,7 @@ def clear_messages(
         format_success("Message buffer cleared")
     except WhatsAppBridgeError as e:
         format_error(str(e))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command("review")
@@ -513,8 +549,8 @@ def review_messages(
     auto: bool = typer.Option(False, "--auto", help="Auto-create all actionable items without prompting"),
 ):
     """Review AI-extracted issues/tasks from group conversations."""
-    from mihomes.services.gateways.whatsapp.review import analyze_messages
     from mihomes.services.ai.provider import AIAuthError, AIProviderError
+    from mihomes.services.gateways.whatsapp.review import analyze_messages
 
     if not _ensure_bridge_running():
         raise typer.Exit(1)
@@ -540,7 +576,7 @@ def review_messages(
         messages = client.get_messages(limit=200, group_jid=group_jid)
     except WhatsAppBridgeError as e:
         format_error(str(e))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
     if not messages:
         console.print("[dim]No messages to review.[/dim]")
@@ -555,10 +591,10 @@ def review_messages(
     with get_session() as session:
         try:
             with console.status("[bold blue]Analyzing conversations...", spinner="dots"):
-                result = analyze_messages(session, messages, property_name=property)
+                result = analyze_messages(session, messages, property_name=property, property_slug=property)
         except (AIAuthError, AIProviderError) as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
 
         items = result.get("items", [])
         skipped = result.get("skipped", [])
@@ -599,9 +635,9 @@ def review_messages(
 
 def _create_items(session, items: list[dict], indices: list[int], property_slug: str | None):
     """Create issues/tasks from accepted review items. Must be called within an active session."""
+    from mihomes.models.issue import IssueSeverity
     from mihomes.services.issue import create_issue
     from mihomes.services.task import create_task
-    from mihomes.models.issue import IssueSeverity
 
     created = 0
     for idx in indices:

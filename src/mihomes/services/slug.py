@@ -4,7 +4,7 @@ from slugify import slugify
 from sqlalchemy.orm import Session
 
 
-class EntityNotFoundError(Exception):
+class EntityNotFoundError(ValueError):
     """Raised when an entity cannot be found by ID or slug."""
 
     def __init__(self, entity_type: str, identifier: str):

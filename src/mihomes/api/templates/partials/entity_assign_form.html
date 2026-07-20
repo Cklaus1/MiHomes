@@ -1,0 +1,35 @@
+<div style="padding-bottom:0.5rem;border-bottom:1px solid var(--divider);margin-bottom:1rem;">
+  <div style="font-weight:500;font-size:1rem;">Assign Entity to Property</div>
+  <code style="font-size:0.78rem;color:#6b7280;">{{ entity_id }}</code>
+</div>
+
+<form method="post" action="/ui/entities/assign">
+  <input type="hidden" name="entity_id" value="{{ entity_id }}"/>
+  <div class="form-group" style="margin-bottom:0.75rem;">
+    <label>Friendly Name</label>
+    <input type="text" name="friendly_name" value="{{ friendly_name }}" placeholder="{{ entity_id }}"/>
+  </div>
+  <div class="form-group" style="margin-bottom:0.75rem;">
+    <label>Property</label>
+    <select name="property_id">
+      <option value="">— none —</option>
+      {% for p in properties %}
+      <option value="{{ p.id }}">{{ p.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="form-group" style="margin-bottom:1rem;">
+    <label>Zone / Room</label>
+    <select name="zone_id">
+      <option value="">— none —</option>
+      {% for z in zones %}
+      <option value="{{ z.id }}">[{{ z.property_name }}] {{ z.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div style="display:flex;gap:0.75rem;justify-content:flex-end;">
+    <button type="button" class="btn btn-ghost btn-sm"
+      onclick="document.getElementById('assign-modal').close()">Cancel</button>
+    <button type="submit" class="btn btn-primary btn-sm">Save</button>
+  </div>
+</form>

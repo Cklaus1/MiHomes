@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block title %}Reports — MiHomes{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Reports</h1>
+  <a href="/ui/reports" class="btn btn-ghost btn-sm">Refresh</a>
+</div>
+
+<!-- Summary row -->
+<div class="stat-grid" style="margin-bottom:2rem;">
+  <div class="stat-card">
+    <div class="stat-num">${{ "{:,.0f}".format(total_spend) }}</div>
+    <div class="stat-label">Total Spend</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num">{{ wo_stats.total }}</div>
+    <div class="stat-label">Work Orders</div>
+  </div>
+  <div class="stat-card {% if wo_stats.total_actual_cost > 0 %}warn{% endif %}">
+    <div class="stat-num">${{ "{:,.0f}".format(wo_stats.total_actual_cost) }}</div>
+    <div class="stat-label">WO Actual Cost</div>
+  </div>
+  <div class="stat-card {% if issue_stats.critical > 0 %}danger{% endif %}">
+    <div class="stat-num">{{ issue_stats.total }}</div>
+    <div class="stat-label">Total Issues</div>
+  </div>
+  <div class="stat-card {% if task_stats.completion_rate < 60 %}warn{% endif %} {% if task_stats.completion_rate >= 80 %}ok{% endif %}">
+    <div class="stat-num">{{ task_stats.completion_rate }}%</div>
+    <div class="stat-label">Task Completion</div>
+  </div>
+  <div class="stat-card {% if task_stats.overdue > 0 %}danger{% endif %}">
+    <div class="stat-num">{{ task_stats.overdue }}</div>
+    <div class="stat-label">Overdue Tasks</div>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:2rem;margin-bottom:2rem;">
+
+  <!-- Spending by property -->
+  <div>
+    <div class="section-title">Spending by Property</div>
+    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:1.25rem;">
+      {% if spend_by_prop %}
+      {% for row in spend_by_prop %}
+      <div style="margin-bottom:0.85rem;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:0.3rem;">
+          <span style="font-size:0.8rem;font-weight:600;color:#374151;">{{ row.name }}</span>
+          <span style="font-size:0.8rem;color:#6b7280;">${{ "{:,.2f}".format(row.total) }}</span>
+        </div>
+        <div style="background:#f3f4f6;border-radius:4px;height:10px;overflow:hidden;">
+          <div style="background:#4f8ef7;height:100%;border-radius:4px;
+                      width:{{ (row.total / max_prop_spend * 100)|round(1) }}%;"></div>
+        </div>
+      </div>
+      {% endfor %}
+      {% else %}
+      <div class="empty"><p>No transactions yet.</p></div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Spending by category -->
+  <div>
+    <div class="section-title">Spending by Category</div>
+    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:1.25rem;">
+      {% if spend_by_cat %}
+      {% for row in spend_by_cat %}
+      <div style="margin-bottom:0.85rem;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:0.3rem;">
+          <span style="font-size:0.8rem;font-weight:600;color:#374151;">{{ row.category|capitalize }}</span>
+          <span style="font-size:0.8rem;color:#6b7280;">${{ "{:,.2f}".format(row.total) }}</span>
+        </div>
+        <div style="background:#f3f4f6;border-radius:4px;height:10px;overflow:hidden;">
+          <div style="background:#8b5cf6;height:100%;border-radius:4px;
+                      width:{{ (row.total / max_cat_spend * 100)|round(1) }}%;"></div>
+        </div>
+      </div>
+      {% endfor %}
+      {% else %}
+      <div class="empty"><p>No transactions yet.</p></div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:2rem;">
+
+  <!-- Work Order breakdown -->
+  <div>
+    <div class="section-title">Work Orders</div>
+    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:1.25rem;">
+      <table style="font-size:0.875rem;width:100%;">
+        <tr><td style="color:#6b7280;padding:0.3rem 0;">Total</td><td style="font-weight:600;">{{ wo_stats.total }}</td></tr>
+        <tr><td style="color:#6b7280;padding:0.3rem 0;">Completed</td><td style="font-weight:600;color:#16a34a;">{{ wo_stats.completed }}</td></tr>
+        <tr><td style="color:#6b7280;padding:0.3rem 0;">Open</td><td style="font-weight:600;color:#d97706;">{{ wo_stats.open }}</td></tr>
+        <tr><td style="color:#6b7280;padding:0.3rem 0;">Cancelled</td><td style="font-weight:600;color:#9ca3af;">{{ wo_stats.cancelled }}</td></tr>
+        <tr style="border-top:1px solid #f3f4f6;">
+          <td style="color:#6b7280;padding:0.3rem 0;">Avg Cost</td>
+          <td style="font-weight:600;">${{ "{:,.2f}".format(wo_stats.avg_actual_cost) }}</td>
+        </tr>
+        <tr>
+          <td style="color:#6b7280;padding:0.3rem 0;">Total Cost</td>
+          <td style="font-weight:600;">${{ "{:,.2f}".format(wo_stats.total_actual_cost) }}</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- Issue breakdown -->
+  <div>
+    <div class="section-title">Issues</div>
+    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:1.25rem;">
+      <table style="font-size:0.875rem;width:100%;">
+        <tr><td style="color:#6b7280;padding:0.3rem 0;">Total</td><td style="font-weight:600;">{{ issue_stats.total }}</td></tr>
+        <tr><td style="color:#6b7280;padding:0.3rem 0;">Open</td><td style="font-weight:600;color:#d97706;">{{ issue_stats.open }}</td></tr>
+        <tr><td style="color:#6b7280;padding:0.3rem 0;">Resolved</td><td style="font-weight:600;color:#16a34a;">{{ issue_stats.resolved }}</td></tr>
+        <tr style="border-top:1px solid #f3f4f6;">
+          <td style="color:#6b7280;padding:0.3rem 0;">Critical</td>
+          <td><span class="badge badge-critical">{{ issue_stats.critical }}</span></td>
+        </tr>
+        <tr>
+          <td style="color:#6b7280;padding:0.3rem 0;">High</td>
+          <td><span class="badge badge-high">{{ issue_stats.high }}</span></td>
+        </tr>
+        {% if issue_stats.total > 0 %}
+        <tr style="border-top:1px solid #f3f4f6;">
+          <td style="color:#6b7280;padding:0.3rem 0;">Resolution rate</td>
+          <td style="font-weight:600;">{{ (issue_stats.resolved / issue_stats.total * 100)|round|int }}%</td>
+        </tr>
+        {% endif %}
+      </table>
+    </div>
+  </div>
+
+  <!-- Task breakdown -->
+  <div>
+    <div class="section-title">Tasks</div>
+    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:1.25rem;">
+      <table style="font-size:0.875rem;width:100%;">
+        <tr><td style="color:#6b7280;padding:0.3rem 0;">Total</td><td style="font-weight:600;">{{ task_stats.total }}</td></tr>
+        <tr><td style="color:#6b7280;padding:0.3rem 0;">Open</td><td style="font-weight:600;color:#d97706;">{{ task_stats.open }}</td></tr>
+        <tr><td style="color:#6b7280;padding:0.3rem 0;">Completed</td><td style="font-weight:600;color:#16a34a;">{{ task_stats.completed }}</td></tr>
+        <tr><td style="color:#6b7280;padding:0.3rem 0;">Overdue</td><td style="font-weight:600;color:#e11d48;">{{ task_stats.overdue }}</td></tr>
+        <tr style="border-top:1px solid #f3f4f6;">
+          <td style="color:#6b7280;padding:0.3rem 0;">Completion rate</td>
+          <td>
+            <div style="display:flex;align-items:center;gap:0.5rem;">
+              <span style="font-weight:600;">{{ task_stats.completion_rate }}%</span>
+              <div style="background:#f3f4f6;border-radius:4px;height:6px;flex:1;overflow:hidden;">
+                <div style="background:{% if task_stats.completion_rate >= 80 %}#16a34a{% elif task_stats.completion_rate >= 50 %}#d97706{% else %}#e11d48{% endif %};
+                            height:100%;border-radius:4px;width:{{ task_stats.completion_rate }}%;"></div>
+              </div>
+            </div>
+          </td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

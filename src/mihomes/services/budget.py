@@ -56,11 +56,16 @@ def add_transaction(
     tx_date: date,
     *,
     vendor_id_or_slug: str | None = None,
+    vendor_name: str | None = None,
     description: str | None = None,
     currency: str = "USD",
     notes: str | None = None,
     source: str = "manual",
+    work_order_id: int | None = None,
+    appointment_id: int | None = None,
 ) -> Transaction:
+    from mihomes.services.validators import validate_positive_amount
+    validate_positive_amount(amount, "Transaction amount")
     prop = resolve_identifier(session, Property, property_id_or_slug)
     vendor_id = None
     if vendor_id_or_slug:
@@ -68,8 +73,9 @@ def add_transaction(
         vendor_id = vendor.id
     tx = Transaction(
         amount=amount, currency=currency, property_id=prop.id,
-        vendor_id=vendor_id, category=category, description=description,
-        date=tx_date, source=source, notes=notes,
+        vendor_id=vendor_id, vendor_name=vendor_name, category=category,
+        description=description, date=tx_date, source=source, notes=notes,
+        work_order_id=work_order_id, appointment_id=appointment_id,
     )
     session.add(tx)
     session.flush()
@@ -97,6 +103,7 @@ def list_transactions(
     category: str | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
+    search: str | None = None,
 ) -> list[Transaction]:
     query = session.query(Transaction)
     if property_id_or_slug:
@@ -108,6 +115,14 @@ def list_transactions(
         query = query.filter(Transaction.date >= date_from)
     if date_to:
         query = query.filter(Transaction.date <= date_to)
+    if search:
+        like = f"%{search}%"
+        query = query.outerjoin(Vendor, Transaction.vendor_id == Vendor.id).filter(
+            Transaction.description.ilike(like)
+            | Transaction.category.ilike(like)
+            | Transaction.vendor_name.ilike(like)
+            | Vendor.company_name.ilike(like)
+        )
     return query.order_by(Transaction.date.desc()).all()
 
 
@@ -128,8 +143,11 @@ def get_budget_report(
     ).distinct().all()
     currencies = {c[0] for c in tx_currencies}
     if len(currencies) > 1:
-        import warnings
-        warnings.warn(f"Property '{prop.name}' has transactions in multiple currencies: {currencies}. Report may be inaccurate.")
+        import logging
+        logging.getLogger("mihomes.budget").warning(
+            "Property '%s' has transactions in multiple currencies: %s. Report totals may be inaccurate.",
+            prop.name, currencies,
+        )
 
     # Get budgets for this property
     budgets = session.query(Budget).filter(

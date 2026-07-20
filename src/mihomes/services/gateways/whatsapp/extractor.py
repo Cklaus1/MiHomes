@@ -69,7 +69,7 @@ def extract_and_create(
         return _empty_result(0)
 
     # Run AI extraction on new messages only
-    result = analyze_messages(session, new_messages, property_name=property_slug)
+    result = analyze_messages(session, new_messages, property_name=property_slug, property_slug=property_slug)
     items = result.get("items", [])
     skipped = result.get("skipped", [])
 

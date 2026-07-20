@@ -1,0 +1,501 @@
+{% extends "base.html" %}
+{% block title %}Tasks — MiHomes{% endblock %}
+{% block heading %}Tasks{% endblock %}
+{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ tasks|length }} task{{ 's' if tasks|length != 1 else '' }} · {{ overdue_ids|length }} overdue</p>{% endblock %}
+
+{% block actions %}
+<button onclick="document.getElementById('add-task-modal').classList.remove('hidden')"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
+  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+  Add Task
+</button>
+{% endblock %}
+
+{% block content %}
+
+{% if filter_overdue or filter_due_week %}
+<div class="flex items-center gap-2 mb-4 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-sm">
+  <svg class="w-4 h-4 text-amber-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z"/></svg>
+  <span class="text-amber-700 font-medium">{% if filter_overdue %}Overdue Tasks{% else %}Due This Week{% endif %}</span>
+  <a href="/tasks/" class="ml-auto text-xs text-amber-600 hover:text-amber-800 underline">Clear filter</a>
+</div>
+{% endif %}
+
+<!-- Filters + View Toggle -->
+<div class="flex flex-wrap items-center gap-2 mb-5">
+  <form class="flex flex-wrap gap-2" action="/tasks/" method="get">
+    <select name="property_id" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
+      <option value="">All properties</option>
+      {% for p in properties %}
+      <option value="{{ p.id }}" {% if filter_property == p.id %}selected{% endif %}>{{ p.name }}</option>
+      {% endfor %}
+    </select>
+    <select name="status" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
+      <option value="">All statuses</option>
+      {% for s in statuses %}
+      <option value="{{ s }}" {% if filter_status == s %}selected{% endif %}>{{ s.replace('-', ' ').title() }}</option>
+      {% endfor %}
+    </select>
+    <select name="assignee_id" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
+      <option value="">All assignees</option>
+      {% for s in staff %}
+      <option value="{{ s.id }}" {% if filter_assignee == s.id %}selected{% endif %}>{{ s.name }}</option>
+      {% endfor %}
+    </select>
+    <select name="recurrence" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
+      <option value="" {% if not filter_recurrence %}selected{% endif %}>All occurrences</option>
+      <option value="recurring" {% if filter_recurrence == 'recurring' %}selected{% endif %}>Recurring only</option>
+      <option value="once" {% if filter_recurrence == 'once' %}selected{% endif %}>One-time only</option>
+    </select>
+    <button type="submit" class="text-sm px-3 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-700 hover:bg-gray-50 font-medium">Apply</button>
+    {% if filter_property or filter_status or filter_assignee or filter_recurrence %}
+    <a href="/tasks/" class="text-sm px-3 py-1.5 text-gray-400 hover:text-gray-600">Clear</a>
+    {% endif %}
+  </form>
+
+  <!-- View toggle -->
+  <div class="ml-auto flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+    <button id="view-btn-board" onclick="setView('board')"
+            class="view-btn px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg>
+      Board
+    </button>
+    <button id="view-btn-grouped" onclick="setView('grouped')"
+            class="view-btn px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
+      Priority
+    </button>
+    <button id="view-btn-list" onclick="setView('list')"
+            class="view-btn px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+      List
+    </button>
+  </div>
+</div>
+
+<!-- ── BOARD VIEW ──────────────────────────────────────────────────────── -->
+<div id="view-board" class="hidden">
+  {% if tasks %}
+  <div class="grid grid-cols-3 gap-4 items-start">
+
+    {% set col_meta = [
+      ('pending',     'To Do',       'bg-gray-100 text-gray-600'),
+      ('in_progress', 'In Progress', 'bg-blue-100 text-blue-700'),
+      ('completed',   'Done',        'bg-emerald-100 text-emerald-700'),
+    ] %}
+
+    {% for col_key, col_label, col_badge in col_meta %}
+    {% set col_tasks = columns[col_key] %}
+    <div class="bg-gray-50 rounded-xl border border-gray-200 overflow-hidden">
+      <div class="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
+        <span class="text-sm font-semibold text-gray-700">{{ col_label }}</span>
+        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium {{ col_badge }}">{{ col_tasks|length }}</span>
+      </div>
+      <div class="p-3 space-y-2 min-h-[120px]">
+        {% for task in col_tasks %}
+        <div onclick="openModal('task-modal-{{ task.id }}')"
+             class="bg-white rounded-lg border border-gray-200 p-3 cursor-pointer hover:border-brand-300 hover:shadow-sm transition-all group">
+          <!-- Priority stripe -->
+          <div class="flex items-start gap-2">
+            <div class="mt-1 w-1.5 h-1.5 rounded-full flex-shrink-0
+              {% if task.priority.value == 'urgent' %}bg-red-500
+              {% elif task.priority.value == 'high' %}bg-orange-400
+              {% elif task.priority.value == 'medium' %}bg-amber-400
+              {% else %}bg-gray-300{% endif %}"></div>
+            <div class="flex-1 min-w-0">
+              <div class="text-sm font-medium text-gray-900 leading-snug truncate {% if task.status.value == 'completed' %}line-through text-gray-400{% endif %}">
+                {{ task.title }}
+              </div>
+              <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1.5">
+                {% if task.id in overdue_ids %}
+                <span class="text-xs text-red-600 font-medium">⚠ Overdue</span>
+                {% elif task.due_date %}
+                <span class="text-xs text-gray-400">{{ task.due_date.strftime('%b %d') }}</span>
+                {% endif %}
+                {% if task.property %}
+                <span class="text-xs text-gray-400">{{ task.property.name }}</span>
+                {% endif %}
+                {% if task.schedule and task.schedule.frequency.value != 'once' %}
+                <span class="text-xs text-blue-500">↻</span>
+                {% endif %}
+              </div>
+              {% if task.assignee %}
+              <div class="mt-2 flex items-center gap-1">
+                <span class="w-4 h-4 rounded-full bg-brand-100 text-brand-700 text-xs flex items-center justify-center font-semibold flex-shrink-0">{{ task.assignee.name[0].upper() }}</span>
+                <span class="text-xs text-gray-400">{{ task.assignee.name.split()[0] }}</span>
+              </div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+        {% if not col_tasks %}
+        <div class="text-center py-6 text-xs text-gray-300">Empty</div>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+
+  </div>
+  {% else %}
+  <div class="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center text-sm text-gray-400">No tasks found.</div>
+  {% endif %}
+</div>
+
+<!-- ── GROUPED VIEW (by priority) ─────────────────────────────────────── -->
+<div id="view-grouped" class="hidden space-y-4">
+  {% set pg_meta = [
+    ('urgent', 'Urgent', 'bg-red-500',    'border-red-200 bg-red-50'),
+    ('high',   'High',   'bg-orange-400', 'border-orange-200 bg-orange-50'),
+    ('medium', 'Medium', 'bg-amber-400',  'border-amber-200 bg-amber-50'),
+    ('low',    'Low',    'bg-gray-300',   'border-gray-200 bg-gray-50'),
+  ] %}
+  {% for pg_key, pg_label, dot_color, header_style in pg_meta %}
+  {% set group = priority_groups[pg_key] %}
+  {% if group %}
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2">
+      <span class="w-2 h-2 rounded-full {{ dot_color }} flex-shrink-0"></span>
+      <span class="text-xs font-semibold text-gray-600 uppercase tracking-wide">{{ pg_label }}</span>
+      <span class="text-xs text-gray-400">{{ group|length }}</span>
+    </div>
+    <div class="divide-y divide-gray-50">
+      {% for task in group %}
+      <div onclick="openModal('task-modal-{{ task.id }}')"
+           class="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 cursor-pointer transition-colors">
+        <div class="flex-1 min-w-0">
+          <span class="text-sm font-medium text-gray-900 {% if task.status.value == 'completed' %}line-through text-gray-400{% endif %}">{{ task.title }}</span>
+          <div class="flex items-center gap-3 mt-0.5">
+            {% if task.id in overdue_ids %}<span class="text-xs text-red-600 font-medium">⚠ Overdue</span>{% endif %}
+            {% if task.property %}<span class="text-xs text-gray-400">{{ task.property.name }}</span>{% endif %}
+            {% if task.schedule and task.schedule.frequency.value != 'once' %}<span class="text-xs text-blue-500">↻ {{ task.schedule.frequency.value.replace('_',' ').title() }}</span>{% endif %}
+          </div>
+        </div>
+        <div class="flex items-center gap-3 flex-shrink-0">
+          {% if task.due_date and task.id not in overdue_ids %}
+          <span class="text-xs text-gray-400">{{ task.due_date.strftime('%b %d') }}</span>
+          {% endif %}
+          {% if task.assignee %}
+          <span class="w-6 h-6 rounded-full bg-brand-100 text-brand-700 text-xs flex items-center justify-center font-semibold" title="{{ task.assignee.name }}">{{ task.assignee.name[0].upper() }}</span>
+          {% endif %}
+          <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+            {% if task.status.value == 'completed' %}bg-emerald-100 text-emerald-700
+            {% elif task.status.value in ('in_progress', 'in-progress') %}bg-blue-100 text-blue-700
+            {% elif task.status.value == 'cancelled' %}bg-gray-100 text-gray-400
+            {% else %}bg-gray-100 text-gray-600{% endif %}">
+            {{ task.status.value.replace('_', ' ').replace('-', ' ').title() }}
+          </span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+  {% endfor %}
+  {% if not tasks %}
+  <div class="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center text-sm text-gray-400">No tasks found.</div>
+  {% endif %}
+</div>
+
+<!-- ── LIST VIEW ──────────────────────────────────────────────────────── -->
+<div id="view-list" class="hidden">
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    {% if tasks %}
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-gray-100">
+          <th class="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Task</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">Property</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Assignee</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Due</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Priority</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50">
+        {% for task in tasks %}
+        <tr class="hover:bg-gray-50 cursor-pointer transition-colors {% if task.status.value == 'completed' %}opacity-60{% endif %}"
+            onclick="openModal('task-modal-{{ task.id }}')">
+          <td class="px-5 py-3">
+            <div class="font-medium text-gray-900 {% if task.status.value == 'completed' %}line-through{% endif %}">{{ task.title }}</div>
+            <div class="flex items-center gap-2 mt-0.5">
+              {% if task.id in overdue_ids %}<span class="text-xs text-red-600 font-medium">⚠ Overdue</span>{% endif %}
+              {% if task.schedule and task.schedule.frequency.value != 'once' %}<span class="text-xs text-blue-500">↻ {{ task.schedule.frequency.value.replace('_',' ').title() }}</span>{% endif %}
+            </div>
+          </td>
+          <td class="px-4 py-3 text-gray-500 hidden sm:table-cell text-xs">{% if task.property %}{{ task.property.name }}{% else %}—{% endif %}</td>
+          <td class="px-4 py-3 hidden lg:table-cell">
+            {% if task.assignee %}
+            <span class="inline-flex items-center gap-1.5">
+              <span class="w-5 h-5 rounded-full bg-brand-100 text-brand-700 text-xs flex items-center justify-center font-semibold flex-shrink-0">{{ task.assignee.name[0].upper() }}</span>
+              <span class="text-xs text-gray-600">{{ task.assignee.name.split()[0] }}</span>
+            </span>
+            {% else %}<span class="text-gray-300 text-xs">—</span>{% endif %}
+          </td>
+          <td class="px-4 py-3 text-gray-500 hidden md:table-cell text-xs">{% if task.due_date %}{{ task.due_date.strftime('%b %d') }}{% else %}—{% endif %}</td>
+          <td class="px-4 py-3">
+            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+              {% if task.priority.value == 'urgent' %}bg-red-100 text-red-700
+              {% elif task.priority.value == 'high' %}bg-orange-100 text-orange-700
+              {% elif task.priority.value == 'medium' %}bg-amber-100 text-amber-700
+              {% else %}bg-gray-100 text-gray-600{% endif %}">
+              {{ task.priority.value.title() }}
+            </span>
+          </td>
+          <td class="px-4 py-3">
+            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+              {% if task.status.value == 'completed' %}bg-emerald-100 text-emerald-700
+              {% elif task.status.value in ('in_progress', 'in-progress') %}bg-blue-100 text-blue-700
+              {% elif task.status.value == 'cancelled' %}bg-gray-100 text-gray-500
+              {% else %}bg-gray-100 text-gray-600{% endif %}">
+              {{ task.status.value.replace('_', ' ').replace('-', ' ').title() }}
+            </span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="px-5 py-12 text-center text-sm text-gray-400">No tasks found.</div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Task detail modals -->
+{% for task in tasks %}
+<div id="task-modal-{{ task.id }}"
+     class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+     onclick="if(event.target===this)closeModal('task-modal-{{ task.id }}')">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
+      <div>
+        <h2 class="text-lg font-bold text-gray-900 truncate max-w-xs">{{ task.title }}</h2>
+        <p class="text-xs text-gray-500 mt-0.5">
+          {% if task.property %}{{ task.property.name }}{% endif %}
+          {% if task.due_date %} · Due {{ task.due_date.strftime('%b %d, %Y') }}{% endif %}
+        </p>
+      </div>
+      <div class="flex items-center gap-2 flex-shrink-0">
+        {% if task.status.value not in ('completed', 'cancelled') %}
+        <button hx-post="/tasks/{{ task.slug }}/complete"
+                hx-target="body" hx-swap="innerHTML"
+                class="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+          Done
+        </button>
+        {% endif %}
+        <button hx-post="/tasks/{{ task.slug }}/delete"
+                hx-target="body" hx-swap="innerHTML"
+                hx-confirm="Delete this task? This cannot be undone."
+                class="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+        </button>
+        <button onclick="closeModal('task-modal-{{ task.id }}')"
+                class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="flex border-b border-gray-100 px-6 flex-shrink-0">
+      <button onclick="switchTab('task','{{ task.id }}','details')" id="task-tab-{{ task.id }}-details"
+              class="px-1 py-3 text-sm font-medium border-b-2 border-brand-600 text-brand-600 mr-5">Details</button>
+      <button onclick="switchTab('task','{{ task.id }}','notes')" id="task-tab-{{ task.id }}-notes"
+              class="px-1 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 mr-5">Notes ({{ notes_map[task.id]|length }})</button>
+    </div>
+    <div class="flex-1 overflow-y-auto">
+      <div id="task-panel-{{ task.id }}-details" class="px-6 py-5">
+        <div id="task-view-{{ task.id }}">
+          <dl class="grid grid-cols-2 gap-x-6 gap-y-4 text-sm mb-4">
+            <div>
+              <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Priority</dt>
+              <dd><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+                {% if task.priority.value == 'urgent' %}bg-red-100 text-red-700
+                {% elif task.priority.value == 'high' %}bg-orange-100 text-orange-700
+                {% elif task.priority.value == 'medium' %}bg-amber-100 text-amber-700
+                {% else %}bg-gray-100 text-gray-600{% endif %}">{{ task.priority.value.title() }}</span></dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Status</dt>
+              <dd><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+                {% if task.status.value == 'completed' %}bg-emerald-100 text-emerald-700
+                {% elif task.status.value in ('in_progress', 'in-progress') %}bg-blue-100 text-blue-700
+                {% elif task.status.value == 'cancelled' %}bg-gray-100 text-gray-500
+                {% else %}bg-gray-100 text-gray-600{% endif %}">{{ task.status.value.replace('_', ' ').replace('-', ' ').title() }}</span></dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Due Date</dt>
+              <dd class="text-gray-700 pt-0.5">{% if task.due_date %}{{ task.due_date.strftime('%b %d, %Y') }}{% if task.id in overdue_ids %} <span class="text-red-600 text-xs font-medium">⚠ Overdue</span>{% endif %}{% else %}<span class="text-gray-400">Not set</span>{% endif %}</dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Property</dt>
+              <dd class="text-gray-700 pt-0.5">{% if task.property %}{{ task.property.name }}{% else %}<span class="text-gray-400">Not set</span>{% endif %}</dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Assignee</dt>
+              <dd class="text-gray-700 pt-0.5">{% if task.assignee %}{{ task.assignee.name }}{% else %}<span class="text-gray-400">Unassigned</span>{% endif %}</dd>
+            </div>
+            {% if task.category %}<div>
+              <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Category</dt>
+              <dd class="text-gray-700 pt-0.5">{{ task.category.value.replace('_', ' ').title() }}</dd>
+            </div>{% else %}<div></div>{% endif %}
+            {% if task.schedule %}<div class="col-span-2">
+              <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Recurrence</dt>
+              <dd class="text-gray-700 pt-0.5">{{ task.schedule.frequency.value.replace('_', ' ').title() }}</dd>
+            </div>{% endif %}
+          </dl>
+          <div class="mb-3">
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Description</div>
+            <div class="text-sm text-gray-700{% if not task.description %} text-gray-400{% endif %}">{{ task.description or 'No description.' }}</div>
+          </div>
+          <div class="flex justify-end mt-4 pt-4 border-t border-gray-100">
+            <button type="button" onclick="enterEdit('task','{{ task.id }}')"
+                    class="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+              Edit
+            </button>
+          </div>
+        </div>
+        <div id="task-edit-{{ task.id }}" class="hidden">
+          <form hx-post="/tasks/{{ task.slug }}/edit" hx-target="body" hx-swap="innerHTML">
+            <div class="space-y-4">
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Title</div>
+                <input type="text" name="title" value="{{ task.title }}" required
+                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Priority</div>
+                  <select name="priority" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                    {% for p in priorities %}<option value="{{ p }}" {% if task.priority.value == p %}selected{% endif %}>{{ p.title() }}</option>{% endfor %}
+                  </select>
+                </div>
+                <div>
+                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Due Date</div>
+                  <input type="date" name="due_date" value="{{ task.due_date.isoformat() if task.due_date else '' }}"
+                         class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                </div>
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Status</div>
+                <select name="status" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                  {% for s in statuses %}<option value="{{ s }}" {% if task.status.value == s %}selected{% endif %}>{{ s.replace('_',' ').replace('-',' ').title() }}</option>{% endfor %}
+                </select>
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Description</div>
+                <textarea name="description" data-autoresize
+                          class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
+                          placeholder="Add a description…">{{ task.description or '' }}</textarea>
+              </div>
+            </div>
+            <div class="flex justify-end gap-2 mt-4 pt-4 border-t border-gray-100">
+              <button type="button" onclick="exitEdit('task','{{ task.id }}')" class="px-4 py-1.5 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
+              <button type="submit" class="px-4 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg">Save</button>
+            </div>
+          </form>
+        </div>
+      </div>
+      <div id="task-panel-{{ task.id }}-notes" class="hidden px-6 py-5" data-notes-container>
+        {% with notes=notes_map[task.id], post_url="/tasks/"+task.slug+"/notes", delete_url_prefix="/tasks/"+task.slug+"/notes" %}
+        {% include "partials/notes_section.html" %}
+        {% endwith %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+<!-- Add task modal -->
+<div id="add-task-modal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="text-lg font-semibold text-gray-900">Add Task</h2>
+      <button onclick="document.getElementById('add-task-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <form hx-post="/tasks/" hx-target="body" hx-swap="innerHTML" class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Title</label>
+        <input type="text" name="title" required
+               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+               placeholder="e.g. Replace HVAC filter" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Property</label>
+        <select name="property_id" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+          {% for p in properties %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+          <select name="priority" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+            {% for p in priorities %}<option value="{{ p }}" {% if p == 'medium' %}selected{% endif %}>{{ p.title() }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
+          <input type="date" name="due_date" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+      </div>
+      <div class="flex gap-3 pt-1">
+        <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">Add Task</button>
+        <button type="button" onclick="document.getElementById('add-task-modal').classList.add('hidden')"
+                class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+const VIEWS = ['board', 'grouped', 'list'];
+
+function setView(v) {
+  localStorage.setItem('tasks_view', v);
+  VIEWS.forEach(name => {
+    document.getElementById('view-' + name).classList.toggle('hidden', name !== v);
+    const btn = document.getElementById('view-btn-' + name);
+    btn.classList.toggle('bg-white', name === v);
+    btn.classList.toggle('text-gray-900', name === v);
+    btn.classList.toggle('shadow-sm', name === v);
+    btn.classList.toggle('text-gray-500', name !== v);
+  });
+}
+
+function initTasks() {
+  setView(localStorage.getItem('tasks_view') || 'board');
+  document.querySelectorAll('textarea[data-autoresize]').forEach(t => t.addEventListener('input', () => autoResize(t)));
+}
+initTasks();
+document.addEventListener('htmx:afterSettle', initTasks);
+
+function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
+function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+function switchTab(prefix, id, tab) {
+  ['details','notes'].forEach(t => {
+    document.getElementById(prefix+'-panel-'+id+'-'+t).classList.toggle('hidden', t !== tab);
+    const btn = document.getElementById(prefix+'-tab-'+id+'-'+t);
+    btn.classList.toggle('border-brand-600', t === tab);
+    btn.classList.toggle('text-brand-600', t === tab);
+    btn.classList.toggle('border-transparent', t !== tab);
+    btn.classList.toggle('text-gray-500', t !== tab);
+  });
+}
+
+function autoResize(el){ el.style.height='auto'; el.style.height=el.scrollHeight+'px'; }
+function enterEdit(prefix, id) {
+  document.getElementById(prefix+'-view-'+id).classList.add('hidden');
+  const editEl = document.getElementById(prefix+'-edit-'+id);
+  editEl.classList.remove('hidden');
+  editEl.querySelectorAll('textarea[data-autoresize]').forEach(ta => autoResize(ta));
+}
+function exitEdit(prefix, id) {
+  document.getElementById(prefix+'-edit-'+id).classList.add('hidden');
+  document.getElementById(prefix+'-view-'+id).classList.remove('hidden');
+}
+</script>
+
+{% endblock %}

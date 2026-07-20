@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% block title %}Smart Home — MiHomes{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>Smart Home</h1>
+    <span style="font-size:0.8rem;color:#9ca3af;">
+      {% if ha_available %}
+        {{ total }} entities from Home Assistant
+        {% if ha_version %} · HA {{ ha_version }}{% endif %}
+      {% else %}
+        Running standalone — start as an HA add-on to see live entities
+      {% endif %}
+    </span>
+  </div>
+  <div style="display:flex;gap:0.5rem;align-items:center;">
+    {% if ha_available %}
+    <span class="badge badge-completed">HA Connected</span>
+    {% else %}
+    <span class="badge badge-open">Not Connected</span>
+    {% endif %}
+    <button class="btn btn-ghost btn-sm"
+      hx-get="/ui/entities"
+      hx-target="body"
+      hx-push-url="true">
+      Refresh
+    </button>
+  </div>
+</div>
+
+<!-- Domain summary chips -->
+{% if domain_counts %}
+<div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-bottom:1.5rem;">
+  {% for domain, count in domain_counts.items() %}
+  <a href="?domain={{ domain }}" style="text-decoration:none;">
+    <span class="badge {% if selected_domain == domain %}badge-approved{% else %}badge-pending{% endif %}"
+      style="font-size:0.75rem;padding:4px 10px;cursor:pointer;">
+      {{ domain }} · {{ count }}
+    </span>
+  </a>
+  {% endfor %}
+  {% if selected_domain %}
+  <a href="/ui/entities" style="text-decoration:none;">
+    <span class="badge badge-cancelled" style="font-size:0.75rem;padding:4px 10px;cursor:pointer;">✕ clear</span>
+  </a>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if not ha_available %}
+<!-- Not in add-on mode -->
+<div style="background:#fff;border-radius:16px;box-shadow:var(--card-shadow);padding:3rem;text-align:center;margin-top:2rem;">
+  <svg viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="1.5" width="64" height="64" style="margin:0 auto 1rem;display:block;">
+    <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
+  </svg>
+  <h2 style="color:#374151;font-weight:500;margin:0 0 0.5rem;">Install as a Home Assistant Add-on</h2>
+  <p style="color:#6b7280;max-width:480px;margin:0 auto 1.5rem;line-height:1.6;">
+    MiHomes reads all your Home Assistant devices and sensors automatically when running as an add-on.
+    No tokens, no manual setup — the Supervisor handles everything.
+  </p>
+  <div style="background:#f9fafb;border-radius:8px;padding:1rem 1.5rem;font-family:monospace;font-size:0.85rem;display:inline-block;text-align:left;color:#374151;">
+    Settings → Add-ons → Add-on Store → MiHomes
+  </div>
+</div>
+
+{% elif not entities_by_section %}
+<!-- Connected but no entities yet -->
+<div style="background:#fff;border-radius:16px;box-shadow:var(--card-shadow);padding:3rem;text-align:center;">
+  <p style="color:#6b7280;">No entities found. Make sure your integrations are set up in Home Assistant.</p>
+</div>
+
+{% else %}
+
+<!-- ── Entities grouped by property → zone ──────────────────────────────── -->
+{% for section in entities_by_section %}
+<div style="margin-bottom:2rem;">
+  <!-- Section header -->
+  <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem;">
+    <svg viewBox="0 0 24 24" fill="none" stroke="{% if section.property_id %}var(--primary-color){% else %}#9ca3af{% endif %}" stroke-width="2" width="18" height="18">
+      <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+      <polyline points="9 22 9 12 15 12 15 22"/>
+    </svg>
+    <span class="section-title" style="margin:0;">{{ section.property_name }}</span>
+    {% if section.zone_name %}
+    <span style="color:#9ca3af;">›</span>
+    <span style="font-size:0.8rem;color:#6b7280;">{{ section.zone_name }}</span>
+    {% endif %}
+    <span style="font-size:0.75rem;color:#9ca3af;margin-left:auto;">{{ section.entities|length }} entities</span>
+  </div>
+
+  <!-- Entity cards grid -->
+  <div class="entity-grid">
+    {% for e in section.entities %}
+    <div class="entity-card {{ 'entity-on' if e.is_on else '' }} {{ 'entity-unavailable' if e.is_unavailable else '' }}"
+         data-entity-id="{{ e.entity_id }}">
+      <div class="entity-card-icon">
+        {{ _domain_svg(e.domain, e.device_class) }}
+      </div>
+      <div class="entity-card-body">
+        <div class="entity-card-name" title="{{ e.entity_id }}">{{ e.friendly_name }}</div>
+        <div class="entity-card-state">
+          {{ e.state }}{% if e.unit %} {{ e.unit }}{% endif %}
+        </div>
+      </div>
+      {% if not section.property_id %}
+      <!-- Assign button for unassigned entities -->
+      <button class="entity-assign-btn" title="Assign to property"
+        hx-get="/ui/entities/assign-form?entity_id={{ e.entity_id | urlencode }}"
+        hx-target="#assign-modal-body"
+        hx-on::after-request="document.getElementById('assign-modal').showModal()">
+        +
+      </button>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endfor %}
+
+{% endif %}
+
+<!-- ── Assign to property modal ─────────────────────────────────────────── -->
+<dialog id="assign-modal" style="border:none;border-radius:16px;box-shadow:var(--card-shadow);padding:0;width:420px;max-width:90vw;">
+  <div style="padding:1.5rem;" id="assign-modal-body">
+    <p style="color:#6b7280;">Loading…</p>
+  </div>
+</dialog>
+<script>
+document.getElementById('assign-modal').addEventListener('click', function(e) {
+  if (e.target === this) this.close();
+});
+</script>
+
+{% endblock %}
+
+{# ── Inline Jinja macro for domain SVG icons ────────────────────────────── #}
+{% macro _domain_svg(domain, device_class) %}
+{% set dc = device_class or '' %}
+{% if dc == 'temperature' or domain == 'climate' %}
+<svg viewBox="0 0 24 24" fill="currentColor"><path d="M15 13V5a3 3 0 10-6 0v8a5 5 0 106 0zm-3 5a3 3 0 110-6 3 3 0 010 6z"/></svg>
+{% elif dc == 'humidity' or dc == 'moisture' %}
+<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6 10 4 14 4 17a8 8 0 0016 0c0-3-2-7-8-15z"/></svg>
+{% elif dc == 'motion' or dc == 'occupancy' %}
+<svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 5a2 2 0 11-4 0 2 2 0 014 0zm-5 4l-2 5h2l1-3 2 2v5h2v-6l-2-2 1-2h3V7h-4a2 2 0 00-2 1l-1 1z"/></svg>
+{% elif dc == 'door' or dc == 'window' %}
+<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 20V4l14 2v14L3 20zm7-10v4h2v-4h-2z"/></svg>
+{% elif dc == 'smoke' or dc == 'carbon_monoxide' or dc == 'gas' %}
+<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a7 7 0 00-7 7c0 4 3.5 7 7 11 3.5-4 7-7 7-11a7 7 0 00-7-7zm0 9a2 2 0 110-4 2 2 0 010 4z"/></svg>
+{% elif dc == 'battery' %}
+<svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.67 4H14V2h-4v2H8.33C7.6 4 7 4.6 7 5.33v15.33C7 21.4 7.6 22 8.33 22h7.33c.74 0 1.34-.6 1.34-1.33V5.33C17 4.6 16.4 4 15.67 4z"/></svg>
+{% elif dc == 'power' or dc == 'energy' %}
+<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 2v13h3v9l7-12h-4l4-10z"/></svg>
+{% elif domain == 'light' %}
+<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a7 7 0 017 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 01-1 1H9a1 1 0 01-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 017-7zM9 21v1h6v-1H9zm0-2h6v-1H9v1z"/></svg>
+{% elif domain == 'switch' or dc == 'plug' %}
+<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17 7H7a5 5 0 000 10h10a5 5 0 000-10zm0 8a3 3 0 110-6 3 3 0 010 6z"/></svg>
+{% elif domain == 'lock' %}
+<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>
+{% elif domain == 'camera' %}
+<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17 10.5V7a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h12a1 1 0 001-1v-3.5l4 4v-11l-4 4z"/></svg>
+{% elif domain == 'media_player' %}
+<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14zM8 15c0-2.21 1.79-4 4-4s4 1.79 4 4-1.79 4-4 4-4-1.79-4-4zm4 2.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+{% elif domain == 'cover' %}
+<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 19H5v-2h14v2zm-7-4L5 8h14l-7 7z"/></svg>
+{% elif domain == 'weather' %}
+<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.79 1.42-1.41zM4 10.5H1v2h3v-2zm9-9.95h-2V3.5h2V.55zm7.45 3.91l-1.41-1.41-1.79 1.79 1.41 1.41 1.79-1.79zm-3.21 13.7l1.79 1.8 1.41-1.41-1.8-1.79-1.4 1.4zM20 10.5v2h3v-2h-3zm-8-5c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm-1 16.95h2V19.5h-2v2.95zm-7.45-3.91l1.41 1.41 1.79-1.8-1.41-1.41-1.79 1.8z"/></svg>
+{% elif domain == 'person' or domain == 'device_tracker' %}
+<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+{% else %}
+<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"/></svg>
+{% endif %}
+{% endmacro %}

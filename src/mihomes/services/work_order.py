@@ -10,8 +10,8 @@ from mihomes.models.staff import Staff
 from mihomes.models.vendor import Vendor
 from mihomes.models.work_order import WorkOrder, WorkOrderStatus
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
-from mihomes.services.update_helpers import safe_update
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
+from mihomes.services.update_helpers import safe_update
 
 # Valid state transitions: {from_status: [allowed_to_statuses]}
 VALID_TRANSITIONS: dict[WorkOrderStatus, list[WorkOrderStatus]] = {
@@ -44,6 +44,7 @@ def create_work_order(
     source_type: str | None = None,
     source_id: int | None = None,
     vendor_id_or_slug: str | None = None,
+    vendor_name: str | None = None,
     assignee_id_or_slug: str | None = None,
     estimated_cost: float | None = None,
     currency: str = "USD",
@@ -63,7 +64,7 @@ def create_work_order(
     wo = WorkOrder(
         title=title, slug=slug, description=description,
         property_id=prop.id, source_type=source_type, source_id=source_id,
-        vendor_id=vendor_id, assignee_id=assignee_id,
+        vendor_id=vendor_id, vendor_name=vendor_name, assignee_id=assignee_id,
         estimated_cost=estimated_cost, currency=currency, due_date=due_date,
     )
     session.add(wo)
@@ -87,6 +88,10 @@ def list_work_orders(
     return query.order_by(WorkOrder.created_at.desc()).all()
 
 
+def list_work_orders_by_issue(session: Session, issue_id: int) -> list[WorkOrder]:
+    return session.query(WorkOrder).filter(WorkOrder.issue_id == issue_id).order_by(WorkOrder.created_at.desc()).all()
+
+
 def get_work_order(session: Session, id_or_slug: str) -> WorkOrder:
     return resolve_identifier(session, WorkOrder, id_or_slug)
 
@@ -102,7 +107,42 @@ def update_work_order(session: Session, id_or_slug: str, **kwargs) -> WorkOrder:
     changes = diff_instance(old_snap, new_snap)
     if changes:
         record_change(session, "work_order", wo.id, "update", changes)
+
+    if wo.status in (WorkOrderStatus.COMPLETED, WorkOrderStatus.VERIFIED):
+        _resync_transaction(session, wo)
+
     return wo
+
+
+def _resync_transaction(session: Session, wo: WorkOrder) -> None:
+    """Keep a completed work order's budget transaction in sync with its current cost/vendor.
+
+    A work order's transaction is otherwise a one-time snapshot taken at
+    completion — without this, editing the cost or vendor afterward would
+    silently leave the two permanently diverged.
+    """
+    from mihomes.models.budget import Transaction
+
+    tx = session.query(Transaction).filter(
+        Transaction.source == "work_order",
+        Transaction.work_order_id == wo.id,
+    ).first()
+    if tx is None:
+        return
+    cost = wo.actual_cost or wo.estimated_cost
+    if cost is None:
+        return
+    old_tx_snap = snapshot_instance(tx)
+    safe_update(tx, {
+        "amount": cost,
+        "vendor_id": wo.vendor_id,
+        "vendor_name": wo.vendor_name if not wo.vendor_id else None,
+        "description": f"Work order: {wo.title}",
+    })
+    session.flush()
+    tx_changes = diff_instance(old_tx_snap, snapshot_instance(tx))
+    if tx_changes:
+        record_change(session, "transaction", tx.id, "resync", tx_changes)
 
 
 def transition_status(session: Session, id_or_slug: str, target: WorkOrderStatus) -> WorkOrder:
@@ -151,7 +191,9 @@ def complete(
         add_transaction(
             session, cost, str(wo.property_id), "maintenance",
             date.today(), vendor_id_or_slug=str(wo.vendor_id) if wo.vendor_id else None,
+            vendor_name=wo.vendor_name if not wo.vendor_id else None,
             description=f"Work order: {wo.title}", source="work_order",
+            work_order_id=wo.id,
         )
 
     new_snap = snapshot_instance(wo)

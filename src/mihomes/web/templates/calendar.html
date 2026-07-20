@@ -1,0 +1,423 @@
+{% extends "base.html" %}
+{% block title %}Calendar — MiHomes{% endblock %}
+{% block heading %}Calendar{% endblock %}
+{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ month_date.strftime('%B %Y') }}</p>{% endblock %}
+
+{% block actions %}
+<button onclick="openAddModal(null)"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
+  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+  Add Appointment
+</button>
+{% endblock %}
+
+{% block content %}
+
+<!-- Filter + month nav -->
+<div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+  <form class="flex gap-2" hx-get="/calendar/" hx-target="body" hx-swap="innerHTML" hx-push-url="true">
+    <input type="hidden" name="month" value="{{ month_date.strftime('%Y-%m') }}">
+    <select name="property_id" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
+      <option value="">All properties</option>
+      {% for p in properties %}<option value="{{ p.id }}" {% if filter_property == p.id %}selected{% endif %}>{{ p.name }}</option>{% endfor %}
+    </select>
+    <button type="submit" class="text-sm px-3 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-700 hover:bg-gray-50">Filter</button>
+  </form>
+
+  <div class="flex items-center gap-3">
+    <a hx-get="/calendar/?month={{ prev_month }}{% if filter_property %}&property_id={{ filter_property }}{% endif %}"
+       hx-target="body" hx-swap="innerHTML" hx-push-url="true"
+       class="p-1.5 rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-gray-50 cursor-pointer transition-colors">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+    </a>
+    <span class="text-sm font-semibold text-gray-800 min-w-[120px] text-center">{{ month_date.strftime('%B %Y') }}</span>
+    <a hx-get="/calendar/?month={{ next_month }}{% if filter_property %}&property_id={{ filter_property }}{% endif %}"
+       hx-target="body" hx-swap="innerHTML" hx-push-url="true"
+       class="p-1.5 rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-gray-50 cursor-pointer transition-colors">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+    </a>
+  </div>
+</div>
+
+<!-- Legend -->
+<div class="flex flex-wrap gap-3 mb-4 text-xs">
+  <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>Vendor Visit</span>
+  <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-orange-500 inline-block"></span>Inspection</span>
+  <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-purple-500 inline-block"></span>Delivery</span>
+  <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block"></span>Maintenance</span>
+  <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-teal-500 inline-block"></span>Guest Event</span>
+  <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-rose-400 inline-block"></span>Holiday</span>
+  <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-indigo-400 inline-block"></span>Google Calendar</span>
+</div>
+
+<!-- Calendar grid -->
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <!-- Day headers -->
+  <div class="grid grid-cols-7 bg-gray-50 border-b border-gray-200">
+    {% for d in ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] %}
+    <div class="py-2 text-center text-xs font-semibold text-gray-400 uppercase tracking-wide {% if not loop.last %}border-r border-gray-100{% endif %}">{{ d }}</div>
+    {% endfor %}
+  </div>
+
+  <!-- Weeks -->
+  {% for week in calendar_weeks %}
+  <div class="grid grid-cols-7 {% if not loop.last %}border-b border-gray-100{% endif %}">
+    {% for day in week %}
+    {% set is_current = day.month == month_date.month %}
+    {% set is_today_flag = day == today %}
+    {% set appts = day_appointments.get(day, []) %}
+    {% set evts = day_events.get(day, []) %}
+    <div class="min-h-[90px] p-1.5 {% if not loop.last %}border-r border-gray-100{% endif %} {% if not is_current %}bg-gray-50/60{% endif %} group">
+      <!-- Date number + hover add button -->
+      <div class="flex items-center justify-between mb-1 px-0.5">
+        <span class="text-xs font-medium leading-5 {% if is_today_flag %}bg-brand-600 text-white rounded-full w-5 h-5 flex items-center justify-center{% elif is_current %}text-gray-700{% else %}text-gray-300{% endif %}">
+          {{ day.day }}
+        </span>
+        <button onclick="openAddModal('{{ day.isoformat() }}')"
+                class="hidden group-hover:flex items-center justify-center w-4 h-4 rounded-full bg-gray-200 hover:bg-brand-500 hover:text-white text-gray-500 text-xs leading-none transition-colors">
+          +
+        </button>
+      </div>
+      <!-- Appointment badges -->
+      {% for a in appts %}
+      {% set badge_cls = type_colors.get(a.appointment_type, type_colors['other'])[0] %}
+      <button onclick="openModal('appt-modal-{{ a.id }}')"
+              class="w-full text-left text-xs px-1.5 py-0.5 rounded mb-0.5 truncate {{ badge_cls }} hover:opacity-75 transition-opacity block">
+        {% if a.start_time %}[{{ a.start_time | time_label }}] {% endif %}{{ a.title }}
+      </button>
+      {% endfor %}
+      <!-- Holiday badge -->
+      {% set holiday_name = day_holidays.get(day) %}
+      {% if holiday_name %}
+      <div class="w-full text-xs px-1.5 py-0.5 rounded mb-0.5 truncate bg-rose-100 text-rose-700 font-medium cursor-default">
+        {{ holiday_name }}
+      </div>
+      {% endif %}
+      <!-- Guest event badges -->
+      {% for e in evts %}
+      <button onclick="openModal('event-modal-{{ e.id }}')"
+              class="w-full text-left text-xs px-1.5 py-0.5 rounded mb-0.5 truncate bg-teal-100 text-teal-700 hover:opacity-75 transition-opacity block">
+        {{ e.title }}
+      </button>
+      {% endfor %}
+      <!-- Google Calendar badges -->
+      {% set gcal_items = day_gcal.get(day, []) %}
+      {% for ge in gcal_items %}
+      <div class="w-full text-xs px-1.5 py-0.5 rounded mb-0.5 truncate bg-indigo-100 text-indigo-700 cursor-default"
+           title="{{ ge.get('title', '') }}">
+        {% if ge.get('start') %}[{{ ge.get('start') | time_label }}] {% endif %}{{ ge.get('title', '') }}
+      </div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Appointment detail modals -->
+{% for a in appointments %}
+<div id="appt-modal-{{ a.id }}"
+     class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+     onclick="if(event.target===this)closeModal('appt-modal-{{ a.id }}')">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col" onclick="event.stopPropagation()">
+
+    <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
+      <div>
+        <h2 class="text-lg font-bold text-gray-900">{{ a.title }}</h2>
+        <p class="text-xs text-gray-500 mt-0.5">
+          {{ a.date.strftime('%A, %B') }} {{ a.date.day }}, {{ a.date.year }}{% if a.start_time %} · {{ a.start_time | time_label }}{% endif %}
+        </p>
+      </div>
+      <div class="flex items-center gap-2 flex-shrink-0">
+        <button hx-post="/calendar/appointments/{{ a.id }}/delete"
+                hx-vals='{"month": "{{ month_date.strftime('%Y-%m') }}"}'
+                hx-target="body" hx-swap="innerHTML"
+                hx-confirm="Delete this appointment?"
+                class="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+        </button>
+        <button onclick="closeModal('appt-modal-{{ a.id }}')"
+                class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="flex-1 overflow-y-auto px-6 py-5">
+      <!-- View -->
+      <div id="appt-view-{{ a.id }}">
+        <div class="grid grid-cols-2 gap-3 mb-4">
+          <div class="bg-gray-50 rounded-xl p-3">
+            <div class="text-xs text-gray-400 mb-0.5">Type</div>
+            {% set badge = type_colors.get(a.appointment_type, type_colors['other'])[0] %}
+            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {{ badge }}">
+              {{ a.appointment_type.replace('_', ' ').title() }}
+            </span>
+          </div>
+          <div class="bg-gray-50 rounded-xl p-3">
+            <div class="text-xs text-gray-400 mb-0.5">Property</div>
+            <div class="font-medium text-sm text-gray-800">{{ a.property.name if a.property else '—' }}</div>
+          </div>
+          {% if a.vendor %}
+          <div class="bg-gray-50 rounded-xl p-3 col-span-2">
+            <div class="text-xs text-gray-400 mb-0.5">Vendor</div>
+            <div class="font-medium text-sm text-gray-800">{{ a.vendor.company_name }}</div>
+          </div>
+          {% endif %}
+          {% if a.contract and a.contract.service_category %}
+          <div class="bg-gray-50 rounded-xl p-3 col-span-2">
+            <div class="text-xs text-gray-400 mb-0.5">Contract</div>
+            <div class="font-medium text-sm text-gray-800">{{ a.contract.service_category }}</div>
+          </div>
+          {% endif %}
+        </div>
+        {% if a.notes %}
+        <div class="mb-4">
+          <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Notes</div>
+          <div class="text-sm text-gray-700 bg-gray-50 rounded-lg p-3">{{ a.notes }}</div>
+        </div>
+        {% endif %}
+        {% if a.gcal_event_id %}
+        <p class="text-xs text-gray-400 mb-2">
+          <svg class="w-3 h-3 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+          Synced to Google Calendar
+        </p>
+        {% endif %}
+        {% if a.recurring_expense_id %}
+        <div class="mb-4">
+          {% if a.completed %}
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+            Serviced — added to budget
+          </span>
+          {% else %}
+          <form hx-post="/calendar/appointments/{{ a.id }}/mark-serviced" hx-target="body" hx-swap="innerHTML" class="flex items-center gap-2">
+            <input type="hidden" name="month" value="{{ month_date.strftime('%Y-%m') }}">
+            <button type="submit"
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-xs font-medium rounded-lg hover:bg-emerald-700 transition-colors">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+              Mark Serviced
+            </button>
+            <span class="text-xs text-gray-400">Adds this recurring service's cost to the budget</span>
+          </form>
+          {% endif %}
+        </div>
+        {% endif %}
+        <div class="flex justify-end pt-4 border-t border-gray-100">
+          <button onclick="enterEdit('appt','{{ a.id }}')"
+                  class="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+            Edit
+          </button>
+        </div>
+      </div>
+
+      <!-- Edit -->
+      <div id="appt-edit-{{ a.id }}" class="hidden">
+        <form hx-post="/calendar/appointments/{{ a.id }}/edit" hx-target="body" hx-swap="innerHTML">
+          <input type="hidden" name="month" value="{{ month_date.strftime('%Y-%m') }}">
+          <div class="space-y-3">
+            <div>
+              <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Title</div>
+              <input type="text" name="title" value="{{ a.title }}" required
+                     class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Date</div>
+                <input type="date" name="appt_date" value="{{ a.date.isoformat() }}" required
+                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Time</div>
+                <input type="time" name="start_time" value="{{ a.start_time.strftime('%H:%M') if a.start_time else '' }}"
+                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+            </div>
+            <div>
+              <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Type</div>
+              <select name="appointment_type" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                {% for val, label in appointment_types %}<option value="{{ val }}" {% if a.appointment_type == val %}selected{% endif %}>{{ label }}</option>{% endfor %}
+              </select>
+            </div>
+            <div>
+              <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Vendor</div>
+              <select name="vendor_id" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                <option value="">— None —</option>
+                {% for v in vendors %}<option value="{{ v.id }}" {% if a.vendor_id == v.id %}selected{% endif %}>{{ v.company_name }}</option>{% endfor %}
+              </select>
+            </div>
+            <div>
+              <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Notes</div>
+              <textarea name="notes" data-autoresize
+                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
+                        placeholder="Optional notes…">{{ a.notes or '' }}</textarea>
+            </div>
+          </div>
+          <div class="flex justify-end gap-2 mt-4 pt-4 border-t border-gray-100">
+            <button type="button" onclick="exitEdit('appt','{{ a.id }}')"
+                    class="px-4 py-1.5 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
+            <button type="submit"
+                    class="px-4 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg">Save</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+<!-- Guest event detail modals -->
+{% for e in month_events %}
+<div id="event-modal-{{ e.id }}"
+     class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+     onclick="if(event.target===this)closeModal('event-modal-{{ e.id }}')">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+      <div>
+        <h2 class="text-lg font-bold text-gray-900">{{ e.title }}</h2>
+        <p class="text-xs text-gray-500 mt-0.5">
+          {% if e.event_date %}{{ e.event_date.strftime('%b') }} {{ e.event_date.day }}{% endif %}{% if e.end_date and e.end_date != e.event_date %} – {{ e.end_date.strftime('%b') }} {{ e.end_date.day }}, {{ e.end_date.year }}{% elif e.event_date %}, {{ e.event_date.year }}{% endif %}
+        </p>
+      </div>
+      <div class="flex items-center gap-2">
+        <button hx-post="/calendar/events/{{ e.id }}/delete"
+                hx-vals='{"month": "{{ month_date.strftime('%Y-%m') }}"}'
+                hx-target="body" hx-swap="innerHTML"
+                hx-confirm="Delete this event?"
+                class="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+        </button>
+        <button onclick="closeModal('event-modal-{{ e.id }}')"
+                class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="px-6 py-5">
+      <div class="grid grid-cols-2 gap-3">
+        {% if e.property %}
+        <div class="bg-gray-50 rounded-xl p-3">
+          <div class="text-xs text-gray-400 mb-0.5">Property</div>
+          <div class="font-medium text-sm text-gray-800">{{ e.property.name }}</div>
+        </div>
+        {% endif %}
+        {% if e.expected_guests %}
+        <div class="bg-gray-50 rounded-xl p-3">
+          <div class="text-xs text-gray-400 mb-0.5">Guests</div>
+          <div class="font-medium text-sm text-gray-800">{{ e.expected_guests }}</div>
+        </div>
+        {% endif %}
+        <div class="bg-gray-50 rounded-xl p-3">
+          <div class="text-xs text-gray-400 mb-0.5">Status</div>
+          <div class="font-medium text-sm text-gray-800">{{ e.status.value.replace('_', ' ').title() }}</div>
+        </div>
+      </div>
+      {% if e.description %}
+      <div class="mt-3">
+        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Notes</div>
+        <div class="text-sm text-gray-700 bg-gray-50 rounded-lg p-3">{{ e.description }}</div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+<!-- Add appointment modal -->
+<div id="add-appt-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+     onclick="if(event.target===this)this.classList.add('hidden')">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="text-lg font-semibold text-gray-900">Add Appointment</h2>
+      <button onclick="document.getElementById('add-appt-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <form hx-post="/calendar/appointments/" hx-target="body" hx-swap="innerHTML" class="space-y-4">
+      <input type="hidden" name="month" value="{{ month_date.strftime('%Y-%m') }}">
+      <input type="hidden" name="filter_property_id" value="{{ filter_property or '' }}">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Title <span class="text-red-500">*</span></label>
+        <input type="text" name="title" required
+               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+               placeholder="e.g. Orkin mosquito treatment" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Property <span class="text-red-500">*</span></label>
+        <select name="property_id" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          {% for p in properties %}<option value="{{ p.id }}" {% if filter_property == p.id %}selected{% endif %}>{{ p.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Type</label>
+        <select name="appointment_type" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          {% for val, label in appointment_types %}<option value="{{ val }}">{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Date <span class="text-red-500">*</span></label>
+          <input type="date" name="appt_date" id="add-appt-date" required
+                 class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Time</label>
+          <input type="time" name="start_time"
+                 class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Vendor</label>
+        <select name="vendor_id" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          <option value="">— None —</option>
+          {% for v in vendors %}<option value="{{ v.id }}">{{ v.company_name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Contract</label>
+        <select name="contract_id" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          <option value="">— None —</option>
+          {% for c in contracts %}<option value="{{ c.id }}">{{ c.vendor.company_name if c.vendor else '' }}{% if c.service_category %} — {{ c.service_category }}{% endif %}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+        <textarea name="notes" rows="2"
+                  class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  placeholder="Optional notes…"></textarea>
+      </div>
+      <div class="flex gap-3 pt-1">
+        <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Save</button>
+        <button type="button" onclick="document.getElementById('add-appt-modal').classList.add('hidden')"
+                class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-50">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
+function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+function openAddModal(dateStr) {
+  if (dateStr) document.getElementById('add-appt-date').value = dateStr;
+  document.getElementById('add-appt-modal').classList.remove('hidden');
+}
+function enterEdit(prefix, id) {
+  document.getElementById(prefix+'-view-'+id).classList.add('hidden');
+  const el = document.getElementById(prefix+'-edit-'+id);
+  el.classList.remove('hidden');
+  el.querySelectorAll('textarea[data-autoresize]').forEach(t => { t.style.height='auto'; t.style.height=t.scrollHeight+'px'; });
+}
+function exitEdit(prefix, id) {
+  document.getElementById(prefix+'-edit-'+id).classList.add('hidden');
+  document.getElementById(prefix+'-view-'+id).classList.remove('hidden');
+}
+document.addEventListener('DOMContentLoaded', () =>
+  document.querySelectorAll('textarea[data-autoresize]').forEach(t =>
+    t.addEventListener('input', () => { t.style.height='auto'; t.style.height=t.scrollHeight+'px'; })
+  )
+);
+</script>
+
+{% endblock %}

@@ -1,0 +1,22 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to MiHomes",
+        "description": "Enter the URL of your MiHomes API server. If MiHomes is running as a Home Assistant Add-on, leave the default.",
+        "data": {
+          "api_url": "MiHomes API URL"
+        },
+        "data_description": {
+          "api_url": "e.g. http://localhost:8080 or http://192.168.1.100:8080"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to MiHomes. Make sure the API server is running and the URL is correct."
+    },
+    "abort": {
+      "already_configured": "MiHomes is already configured for this URL."
+    }
+  }
+}

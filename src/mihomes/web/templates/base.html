@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-gray-50">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}MiHomes{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/static/htmx.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: { 50:'#f0f9ff', 100:'#e0f2fe', 500:'#0ea5e9', 600:'#0284c7', 700:'#0369a1' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    .htmx-indicator { opacity: 0; transition: opacity 200ms ease-in; }
+    .htmx-request .htmx-indicator { opacity: 1; }
+    .htmx-request.htmx-indicator { opacity: 1; }
+
+    /* Inline-edit fields: look like plain text at rest, reveal editability on hover/focus */
+    .ie-field {
+      display: block; width: 100%;
+      background: transparent;
+      border: 1px solid transparent; border-radius: 6px;
+      padding: 3px 6px; margin: -3px -6px;
+      font-size: 0.875rem; color: #374151;
+      font-family: inherit; line-height: 1.5;
+      transition: border-color .12s, background-color .12s;
+      cursor: text;
+    }
+    .ie-field:hover  { border-color: #e5e7eb; background: #f9fafb; }
+    .ie-field:focus  { border-color: #0284c7; background: #fff; outline: none; box-shadow: 0 0 0 3px rgba(2,132,199,.08); }
+    textarea.ie-field { resize: none; overflow: hidden; }
+    select.ie-field  { cursor: pointer; appearance: none; -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%239CA3AF'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 6px center; padding-right: 20px; }
+
+    /* Variant for fields that sit inside a bg-gray-50 card tile */
+    .ie-incard {
+      display: block; width: 100%;
+      background: transparent; border: none; border-bottom: 1px solid transparent;
+      padding: 0; font-size: 0.875rem; font-weight: 500; color: #1f2937;
+      font-family: inherit; line-height: 1.5;
+      transition: border-color .12s;
+      cursor: text;
+    }
+    .ie-incard:hover { border-bottom-color: #9ca3af; }
+    .ie-incard:focus { border-bottom-color: #0284c7; outline: none; }
+    textarea.ie-incard { resize: none; overflow: hidden; }
+  </style>
+  {% block head %}{% endblock %}
+</head>
+<body class="h-full">
+
+  <div class="flex h-full">
+
+    <!-- Sidebar -->
+    <aside class="w-60 bg-gray-900 flex flex-col flex-shrink-0">
+      <div class="px-5 py-5 border-b border-gray-700">
+        <div class="text-white font-semibold text-lg tracking-tight">MiHomes</div>
+        <div class="text-gray-400 text-xs mt-0.5">Estate Management</div>
+      </div>
+
+      <nav class="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
+        {% set nav = [
+          ('/', 'dashboard', 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6', 'Dashboard'),
+          ('/properties/', 'properties', 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4', 'Properties'),
+          ('/alerts/', 'alerts', 'M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9', 'Alerts'),
+          ('/tasks/', 'tasks', 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4', 'Tasks'),
+          ('/issues/', 'issues', 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z', 'Issues'),
+          ('/work-orders/', 'work_orders', 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01', 'Work Orders'),
+          ('/staff/', 'staff', 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z', 'Directory'),
+          ('/vendors/', 'vendors', 'M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2', 'Vendors'),
+          ('/assets/', 'assets', 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4', 'Rooms'),
+          ('/inventory/', 'inventory', 'M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4', 'Inventory'),
+          ('/budget/', 'budget', 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z', 'Budget'),
+          ('/contracts/', 'contracts', 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z', 'Contracts'),
+          ('/documents/', 'documents', 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z', 'Documents'),
+          ('/playbooks/', 'playbooks', 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4', 'Playbooks'),
+          ('/templates/', 'templates', 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01', 'Templates'),
+          ('/search/', 'search', 'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z', 'Search'),
+          ('/ai/', 'ai', 'M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z', 'AI Advisor'),
+          ('/calendar/', 'calendar', 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z', 'Calendar'),
+        ] %}
+        {% for href, key, icon_path, label in nav %}
+        <div class="relative">
+          <a href="{{ href }}"
+             class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors
+                    {% if page == key %}bg-gray-700 text-white{% else %}text-gray-400 hover:bg-gray-800 hover:text-white{% endif %}">
+            <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="{{ icon_path }}" />
+            </svg>
+            <span class="flex-1">{{ label }}</span>
+            {% if key == 'alerts' %}
+            <span id="nav-alert-badge"
+                  hx-get="/alerts/badge"
+                  hx-trigger="load, every 60s"
+                  hx-swap="outerHTML">
+            </span>
+            {% endif %}
+          </a>
+        </div>
+        {% endfor %}
+      </nav>
+
+      <div class="px-4 py-4 border-t border-gray-700">
+        <div class="text-xs text-gray-500">v0.1.0 · ui-frontend</div>
+      </div>
+    </aside>
+
+    <!-- Main content -->
+    <div class="flex-1 flex flex-col overflow-hidden">
+
+      <!-- Top bar -->
+      <header class="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between flex-shrink-0">
+        <div>
+          <h1 class="text-xl font-semibold text-gray-900">{% block heading %}{% endblock %}</h1>
+          {% block subheading %}<p class="text-sm text-gray-500 mt-0.5"></p>{% endblock %}
+        </div>
+        <div class="flex items-center gap-3">
+          {% block actions %}{% endblock %}
+          <!-- Global search — live input with results dropdown -->
+          <div class="relative" id="global-search-wrap">
+            <svg class="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+            </svg>
+            <input type="text" name="q" id="global-search-input" autocomplete="off"
+                   placeholder="Search…" title="Search (Ctrl+K)"
+                   hx-get="/search/dropdown" hx-trigger="keyup changed delay:250ms, focus"
+                   hx-target="#global-search-results" hx-swap="innerHTML"
+                   onfocus="document.getElementById('global-search-results').classList.remove('hidden')"
+                   class="w-36 sm:w-52 focus:w-64 pl-8 pr-10 py-1.5 text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:bg-white transition-all" />
+            <kbd class="hidden sm:inline absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-mono bg-white border border-gray-200 rounded px-1 py-0.5 text-gray-400 pointer-events-none">⌘K</kbd>
+            <div id="global-search-results"
+                 class="hidden absolute right-0 mt-1 w-80 bg-white border border-gray-200 rounded-xl shadow-lg z-50 max-h-96 overflow-y-auto"></div>
+          </div>
+          <span id="htmx-loading" class="htmx-indicator">
+            <svg class="w-5 h-5 animate-spin text-brand-500" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+            </svg>
+          </span>
+        </div>
+      </header>
+
+      <!-- Page body -->
+      <main class="flex-1 overflow-y-auto p-6">
+        {% if error %}
+        <div class="mb-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <svg class="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+          <span>{{ error }}</span>
+        </div>
+        {% endif %}
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+
+  </div>
+
+  {% block scripts %}{% endblock %}
+
+  <!-- Global document preview overlay -->
+  <div id="preview-overlay" class="hidden fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4"
+       onclick="if(event.target===this)closePreview()">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl flex flex-col overflow-hidden"
+         style="max-height:90vh" onclick="event.stopPropagation()">
+      <div class="flex items-center justify-between px-5 py-3 border-b border-gray-200 flex-shrink-0">
+        <span id="preview-title" class="text-sm font-semibold text-gray-900 truncate mr-4"></span>
+        <div class="flex items-center gap-4 flex-shrink-0">
+          <a id="preview-open-link" href="#" target="_blank" rel="noopener"
+             class="text-xs text-brand-600 hover:text-brand-700 font-medium">Open in new tab ↗</a>
+          <button onclick="closePreview()" class="text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-gray-100">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div id="preview-content" class="flex-1 overflow-auto flex items-center justify-center p-4 min-h-0 bg-gray-50"></div>
+    </div>
+  </div>
+
+<script>
+/* After any notes-container swap, recount note items and update the nearest badge. */
+document.addEventListener('htmx:afterSettle', function(e) {
+  const container = e.detail.elt;
+  if (!container || !container.hasAttribute('data-notes-container')) return;
+  const count = container.querySelectorAll('[data-note-item]').length;
+  const badgeId = container.dataset.notesBadge;
+  if (badgeId) {
+    const badge = document.getElementById(badgeId);
+    if (badge) badge.textContent = count;
+  }
+});
+
+/* Cmd+K / Ctrl+K → focus the header search input */
+document.addEventListener('keydown', function(e) {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+    e.preventDefault();
+    const searchInput = document.getElementById('global-search-input');
+    if (searchInput) {
+      searchInput.focus();
+      searchInput.select();
+    }
+  }
+  if (e.key === 'Escape') {
+    document.getElementById('global-search-results')?.classList.add('hidden');
+  }
+});
+
+/* Close the search results dropdown when clicking outside it */
+document.addEventListener('click', function(e) {
+  const wrap = document.getElementById('global-search-wrap');
+  if (wrap && !wrap.contains(e.target)) {
+    document.getElementById('global-search-results')?.classList.add('hidden');
+  }
+});
+
+/* Document preview overlay */
+function previewDoc(url, title, type) {
+  document.getElementById('preview-title').textContent = title;
+  document.getElementById('preview-open-link').href = url;
+  const container = document.getElementById('preview-content');
+  if (type === 'image') {
+    container.innerHTML = '<img src="' + url + '" alt="' + title.replace(/"/g, '&quot;') + '" style="max-width:100%;max-height:75vh;object-fit:contain;border-radius:8px;" />';
+  } else if (type === 'pdf') {
+    container.innerHTML = '<iframe src="' + url + '" style="width:100%;height:75vh;border:none;border-radius:4px;" title="' + title.replace(/"/g, '&quot;') + '"></iframe>';
+  }
+  document.getElementById('preview-overlay').classList.remove('hidden');
+  document.addEventListener('keydown', _previewEscHandler);
+}
+function closePreview() {
+  document.getElementById('preview-overlay').classList.add('hidden');
+  document.getElementById('preview-content').innerHTML = '';
+  document.removeEventListener('keydown', _previewEscHandler);
+}
+function _previewEscHandler(e) { if (e.key === 'Escape') closePreview(); }
+</script>
+</body>
+</html>

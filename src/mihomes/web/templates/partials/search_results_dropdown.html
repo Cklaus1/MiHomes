@@ -1,0 +1,27 @@
+{% if not q %}
+<div class="px-4 py-6 text-center text-xs text-gray-400">Type to search properties, tasks, issues, vendors, assets…</div>
+{% elif not results %}
+<div class="px-4 py-6 text-center text-xs text-gray-400">No results for "{{ q }}"</div>
+{% else %}
+<ul class="divide-y divide-gray-50">
+  {% for item in results %}
+  {% set url_template = entity_urls.get(item.type) %}
+  {% if url_template and item.slug %}
+    {% set url = url_template.replace('{slug}', item.slug) %}
+  {% elif url_template %}
+    {% set url = url_template %}
+  {% else %}
+    {% set url = None %}
+  {% endif %}
+  <li class="px-4 py-2.5 {% if url %}hover:bg-gray-50 cursor-pointer{% endif %} transition-colors"
+      {% if url %}onclick="window.location='{{ url }}'"{% endif %}>
+    <div class="text-sm font-medium text-gray-900 truncate">{{ item.name }}</div>
+    {% if item.subtitle %}<div class="text-xs text-gray-400 truncate mt-0.5">{{ item.subtitle }}</div>{% endif %}
+  </li>
+  {% endfor %}
+</ul>
+<a href="/search/?q={{ q }}"
+   class="block px-4 py-2.5 text-xs font-medium text-brand-600 hover:bg-gray-50 border-t border-gray-100 text-center transition-colors">
+  See all results →
+</a>
+{% endif %}

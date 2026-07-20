@@ -1,0 +1,25 @@
+{% if properties %}
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+  {% for prop in properties %}
+  <a href="/properties/{{ prop.slug }}" class="bg-white rounded-xl border border-gray-200 p-5 hover:border-brand-500 hover:shadow-sm transition-all block">
+    <div class="flex items-start justify-between mb-3">
+      <div class="font-semibold text-gray-900">{{ prop.name }}</div>
+      <span class="text-xs font-medium px-2 py-0.5 rounded-full
+        {% if prop.status.value == 'open' %}bg-emerald-100 text-emerald-700
+        {% elif prop.status.value == 'closed' %}bg-gray-100 text-gray-500
+        {% elif prop.status.value == 'caretaker-mode' %}bg-amber-100 text-amber-700
+        {% else %}bg-blue-100 text-blue-700{% endif %}">
+        {{ prop.status.value.replace('-', ' ').title() }}
+      </span>
+    </div>
+    {% if prop.address %}<div class="text-xs text-gray-400 truncate">{{ prop.address }}</div>{% endif %}
+    <div class="mt-3 text-xs text-gray-500">{{ prop.property_type.value.title() }}</div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center">
+  <div class="text-gray-400 text-sm">No properties yet.</div>
+  <a href="/properties/new" class="mt-3 inline-flex items-center text-sm font-medium text-brand-600 hover:text-brand-700">Add your first property →</a>
+</div>
+{% endif %}

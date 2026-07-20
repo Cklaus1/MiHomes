@@ -6,13 +6,13 @@ from sqlalchemy.orm import Session
 
 from mihomes.models.document import Document, DocumentType
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
-from mihomes.services.update_helpers import safe_update
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
+from mihomes.services.update_helpers import safe_update
 
 # Allowed entity types for polymorphic linking
 VALID_ENTITY_TYPES = {
     "property", "asset", "vendor", "work_order", "contract",
-    "insurance", "event", "staff",
+    "insurance", "event", "staff", "space",
 }
 
 
@@ -30,10 +30,14 @@ def _validate_entity(entity_type: str | None, entity_id: int | None) -> None:
 
 
 def _validate_file_path(file_path: str) -> None:
-    """Validate file path doesn't contain traversal attacks."""
-    from pathlib import Path
-    normalized = str(Path(file_path).resolve())
-    if ".." in file_path:
+    """Reject parent-directory traversal segments in the path.
+
+    Checks the path's components for a literal ".." segment rather than a raw
+    substring search — the latter both missed segment-only traversal and false-
+    flagged legitimate names like "report..final.pdf".
+    """
+    from pathlib import PurePath
+    if ".." in PurePath(file_path).parts:
         raise ValueError(f"Path traversal detected in file path: {file_path}")
 
 

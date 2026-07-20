@@ -1,0 +1,345 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard — MiHomes{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/marked@4.3.0/marked.min.js"></script>
+{% endblock %}
+{% block heading %}Portfolio Overview{% endblock %}
+{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ properties|length }} propert{{ 'y' if properties|length == 1 else 'ies' }} · {{ alerts|length }} active alert{{ 's' if alerts|length != 1 else '' }}</p>{% endblock %}
+
+{% macro health_color(score) %}
+  {% if score >= 75 %}text-emerald-600 bg-emerald-50{% elif score >= 50 %}text-amber-600 bg-amber-50{% else %}text-red-600 bg-red-50{% endif %}
+{% endmacro %}
+
+{% macro health_bar_color(score) %}
+  {% if score >= 75 %}bg-emerald-500{% elif score >= 50 %}bg-amber-500{% else %}bg-red-500{% endif %}
+{% endmacro %}
+
+{% block content %}
+
+<!-- Stat row -->
+<div class="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-6">
+  <a href="/properties" class="bg-white rounded-xl border border-gray-200 p-4 hover:border-brand-400 hover:shadow-sm transition-all block">
+    <div class="text-xs font-medium text-gray-500 uppercase tracking-wide">Properties</div>
+    <div class="mt-1 text-3xl font-bold text-gray-900">{{ properties|length }}</div>
+  </a>
+  <a href="/alerts" class="bg-white rounded-xl border border-gray-200 p-4 hover:border-brand-400 hover:shadow-sm transition-all block">
+    <div class="text-xs font-medium text-gray-500 uppercase tracking-wide">Active Alerts</div>
+    <div class="mt-1 text-3xl font-bold {% if total_alerts %}text-red-600{% else %}text-gray-900{% endif %}">{{ total_alerts }}</div>
+  </a>
+  <a href="/tasks?overdue=true" class="bg-white rounded-xl border border-gray-200 p-4 hover:border-brand-400 hover:shadow-sm transition-all block">
+    <div class="text-xs font-medium text-gray-500 uppercase tracking-wide">Overdue Tasks</div>
+    <div class="mt-1 text-3xl font-bold {% if overdue_tasks %}text-amber-600{% else %}text-gray-900{% endif %}">{{ overdue_tasks|length }}</div>
+  </a>
+  <a href="/tasks?due_week=true" class="bg-white rounded-xl border border-gray-200 p-4 hover:border-brand-400 hover:shadow-sm transition-all block">
+    <div class="text-xs font-medium text-gray-500 uppercase tracking-wide">Due This Week</div>
+    <div class="mt-1 text-3xl font-bold text-gray-900">{{ upcoming_tasks|length }}</div>
+  </a>
+  <a href="/work-orders" class="bg-white rounded-xl border border-gray-200 p-4 hover:border-brand-400 hover:shadow-sm transition-all block">
+    <div class="text-xs font-medium text-gray-500 uppercase tracking-wide">Open Work Orders</div>
+    <div class="mt-1 text-3xl font-bold {% if open_wo_count %}text-purple-600{% else %}text-gray-900{% endif %}">{{ open_wo_count }}</div>
+  </a>
+</div>
+
+<!-- Property health cards -->
+{% if properties %}
+<h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Properties</h2>
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+  {% for prop in properties %}
+  {% set hs = health_scores.get(prop.id) %}
+  {% set score = hs.score if hs else 100 %}
+  <a href="/properties/{{ prop.slug }}"
+     class="bg-white rounded-xl border border-gray-200 p-5 hover:border-brand-500 hover:shadow-sm transition-all block">
+    <div class="flex items-start justify-between mb-3">
+      <div>
+        <div class="font-semibold text-gray-900">{{ prop.name }}</div>
+        {% if prop.address %}<div class="text-xs text-gray-400 mt-0.5 truncate max-w-[160px]">{{ prop.address }}</div>{% endif %}
+      </div>
+      <div class="text-right">
+        <div class="text-xs text-gray-400 mb-0.5">Health</div>
+        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold {{ health_color(score) }}">
+          {{ score }}/100
+        </span>
+      </div>
+    </div>
+    <div class="w-full bg-gray-100 rounded-full h-1.5">
+      <div class="{{ health_bar_color(score) }} h-1.5 rounded-full" style="width: {{ score }}%"></div>
+    </div>
+    <div class="mt-3 flex gap-4 text-xs text-gray-500">
+      <span class="{% if prop.status.value == 'open' %}text-emerald-600{% elif prop.status.value == 'closed' %}text-gray-400{% else %}text-amber-600{% endif %} font-medium">
+        {{ prop.status.value.replace('-', ' ').title() }}
+      </span>
+      <span>{{ prop.property_type.value.title() }}</span>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center mb-6">
+  <div class="text-gray-400 text-sm">No properties yet.</div>
+  <a href="/properties/new" class="mt-3 inline-flex items-center text-sm font-medium text-brand-600 hover:text-brand-700">
+    Add your first property →
+  </a>
+</div>
+{% endif %}
+
+<!-- Weather widget (lazy-loaded) -->
+<div hx-get="/weather" hx-trigger="load" hx-swap="outerHTML">
+  <div class="bg-white rounded-xl border border-gray-200 px-5 py-4 mb-4 flex items-center gap-3 text-sm text-gray-400">
+    <svg class="w-4 h-4 animate-spin text-gray-300" fill="none" viewBox="0 0 24 24">
+      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+    </svg>
+    Loading weather…
+  </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+  <!-- Overdue tasks -->
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+      <h2 class="text-sm font-semibold text-gray-700">Overdue Tasks</h2>
+      <a href="/tasks?overdue=true" class="text-xs text-brand-600 hover:text-brand-700">View all →</a>
+    </div>
+    {% if overdue_tasks %}
+    <ul class="divide-y divide-gray-50">
+      {% for task in overdue_tasks[:5] %}
+      <li class="px-5 py-3 flex items-center justify-between gap-3">
+        <div class="min-w-0">
+          <div class="text-sm font-medium text-gray-900 truncate">{{ task.title }}</div>
+          <div class="text-xs text-gray-400 mt-0.5">
+            {% if task.property %}{{ task.property.name }}{% endif %}
+            {% if task.due_date %} · Due {{ task.due_date.strftime('%b %d') }}{% endif %}
+          </div>
+        </div>
+        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+          {% if task.priority.value == 'urgent' %}bg-red-100 text-red-700
+          {% elif task.priority.value == 'high' %}bg-orange-100 text-orange-700
+          {% elif task.priority.value == 'medium' %}bg-amber-100 text-amber-700
+          {% else %}bg-gray-100 text-gray-600{% endif %}">
+          {{ task.priority.value }}
+        </span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="px-5 py-6 text-center text-sm text-gray-400">No overdue tasks 🎉</div>
+    {% endif %}
+  </div>
+
+  <!-- Active work orders -->
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+      <h2 class="text-sm font-semibold text-gray-700">Active Work Orders</h2>
+      <a href="/work-orders?status=in_progress" class="text-xs text-brand-600 hover:text-brand-700">View all →</a>
+    </div>
+    {% if active_work_orders %}
+    <ul class="divide-y divide-gray-50">
+      {% for wo in active_work_orders %}
+      {% set status_colors = {'assigned': 'bg-purple-100 text-purple-700', 'in_progress': 'bg-amber-100 text-amber-700'} %}
+      {% set status_labels = {'assigned': 'Assigned', 'in_progress': 'In Progress'} %}
+      <li class="px-5 py-3">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="text-sm font-medium text-gray-900 truncate">{{ wo.title }}</div>
+            <div class="text-xs text-gray-400 mt-0.5">
+              {{ wo.property.name if wo.property else '—' }}
+              {% if wo.vendor %}· {{ wo.vendor.company_name }}{% endif %}
+            </div>
+          </div>
+          <span class="flex-shrink-0 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {{ status_colors.get(wo.status.value, 'bg-gray-100 text-gray-600') }}">
+            {{ status_labels.get(wo.status.value, wo.status.value) }}
+          </span>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="px-5 py-6 text-center text-sm text-gray-400">No active work orders</div>
+    {% endif %}
+  </div>
+
+  <!-- Active alerts -->
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+      <h2 class="text-sm font-semibold text-gray-700">Active Alerts</h2>
+      {% if total_alerts > 5 %}
+      <a href="/alerts" class="text-xs text-brand-600 hover:text-brand-700">View all {{ total_alerts }} →</a>
+      {% endif %}
+    </div>
+    {% if alerts %}
+    <ul class="divide-y divide-gray-50">
+      {% for alert in alerts %}
+      <li class="px-5 py-3">
+        <div class="flex items-start gap-3">
+          <span class="mt-0.5 w-2 h-2 rounded-full flex-shrink-0
+            {% if alert.severity.value == 'critical' %}bg-red-500
+            {% elif alert.severity.value == 'high' %}bg-orange-400
+            {% elif alert.severity.value == 'medium' %}bg-amber-400
+            {% else %}bg-gray-300{% endif %}"></span>
+          <div class="min-w-0">
+            <div class="text-sm text-gray-800">{{ alert.message }}</div>
+            <div class="text-xs text-gray-400 mt-0.5">{{ alert.severity.value.title() }} · {{ alert.created_at.strftime('%b %d') if alert.created_at else '' }}</div>
+          </div>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="px-5 py-6 text-center text-sm text-gray-400">No active alerts</div>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- AI Quick Ask -->
+<div class="mt-4 bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      <div class="w-6 h-6 rounded-lg bg-brand-100 flex items-center justify-center">
+        <svg class="w-3.5 h-3.5 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+        </svg>
+      </div>
+      <h2 class="text-sm font-semibold text-gray-700">Ask the AI Advisor</h2>
+    </div>
+    <a href="/ai/" class="text-xs text-brand-600 hover:text-brand-700">Full AI Advisor →</a>
+  </div>
+  <div class="p-4">
+    <!-- Quick prompts -->
+    <div class="flex flex-wrap gap-2 mb-3">
+      {% for prompt in ['What should I prioritize this week?', 'Any overdue maintenance?', 'Summarize recent activity'] %}
+      <button onclick="dashSetQuery(this.textContent)"
+              class="px-3 py-1 text-xs text-brand-600 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-full transition-colors">
+        {{ prompt }}
+      </button>
+      {% endfor %}
+    </div>
+    <!-- Input row -->
+    <div class="flex gap-3 items-start">
+      <textarea id="dash-query" rows="2"
+                placeholder="Ask anything about your estate…"
+                class="flex-1 border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
+                onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();dashAskSubmit();}"></textarea>
+      <button id="dash-submit" onclick="dashAskSubmit()"
+              class="flex-shrink-0 inline-flex items-center gap-2 px-4 py-2.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors">
+        <svg id="dash-spinner" class="w-4 h-4 animate-spin hidden" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+        </svg>
+        <svg id="dash-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+        </svg>
+        Ask
+      </button>
+    </div>
+    <!-- Response area -->
+    <div id="dash-response" class="hidden mt-4"></div>
+  </div>
+</div>
+
+<style>
+  .dash-prose p { font-size:0.875rem; color:#374151; line-height:1.65; margin:0.35rem 0; }
+  .dash-prose ul, .dash-prose ol { padding-left:1.25rem; margin:0.35rem 0; }
+  .dash-prose li { font-size:0.875rem; color:#374151; margin:0.15rem 0; line-height:1.55; }
+  .dash-prose h1,.dash-prose h2,.dash-prose h3 { font-weight:600; color:#111827; margin:0.75rem 0 0.25rem; }
+  .dash-prose h1 { font-size:1rem; }
+  .dash-prose h2 { font-size:0.9375rem; }
+  .dash-prose h3 { font-size:0.875rem; }
+  .dash-prose strong { font-weight:600; color:#111827; }
+  .dash-prose :first-child { margin-top:0 !important; }
+  @keyframes dash-blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  .dash-cursor { animation:dash-blink 0.7s step-end infinite; color:#0284c7; }
+</style>
+
+<script>
+function dashSetQuery(text) {
+  document.getElementById('dash-query').value = text;
+  document.getElementById('dash-query').focus();
+}
+
+function dashSetStreaming(on) {
+  const btn = document.getElementById('dash-submit');
+  const spinner = document.getElementById('dash-spinner');
+  const icon = document.getElementById('dash-icon');
+  if (btn) btn.disabled = on;
+  if (spinner) spinner.classList.toggle('hidden', !on);
+  if (icon) icon.classList.toggle('hidden', on);
+}
+
+async function dashAskSubmit() {
+  const queryEl = document.getElementById('dash-query');
+  const query = queryEl.value.trim();
+  if (!query) return;
+
+  const responseEl = document.getElementById('dash-response');
+  responseEl.className = 'mt-4 bg-gray-50 rounded-xl border border-gray-200 p-4';
+  responseEl.innerHTML = '<div class="flex items-center gap-2 text-sm text-gray-400"><svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg> Thinking…</div>';
+  dashSetStreaming(true);
+
+  const formData = new FormData();
+  formData.append('query', query);
+  formData.append('role', '');
+  formData.append('property_id', '');
+  formData.append('session_id', '');
+
+  let rawText = '';
+  let firstToken = true;
+  try {
+    const resp = await fetch('/ai/ask-stream', { method: 'POST', body: formData });
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop();
+
+      for (const part of parts) {
+        for (const line of part.split('\n')) {
+          if (!line.startsWith('data: ')) continue;
+          const data = line.slice(6);
+
+          if (data === '[DONE]') {
+            if (typeof marked !== 'undefined' && rawText) {
+              responseEl.innerHTML = '<div class="dash-prose">' + marked.parse(rawText) + '</div>';
+            } else {
+              responseEl.innerHTML = '<div class="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">' + rawText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</div>';
+            }
+            dashSetStreaming(false);
+            queryEl.value = '';
+            return;
+          }
+
+          try {
+            const msg = JSON.parse(data);
+            if (msg.e) {
+              responseEl.innerHTML = '<div class="text-sm text-red-600">' + msg.e + '</div>';
+              dashSetStreaming(false);
+              return;
+            }
+            if (msg.t !== undefined) {
+              rawText += msg.t;
+              if (firstToken) {
+                firstToken = false;
+                responseEl.innerHTML = '';
+              }
+              const escaped = rawText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+              responseEl.innerHTML = '<div class="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">' + escaped + '<span class="dash-cursor">▋</span></div>';
+            }
+          } catch(_) {}
+        }
+      }
+    }
+  } catch(err) {
+    responseEl.innerHTML = '<div class="text-sm text-red-600">Connection error. Please try again.</div>';
+    dashSetStreaming(false);
+  }
+}
+</script>
+{% endblock %}

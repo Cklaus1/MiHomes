@@ -42,6 +42,21 @@ class Transaction(Base, TimestampMixin):
     date: Mapped[date] = mapped_column(Date, nullable=False)
     source: Mapped[str] = mapped_column(String(50), default="manual")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    vendor_name: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    work_order_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    appointment_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     property = relationship("Property")
     vendor = relationship("Vendor")
+    work_order = relationship(
+        "WorkOrder",
+        primaryjoin="Transaction.work_order_id == WorkOrder.id",
+        foreign_keys="[Transaction.work_order_id]",
+        viewonly=True,
+    )
+    appointment = relationship(
+        "Appointment",
+        primaryjoin="Transaction.appointment_id == Appointment.id",
+        foreign_keys="[Transaction.appointment_id]",
+        viewonly=True,
+    )

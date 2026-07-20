@@ -1,0 +1,73 @@
+{% macro severity_styles(s) %}
+  {% if s == 'critical' %}bg-red-50 border-red-200 text-red-800{% elif s == 'high' %}bg-orange-50 border-orange-200 text-orange-800{% elif s == 'medium' %}bg-amber-50 border-amber-200 text-amber-800{% else %}bg-gray-50 border-gray-200 text-gray-700{% endif %}
+{% endmacro %}
+
+{% macro dot_color(s) %}
+  {% if s == 'critical' %}bg-red-500{% elif s == 'high' %}bg-orange-400{% elif s == 'medium' %}bg-amber-400{% else %}bg-gray-300{% endif %}
+{% endmacro %}
+
+{% if not alerts %}
+<div class="bg-white rounded-xl border border-dashed border-gray-300 p-16 text-center">
+  <div class="text-4xl mb-3">✅</div>
+  <div class="text-gray-700 font-medium">All clear</div>
+</div>
+{% else %}
+<div class="space-y-2">
+  {% for alert in alerts %}
+  <div id="alert-{{ alert.id }}" class="bg-white rounded-xl border {{ severity_styles(alert.severity.value) }} p-4 flex items-start gap-4">
+
+    <!-- Severity dot -->
+    <span class="mt-1.5 w-2.5 h-2.5 rounded-full flex-shrink-0 {{ dot_color(alert.severity.value) }}"></span>
+
+    <!-- Content -->
+    <div class="flex-1 min-w-0">
+      <div class="flex items-center gap-2 flex-wrap">
+        <span class="text-xs font-semibold uppercase tracking-wide opacity-70">{{ alert.severity.value }}</span>
+        <span class="text-xs text-gray-400">·</span>
+        <span class="text-xs text-gray-500">{{ alert.alert_type.replace('_', ' ').title() }}</span>
+        {% if alert.snoozed_until %}
+        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-blue-100 text-blue-700">
+          Snoozed until {{ alert.snoozed_until.strftime('%b %d') }}
+        </span>
+        {% endif %}
+        <span class="text-xs text-gray-400 ml-auto">{{ alert.created_at.strftime('%b %d, %Y') if alert.created_at else '' }}</span>
+      </div>
+      <div class="mt-1 text-sm font-medium text-gray-900">{{ alert.message }}</div>
+      <div class="mt-1 text-xs text-gray-500 capitalize">Status: {{ alert.status.value }}</div>
+    </div>
+
+    <!-- Actions -->
+    <div class="flex items-center gap-1 flex-shrink-0">
+      {% if alert.status.value != 'acknowledged' and alert.status.value != 'resolved' %}
+      <button hx-post="/alerts/{{ alert.id }}/acknowledge"
+              hx-target="#alert-list" hx-swap="innerHTML"
+              class="text-xs px-2 py-1 rounded border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors">
+        Ack
+      </button>
+      {% endif %}
+
+      <div class="relative group">
+        <button class="text-xs px-2 py-1 rounded border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors">
+          Snooze ▾
+        </button>
+        <div class="hidden group-hover:flex absolute right-0 top-full mt-1 flex-col bg-white border border-gray-200 rounded-lg shadow-lg z-10 min-w-[100px]">
+          {% for days, label in [(1, '1 day'), (3, '3 days'), (7, '1 week')] %}
+          <form hx-post="/alerts/{{ alert.id }}/snooze" hx-target="#alert-list" hx-swap="innerHTML">
+            <input type="hidden" name="days" value="{{ days }}">
+            <button type="submit" class="w-full text-left text-xs px-3 py-2 hover:bg-gray-50 text-gray-700">{{ label }}</button>
+          </form>
+          {% endfor %}
+        </div>
+      </div>
+
+      <button hx-post="/alerts/{{ alert.id }}/resolve"
+              hx-target="#alert-list" hx-swap="innerHTML"
+              class="text-xs px-2 py-1 rounded border border-gray-200 bg-white text-emerald-600 hover:bg-emerald-50 transition-colors">
+        Resolve
+      </button>
+    </div>
+
+  </div>
+  {% endfor %}
+</div>
+{% endif %}

@@ -1,0 +1,980 @@
+{% extends "base.html" %}
+{% block title %}Vendors — MiHomes{% endblock %}
+{% block heading %}Vendors{% endblock %}
+{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ active_vendors|length }} active · {{ inactive_vendors|length }} inactive</p>{% endblock %}
+
+{% block actions %}
+<button onclick="document.getElementById('add-vendor-modal').classList.remove('hidden')"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
+  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+  Add Vendor
+</button>
+{% endblock %}
+
+{% block content %}
+
+{% macro stars(score) %}
+  {% if score %}
+    {% for i in range(1,6) %}<span class="{{ 'text-amber-400' if i <= score else 'text-gray-200' }}">★</span>{% endfor %}
+  {% else %}<span class="text-gray-300">—</span>{% endif %}
+{% endmacro %}
+
+<!-- Active / Inactive tabs + Property filter -->
+<div class="flex flex-wrap items-center gap-2 mb-5">
+  <button id="vendors-tab-active" onclick="setVendorTab('active')"
+          class="px-4 py-1.5 text-sm font-medium rounded-lg bg-brand-600 text-white transition-colors">
+    Active <span class="ml-1 opacity-75">{{ active_vendors|length }}</span>
+  </button>
+  <button id="vendors-tab-inactive" onclick="setVendorTab('inactive')"
+          class="px-4 py-1.5 text-sm font-medium rounded-lg text-gray-600 hover:bg-gray-100 transition-colors">
+    Inactive <span class="ml-1 opacity-75">{{ inactive_vendors|length }}</span>
+  </button>
+  {% if properties %}
+  <div class="h-5 w-px bg-gray-200 mx-1"></div>
+  <div class="flex flex-wrap gap-1.5 items-center">
+    <button onclick="filterByProperty('')" id="prop-filter-all"
+            class="prop-filter-btn px-3 py-1 text-xs font-medium rounded-full bg-gray-900 text-white transition-colors">
+      All Properties
+    </button>
+    {% for p in properties %}
+    <button onclick="filterByProperty('{{ p.slug }}')" id="prop-filter-{{ p.slug }}"
+            class="prop-filter-btn px-3 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors">
+      {{ p.name }}
+    </button>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+<!-- Service category filter pills -->
+{% if all_categories %}
+<div class="mb-4">
+  <div class="flex flex-wrap items-center gap-1.5" id="cat-pills-row">
+    <button onclick="filterByCategory('')" id="cat-filter-all"
+            class="cat-filter-btn px-3 py-1 text-xs font-medium rounded-full bg-gray-900 text-white transition-colors">
+      All Services
+    </button>
+    {% for cat in all_categories %}
+    <button onclick="filterByCategory('{{ cat }}')" data-cat="{{ cat }}"
+            class="cat-filter-btn cat-pill px-3 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors"
+            {% if loop.index0 >= 12 %}data-overflow="true"{% endif %}>
+      {{ cat }}
+    </button>
+    {% endfor %}
+    {% if all_categories|length > 12 %}
+    <button id="show-more-cats" data-count="{{ all_categories|length - 12 }}" onclick="toggleCategories()"
+            class="px-3 py-1 text-xs font-medium rounded-full border border-dashed border-gray-300 text-gray-400 hover:border-gray-400 hover:text-gray-600 transition-colors">
+      +{{ all_categories|length - 12 }} more
+    </button>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+<!-- Active vendors panel -->
+<div id="vendors-panel-active">
+{% if active_vendors %}
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+  {% for vendor in active_vendors %}
+  {% set ratings = vendor_ratings.get(vendor.slug, []) %}
+  {% set quality_vals = ratings | selectattr('quality_score') | map(attribute='quality_score') | list %}
+  {% set reliability_vals = ratings | selectattr('reliability_score') | map(attribute='reliability_score') | list %}
+
+  <!-- Vendor card -->
+  <div class="vendor-card bg-white rounded-xl border border-gray-200 p-5 flex flex-col cursor-pointer hover:border-brand-400 hover:shadow-sm transition-all group"
+       data-properties="{{ (vendor_properties.get(vendor.id) or []) | join(' ') }}"
+       data-categories="{{ (vendor.service_categories or []) | join('|') }}"
+       onclick="openModal('vendor-modal-{{ vendor.slug }}')">
+    <div class="flex items-start justify-between mb-2">
+      <div class="min-w-0">
+        <div class="font-semibold text-gray-900 truncate group-hover:text-brand-700 transition-colors">{{ vendor.company_name }}</div>
+        {% if vendor.service_categories %}
+        <div class="flex flex-wrap gap-1 mt-1.5">
+          {% for cat in vendor.service_categories[:3] %}
+          <span class="px-1.5 py-0.5 rounded text-xs bg-blue-50 text-blue-700 font-medium">{{ cat }}</span>
+          {% endfor %}
+          {% if vendor.service_categories|length > 3 %}
+          <span class="text-xs text-gray-400">+{{ vendor.service_categories|length - 3 }}</span>
+          {% endif %}
+        </div>
+        {% endif %}
+      </div>
+      <span class="ml-2 flex-shrink-0 w-2 h-2 rounded-full mt-1.5 {{ 'bg-emerald-400' if vendor.active else 'bg-gray-300' }}"></span>
+    </div>
+    {% set prim = vendor.contacts[0] if vendor.contacts else none %}
+    {% set card_name = prim.name if prim and prim.name else vendor.contact_name %}
+    {% set card_phone = prim.phone if prim and prim.phone else vendor.phone %}
+    {% set card_email = prim.email if prim and prim.email else vendor.email %}
+    {% if card_name %}<div class="text-xs text-gray-500 mt-1">{{ card_name }}</div>{% endif %}
+    <div class="mt-2 space-y-1">
+      {% if card_phone %}<div class="text-xs text-gray-500">📞 {{ card_phone }}</div>{% endif %}
+      {% if card_email %}<div class="text-xs text-gray-500 truncate">✉ {{ card_email }}</div>{% endif %}
+    </div>
+    {% if quality_vals %}
+    <div class="mt-3 pt-3 border-t border-gray-100 flex items-center gap-3 text-xs text-gray-500">
+      <span>Q: {{ stars((quality_vals|sum / quality_vals|length)|round|int) }}</span>
+      {% if reliability_vals %}
+      <span>R: {{ stars((reliability_vals|sum / reliability_vals|length)|round|int) }}</span>
+      {% endif %}
+      <span class="ml-auto text-gray-400">{{ ratings|length }} review{{ 's' if ratings|length != 1 else '' }}</span>
+    </div>
+    {% else %}
+    <div class="mt-auto pt-3 border-t border-gray-100 flex items-center justify-between">
+      <span class="text-xs text-gray-400">No reviews yet</span>
+      <svg class="w-4 h-4 text-gray-300 group-hover:text-brand-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+      </svg>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Vendor detail modal -->
+  <div id="vendor-modal-{{ vendor.slug }}"
+       class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+       onclick="if(event.target===this)closeModal('vendor-modal-{{ vendor.slug }}')">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col" onclick="event.stopPropagation()">
+
+      <!-- Modal header -->
+      <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
+        <div>
+          <h2 class="text-lg font-bold text-gray-900">{{ vendor.company_name }}</h2>
+          {% if vendor.contact_name %}<p class="text-xs text-gray-500 mt-0.5">{{ vendor.contact_name }}</p>{% endif %}
+        </div>
+        <div class="flex items-center gap-2 flex-shrink-0">
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium
+            {{ 'bg-emerald-100 text-emerald-700' if vendor.active else 'bg-gray-100 text-gray-500' }}">
+            <span class="w-1.5 h-1.5 rounded-full {{ 'bg-emerald-500' if vendor.active else 'bg-gray-400' }}"></span>
+            {{ 'Active' if vendor.active else 'Inactive' }}
+          </span>
+          <button hx-post="/vendors/{{ vendor.slug }}/delete"
+                  hx-target="body" hx-swap="innerHTML"
+                  hx-confirm="Delete {{ vendor.company_name }}? This cannot be undone."
+                  class="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                  title="Delete">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+          </button>
+          <button onclick="closeModal('vendor-modal-{{ vendor.slug }}')"
+                  class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div class="flex border-b border-gray-100 px-6 flex-shrink-0">
+        <button onclick="switchTab('vendor','{{ vendor.slug }}','details')"
+                id="vendor-tab-{{ vendor.slug }}-details"
+                class="px-1 py-3 text-sm font-medium border-b-2 border-brand-600 text-brand-600 mr-5">Details</button>
+        <button onclick="switchTab('vendor','{{ vendor.slug }}','ratings')"
+                id="vendor-tab-{{ vendor.slug }}-ratings"
+                class="px-1 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 mr-5">Ratings ({{ ratings|length }})</button>
+        <button onclick="switchTab('vendor','{{ vendor.slug }}','notes')"
+                id="vendor-tab-{{ vendor.slug }}-notes"
+                class="px-1 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 mr-5">Notes ({{ notes_map[vendor.id]|length }})</button>
+      </div>
+
+      <!-- Modal body -->
+      <div class="flex-1 overflow-y-auto">
+
+        <!-- Details tab -->
+        <div id="vendor-panel-{{ vendor.slug }}-details" class="px-6 py-5">
+
+          <!-- View div -->
+          <div id="vendor-view-{{ vendor.slug }}">
+            <div class="space-y-4 text-sm">
+              {% if vendor.service_categories %}
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Services</div>
+                <div class="flex flex-wrap gap-2">
+                  {% for cat in vendor.service_categories %}
+                  <span class="px-2.5 py-1 rounded-full text-xs bg-blue-50 text-blue-700 font-medium">{{ cat }}</span>
+                  {% endfor %}
+                </div>
+              </div>
+              {% endif %}
+              {% if vendor.website or vendor.license_number %}
+              <div class="grid grid-cols-2 gap-4">
+                {% if vendor.website %}
+                <div>
+                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Website</div>
+                  <a href="{{ vendor.website }}" target="_blank" class="text-brand-600 hover:underline break-all">{{ vendor.website }}</a>
+                </div>
+                {% endif %}
+                {% if vendor.license_number %}
+                <div>
+                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">License #</div>
+                  <div class="text-gray-700 font-mono text-xs">{{ vendor.license_number }}</div>
+                </div>
+                {% endif %}
+              </div>
+              {% endif %}
+              <!-- Contacts -->
+              {% set display_contacts = vendor.contacts if vendor.contacts else ([{"name": vendor.contact_name or "", "role": "", "phone": vendor.phone or "", "email": vendor.email or ""}] if (vendor.contact_name or vendor.phone or vendor.email) else []) %}
+              {% if display_contacts %}
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Contacts</div>
+                <div class="space-y-2">
+                  {% for c in display_contacts %}
+                  {% if c.name or c.phone or c.email %}
+                  <div class="bg-gray-50 rounded-lg p-3 border border-gray-100">
+                    <div class="flex items-start justify-between">
+                      <div>
+                        {% if c.name %}<div class="font-medium text-gray-800 text-sm">{{ c.name }}{% if c.role %} <span class="text-xs text-gray-400 font-normal ml-1">{{ c.role }}</span>{% endif %}</div>{% endif %}
+                        {% if c.phone %}<div class="text-xs text-gray-500 mt-0.5">📞 {{ c.phone }}</div>{% endif %}
+                        {% if c.email %}<div class="text-xs text-gray-500">✉ {{ c.email }}</div>{% endif %}
+                      </div>
+                    </div>
+                  </div>
+                  {% endif %}
+                  {% endfor %}
+                </div>
+              </div>
+              {% endif %}
+              {% if vendor.insurance_info %}
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Insurance</div>
+                <div class="bg-blue-50 rounded-lg p-3 text-sm text-gray-700 border border-blue-100">{{ vendor.insurance_info }}</div>
+              </div>
+              {% endif %}
+              {% if vendor.notes %}
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Notes</div>
+                <div class="text-sm text-gray-700">{{ vendor.notes }}</div>
+              </div>
+              {% endif %}
+            </div>
+            <div class="flex justify-end mt-4 pt-4 border-t border-gray-100">
+              <button type="button" onclick="enterEdit('vendor','{{ vendor.slug }}')"
+                      class="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                Edit
+              </button>
+            </div>
+          </div>
+
+          <!-- Edit div -->
+          <div id="vendor-edit-{{ vendor.slug }}" class="hidden">
+            <form hx-post="/vendors/{{ vendor.slug }}/edit" hx-target="body" hx-swap="innerHTML">
+              <div class="space-y-4 text-sm">
+                <div>
+                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Company Name</div>
+                  <input type="text" name="company_name" value="{{ vendor.company_name }}" required
+                         class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                </div>
+                <div>
+                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Services</div>
+                  <div class="max-h-32 overflow-y-auto border border-gray-200 rounded-lg p-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                    {% for cat in service_categories %}
+                    <label class="inline-flex items-center gap-1.5 text-xs cursor-pointer py-0.5">
+                      <input type="checkbox" name="service_cats" value="{{ cat }}"
+                             {% if cat in (vendor.service_categories or []) %}checked{% endif %}
+                             class="rounded border-gray-300 text-brand-600 focus:ring-brand-500 flex-shrink-0" />
+                      {{ cat }}
+                    </label>
+                    {% endfor %}
+                  </div>
+                  <input type="text" name="service_cat_other" placeholder="Other (new service type)"
+                         class="mt-1.5 w-full border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Website</div>
+                    <input type="url" name="website" value="{{ vendor.website or '' }}" placeholder="https://..."
+                           class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                  </div>
+                  <div>
+                    <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">License #</div>
+                    <input type="text" name="license_number" value="{{ vendor.license_number or '' }}"
+                           class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                  </div>
+                </div>
+                <!-- Contacts -->
+                <div>
+                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Contacts</div>
+                  {% set edit_contacts = vendor.contacts if vendor.contacts else ([{"name": vendor.contact_name or "", "role": "", "phone": vendor.phone or "", "email": vendor.email or ""}] if (vendor.contact_name or vendor.phone or vendor.email) else []) %}
+                  <div id="contacts-list-{{ vendor.slug }}" class="space-y-2 mb-2">
+                    {% for c in edit_contacts %}
+                    <div class="contact-row bg-gray-50 rounded-lg p-3 border border-gray-100">
+                      <div class="grid grid-cols-2 gap-2 mb-2">
+                        <input type="text" name="c_name" value="{{ c.name or '' }}" placeholder="Name"
+                               class="border border-gray-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                        <input type="text" name="c_role" value="{{ c.role or '' }}" placeholder="Role (Main, Office…)"
+                               class="border border-gray-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                        <input type="tel" name="c_phone" value="{{ c.phone or '' }}" placeholder="Phone"
+                               class="border border-gray-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                        <input type="email" name="c_email" value="{{ c.email or '' }}" placeholder="Email"
+                               class="border border-gray-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                      </div>
+                      <button type="button" onclick="this.closest('.contact-row').remove()"
+                              class="text-xs text-red-400 hover:text-red-600 transition-colors">Remove</button>
+                    </div>
+                    {% endfor %}
+                  </div>
+                  <button type="button" onclick="addContact('{{ vendor.slug }}')"
+                          class="inline-flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 font-medium">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                    Add Contact
+                  </button>
+                </div>
+                <div>
+                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Properties</div>
+                  <div class="flex flex-wrap gap-2">
+                    {% for p in properties %}
+                    <label class="inline-flex items-center gap-1.5 px-2.5 py-1 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 text-xs">
+                      <input type="checkbox" name="prop_ids" value="{{ p.id }}"
+                             {% if p.id in (vendor.property_ids or []) %}checked{% endif %}
+                             class="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+                      {{ p.name }}
+                    </label>
+                    {% endfor %}
+                  </div>
+                </div>
+                <div>
+                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Notes</div>
+                  <textarea name="notes" data-autoresize
+                            class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
+                            placeholder="No notes yet…">{{ vendor.notes or '' }}</textarea>
+                </div>
+                <div class="flex items-center gap-2">
+                  <input type="checkbox" name="active" id="active-{{ vendor.slug }}" value="1"
+                         {% if vendor.active %}checked{% endif %}
+                         class="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+                  <label for="active-{{ vendor.slug }}" class="text-sm text-gray-700">Active</label>
+                </div>
+              </div>
+              <div class="flex justify-end gap-2 mt-4 pt-4 border-t border-gray-100">
+                <button type="button" onclick="exitEdit('vendor','{{ vendor.slug }}')"
+                        class="px-4 py-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors">Cancel</button>
+                <button type="submit"
+                        class="px-4 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors">Save</button>
+              </div>
+            </form>
+          </div>
+
+        </div>
+
+        <!-- Ratings tab (hidden by default) -->
+        <div id="vendor-panel-{{ vendor.slug }}-ratings" class="hidden px-6 py-5 space-y-4">
+          {% if quality_vals or reliability_vals %}
+          <div class="grid grid-cols-2 gap-3">
+            <div class="bg-gray-50 rounded-xl p-3 text-center border border-gray-100">
+              <div class="text-xs text-gray-500 mb-1">Avg Quality</div>
+              <div class="text-xl font-bold text-gray-900">{{ '%.1f'|format(quality_vals|sum / quality_vals|length) }}</div>
+              <div class="text-base mt-0.5">{{ stars((quality_vals|sum / quality_vals|length)|round|int) }}</div>
+            </div>
+            <div class="bg-gray-50 rounded-xl p-3 text-center border border-gray-100">
+              <div class="text-xs text-gray-500 mb-1">Avg Reliability</div>
+              {% if reliability_vals %}
+              <div class="text-xl font-bold text-gray-900">{{ '%.1f'|format(reliability_vals|sum / reliability_vals|length) }}</div>
+              <div class="text-base mt-0.5">{{ stars((reliability_vals|sum / reliability_vals|length)|round|int) }}</div>
+              {% else %}<div class="text-gray-400 text-sm mt-2">No data</div>{% endif %}
+            </div>
+          </div>
+          {% endif %}
+          {% if ratings %}
+          <div class="space-y-2 max-h-40 overflow-y-auto">
+            {% for r in ratings %}
+            <div class="bg-gray-50 rounded-lg p-3 border border-gray-100">
+              <div class="flex gap-6 text-xs">
+                <div><span class="text-gray-400">Quality</span> <span class="ml-1">{{ stars(r.quality_score) }}</span></div>
+                <div><span class="text-gray-400">Reliability</span> <span class="ml-1">{{ stars(r.reliability_score) }}</span></div>
+              </div>
+              {% if r.notes %}<p class="text-xs text-gray-600 mt-1.5 italic">"{{ r.notes }}"</p>{% endif %}
+              <p class="text-xs text-gray-400 mt-1">{{ r.rated_date.strftime('%b %d, %Y') if r.rated_date else '' }}</p>
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}
+          <div class="text-sm text-gray-400 bg-gray-50 rounded-xl p-4 text-center border border-gray-100">No reviews yet</div>
+          {% endif %}
+
+          <!-- Add rating form -->
+          <div>
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Add Rating</div>
+            <form hx-post="/vendors/{{ vendor.slug }}/rate"
+                  hx-target="body" hx-swap="innerHTML"
+                  class="bg-gray-50 rounded-xl p-4 border border-gray-100 space-y-3">
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs font-medium text-gray-700 mb-1">Quality (1–5)</label>
+                  <input type="number" name="quality" min="1" max="5" required
+                         class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-gray-700 mb-1">Reliability (1–5)</label>
+                  <input type="number" name="reliability" min="1" max="5" required
+                         class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-gray-700 mb-1">Cost / Value (1–5)</label>
+                  <input type="number" name="cost" min="1" max="5"
+                         class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-gray-700 mb-1">Communication (1–5)</label>
+                  <input type="number" name="communication" min="1" max="5"
+                         class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                </div>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">Notes (optional)</label>
+                <textarea name="notes" rows="2"
+                          class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+                          placeholder="Showed up on time, clean work..."></textarea>
+              </div>
+              <button type="submit"
+                      class="w-full py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
+                Submit Rating
+              </button>
+            </form>
+          </div>
+        </div>
+
+        <!-- Notes tab (hidden by default) -->
+        <div id="vendor-panel-{{ vendor.slug }}-notes" class="hidden px-6 py-5" data-notes-container>
+          {% with notes=notes_map[vendor.id], post_url="/vendors/"+vendor.slug+"/notes", delete_url_prefix="/vendors/"+vendor.slug+"/notes" %}
+          {% include "partials/notes_section.html" %}
+          {% endwith %}
+        </div>
+
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center">
+  <div class="text-gray-400 text-sm">No active vendors.</div>
+</div>
+{% endif %}
+</div>
+
+<!-- Inactive vendors panel -->
+<div id="vendors-panel-inactive" class="hidden">
+{% if inactive_vendors %}
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+  {% for vendor in inactive_vendors %}
+  {% set ratings = vendor_ratings.get(vendor.slug, []) %}
+  {% set quality_vals = ratings | selectattr('quality_score') | map(attribute='quality_score') | list %}
+  {% set reliability_vals = ratings | selectattr('reliability_score') | map(attribute='reliability_score') | list %}
+
+  <!-- Vendor card -->
+  <div class="vendor-card bg-white rounded-xl border border-gray-200 p-5 flex flex-col cursor-pointer hover:border-brand-400 hover:shadow-sm transition-all group opacity-75"
+       data-properties="{{ (vendor_properties.get(vendor.id) or []) | join(' ') }}"
+       data-categories="{{ (vendor.service_categories or []) | join('|') }}"
+       onclick="openModal('vendor-modal-{{ vendor.slug }}')">
+    <div class="flex items-start justify-between mb-2">
+      <div class="min-w-0">
+        <div class="font-semibold text-gray-900 truncate group-hover:text-brand-700 transition-colors">{{ vendor.company_name }}</div>
+        {% if vendor.service_categories %}
+        <div class="flex flex-wrap gap-1 mt-1.5">
+          {% for cat in vendor.service_categories[:3] %}
+          <span class="px-1.5 py-0.5 rounded text-xs bg-gray-100 text-gray-500 font-medium">{{ cat }}</span>
+          {% endfor %}
+          {% if vendor.service_categories|length > 3 %}
+          <span class="text-xs text-gray-400">+{{ vendor.service_categories|length - 3 }}</span>
+          {% endif %}
+        </div>
+        {% endif %}
+      </div>
+      <span class="ml-2 flex-shrink-0 w-2 h-2 rounded-full mt-1.5 bg-gray-300"></span>
+    </div>
+    {% set prim = vendor.contacts[0] if vendor.contacts else none %}
+    {% set card_name = prim.name if prim and prim.name else vendor.contact_name %}
+    {% set card_phone = prim.phone if prim and prim.phone else vendor.phone %}
+    {% set card_email = prim.email if prim and prim.email else vendor.email %}
+    {% if card_name %}<div class="text-xs text-gray-500 mt-1">{{ card_name }}</div>{% endif %}
+    <div class="mt-2 space-y-1">
+      {% if card_phone %}<div class="text-xs text-gray-500">📞 {{ card_phone }}</div>{% endif %}
+      {% if card_email %}<div class="text-xs text-gray-500 truncate">✉ {{ card_email }}</div>{% endif %}
+    </div>
+    {% if quality_vals %}
+    <div class="mt-3 pt-3 border-t border-gray-100 flex items-center gap-3 text-xs text-gray-500">
+      <span>Q: {{ stars((quality_vals|sum / quality_vals|length)|round|int) }}</span>
+      {% if reliability_vals %}
+      <span>R: {{ stars((reliability_vals|sum / reliability_vals|length)|round|int) }}</span>
+      {% endif %}
+      <span class="ml-auto text-gray-400">{{ ratings|length }} review{{ 's' if ratings|length != 1 else '' }}</span>
+    </div>
+    {% else %}
+    <div class="mt-auto pt-3 border-t border-gray-100 flex items-center justify-between">
+      <span class="text-xs text-gray-400">No reviews yet</span>
+      <svg class="w-4 h-4 text-gray-300 group-hover:text-brand-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+      </svg>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Vendor detail modal (inactive) -->
+  <div id="vendor-modal-{{ vendor.slug }}"
+       class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+       onclick="if(event.target===this)closeModal('vendor-modal-{{ vendor.slug }}')">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col" onclick="event.stopPropagation()">
+      <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
+        <div>
+          <h2 class="text-lg font-bold text-gray-900">{{ vendor.company_name }}</h2>
+          {% if vendor.contact_name %}<p class="text-xs text-gray-500 mt-0.5">{{ vendor.contact_name }}</p>{% endif %}
+        </div>
+        <div class="flex items-center gap-2 flex-shrink-0">
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-500">
+            <span class="w-1.5 h-1.5 rounded-full bg-gray-400"></span>Inactive
+          </span>
+          <button hx-post="/vendors/{{ vendor.slug }}/delete"
+                  hx-target="body" hx-swap="innerHTML"
+                  hx-confirm="Delete {{ vendor.company_name }}? This cannot be undone."
+                  class="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+          </button>
+          <button onclick="closeModal('vendor-modal-{{ vendor.slug }}')"
+                  class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="flex border-b border-gray-100 px-6 flex-shrink-0">
+        <button onclick="switchTab('vendor','{{ vendor.slug }}','details')"
+                id="vendor-tab-{{ vendor.slug }}-details"
+                class="px-1 py-3 text-sm font-medium border-b-2 border-brand-600 text-brand-600 mr-5">Details</button>
+        <button onclick="switchTab('vendor','{{ vendor.slug }}','ratings')"
+                id="vendor-tab-{{ vendor.slug }}-ratings"
+                class="px-1 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 mr-5">Ratings ({{ ratings|length }})</button>
+        <button onclick="switchTab('vendor','{{ vendor.slug }}','notes')"
+                id="vendor-tab-{{ vendor.slug }}-notes"
+                class="px-1 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 mr-5">Notes ({{ notes_map[vendor.id]|length }})</button>
+      </div>
+      <div class="flex-1 overflow-y-auto">
+        <div id="vendor-panel-{{ vendor.slug }}-details" class="px-6 py-5">
+          <div id="vendor-view-{{ vendor.slug }}">
+            <div class="space-y-4 text-sm">
+              {% if vendor.service_categories %}
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Services</div>
+                <div class="flex flex-wrap gap-2">
+                  {% for cat in vendor.service_categories %}
+                  <span class="px-2.5 py-1 rounded-full text-xs bg-blue-50 text-blue-700 font-medium">{{ cat }}</span>
+                  {% endfor %}
+                </div>
+              </div>
+              {% endif %}
+              {% if vendor.website or vendor.license_number %}
+              <div class="grid grid-cols-2 gap-4">
+                {% if vendor.website %}
+                <div>
+                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Website</div>
+                  <a href="{{ vendor.website }}" target="_blank" class="text-brand-600 hover:underline break-all">{{ vendor.website }}</a>
+                </div>
+                {% endif %}
+                {% if vendor.license_number %}
+                <div>
+                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">License #</div>
+                  <div class="text-gray-700 font-mono text-xs">{{ vendor.license_number }}</div>
+                </div>
+                {% endif %}
+              </div>
+              {% endif %}
+              {% set display_contacts = vendor.contacts if vendor.contacts else ([{"name": vendor.contact_name or "", "role": "", "phone": vendor.phone or "", "email": vendor.email or ""}] if (vendor.contact_name or vendor.phone or vendor.email) else []) %}
+              {% if display_contacts %}
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Contacts</div>
+                <div class="space-y-2">
+                  {% for c in display_contacts %}
+                  {% if c.name or c.phone or c.email %}
+                  <div class="bg-gray-50 rounded-lg p-3 border border-gray-100">
+                    {% if c.name %}<div class="font-medium text-gray-800 text-sm">{{ c.name }}{% if c.role %} <span class="text-xs text-gray-400 font-normal ml-1">{{ c.role }}</span>{% endif %}</div>{% endif %}
+                    {% if c.phone %}<div class="text-xs text-gray-500 mt-0.5">📞 {{ c.phone }}</div>{% endif %}
+                    {% if c.email %}<div class="text-xs text-gray-500">✉ {{ c.email }}</div>{% endif %}
+                  </div>
+                  {% endif %}
+                  {% endfor %}
+                </div>
+              </div>
+              {% endif %}
+              {% if vendor.notes %}
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Notes</div>
+                <div class="text-sm text-gray-700">{{ vendor.notes }}</div>
+              </div>
+              {% endif %}
+            </div>
+            <div class="flex justify-end mt-4 pt-4 border-t border-gray-100">
+              <button type="button" onclick="enterEdit('vendor','{{ vendor.slug }}')"
+                      class="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                Edit
+              </button>
+            </div>
+          </div>
+          <div id="vendor-edit-{{ vendor.slug }}" class="hidden">
+            <form hx-post="/vendors/{{ vendor.slug }}/edit" hx-target="body" hx-swap="innerHTML">
+              <div class="space-y-4 text-sm">
+                <div>
+                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Company Name</div>
+                  <input type="text" name="company_name" value="{{ vendor.company_name }}" required
+                         class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                </div>
+                <div>
+                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Services</div>
+                  <div class="max-h-32 overflow-y-auto border border-gray-200 rounded-lg p-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                    {% for cat in service_categories %}
+                    <label class="inline-flex items-center gap-1.5 text-xs cursor-pointer py-0.5">
+                      <input type="checkbox" name="service_cats" value="{{ cat }}"
+                             {% if cat in (vendor.service_categories or []) %}checked{% endif %}
+                             class="rounded border-gray-300 text-brand-600 focus:ring-brand-500 flex-shrink-0" />
+                      {{ cat }}
+                    </label>
+                    {% endfor %}
+                  </div>
+                  <input type="text" name="service_cat_other" placeholder="Other (new service type)"
+                         class="mt-1.5 w-full border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Website</div>
+                    <input type="url" name="website" value="{{ vendor.website or '' }}" placeholder="https://..."
+                           class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                  </div>
+                  <div>
+                    <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">License #</div>
+                    <input type="text" name="license_number" value="{{ vendor.license_number or '' }}"
+                           class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                  </div>
+                </div>
+                <div>
+                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Contacts</div>
+                  {% set edit_contacts = vendor.contacts if vendor.contacts else ([{"name": vendor.contact_name or "", "role": "", "phone": vendor.phone or "", "email": vendor.email or ""}] if (vendor.contact_name or vendor.phone or vendor.email) else []) %}
+                  <div id="contacts-list-{{ vendor.slug }}" class="space-y-2 mb-2">
+                    {% for c in edit_contacts %}
+                    <div class="contact-row bg-gray-50 rounded-lg p-3 border border-gray-100">
+                      <div class="grid grid-cols-2 gap-2 mb-2">
+                        <input type="text" name="c_name" value="{{ c.name or '' }}" placeholder="Name"
+                               class="border border-gray-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                        <input type="text" name="c_role" value="{{ c.role or '' }}" placeholder="Role (Main, Office…)"
+                               class="border border-gray-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                        <input type="tel" name="c_phone" value="{{ c.phone or '' }}" placeholder="Phone"
+                               class="border border-gray-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                        <input type="email" name="c_email" value="{{ c.email or '' }}" placeholder="Email"
+                               class="border border-gray-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                      </div>
+                      <button type="button" onclick="this.closest('.contact-row').remove()"
+                              class="text-xs text-red-400 hover:text-red-600 transition-colors">Remove</button>
+                    </div>
+                    {% endfor %}
+                  </div>
+                  <button type="button" onclick="addContact('{{ vendor.slug }}')"
+                          class="inline-flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 font-medium">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                    Add Contact
+                  </button>
+                </div>
+                <div>
+                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Properties</div>
+                  <div class="flex flex-wrap gap-2">
+                    {% for p in properties %}
+                    <label class="inline-flex items-center gap-1.5 px-2.5 py-1 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 text-xs">
+                      <input type="checkbox" name="prop_ids" value="{{ p.id }}"
+                             {% if p.id in (vendor.property_ids or []) %}checked{% endif %}
+                             class="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+                      {{ p.name }}
+                    </label>
+                    {% endfor %}
+                  </div>
+                </div>
+                <div>
+                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Notes</div>
+                  <textarea name="notes" data-autoresize
+                            class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
+                            placeholder="No notes yet…">{{ vendor.notes or '' }}</textarea>
+                </div>
+                <div class="flex items-center gap-2">
+                  <input type="checkbox" name="active" id="active-{{ vendor.slug }}" value="1"
+                         {% if vendor.active %}checked{% endif %}
+                         class="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+                  <label for="active-{{ vendor.slug }}" class="text-sm text-gray-700">Active</label>
+                </div>
+              </div>
+              <div class="flex justify-end gap-2 mt-4 pt-4 border-t border-gray-100">
+                <button type="button" onclick="exitEdit('vendor','{{ vendor.slug }}')"
+                        class="px-4 py-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors">Cancel</button>
+                <button type="submit"
+                        class="px-4 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors">Save</button>
+              </div>
+            </form>
+          </div>
+        </div>
+        <div id="vendor-panel-{{ vendor.slug }}-ratings" class="hidden px-6 py-5 space-y-4">
+          {% if quality_vals or reliability_vals %}
+          <div class="grid grid-cols-2 gap-3">
+            <div class="bg-gray-50 rounded-xl p-3 text-center border border-gray-100">
+              <div class="text-xs text-gray-500 mb-1">Avg Quality</div>
+              <div class="text-xl font-bold text-gray-900">{{ '%.1f'|format(quality_vals|sum / quality_vals|length) }}</div>
+              <div class="text-base mt-0.5">{{ stars((quality_vals|sum / quality_vals|length)|round|int) }}</div>
+            </div>
+            <div class="bg-gray-50 rounded-xl p-3 text-center border border-gray-100">
+              <div class="text-xs text-gray-500 mb-1">Avg Reliability</div>
+              {% if reliability_vals %}
+              <div class="text-xl font-bold text-gray-900">{{ '%.1f'|format(reliability_vals|sum / reliability_vals|length) }}</div>
+              <div class="text-base mt-0.5">{{ stars((reliability_vals|sum / reliability_vals|length)|round|int) }}</div>
+              {% else %}<div class="text-gray-400 text-sm mt-2">No data</div>{% endif %}
+            </div>
+          </div>
+          {% endif %}
+          {% if ratings %}
+          <div class="space-y-2 max-h-40 overflow-y-auto">
+            {% for r in ratings %}
+            <div class="bg-gray-50 rounded-lg p-3 border border-gray-100">
+              <div class="flex gap-6 text-xs">
+                <div><span class="text-gray-400">Quality</span> <span class="ml-1">{{ stars(r.quality_score) }}</span></div>
+                <div><span class="text-gray-400">Reliability</span> <span class="ml-1">{{ stars(r.reliability_score) }}</span></div>
+              </div>
+              {% if r.notes %}<p class="text-xs text-gray-600 mt-1.5 italic">"{{ r.notes }}"</p>{% endif %}
+              <p class="text-xs text-gray-400 mt-1">{{ r.rated_date.strftime('%b %d, %Y') if r.rated_date else '' }}</p>
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}
+          <div class="text-sm text-gray-400 bg-gray-50 rounded-xl p-4 text-center border border-gray-100">No reviews yet</div>
+          {% endif %}
+          <div>
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Add Rating</div>
+            <form hx-post="/vendors/{{ vendor.slug }}/rate" hx-target="body" hx-swap="innerHTML"
+                  class="bg-gray-50 rounded-xl p-4 border border-gray-100 space-y-3">
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs font-medium text-gray-700 mb-1">Quality (1–5)</label>
+                  <input type="number" name="quality" min="1" max="5" required
+                         class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-gray-700 mb-1">Reliability (1–5)</label>
+                  <input type="number" name="reliability" min="1" max="5" required
+                         class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-gray-700 mb-1">Cost / Value (1–5)</label>
+                  <input type="number" name="cost" min="1" max="5"
+                         class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-gray-700 mb-1">Communication (1–5)</label>
+                  <input type="number" name="communication" min="1" max="5"
+                         class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                </div>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">Notes (optional)</label>
+                <textarea name="notes" rows="2"
+                          class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+                          placeholder="Showed up on time, clean work..."></textarea>
+              </div>
+              <button type="submit"
+                      class="w-full py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">Submit Rating</button>
+            </form>
+          </div>
+        </div>
+        <div id="vendor-panel-{{ vendor.slug }}-notes" class="hidden px-6 py-5" data-notes-container>
+          {% with notes=notes_map[vendor.id], post_url="/vendors/"+vendor.slug+"/notes", delete_url_prefix="/vendors/"+vendor.slug+"/notes" %}
+          {% include "partials/notes_section.html" %}
+          {% endwith %}
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center">
+  <div class="text-gray-400 text-sm">No inactive vendors.</div>
+</div>
+{% endif %}
+</div>
+
+<!-- Add vendor modal -->
+<div id="add-vendor-modal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="text-lg font-semibold text-gray-900">Add Vendor</h2>
+      <button onclick="document.getElementById('add-vendor-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <form hx-post="/vendors" hx-target="body" hx-swap="innerHTML" class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Company Name</label>
+        <input type="text" name="company_name" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Services</label>
+        <div class="max-h-32 overflow-y-auto border border-gray-200 rounded-lg p-2 grid grid-cols-2 gap-x-3 gap-y-1">
+          {% for cat in service_categories %}
+          <label class="inline-flex items-center gap-1.5 text-xs cursor-pointer py-0.5">
+            <input type="checkbox" name="service_cats" value="{{ cat }}"
+                   class="rounded border-gray-300 text-brand-600 focus:ring-brand-500 flex-shrink-0" />
+            {{ cat }}
+          </label>
+          {% endfor %}
+        </div>
+        <input type="text" name="service_cat_other" placeholder="Other (new service type)"
+               class="mt-1.5 w-full border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+          <input type="tel" name="phone" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+          <input type="email" name="email" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+      </div>
+      {% if properties %}
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-2">Properties</label>
+        <div class="flex flex-wrap gap-2">
+          {% for p in properties %}
+          <label class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 text-sm">
+            <input type="checkbox" name="prop_ids" value="{{ p.id }}"
+                   class="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+            {{ p.name }}
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      <div class="flex gap-3 pt-1">
+        <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Add</button>
+        <button type="button" onclick="document.getElementById('add-vendor-modal').classList.add('hidden')" class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+let activePropertyFilter = '';
+let activeCategoryFilter = '';
+
+function applyFilters() {
+  document.querySelectorAll('.vendor-card').forEach(card => {
+    const props = (card.dataset.properties || '').split(' ').filter(Boolean);
+    const cats = (card.dataset.categories || '').split('|').filter(Boolean);
+    const propOk = !activePropertyFilter || props.includes(activePropertyFilter);
+    const catOk = !activeCategoryFilter || cats.some(c => c.toLowerCase() === activeCategoryFilter.toLowerCase());
+    card.classList.toggle('hidden', !(propOk && catOk));
+  });
+}
+
+function filterByProperty(slug) {
+  activePropertyFilter = slug;
+  document.querySelectorAll('.prop-filter-btn').forEach(btn => {
+    const isActive = btn.id === 'prop-filter-' + (slug || 'all');
+    btn.classList.toggle('bg-gray-900', isActive);
+    btn.classList.toggle('text-white', isActive);
+    btn.classList.toggle('bg-gray-100', !isActive);
+    btn.classList.toggle('text-gray-600', !isActive);
+  });
+  applyFilters();
+}
+
+function filterByCategory(cat) {
+  activeCategoryFilter = cat;
+  document.querySelectorAll('.cat-filter-btn').forEach(btn => {
+    const isActive = cat === '' ? btn.id === 'cat-filter-all' : btn.dataset.cat === cat;
+    btn.classList.toggle('bg-gray-900', isActive);
+    btn.classList.toggle('text-white', isActive);
+    btn.classList.toggle('bg-gray-100', !isActive && btn.id !== 'cat-filter-all');
+    btn.classList.toggle('text-gray-600', !isActive && btn.id !== 'cat-filter-all');
+  });
+  applyFilters();
+}
+
+let catsExpanded = false;
+function toggleCategories() {
+  catsExpanded = !catsExpanded;
+  document.querySelectorAll('.cat-pill[data-overflow]').forEach(el => {
+    el.style.display = catsExpanded ? '' : 'none';
+  });
+  const btn = document.getElementById('show-more-cats');
+  if (btn) btn.textContent = catsExpanded ? 'Show less' : '+' + btn.dataset.count + ' more';
+}
+
+function initCatPills() {
+  catsExpanded = false;
+  document.querySelectorAll('.cat-pill[data-overflow]').forEach(el => {
+    el.style.display = 'none';
+  });
+  const btn = document.getElementById('show-more-cats');
+  if (btn) btn.textContent = '+' + btn.dataset.count + ' more';
+}
+
+function setVendorTab(tab) {
+  const panels = ['active', 'inactive'];
+  panels.forEach(p => {
+    const panel = document.getElementById('vendors-panel-' + p);
+    const btn = document.getElementById('vendors-tab-' + p);
+    if (!panel || !btn) return;
+    const isActive = p === tab;
+    panel.classList.toggle('hidden', !isActive);
+    btn.classList.toggle('bg-brand-600', isActive);
+    btn.classList.toggle('text-white', isActive);
+    btn.classList.toggle('text-gray-600', !isActive);
+    btn.classList.toggle('hover:bg-gray-100', !isActive);
+  });
+  localStorage.setItem('vendors_tab', tab);
+}
+function initVendors() {
+  if (!document.getElementById('vendors-panel-active')) return;
+  setVendorTab(localStorage.getItem('vendors_tab') || 'active');
+}
+document.addEventListener('DOMContentLoaded', () => { initVendors(); initCatPills(); });
+document.addEventListener('htmx:afterSettle', () => { initVendors(); initCatPills(); });
+
+function addContact(slug) {
+  const container = document.getElementById('contacts-list-' + slug);
+  if (!container) return;
+  const row = document.createElement('div');
+  row.className = 'contact-row bg-gray-50 rounded-lg p-3 border border-gray-100';
+  row.innerHTML = `
+    <div class="grid grid-cols-2 gap-2 mb-2">
+      <input type="text" name="c_name" placeholder="Name"
+             class="border border-gray-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
+      <input type="text" name="c_role" placeholder="Role (Main, Office…)"
+             class="border border-gray-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
+      <input type="tel" name="c_phone" placeholder="Phone"
+             class="border border-gray-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
+      <input type="email" name="c_email" placeholder="Email"
+             class="border border-gray-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
+    </div>
+    <button type="button" onclick="this.closest('.contact-row').remove()"
+            class="text-xs text-red-400 hover:text-red-600 transition-colors">Remove</button>`;
+  container.appendChild(row);
+}
+function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
+function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+function switchTab(prefix, id, tab) {
+  const tabs = ['details','ratings','notes'];
+  tabs.forEach(t => {
+    const panel = document.getElementById(prefix+'-panel-'+id+'-'+t);
+    const btn = document.getElementById(prefix+'-tab-'+id+'-'+t);
+    if (!panel || !btn) return;
+    panel.classList.toggle('hidden', t !== tab);
+    btn.classList.toggle('border-brand-600', t === tab);
+    btn.classList.toggle('text-brand-600', t === tab);
+    btn.classList.toggle('border-transparent', t !== tab);
+    btn.classList.toggle('text-gray-500', t !== tab);
+  });
+}
+function autoResize(el){el.style.height='auto';el.style.height=el.scrollHeight+'px';}
+function enterEdit(prefix, id) {
+  document.getElementById(prefix+'-view-'+id).classList.add('hidden');
+  const editEl = document.getElementById(prefix+'-edit-'+id);
+  editEl.classList.remove('hidden');
+  editEl.querySelectorAll('textarea[data-autoresize]').forEach(ta => autoResize(ta));
+}
+function exitEdit(prefix, id) {
+  document.getElementById(prefix+'-edit-'+id).classList.add('hidden');
+  document.getElementById(prefix+'-view-'+id).classList.remove('hidden');
+}
+document.addEventListener('DOMContentLoaded',()=>document.querySelectorAll('textarea[data-autoresize]').forEach(t=>t.addEventListener('input',()=>autoResize(t))));
+</script>
+
+{% endblock %}

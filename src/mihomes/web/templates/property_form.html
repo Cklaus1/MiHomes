@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}New Property — MiHomes{% endblock %}
+{% block heading %}Add Property{% endblock %}
+
+{% block content %}
+<div class="max-w-lg">
+  <div class="bg-white rounded-xl border border-gray-200 p-6">
+    <form hx-post="/properties" hx-target="body" hx-push-url="/properties" class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Name</label>
+        <input type="text" name="name" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" placeholder="e.g. Beach House" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Address</label>
+        <input type="text" name="address" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" placeholder="123 Ocean Dr, Malibu CA" />
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Type</label>
+          <select name="property_type" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+            {% for t in property_types %}<option value="{{ t }}">{{ t.title() }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
+          <select name="status" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+            {% for s in property_statuses %}<option value="{{ s }}">{{ s.replace('-', ' ').title() }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="flex gap-3 pt-2">
+        <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Add Property</button>
+        <a href="/properties" class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 text-center">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

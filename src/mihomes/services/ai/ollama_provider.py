@@ -19,10 +19,14 @@ class OllamaProvider:
         system_prompt: str,
         user_message: str,
         context_data: str | None = None,
+        attachments=None,
     ) -> str:
         message_content = user_message
+        if attachments:
+            from mihomes.services.ai.file_processor import attachments_to_text_block
+            message_content = attachments_to_text_block(attachments) + "\n\n" + message_content
         if context_data:
-            message_content = f"{user_message}\n\n<estate_data>\n{context_data}\n</estate_data>"
+            message_content = f"{message_content}\n\n<estate_data>\n{context_data}\n</estate_data>"
 
         payload = {
             "model": self.model,
@@ -51,12 +55,24 @@ class OllamaProvider:
         except (KeyError, json.JSONDecodeError) as e:
             raise AIProviderError(f"Unexpected Ollama response: {e}")
 
+    def stream(
+        self,
+        system_prompt: str,
+        user_message: str,
+        context_data: str | None = None,
+        attachments=None,
+    ):
+        """Yield full response as one token (Ollama streaming not yet supported)."""
+        result = self.complete(system_prompt, user_message, context_data=context_data, attachments=attachments)
+        yield result
+
     def structured_output(
         self,
         system_prompt: str,
         user_message: str,
         schema: dict,
         context_data: str | None = None,
+        attachments=None,
     ) -> dict:
         """Request structured output — instructs model to respond in JSON."""
         json_prompt = (

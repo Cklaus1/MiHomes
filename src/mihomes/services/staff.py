@@ -3,10 +3,11 @@
 from sqlalchemy.orm import Session
 
 from mihomes.models.property import Property
-from mihomes.models.staff import Staff, StaffRole
+from mihomes.models.staff import Staff, StaffRole, category_for_role
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
-from mihomes.services.update_helpers import safe_update
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
+from mihomes.services.update_helpers import safe_update
+from mihomes.services.validators import validate_name
 
 
 def create_staff(
@@ -21,6 +22,7 @@ def create_staff(
     property_id_or_slug: str | None = None,
     slug: str | None = None,
 ) -> Staff:
+    name = validate_name(name, "staff")
     slug = ensure_unique_slug(session, Staff, slug or generate_slug(name))
     member = Staff(
         name=name,
@@ -44,6 +46,7 @@ def list_staff(
     session: Session,
     *,
     role: StaffRole | None = None,
+    category: str | None = None,
     active_only: bool = True,
 ) -> list[Staff]:
     query = session.query(Staff)
@@ -51,7 +54,12 @@ def list_staff(
         query = query.filter(Staff.active.is_(True))
     if role is not None:
         query = query.filter(Staff.role == role)
-    return query.order_by(Staff.name).all()
+    rows = query.order_by(Staff.name).all()
+    # `category` (Staff / Resident / Associate / Family / Owner) is derived from
+    # role in Python, so filter after the query.
+    if category is not None:
+        rows = [r for r in rows if category_for_role(r.role) == category]
+    return rows
 
 
 def get_staff(session: Session, id_or_slug: str) -> Staff:
@@ -73,8 +81,31 @@ def update_staff(session: Session, id_or_slug: str, **kwargs) -> Staff:
 
 
 def delete_staff(session: Session, id_or_slug: str) -> str:
+    from mihomes.models.issue import Issue
+    from mihomes.models.staff_pto import StaffPTORequest
+    from mihomes.models.task import Task
+    from mihomes.models.work_order import WorkOrder
+
     member = resolve_identifier(session, Staff, id_or_slug)
     name = member.name
+    # Clear every reference to this person before deleting, or FK enforcement
+    # (PRAGMA foreign_keys=ON) would block the delete. Nullify the optional
+    # references; PTO requests have a NOT NULL staff_id so they're removed.
+    session.query(Task).filter(Task.assignee_id == member.id).update(
+        {"assignee_id": None}, synchronize_session="fetch"
+    )
+    session.query(WorkOrder).filter(WorkOrder.assignee_id == member.id).update(
+        {"assignee_id": None}, synchronize_session="fetch"
+    )
+    session.query(Issue).filter(Issue.reported_by_id == member.id).update(
+        {"reported_by_id": None}, synchronize_session="fetch"
+    )
+    session.query(Issue).filter(Issue.resolved_by_id == member.id).update(
+        {"resolved_by_id": None}, synchronize_session="fetch"
+    )
+    session.query(StaffPTORequest).filter(StaffPTORequest.staff_id == member.id).delete(
+        synchronize_session="fetch"
+    )
     record_change(session, "staff", member.id, "delete", snapshot_instance(member))
     session.delete(member)
     session.flush()

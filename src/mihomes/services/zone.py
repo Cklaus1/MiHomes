@@ -13,6 +13,7 @@ from mihomes.services.slug import (
     resolve_identifier,
 )
 from mihomes.services.update_helpers import safe_update
+from mihomes.services.validators import validate_name
 
 
 def create_zone(
@@ -23,6 +24,7 @@ def create_zone(
     description: str | None = None,
     slug: str | None = None,
 ) -> Zone:
+    name = validate_name(name, "zone")
     prop = resolve_identifier(session, Property, property_id_or_slug)
     slug = ensure_unique_slug(session, Zone, slug or generate_slug(name))
     zone = Zone(name=name, slug=slug, property_id=prop.id, description=description)
@@ -69,6 +71,8 @@ def delete_zone(session: Session, id_or_slug: str) -> str:
 def assign_space_to_zone(session: Session, space_id_or_slug: str, zone_id_or_slug: str) -> Space:
     space = resolve_identifier(session, Space, space_id_or_slug)
     zone = resolve_identifier(session, Zone, zone_id_or_slug)
+    if space.property_id != zone.property_id:
+        raise ValueError("Space and zone must belong to the same property")
     old_snap = snapshot_instance(space)
     space.zone_id = zone.id
     session.flush()

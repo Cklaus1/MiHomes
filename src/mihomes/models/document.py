@@ -12,11 +12,14 @@ from mihomes.models import Base, SlugMixin, TimestampMixin
 class DocumentType(str, enum.Enum):
     WARRANTY = "warranty"
     CONTRACT = "contract"
+    INVOICE = "invoice"
     MANUAL = "manual"
     INSURANCE = "insurance"
     PERMIT = "permit"
     REGULATION = "regulation"
     SOP = "sop"
+    REPORT = "report"
+    PHOTO = "photo"
     OTHER = "other"
 
 

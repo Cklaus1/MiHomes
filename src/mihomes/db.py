@@ -1,5 +1,6 @@
 """Database engine, session management, and initialization."""
 
+import os
 from contextlib import contextmanager
 from typing import Generator
 
@@ -7,7 +8,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from mihomes.config import DB_URL, ensure_dirs
+from mihomes.config import DB_DIR, DB_URL, ensure_dirs
 
 _engine: Engine | None = None
 _SessionLocal: sessionmaker | None = None
@@ -19,14 +20,21 @@ def _set_sqlite_pragmas(dbapi_conn, connection_record):
     cursor = dbapi_conn.cursor()
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.execute("PRAGMA busy_timeout=30000")
     cursor.close()
+
+
+def _active_url() -> str:
+    if os.environ.get("MIHOMES_DEMO") == "1":
+        return f"sqlite:///{DB_DIR / 'demo.db'}"
+    return DB_URL
 
 
 def get_engine(url: str | None = None) -> Engine:
     """Get or create the SQLAlchemy engine."""
     global _engine
     if _engine is None or url is not None:
-        _engine = create_engine(url or DB_URL, echo=False)
+        _engine = create_engine(url or _active_url(), echo=False)
     return _engine
 
 
@@ -58,8 +66,9 @@ def init_db(url: str | None = None) -> None:
     ensure_dirs()
     engine = get_engine(url)
 
-    from alembic import command
     from alembic.config import Config
+
+    from alembic import command
 
     alembic_cfg = Config()
     alembic_cfg.set_main_option("script_location", _get_alembic_dir())

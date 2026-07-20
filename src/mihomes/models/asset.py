@@ -1,9 +1,9 @@
 """Asset model — tracked property assets (appliances, vehicles, valuables, etc.)."""
 
 import enum
-from datetime import date
+from datetime import date, datetime, timezone
 
-from sqlalchemy import Boolean, Date, Enum, Float, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import Boolean, Date, DateTime, Enum, Float, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mihomes.models import Base, SlugMixin, TimestampMixin
@@ -22,6 +22,12 @@ class AssetCondition(str, enum.Enum):
     GOOD = "good"
     FAIR = "fair"
     POOR = "poor"
+
+
+class PriceEntryType(str, enum.Enum):
+    PURCHASE = "purchase"
+    VALUATION = "valuation"
+    ESTIMATE = "estimate"
 
 
 class Asset(Base, TimestampMixin, SlugMixin):
@@ -52,3 +58,23 @@ class Asset(Base, TimestampMixin, SlugMixin):
 
     property = relationship("Property")
     space = relationship("Space")
+    price_entries: Mapped[list["PriceEntry"]] = relationship(
+        "PriceEntry", back_populates="asset", cascade="all, delete-orphan"
+    )
+
+
+class PriceEntry(Base):
+    __tablename__ = "asset_price_entries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    asset_id: Mapped[int] = mapped_column(Integer, ForeignKey("assets.id"), nullable=False, index=True)
+    date: Mapped[date] = mapped_column(Date, nullable=False)
+    price: Mapped[float] = mapped_column(Float, nullable=False)
+    quantity: Mapped[float] = mapped_column(Float, default=1.0)
+    entry_type: Mapped[str] = mapped_column(String(50), default="purchase")
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+
+    asset: Mapped["Asset"] = relationship("Asset", back_populates="price_entries")

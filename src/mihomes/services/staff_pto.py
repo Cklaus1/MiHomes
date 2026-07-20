@@ -130,6 +130,8 @@ def get_pto_balance(session: Session, staff_id_or_slug: str) -> dict:
 
 def _sync_to_calendar(req: StaffPTORequest) -> None:
     """Push approved PTO to Google Calendar as an all-day event."""
+    import logging
+    log = logging.getLogger("mihomes.staff_pto")
     try:
         from mihomes.services.calendar_sync import is_google_auth_available, _get_provider
         if not is_google_auth_available():
@@ -141,17 +143,16 @@ def _sync_to_calendar(req: StaffPTORequest) -> None:
             return
         staff_name = req.staff.name if req.staff else "Staff"
         title = f"[MiHomes] PTO — {staff_name}"
-        # Push one event per date
         for d in dates:
             try:
                 dt = date.fromisoformat(d)
                 start = datetime(dt.year, dt.month, dt.day, 0, 0, tzinfo=timezone.utc)
                 end = datetime(dt.year, dt.month, dt.day, 23, 59, tzinfo=timezone.utc)
                 provider.create_event(title=title, start=start, end=end)
-            except Exception:
-                pass
-    except Exception:
-        pass
+            except Exception as e:
+                log.warning("Failed to sync PTO date %s to calendar: %s", d, e)
+    except Exception as e:
+        log.warning("PTO calendar sync failed: %s", e)
 
 
 def notify_approver(session: Session, req: StaffPTORequest) -> bool:

@@ -1,0 +1,68 @@
+<tr id="task-{{ task.id }}"
+    class="{% if task.status.value == 'completed' %}opacity-50{% endif %} hover:bg-gray-50 transition-colors">
+  <td class="px-5 py-3">
+    <div class="font-medium text-gray-900 {% if task.status.value == 'completed' %}line-through{% endif %}">
+      {{ task.title }}
+    </div>
+    <div class="flex items-center gap-2 mt-0.5">
+      {% if task.id in overdue_ids %}
+      <span class="text-xs text-red-600 font-medium">⚠ Overdue</span>
+      {% endif %}
+      {% if task.schedule and task.schedule.frequency.value != 'once' %}
+      <span class="text-xs text-blue-500">↻ {{ task.schedule.frequency.value.replace('_',' ').title() }}</span>
+      {% endif %}
+    </div>
+  </td>
+  <td class="px-4 py-3 text-gray-500 hidden sm:table-cell text-xs">
+    {% if task.property %}{{ task.property.name }}{% else %}—{% endif %}
+  </td>
+  <td class="px-4 py-3 hidden lg:table-cell">
+    {% if task.assignee %}
+    <span class="inline-flex items-center gap-1.5">
+      <span class="w-5 h-5 rounded-full bg-brand-100 text-brand-700 text-xs flex items-center justify-center font-semibold flex-shrink-0">
+        {{ task.assignee.name[0].upper() }}
+      </span>
+      <span class="text-xs text-gray-600">{{ task.assignee.name.split()[0] }}</span>
+    </span>
+    {% else %}<span class="text-gray-300 text-xs">—</span>{% endif %}
+  </td>
+  <td class="px-4 py-3 text-gray-500 hidden md:table-cell text-xs">
+    {% if task.due_date %}{{ task.due_date.strftime('%b %d') }}{% else %}—{% endif %}
+  </td>
+  <td class="px-4 py-3 hidden xl:table-cell">
+    {% if task.category %}
+    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600">
+      {{ task.category.value.replace('_', ' ').title() }}
+    </span>
+    {% else %}<span class="text-gray-300 text-xs">—</span>{% endif %}
+  </td>
+  <td class="px-4 py-3">
+    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+      {% if task.priority.value == 'urgent' %}bg-red-100 text-red-700
+      {% elif task.priority.value == 'high' %}bg-orange-100 text-orange-700
+      {% elif task.priority.value == 'medium' %}bg-amber-100 text-amber-700
+      {% else %}bg-gray-100 text-gray-600{% endif %}">
+      {{ task.priority.value.title() }}
+    </span>
+  </td>
+  <td class="px-4 py-3">
+    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+      {% if task.status.value == 'completed' %}bg-emerald-100 text-emerald-700
+      {% elif task.status.value in ('in_progress', 'in-progress') %}bg-blue-100 text-blue-700
+      {% elif task.status.value == 'cancelled' %}bg-gray-100 text-gray-500
+      {% else %}bg-gray-100 text-gray-600{% endif %}">
+      {{ task.status.value.replace('_', ' ').replace('-', ' ').title() }}
+    </span>
+  </td>
+  <td class="px-4 py-3 text-right">
+    {% if task.status.value not in ('completed', 'cancelled') %}
+    <button hx-post="/tasks/{{ task.slug }}/complete"
+            hx-target="#task-{{ task.id }}"
+            hx-swap="outerHTML"
+            hx-indicator="#htmx-loading"
+            class="text-xs text-brand-600 hover:text-brand-700 font-medium whitespace-nowrap">
+      ✓ Done
+    </button>
+    {% endif %}
+  </td>
+</tr>

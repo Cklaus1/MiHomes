@@ -1,0 +1,796 @@
+{% extends "base.html" %}
+{% block title %}{{ space.name if space else 'Unassigned' }} — {{ prop.name }} — MiHomes{% endblock %}
+{% block heading %}{{ space.name if space else 'Unassigned' }}{% endblock %}
+{% block subheading %}
+<div class="flex items-center gap-1.5 text-sm text-gray-500 mt-0.5">
+  <a href="/assets" class="hover:text-brand-600 transition-colors">Rooms</a>
+  <svg class="w-3.5 h-3.5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+  <a href="/assets/{{ prop.slug }}" class="hover:text-brand-600 transition-colors">{{ prop.name }}</a>
+  <svg class="w-3.5 h-3.5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+  <span class="text-gray-900 font-medium">{{ space.name if space else 'Unassigned' }}</span>
+  <span class="text-gray-300">·</span>
+  <span>{{ assets|length }} asset{{ 's' if assets|length != 1 else '' }}</span>
+</div>
+{% endblock %}
+
+{% block actions %}
+<div id="tab-actions-assets" class="flex items-center gap-2 {% if active_tab != 'assets' %}hidden{% endif %}">
+  <button onclick="document.getElementById('scan-room-modal').classList.remove('hidden')"
+          class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-brand-300 text-brand-700 text-sm font-medium rounded-lg hover:bg-brand-50 transition-colors">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+    Scan Room
+  </button>
+  <button onclick="document.getElementById('add-asset-modal').classList.remove('hidden')"
+          class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+    Add Asset
+  </button>
+</div>
+<div id="tab-actions-books" {% if active_tab != 'books' %}class="hidden"{% endif %}>
+  <button onclick="document.getElementById('add-book-modal').classList.remove('hidden')"
+          class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+    Add Book
+  </button>
+</div>
+{% endblock %}
+
+{% block content %}
+{% set condition_colors = {'excellent':'bg-emerald-100 text-emerald-700','good':'bg-blue-100 text-blue-700','fair':'bg-amber-100 text-amber-700','poor':'bg-red-100 text-red-700','damaged':'bg-red-100 text-red-700'} %}
+{% set type_icons = {'appliance':'🔌','vehicle':'🚗','valuable':'💎','consumable':'📦','equipment':'🔧'} %}
+
+<!-- Tab bar -->
+<div class="flex gap-1 mb-5 border-b border-gray-200">
+  <button id="tab-btn-assets" onclick="switchSpaceTab('assets')"
+          class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if active_tab == 'assets' %}border-brand-500 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
+    Assets <span class="ml-1 px-1.5 py-0.5 rounded-full text-xs bg-gray-100 text-gray-500">{{ assets|length }}</span>
+  </button>
+  <button id="tab-btn-books" onclick="switchSpaceTab('books')"
+          class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if active_tab == 'books' %}border-brand-500 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
+    Books <span class="ml-1 px-1.5 py-0.5 rounded-full text-xs bg-gray-100 text-gray-500">{{ books|length }}</span>
+  </button>
+  <button id="tab-btn-issues" onclick="switchSpaceTab('issues')"
+          class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if active_tab == 'issues' %}border-brand-500 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
+    Issues <span class="ml-1 px-1.5 py-0.5 rounded-full text-xs bg-gray-100 text-gray-500">{{ space_issues|length }}</span>
+  </button>
+  <button id="tab-btn-notes" onclick="switchSpaceTab('notes')"
+          class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if active_tab == 'notes' %}border-brand-500 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
+    Notes <span id="badge-space-notes" class="ml-1 px-1.5 py-0.5 rounded-full text-xs bg-gray-100 text-gray-500">{{ space_notes|length }}</span>
+  </button>
+</div>
+
+<!-- Assets panel -->
+<div id="panel-assets" {% if active_tab == 'books' %}class="hidden"{% endif %}>
+
+{% if all_assets %}
+<div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
+  {% for type_val, label in [('appliance','Appliances'),('vehicle','Vehicles'),('valuable','Valuables'),('equipment','Equipment'),('consumable','Consumables')] %}
+  {% set count = assets | selectattr('asset_type', 'equalto', type_val) | list | length %}
+  <a href="{% if filter_type == type_val %}/assets/{{ prop.slug }}/{{ space_slug }}{% else %}/assets/{{ prop.slug }}/{{ space_slug }}?asset_type={{ type_val }}{% endif %}"
+     class="block rounded-xl border px-4 py-3 text-center transition-all hover:shadow-sm
+            {% if filter_type == type_val %}bg-brand-50 border-brand-400{% else %}bg-white border-gray-200 hover:border-brand-300{% endif %}">
+    <div class="text-xl">{{ type_icons.get(type_val,'📦') }}</div>
+    <div class="text-lg font-bold {% if filter_type == type_val %}text-brand-700{% else %}text-gray-900{% endif %} mt-0.5">{{ count }}</div>
+    <div class="text-xs {% if filter_type == type_val %}text-brand-600{% else %}text-gray-500{% endif %}">{{ label }}</div>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if assets %}
+<div class="relative mb-3">
+  <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/></svg>
+  <input id="asset-search" type="search" placeholder="Search assets…" oninput="filterRows('asset-search','asset-tbody')"
+         class="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white" />
+</div>
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="border-b border-gray-100 bg-gray-50">
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Asset</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Type</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Make / Model</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Value</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Warranty</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Condition</th>
+      </tr>
+    </thead>
+    <tbody id="asset-tbody" class="divide-y divide-gray-50">
+      {% for asset in assets %}
+      <tr class="hover:bg-gray-50 cursor-pointer transition-colors" onclick="openModal('asset-modal-{{ asset.id }}')">
+        <td class="px-4 py-3"><div class="font-medium text-gray-900">{{ asset.name }}</div>{% if asset.serial_number %}<div class="text-xs text-gray-400 font-mono">S/N: {{ asset.serial_number }}</div>{% endif %}</td>
+        <td class="px-4 py-3"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-600 font-medium capitalize">{{ type_icons.get(asset.asset_type.value,'📦') }} {{ asset.asset_type.value }}</span></td>
+        <td class="px-4 py-3 text-gray-600 hidden md:table-cell">{% if asset.make or asset.model_name %}{{ asset.make or '' }}{% if asset.make and asset.model_name %} {% endif %}{{ asset.model_name or '' }}{% else %}—{% endif %}</td>
+        <td class="px-4 py-3 text-gray-600 hidden lg:table-cell">{% if asset.purchase_date or asset.purchase_price %}{% if asset.purchase_date %}<div>{{ asset.purchase_date.strftime('%b %Y') }}</div>{% endif %}{% if asset.purchase_price %}<div class="text-xs text-gray-400">${{ '{:,.0f}'.format(asset.purchase_price) }}</div>{% endif %}{% else %}—{% endif %}</td>
+        <td class="px-4 py-3 hidden lg:table-cell">{% if asset.warranty_expires %}<span class="text-xs {% if asset.warranty_expires.year < 2027 %}text-red-600 font-medium{% else %}text-gray-500{% endif %}">{{ asset.warranty_expires.strftime('%b %d, %Y') }}</span>{% else %}<span class="text-gray-400 text-xs">—</span>{% endif %}</td>
+        <td class="px-4 py-3"><span class="px-2 py-0.5 rounded-full text-xs font-medium capitalize {{ condition_colors.get(asset.condition.value,'bg-gray-100 text-gray-600') }}">{{ asset.condition.value }}</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center">
+  <div class="text-3xl mb-2">🔧</div>
+  <div class="text-gray-500 font-medium">No assets in this space yet</div>
+  <button onclick="document.getElementById('add-asset-modal').classList.remove('hidden')" class="mt-3 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Add First Asset</button>
+</div>
+{% endif %}
+
+</div><!-- /panel-assets -->
+
+<!-- Books panel -->
+<div id="panel-books" {% if active_tab != 'books' %}class="hidden"{% endif %}>
+{% if books %}
+<div class="relative mb-3">
+  <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/></svg>
+  <input id="book-search" type="search" placeholder="Search by title, author, or genre…" oninput="filterRows('book-search','book-tbody')"
+         class="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white" />
+</div>
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="border-b border-gray-100 bg-gray-50">
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Title</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">Author</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Genre</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Location</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Condition</th>
+      </tr>
+    </thead>
+    <tbody id="book-tbody" class="divide-y divide-gray-50">
+      {% for book in books %}
+      <tr class="hover:bg-gray-50 cursor-pointer transition-colors" onclick="openModal('book-modal-{{ book.id }}')">
+        <td class="px-4 py-3"><div class="font-medium text-gray-900">{{ book.title }}</div>{% if book.isbn %}<div class="text-xs text-gray-400 font-mono">ISBN: {{ book.isbn }}</div>{% endif %}</td>
+        <td class="px-4 py-3 text-gray-600 hidden sm:table-cell">{{ book.author or '—' }}</td>
+        <td class="px-4 py-3 text-gray-500 hidden md:table-cell">{{ book.genre or '—' }}</td>
+        <td class="px-4 py-3 text-gray-600 text-sm">{{ book.space.name if book.space else '—' }}</td>
+        <td class="px-4 py-3"><span class="px-2 py-0.5 rounded-full text-xs font-medium capitalize {{ condition_colors.get(book.condition.value,'bg-gray-100 text-gray-600') }}">{{ book.condition.value }}</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center">
+  <div class="text-3xl mb-2">📚</div>
+  <div class="text-gray-500 font-medium">No books recorded in this space yet</div>
+  <button onclick="switchSpaceTab('books'); document.getElementById('add-book-modal').classList.remove('hidden')"
+          class="mt-3 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Add First Book</button>
+</div>
+{% endif %}
+</div><!-- /panel-books -->
+
+<!-- Issues panel -->
+<div id="panel-issues" {% if active_tab != 'issues' %}class="hidden"{% endif %}>
+  <div class="flex justify-end mb-3">
+    <button onclick="document.getElementById('report-room-issue-modal').classList.remove('hidden')"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+      Report Issue in this Room
+    </button>
+  </div>
+  {% if space_issues %}
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-gray-100 bg-gray-50">
+          <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Issue</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Severity</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Reported</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50">
+        {% for issue in space_issues %}
+        <tr class="hover:bg-gray-50 transition-colors">
+          <td class="px-4 py-3">
+            <div class="font-medium text-gray-900">{{ issue.title }}</div>
+            {% if issue.description %}<div class="text-xs text-gray-400 truncate max-w-xs">{{ issue.description }}</div>{% endif %}
+          </td>
+          <td class="px-4 py-3">
+            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+              {% if issue.severity.value == 'critical' %}bg-red-100 text-red-700
+              {% elif issue.severity.value == 'high' %}bg-orange-100 text-orange-700
+              {% elif issue.severity.value == 'medium' %}bg-amber-100 text-amber-700
+              {% else %}bg-gray-100 text-gray-600{% endif %}">
+              {{ issue.severity.value.title() }}
+            </span>
+          </td>
+          <td class="px-4 py-3">
+            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+              {% if issue.status.value == 'resolved' %}bg-emerald-100 text-emerald-700
+              {% elif issue.status.value == 'in-progress' %}bg-blue-100 text-blue-700
+              {% else %}bg-amber-100 text-amber-700{% endif %}">
+              {{ issue.status.value.replace('-',' ').title() }}
+            </span>
+          </td>
+          <td class="px-4 py-3 text-gray-400 text-xs hidden md:table-cell">
+            {{ issue.created_at.strftime('%b %d, %Y') if issue.created_at else '—' }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center">
+    <div class="text-3xl mb-2">✅</div>
+    <div class="text-gray-500 font-medium">No issues in this room</div>
+  </div>
+  {% endif %}
+  <div class="mt-3 flex justify-end">
+    <a href="/issues?property_id={{ prop.id }}"
+       class="text-sm text-brand-600 hover:text-brand-700">View all property issues →</a>
+  </div>
+</div><!-- /panel-issues -->
+
+<!-- Notes panel -->
+<div id="panel-notes" {% if active_tab != 'notes' %}class="hidden"{% endif %}>
+  {% if space and space.id %}
+  <div class="bg-white rounded-xl border border-gray-200 p-5" data-notes-container data-notes-badge="badge-space-notes">
+    {% with notes=space_notes, post_url="/assets/"+prop.slug+"/"+space_slug+"/notes", delete_url_prefix="/assets/"+prop.slug+"/"+space_slug+"/notes" %}
+    {% include "partials/notes_section.html" %}
+    {% endwith %}
+  </div>
+  {% else %}
+  <div class="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center text-sm text-gray-400">Notes are not available for unassigned assets.</div>
+  {% endif %}
+</div><!-- /panel-notes -->
+
+<!-- Add Asset modal -->
+<!-- Scan Room modal -->
+<div id="scan-room-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onclick="if(event.target===this)this.classList.add('hidden')">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-1">
+      <h2 class="text-lg font-semibold text-gray-900">Scan {{ space.name if space else 'Room' }}</h2>
+      <button onclick="document.getElementById('scan-room-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+    </div>
+    <p class="text-xs text-gray-500 mb-4">Take or upload photo(s) of the room — the AI lists the assets it sees, and you review them before adding. Values are rough estimates.</p>
+
+    <form hx-post="/assets/scan" hx-target="#scan-review" hx-swap="innerHTML"
+          hx-encoding="multipart/form-data" hx-indicator="#scan-spinner">
+      <input type="hidden" name="property_slug" value="{{ prop.slug }}">
+      <input type="hidden" name="space_slug" value="{{ space_slug }}">
+      <label class="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-gray-300 rounded-xl p-6 cursor-pointer hover:border-brand-400 transition-colors">
+        <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+        <span class="text-sm text-gray-600">Tap to take a photo, or choose images</span>
+        <input type="file" name="files" accept="image/*" capture="environment" multiple
+               class="hidden" onchange="document.getElementById('scan-filecount').textContent = this.files.length ? this.files.length + ' photo(s) selected' : ''">
+      </label>
+      <div id="scan-filecount" class="text-xs text-gray-400 mt-1.5 text-center"></div>
+      <button type="submit" class="mt-3 w-full py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
+        Scan for assets
+      </button>
+      <div id="scan-spinner" class="htmx-indicator mt-3 flex items-center justify-center gap-2 text-sm text-gray-500">
+        <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+        Analyzing photos…
+      </div>
+    </form>
+
+    <div id="scan-review" class="mt-4"></div>
+  </div>
+</div>
+
+<div id="add-asset-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onclick="if(event.target===this)this.classList.add('hidden')">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="text-lg font-semibold text-gray-900">New Asset</h2>
+      <button onclick="document.getElementById('add-asset-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+    </div>
+    <form hx-post="/assets/" hx-target="body" hx-swap="innerHTML" class="space-y-4">
+      <input type="hidden" name="from_property" value="{{ prop.slug }}">
+      <input type="hidden" name="from_space" value="{{ space_slug }}">
+      <input type="hidden" name="property_slug" value="{{ prop.slug }}">
+      {% if space and space_slug != 'unassigned' %}
+      <input type="hidden" name="space_slug" value="{{ space_slug }}">
+      {% endif %}
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Name <span class="text-red-500">*</span></label>
+        <input type="text" name="name" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Type <span class="text-red-500">*</span></label>
+          <select name="asset_type" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+            {% for t in asset_types %}<option value="{{ t }}">{{ t | capitalize }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Condition</label>
+          <select name="condition" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+            {% for c in conditions %}<option value="{{ c }}" {% if c == 'good' %}selected{% endif %}>{{ c | capitalize }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      {% if not space or space_slug == 'unassigned' %}
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Room</label>
+        <select name="space_slug" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          <option value="">No room</option>
+          {% for s in spaces %}<option value="{{ s.slug }}">{{ s.name }}</option>{% endfor %}
+        </select>
+      </div>
+      {% endif %}
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Make</label>
+          <input type="text" name="make" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Model</label>
+          <input type="text" name="model_name" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Value ($)</label>
+        <input type="number" name="purchase_price" min="0" step="0.01" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+        <textarea name="notes" rows="2" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"></textarea>
+      </div>
+      <div class="flex gap-3 pt-1">
+        <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Add Asset</button>
+        <button type="button" onclick="document.getElementById('add-asset-modal').classList.add('hidden')" class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-50">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Add Book modal -->
+<div id="add-book-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onclick="if(event.target===this)this.classList.add('hidden')">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="text-lg font-semibold text-gray-900">Add Book</h2>
+      <button onclick="document.getElementById('add-book-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+    </div>
+    <form hx-post="/books/" hx-target="body" hx-swap="innerHTML" class="space-y-4">
+      <input type="hidden" name="from_property" value="{{ prop.slug }}">
+      <input type="hidden" name="from_space" value="{{ space_slug }}">
+      <input type="hidden" name="property_slug" value="{{ prop.slug }}">
+      {% if space and space_slug != 'unassigned' %}
+      <input type="hidden" name="space_slug" value="{{ space_slug }}">
+      {% endif %}
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Title <span class="text-red-500">*</span></label>
+        <input type="text" name="title" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Author</label>
+          <input type="text" name="author" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Genre</label>
+          <input type="text" name="genre" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">ISBN</label>
+          <input type="text" name="isbn" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Condition</label>
+          <select name="condition" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+            {% for c in book_conditions %}<option value="{{ c }}" {% if c == 'good' %}selected{% endif %}>{{ c | capitalize }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      {% if not space or space_slug == 'unassigned' %}
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Room</label>
+        <select name="space_slug" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          <option value="">No room assigned</option>
+          {% for s in spaces %}<option value="{{ s.slug }}">{{ s.name }}</option>{% endfor %}
+        </select>
+      </div>
+      {% endif %}
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+        <textarea name="notes" rows="2" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"></textarea>
+      </div>
+      <div class="flex gap-3 pt-1">
+        <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Add Book</button>
+        <button type="button" onclick="document.getElementById('add-book-modal').classList.add('hidden')" class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-50">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Book detail modals -->
+{% for book in books %}
+<div id="book-modal-{{ book.id }}" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onclick="if(event.target===this)closeModal('book-modal-{{ book.id }}')">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] flex flex-col" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
+      <div>
+        <h2 class="text-lg font-bold text-gray-900">{{ book.title }}</h2>
+        <p class="text-xs text-gray-500 mt-0.5">{{ book.author or 'Unknown author' }}{% if book.genre %} · {{ book.genre }}{% endif %}</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="px-2.5 py-1 rounded-full text-xs font-medium capitalize {{ condition_colors.get(book.condition.value,'bg-gray-100 text-gray-600') }}">{{ book.condition.value }}</span>
+        <form hx-post="/books/{{ book.slug }}/delete" hx-target="body" hx-swap="innerHTML" hx-confirm="Remove this book?" class="inline">
+          <input type="hidden" name="from_property" value="{{ prop.slug }}">
+          <input type="hidden" name="from_space" value="{{ space_slug }}">
+          <button type="submit" class="text-gray-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
+        </form>
+        <button onclick="closeModal('book-modal-{{ book.id }}')" class="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+      </div>
+    </div>
+    <div class="flex-1 overflow-y-auto px-6 py-5">
+      <div id="book-view-{{ book.id }}">
+        <div class="grid grid-cols-2 gap-3 mb-4">
+          <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Author</div><div class="font-medium text-sm text-gray-800">{{ book.author or '—' }}</div></div>
+          <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Genre</div><div class="font-medium text-sm text-gray-800">{{ book.genre or '—' }}</div></div>
+          <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">ISBN</div><div class="font-mono text-sm text-gray-700">{{ book.isbn or '—' }}</div></div>
+          <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Location</div><div class="font-medium text-sm text-gray-800">{{ book.space.name if book.space else '—' }}</div></div>
+        </div>
+        {% if book.notes %}<div class="mb-4"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Notes</div><div class="text-sm text-gray-700">{{ book.notes }}</div></div>{% endif %}
+        <div class="flex justify-end mt-4 pt-4 border-t border-gray-100">
+          <button type="button" onclick="enterEdit('book','{{ book.id }}')"
+                  class="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+            Edit
+          </button>
+        </div>
+      </div>
+      <div id="book-edit-{{ book.id }}" class="hidden">
+        <form hx-post="/books/{{ book.slug }}/edit" hx-target="body" hx-swap="innerHTML">
+          <input type="hidden" name="from_property" value="{{ prop.slug }}">
+          <input type="hidden" name="from_space" value="{{ space_slug }}">
+          <div class="space-y-3">
+            <div><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Title</div>
+            <input type="text" name="title" value="{{ book.title }}" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" /></div>
+            <div class="grid grid-cols-2 gap-3">
+              <div><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Author</div>
+              <input type="text" name="author" value="{{ book.author or '' }}" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" /></div>
+              <div><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Genre</div>
+              <input type="text" name="genre" value="{{ book.genre or '' }}" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" /></div>
+              <div><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">ISBN</div>
+              <input type="text" name="isbn" value="{{ book.isbn or '' }}" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" /></div>
+              <div><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Condition</div>
+              <select name="condition" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                {% for c in book_conditions %}<option value="{{ c }}" {% if book.condition.value == c %}selected{% endif %}>{{ c | capitalize }}</option>{% endfor %}
+              </select></div>
+            </div>
+            <div><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Room</div>
+            <select name="space_slug" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+              <option value="">No room assigned</option>
+              {% for s in spaces %}<option value="{{ s.slug }}" {% if book.space and book.space.slug == s.slug %}selected{% endif %}>{{ s.name }}</option>{% endfor %}
+            </select></div>
+            <div><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Notes</div>
+            <textarea name="notes" rows="2" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">{{ book.notes or '' }}</textarea></div>
+          </div>
+          <div class="flex justify-end gap-2 mt-4 pt-4 border-t border-gray-100">
+            <button type="button" onclick="exitEdit('book','{{ book.id }}')" class="px-4 py-1.5 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
+            <button type="submit" class="px-4 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg">Save</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+<!-- Asset detail modals -->
+{% for asset in assets %}
+
+{% set a_notes = notes_map.get(asset.id, []) %}
+<div id="asset-modal-{{ asset.id }}" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onclick="if(event.target===this)closeModal('asset-modal-{{ asset.id }}')">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] flex flex-col" onclick="event.stopPropagation()">
+
+    <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
+      <div>
+        <h2 class="text-lg font-bold text-gray-900">{{ asset.name }}</h2>
+        <p class="text-xs text-gray-500 mt-0.5 capitalize">{{ asset.asset_type.value }}{% if space %} · {{ space.name }}{% endif %}</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="px-2.5 py-1 rounded-full text-xs font-medium capitalize {{ condition_colors.get(asset.condition.value,'bg-gray-100 text-gray-600') }}">{{ asset.condition.value }}</span>
+        <form hx-post="/assets/{{ asset.slug }}/delete" hx-target="body" hx-swap="innerHTML" hx-confirm="Delete this asset?" class="inline">
+          <input type="hidden" name="from_property" value="{{ prop.slug }}">
+          <input type="hidden" name="from_space" value="{{ space_slug }}">
+          <button type="submit" class="text-gray-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
+        </form>
+        <button onclick="closeModal('asset-modal-{{ asset.id }}')" class="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+      </div>
+    </div>
+
+    <div class="flex border-b border-gray-200 px-6 flex-shrink-0">
+      {% set a_docs = asset_docs_map.get(asset.id, []) %}
+      {% for tid, tlabel in [('details','Details'),('pricing','Pricing'),('documents','Photos & Docs'),('notes','Notes')] %}
+      <button onclick="switchTab('asset','{{ asset.id }}','{{ tid }}')" id="asset-tab-{{ asset.id }}-{{ tid }}"
+              class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if tid=='details' %}border-brand-500 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
+        {{ tlabel }}{% if tid=='pricing' and asset.price_entries %} ({{ asset.price_entries|length }}){% endif %}{% if tid=='documents' and a_docs %} ({{ a_docs|length }}){% endif %}{% if tid=='notes' %}<span id="badge-asset-notes-{{ asset.id }}" class="ml-1 px-1.5 py-0.5 rounded-full text-xs bg-gray-100 text-gray-500">{{ a_notes|length }}</span>{% endif %}
+      </button>
+      {% endfor %}
+    </div>
+
+    <div class="flex-1 overflow-y-auto">
+
+      <!-- Details tab -->
+      <div id="asset-panel-{{ asset.id }}-details" class="px-6 py-5">
+        <div id="asset-view-{{ asset.id }}">
+          <div class="grid grid-cols-2 gap-3 mb-3">
+            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Make</div><div class="font-medium text-sm text-gray-800">{{ asset.make or '—' }}</div></div>
+            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Model</div><div class="font-medium text-sm text-gray-800">{{ asset.model_name or '—' }}</div></div>
+            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Purchase Date</div><div class="font-medium text-sm text-gray-800">{{ asset.purchase_date.strftime('%b %d, %Y') if asset.purchase_date else '—' }}</div></div>
+            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Value</div><div class="font-medium text-sm text-gray-800">{{ '$' + '{:,.2f}'.format(asset.purchase_price) if asset.purchase_price else '—' }}</div></div>
+            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Warranty Expires</div><div class="font-medium text-sm {{ 'text-red-600' if asset.warranty_expires and asset.warranty_expires.year < 2027 else 'text-gray-800' if asset.warranty_expires else 'text-gray-400' }}">{{ asset.warranty_expires.strftime('%b %d, %Y') if asset.warranty_expires else '—' }}</div></div>
+            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Last Serviced</div><div class="font-medium text-sm text-gray-800">{{ asset.last_serviced.strftime('%b %d, %Y') if asset.last_serviced else '—' }}</div></div>
+            {% if asset.serial_number %}<div class="bg-gray-50 rounded-xl p-3 col-span-2"><div class="text-xs text-gray-400 mb-0.5">Serial Number</div><div class="font-mono text-sm text-gray-700">{{ asset.serial_number }}</div></div>{% endif %}
+            {% if asset.expected_lifespan_years %}<div class="bg-blue-50 rounded-xl p-3 border border-blue-100"><div class="text-xs text-gray-500 mb-0.5">Expected Lifespan</div><div class="font-medium text-sm text-gray-800">{{ asset.expected_lifespan_years|int }} years</div></div>{% endif %}
+            {% if asset.replacement_cost_estimate %}<div class="bg-blue-50 rounded-xl p-3 border border-blue-100"><div class="text-xs text-gray-500 mb-0.5">Replacement Est.</div><div class="font-medium text-sm text-gray-800">${{ '{:,.0f}'.format(asset.replacement_cost_estimate) }}</div></div>{% endif %}
+          </div>
+          <div class="mb-3">
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Notes</div>
+            <div class="text-sm text-gray-700">{{ asset.notes or '—' }}</div>
+          </div>
+          <div class="flex justify-end mt-4 pt-4 border-t border-gray-100">
+            <button type="button" onclick="enterEdit('asset','{{ asset.id }}')"
+                    class="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+              Edit
+            </button>
+          </div>
+        </div>
+
+        <div id="asset-edit-{{ asset.id }}" class="hidden">
+          <form hx-post="/assets/{{ asset.slug }}/edit" hx-target="body" hx-swap="innerHTML">
+            <input type="hidden" name="from_property" value="{{ prop.slug }}">
+            <input type="hidden" name="from_space" value="{{ space_slug }}">
+            <div class="mb-4">
+              <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Name</div>
+              <input type="text" name="name" value="{{ asset.name }}" required
+                     class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+            </div>
+            <div class="grid grid-cols-2 gap-3 mb-3">
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Make</div>
+                <input type="text" name="make" value="{{ asset.make or '' }}"
+                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Model</div>
+                <input type="text" name="model_name" value="{{ asset.model_name or '' }}"
+                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Condition</div>
+                <select name="condition" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                  {% for c in conditions %}<option value="{{ c }}" {% if asset.condition.value == c %}selected{% endif %}>{{ c | capitalize }}</option>{% endfor %}
+                </select>
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Serial Number</div>
+                <input type="text" name="serial_number" value="{{ asset.serial_number or '' }}"
+                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Purchase Date</div>
+                <input type="date" name="purchase_date" value="{{ asset.purchase_date.isoformat() if asset.purchase_date else '' }}"
+                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Value ($)</div>
+                <input type="number" name="purchase_price" step="0.01" min="0" value="{{ asset.purchase_price or '' }}"
+                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Warranty Expires</div>
+                <input type="date" name="warranty_expires" value="{{ asset.warranty_expires.isoformat() if asset.warranty_expires else '' }}"
+                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Last Serviced</div>
+                <input type="date" name="last_serviced" value="{{ asset.last_serviced.isoformat() if asset.last_serviced else '' }}"
+                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Expected Lifespan (yrs)</div>
+                <input type="number" name="expected_lifespan_years" step="1" min="0" value="{{ asset.expected_lifespan_years|int if asset.expected_lifespan_years else '' }}"
+                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Replacement Est. ($)</div>
+                <input type="number" name="replacement_cost_estimate" step="1" min="0" value="{{ asset.replacement_cost_estimate|int if asset.replacement_cost_estimate else '' }}"
+                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+            </div>
+            <div>
+              <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Notes</div>
+              <textarea name="notes" data-autoresize
+                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
+                        placeholder="No notes yet…">{{ asset.notes or '' }}</textarea>
+            </div>
+            <div class="flex justify-end gap-2 mt-4 pt-4 border-t border-gray-100">
+              <button type="button" onclick="exitEdit('asset','{{ asset.id }}')"
+                      class="px-4 py-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors">Cancel</button>
+              <button type="submit"
+                      class="px-4 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors">Save</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Pricing tab -->
+      <div id="asset-panel-{{ asset.id }}-pricing" class="px-6 py-5 hidden">
+        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Price History</div>
+
+        <form hx-post="/assets/{{ asset.slug }}/price-entries" hx-target="body" hx-swap="innerHTML" class="mb-4 p-3 bg-gray-50 rounded-xl space-y-2">
+          <input type="hidden" name="from_property" value="{{ prop.slug }}">
+          <input type="hidden" name="from_space" value="{{ space_slug }}">
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-xs text-gray-500 mb-1">Price ($) <span class="text-red-400">*</span></label>
+              <input type="number" name="price" required min="0" step="0.01" placeholder="0.00"
+                     class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+            </div>
+            <div>
+              <label class="block text-xs text-gray-500 mb-1">Date <span class="text-red-400">*</span></label>
+              <input type="date" name="entry_date" required
+                     class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+            </div>
+            <div>
+              <label class="block text-xs text-gray-500 mb-1">Qty</label>
+              <input type="number" name="quantity" value="1" min="0.01" step="0.01"
+                     class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+            </div>
+            <div>
+              <label class="block text-xs text-gray-500 mb-1">Type</label>
+              <select name="entry_type" class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                <option value="purchase">Purchase</option>
+                <option value="valuation">Valuation</option>
+                <option value="estimate">Estimate</option>
+              </select>
+            </div>
+          </div>
+          <input type="text" name="note" placeholder="Note (optional)…"
+                 class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          <button type="submit" class="w-full py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">Add Entry</button>
+        </form>
+
+        {% set sorted_entries = asset.price_entries | sort(attribute='date', reverse=True) %}
+        {% if sorted_entries %}
+        <div class="space-y-2">
+          {% for entry in sorted_entries %}
+          <div class="flex items-center justify-between p-3 bg-white border border-gray-100 rounded-xl text-sm">
+            <div>
+              <div class="font-medium text-gray-800">
+                ${{ '{:,.2f}'.format(entry.price) }}
+                {% if entry.quantity != 1.0 %}<span class="text-gray-400 font-normal"> × {{ entry.quantity }}</span>{% endif %}
+              </div>
+              <div class="text-xs text-gray-400 mt-0.5">
+                {{ entry.date.strftime('%b %d, %Y') }} · <span class="capitalize">{{ entry.entry_type }}</span>{% if entry.note %} · {{ entry.note }}{% endif %}
+              </div>
+            </div>
+            <div class="text-right">
+              <div class="font-semibold text-gray-900">${{ '{:,.2f}'.format(entry.price * entry.quantity) }}</div>
+              {% if entry.quantity != 1.0 %}<div class="text-xs text-gray-400">total</div>{% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-center py-8 text-gray-400 text-sm">No price entries yet</div>
+        {% endif %}
+      </div>
+
+      <!-- Notes tab -->
+      <!-- Documents tab -->
+      <div id="asset-panel-{{ asset.id }}-documents" class="px-6 py-5 hidden">
+        <div data-docs-container>
+          {% with docs=a_docs, post_url="/assets/"+asset.slug+"/documents", delete_url_prefix="/assets/"+asset.slug+"/documents" %}
+          {% include "partials/docs_section.html" %}
+          {% endwith %}
+        </div>
+      </div>
+
+      <div id="asset-panel-{{ asset.id }}-notes" class="px-6 py-5 hidden">
+        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Notes & Comments</div>
+        <div data-notes-container data-notes-badge="badge-asset-notes-{{ asset.id }}">
+          {% with notes=a_notes, post_url="/assets/"+asset.slug+"/notes", delete_url_prefix="/assets/"+asset.slug+"/notes" %}{% include "partials/notes_section.html" %}{% endwith %}
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endfor %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterRows(inputId, tbodyId) {
+  const q = document.getElementById(inputId).value.toLowerCase();
+  document.querySelectorAll('#' + tbodyId + ' tr').forEach(row => {
+    row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+}
+function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
+function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+function switchSpaceTab(tab) {
+  ['assets','books','issues','notes'].forEach(t => {
+    document.getElementById('panel-'+t)?.classList.toggle('hidden', t !== tab);
+    document.getElementById('tab-actions-'+t)?.classList.toggle('hidden', t !== tab);
+    const btn = document.getElementById('tab-btn-'+t);
+    if (btn) {
+      btn.classList.toggle('border-brand-500', t === tab);
+      btn.classList.toggle('text-brand-600', t === tab);
+      btn.classList.toggle('border-transparent', t !== tab);
+      btn.classList.toggle('text-gray-500', t !== tab);
+    }
+  });
+}
+function switchTab(prefix, entityId, tab) {
+  ['details','pricing','documents','notes','report'].forEach(t => {
+    document.getElementById(prefix+'-panel-'+entityId+'-'+t)?.classList.add('hidden');
+    const btn = document.getElementById(prefix+'-tab-'+entityId+'-'+t);
+    if (btn) { btn.classList.remove('border-brand-500','text-brand-600'); btn.classList.add('border-transparent','text-gray-500'); }
+  });
+  document.getElementById(prefix+'-panel-'+entityId+'-'+tab)?.classList.remove('hidden');
+  const active = document.getElementById(prefix+'-tab-'+entityId+'-'+tab);
+  if (active) { active.classList.add('border-brand-500','text-brand-600'); active.classList.remove('border-transparent','text-gray-500'); }
+}
+function autoResize(el){el.style.height='auto';el.style.height=el.scrollHeight+'px';}
+function enterEdit(prefix, id) {
+  document.getElementById(prefix+'-view-'+id).classList.add('hidden');
+  const editEl = document.getElementById(prefix+'-edit-'+id);
+  editEl.classList.remove('hidden');
+  editEl.querySelectorAll('textarea[data-autoresize]').forEach(ta => autoResize(ta));
+}
+function exitEdit(prefix, id) {
+  document.getElementById(prefix+'-edit-'+id).classList.add('hidden');
+  document.getElementById(prefix+'-view-'+id).classList.remove('hidden');
+}
+document.addEventListener('DOMContentLoaded',()=>document.querySelectorAll('textarea[data-autoresize]').forEach(t=>t.addEventListener('input',()=>autoResize(t))));
+</script>
+
+{% if space %}
+<!-- Report Issue in this Room modal -->
+<div id="report-room-issue-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+     onclick="if(event.target===this)this.classList.add('hidden')">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-5">
+      <div>
+        <h2 class="text-lg font-semibold text-gray-900">Report Issue</h2>
+        <p class="text-xs text-gray-500 mt-0.5">Room: {{ space.name }}</p>
+      </div>
+      <button onclick="document.getElementById('report-room-issue-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <form hx-post="/issues" hx-target="body" hx-swap="innerHTML" class="space-y-4">
+      <input type="hidden" name="property_id" value="{{ prop.id }}">
+      <input type="hidden" name="space_id" value="{{ space.id }}">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Title <span class="text-red-500">*</span></label>
+        <input type="text" name="title" required
+               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+               placeholder="e.g. Water stain on ceiling" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Severity</label>
+        <select name="severity" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          {% for s in [('critical','Critical'),('high','High'),('medium','Medium'),('low','Low')] %}
+          <option value="{{ s[0] }}" {% if s[0] == 'medium' %}selected{% endif %}>{{ s[1] }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+        <textarea name="description" rows="3"
+                  class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  placeholder="Optional details…"></textarea>
+      </div>
+      <div class="flex gap-3 pt-1">
+        <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Submit</button>
+        <button type="button" onclick="document.getElementById('report-room-issue-modal').classList.add('hidden')"
+                class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-50">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

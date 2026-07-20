@@ -4,12 +4,12 @@ from datetime import date, timedelta
 
 import pytest
 
-from mihomes.models.property import Property, PropertyType
-from mihomes.models.vendor import Vendor
-from mihomes.models.issue import Issue, IssueSeverity, IssueStatus
-from mihomes.models.task import TaskPriority, TaskStatus, RecurrenceFrequency
-from mihomes.models.work_order import WorkOrder, WorkOrderStatus
 from mihomes.models.insurance import InsuranceType
+from mihomes.models.issue import Issue, IssueSeverity, IssueStatus
+from mihomes.models.property import Property, PropertyType
+from mihomes.models.task import RecurrenceFrequency, TaskPriority, TaskStatus
+from mihomes.models.vendor import Vendor
+from mihomes.models.work_order import WorkOrder, WorkOrderStatus
 
 
 @pytest.fixture
@@ -35,16 +35,16 @@ def vendor(session):
 
 class TestBudgetService:
     def test_set_budget_creates_new(self, session, prop):
-        from mihomes.services.budget import set_budget
         from mihomes.models.budget import BudgetPeriod
+        from mihomes.services.budget import set_budget
         b = set_budget(session, str(prop.id), "plumbing", BudgetPeriod.MONTHLY,
                        1000.0, date(2026, 1, 1))
         assert b.id is not None
         assert b.amount == 1000.0
 
     def test_set_budget_updates_existing(self, session, prop):
-        from mihomes.services.budget import set_budget
         from mihomes.models.budget import BudgetPeriod
+        from mihomes.services.budget import set_budget
         b1 = set_budget(session, str(prop.id), "electrical", BudgetPeriod.MONTHLY,
                         500.0, date(2026, 1, 1))
         b2 = set_budget(session, str(prop.id), "electrical", BudgetPeriod.MONTHLY,
@@ -85,8 +85,8 @@ class TestBudgetService:
         assert 50.0 not in amounts
 
     def test_get_budget_report(self, session, prop):
-        from mihomes.services.budget import set_budget, add_transaction, get_budget_report
         from mihomes.models.budget import BudgetPeriod
+        from mihomes.services.budget import add_transaction, get_budget_report, set_budget
         set_budget(session, str(prop.id), "landscaping", BudgetPeriod.MONTHLY,
                    500.0, date(2026, 1, 1))
         add_transaction(session, 200.0, str(prop.id), "landscaping",
@@ -104,9 +104,9 @@ class TestContractService:
         from mihomes.services.contract import create_contract
         c = create_contract(session, vendor.slug, prop.slug,
                             date(2026, 1, 1), end_date=date(2026, 12, 31),
-                            service_category="landscaping", annual_cost=5000.0)
+                            service_category="landscaping", cost=5000.0)
         assert c.id is not None
-        assert c.annual_cost == 5000.0
+        assert c.cost == 5000.0
         assert c.service_category == "landscaping"
 
     def test_list_contracts_by_property(self, session, prop, vendor):
@@ -132,8 +132,8 @@ class TestContractService:
             assert c.end_date is not None
 
     def test_delete_contract(self, session, prop, vendor):
-        from mihomes.services.contract import create_contract, delete_contract
         from mihomes.models.contract import Contract
+        from mihomes.services.contract import create_contract, delete_contract
         c = create_contract(session, vendor.slug, prop.slug, date(2026, 1, 1))
         cid = c.id
         delete_contract(session, cid)
@@ -182,8 +182,8 @@ class TestInsuranceService:
         assert any(p.carrier == "Expiring Soon" for p in results)
 
     def test_delete_policy(self, session, prop):
-        from mihomes.services.insurance import create_policy, delete_policy
         from mihomes.models.insurance import InsurancePolicy
+        from mihomes.services.insurance import create_policy, delete_policy
         p = create_policy(session, "Delete Me", InsuranceType.HOMEOWNERS,
                           property_id_or_slug=prop.slug)
         pid = p.id
@@ -223,7 +223,7 @@ class TestTaskServiceEdgeCases:
                         season_spec="monsoon")
 
     def test_complete_task_creates_next_occurrence(self, session, prop):
-        from mihomes.services.task import create_task, complete_task
+        from mihomes.services.task import complete_task, create_task
         task = create_task(session, "Weekly Lawn Mow", prop.slug,
                            recurrence=RecurrenceFrequency.WEEKLY,
                            due_date=date.today())
@@ -231,7 +231,7 @@ class TestTaskServiceEdgeCases:
         assert result.status == TaskStatus.COMPLETED
 
     def test_complete_already_completed_raises(self, session, prop):
-        from mihomes.services.task import create_task, complete_task
+        from mihomes.services.task import complete_task, create_task
         task = create_task(session, "One Time Task", prop.slug)
         complete_task(session, task.slug)
         with pytest.raises(ValueError, match="already completed"):
@@ -246,8 +246,8 @@ class TestTaskServiceEdgeCases:
         assert task.priority == TaskPriority.HIGH
 
     def test_delete_task(self, session, prop):
-        from mihomes.services.task import create_task, delete_task
         from mihomes.models.task import Task
+        from mihomes.services.task import create_task, delete_task
         task = create_task(session, "Delete Task", prop.slug)
         slug = task.slug
         delete_task(session, slug)
@@ -299,8 +299,8 @@ class TestWorkOrderService:
         assert wo.completed_at is not None
 
     def test_complete_creates_transaction(self, session, prop, vendor):
-        from mihomes.services.work_order import approve, complete
         from mihomes.models.budget import Transaction
+        from mihomes.services.work_order import approve, complete
         wo = self._make_wo(session, prop, vendor, "Transaction WO")
         approve(session, wo.slug)
         before_count = session.query(Transaction).count()
@@ -308,7 +308,7 @@ class TestWorkOrderService:
         assert session.query(Transaction).count() > before_count
 
     def test_verify_marks_issue_verified(self, session, prop, vendor):
-        from mihomes.services.work_order import create_work_order, approve, complete, verify
+        from mihomes.services.work_order import approve, complete, create_work_order, verify
         issue = Issue(title="Source Issue", slug="source-issue",
                       property_id=prop.id, severity=IssueSeverity.HIGH,
                       status=IssueStatus.REPORTED)

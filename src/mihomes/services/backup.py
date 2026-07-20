@@ -5,6 +5,8 @@ import tarfile
 from datetime import datetime
 from pathlib import Path
 
+from sqlalchemy import text
+
 from mihomes.config import BACKUPS_DIR, DB_PATH, MEDIA_DIR, MIHOMES_DIR
 
 
@@ -103,7 +105,7 @@ def run_doctor() -> list[dict]:
                 findings.append({"level": "warning", "message": f"Empty slugs: {no_slug} task(s) have empty slugs"})
 
             # FK integrity via PRAGMA
-            cursor = session.execute({"text": "PRAGMA foreign_key_check"} if False else __import__("sqlalchemy").text("PRAGMA foreign_key_check"))
+            cursor = session.execute(text("PRAGMA foreign_key_check"))
             fk_violations = cursor.fetchall()
             if fk_violations:
                 findings.append({"level": "error", "message": f"FK violations: {len(fk_violations)} foreign key constraint failures"})

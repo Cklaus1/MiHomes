@@ -1,9 +1,11 @@
 """AI orchestrator — central coordinator for AI advisory."""
 
+from __future__ import annotations
+
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session
 
@@ -11,8 +13,11 @@ from mihomes.config import MIHOMES_DIR
 from mihomes.models.ai_conversation import AIConversation
 from mihomes.services.ai.ai_config import get_ai_api_key, get_ai_model, get_ai_provider_name
 from mihomes.services.ai.context import assemble_context
-from mihomes.services.ai.provider import AIProvider, get_provider
+from mihomes.services.ai.provider import get_provider
 from mihomes.services.ai.roles import ROLES, route_query
+
+if TYPE_CHECKING:
+    from mihomes.services.ai.file_processor import Attachment
 
 SESSION_FILE = MIHOMES_DIR / "current_ai_session"
 SESSION_TIMEOUT_MINUTES = 30
@@ -34,6 +39,7 @@ def ask(
     role: str | None = None,
     property_slug: str | None = None,
     continue_session: bool = False,
+    attachments: list[Attachment] | None = None,
 ) -> AIResponse:
     """Process an AI ask query.
 
@@ -53,7 +59,7 @@ def ask(
     provider_name = get_ai_provider_name(session)
     api_key = get_ai_api_key(session, provider_name)
     model = get_ai_model(session, provider_name)
-    provider = get_provider(provider_name, api_key)
+    provider = get_provider(provider_name, api_key, model=model)
 
     # Route to role(s)
     roles = route_query(query, explicit_role=role)
@@ -79,22 +85,25 @@ def ask(
         system_prompt = primary_role.system_prompt
 
     # Call AI
-    response_text = provider.complete(system_prompt, query, context_data=context)
+    response_text = provider.complete(system_prompt, query, context_data=context, attachments=attachments)
 
-    # Store conversation
-    convo = AIConversation(
-        session_id=session_id,
-        role=primary_role.name,
-        user_message=query,
-        ai_response=response_text,
-        context_summary=f"Roles: {', '.join(r.name for r in roles)}; property: {property_slug or 'all'}",
-        provider=provider_name,
-        model=model,
-    )
-    session.add(convo)
-    session.flush()
+    # Log conversation in a separate session so a DB lock here never
+    # corrupts the caller's transaction or rolls back real work.
+    try:
+        from mihomes.db import get_session as _get_log_session
+        with _get_log_session() as _log:
+            _log.add(AIConversation(
+                session_id=session_id,
+                role=primary_role.name,
+                user_message=query,
+                ai_response=response_text,
+                context_summary=f"Roles: {', '.join(r.name for r in roles)}; property: {property_slug or 'all'}",
+                provider=provider_name,
+                model=model,
+            ))
+    except Exception:
+        pass
 
-    # Save session ID
     _save_session_id(session_id)
 
     return AIResponse(
@@ -146,12 +155,12 @@ def budget_review(
 ) -> AIResponse:
     """Deep financial review — variance analysis, anomalies, and optimization recommendations."""
     from datetime import date
-    from mihomes.services.financial_report import spending_by_category, spending_by_vendor, forecast
-    from mihomes.services.property import list_properties
-    from mihomes.models.budget import Budget, Transaction
-    from mihomes.models.recurring_expense import RecurringExpense
-    from mihomes.services.slug import resolve_identifier
+
     from mihomes.models.property import Property
+    from mihomes.models.recurring_expense import RecurringExpense
+    from mihomes.services.financial_report import spending_by_category, spending_by_vendor
+    from mihomes.services.property import list_properties
+    from mihomes.services.slug import resolve_identifier
 
     today = date.today()
     year_start = date(today.year, 1, 1)
@@ -224,7 +233,7 @@ def budget_review(
     provider_name = get_ai_provider_name(session)
     api_key = get_ai_api_key(session, provider_name)
     model = get_ai_model(session, provider_name)
-    provider = get_provider(provider_name, api_key)
+    provider = get_provider(provider_name, api_key, model=model)
 
     role = ROLES["financial"]
     session_id = _get_session_id(False)
@@ -238,17 +247,20 @@ def budget_review(
 
     response_text = provider.complete(role.system_prompt, query, context_data=full_context)
 
-    convo = AIConversation(
-        session_id=session_id,
-        role=role.name,
-        user_message=query,
-        ai_response=response_text,
-        context_summary=f"budget_review; property: {property_slug or 'all'}",
-        provider=provider_name,
-        model=model,
-    )
-    session.add(convo)
-    session.flush()
+    try:
+        from mihomes.db import get_session as _get_log_session
+        with _get_log_session() as _log:
+            _log.add(AIConversation(
+                session_id=session_id,
+                role=role.name,
+                user_message=query,
+                ai_response=response_text,
+                context_summary=f"budget_review; property: {property_slug or 'all'}",
+                provider=provider_name,
+                model=model,
+            ))
+    except Exception:
+        pass
     _save_session_id(session_id)
 
     return AIResponse(text=response_text, role=role.display_name, session_id=session_id)

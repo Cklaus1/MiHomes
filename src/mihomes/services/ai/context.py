@@ -1,6 +1,6 @@
 """Context assembly — build structured text from existing services for AI prompts."""
 
-from datetime import date, timedelta
+from datetime import date
 
 from sqlalchemy.orm import Session
 
@@ -78,6 +78,12 @@ def assemble_context(
             token_est += len(text) // 4
 
     if token_est < max_tokens:
+        text = _fetch_books(session, property_slug)
+        if text:
+            sections.append(text)
+            token_est += len(text) // 4
+
+    if token_est < max_tokens:
         text = _fetch_work_orders(session, property_slug)
         if text:
             sections.append(text)
@@ -99,8 +105,8 @@ def assemble_context(
 
 
 def _fetch_properties(session: Session, property_slug: str | None) -> str:
-    from mihomes.services.property import list_properties, get_property
     from mihomes.services.issue import list_issues
+    from mihomes.services.property import list_properties
 
     lines = ["## Properties"]
     props = list_properties(session)
@@ -123,13 +129,15 @@ def _fetch_tasks(session: Session, property_slug: str | None) -> str:
         lines.append(f"### Overdue ({len(overdue)})")
         for t in overdue[:20]:
             assignee = t.assignee.name if t.assignee else "unassigned"
-            lines.append(f"- [{t.priority.value}] {t.title} @ {t.property.name} — due {t.due_date}, {assignee}")
+            prop_name = t.property.name if t.property else "unknown"
+            lines.append(f"- [{t.priority.value}] {t.title} @ {prop_name} — due {t.due_date}, {assignee}")
 
     upcoming = get_upcoming_tasks(session, days=30, property_id_or_slug=property_slug)
     if upcoming:
         lines.append(f"### Upcoming 30 days ({len(upcoming)})")
         for t in upcoming[:20]:
-            lines.append(f"- [{t.priority.value}] {t.title} @ {t.property.name} — due {t.due_date}")
+            prop_name = t.property.name if t.property else "unknown"
+            lines.append(f"- [{t.priority.value}] {t.title} @ {prop_name} — due {t.due_date}")
 
     if len(lines) == 1:
         lines.append("No overdue or upcoming tasks.")
@@ -146,7 +154,8 @@ def _fetch_issues(session: Session, property_slug: str | None) -> str:
     else:
         for i in issues[:20]:
             space = f" ({i.space.name})" if i.space else ""
-            lines.append(f"- [{i.severity.value}] {i.title} @ {i.property.name}{space} — {i.status.value}")
+            prop_name = i.property.name if i.property else "unknown"
+            lines.append(f"- [{i.severity.value}] {i.title} @ {prop_name}{space} — {i.status.value}")
             if i.description:
                 lines.append(f"  Description: {i.description[:200]}")
     return "\n".join(lines)
@@ -203,9 +212,11 @@ def _fetch_contracts(session: Session, property_slug: str | None) -> str:
     else:
         for c in contracts[:15]:
             end = str(c.end_date) if c.end_date else "ongoing"
-            cost = f"${c.annual_cost:,.0f}/yr" if c.annual_cost else ""
+            cost = f"${c.annualized_cost:,.0f}/yr" if c.annualized_cost else ""
             renew = " (auto-renew)" if c.auto_renew else ""
-            lines.append(f"- {c.vendor.company_name} → {c.property.name}: {end} {cost}{renew}")
+            vendor_name = c.vendor.company_name if c.vendor else "unknown vendor"
+            prop_name = c.property.name if c.property else "unknown"
+            lines.append(f"- {vendor_name} → {prop_name}: {end} {cost}{renew}")
     return "\n".join(lines)
 
 
@@ -246,7 +257,7 @@ def _fetch_staff(session: Session, property_slug: str | None) -> str:
     from mihomes.services.staff import list_staff
 
     lines = ["## Staff"]
-    staff = list_staff(session)
+    staff = list_staff(session, category="Staff")
     if not staff:
         lines.append("No staff.")
     else:
@@ -257,22 +268,87 @@ def _fetch_staff(session: Session, property_slug: str | None) -> str:
 
 
 def _fetch_assets(session: Session, property_slug: str | None) -> str:
-    from mihomes.models.asset import Asset
-    from mihomes.services.property import list_properties
+    from sqlalchemy import func
 
-    lines = ["## Assets"]
-    query = session.query(Asset).filter(Asset.active.is_(True))
+    from mihomes.models.asset import Asset
+
+    base = session.query(Asset).filter(Asset.active.is_(True))
     if property_slug:
         from mihomes.models.property import Property
         from mihomes.services.slug import resolve_identifier
         prop = resolve_identifier(session, Property, property_slug)
-        query = query.filter(Asset.property_id == prop.id)
-    assets = query.limit(20).all()
-    if not assets:
+        base = base.filter(Asset.property_id == prop.id)
+
+    total = base.count()
+    if not total:
         return ""
+
+    lines = [f"## Assets ({total} total)"]
+
+    # Summary by type
+    by_type = (
+        session.query(Asset.asset_type, func.count(Asset.id))
+        .filter(Asset.active.is_(True))
+        .group_by(Asset.asset_type)
+        .all()
+    )
+    if by_type:
+        lines.append("By type: " + ", ".join(f"{t.value}: {n}" for t, n in by_type))
+
+    # List up to 20 notable assets
+    assets = base.limit(20).all()
     for a in assets:
         warranty = f", warranty expires {a.warranty_expires}" if a.warranty_expires else ""
-        lines.append(f"- {a.name} ({a.asset_type.value}) @ {a.property.name}{warranty}")
+        val = f", value ${a.purchase_price:,.0f}" if a.purchase_price else ""
+        prop_name = a.property.name if a.property else "unknown"
+        lines.append(f"- {a.name} ({a.asset_type.value}) @ {prop_name}{val}{warranty}")
+
+    return "\n".join(lines)
+
+
+def _fetch_books(session: Session, property_slug: str | None) -> str:
+    from sqlalchemy import func
+
+    from mihomes.models.book import Book
+
+    base = session.query(Book).filter(Book.active.is_(True))
+    if property_slug:
+        from mihomes.models.property import Property
+        from mihomes.services.slug import resolve_identifier
+        prop = resolve_identifier(session, Property, property_slug)
+        base = base.filter(Book.property_id == prop.id)
+
+    total = base.count()
+    if not total:
+        return ""
+
+    lines = [f"## Library / Books ({total} total)"]
+
+    # Count by property
+    by_prop = (
+        session.query(Book.property_id, func.count(Book.id))
+        .filter(Book.active.is_(True))
+        .group_by(Book.property_id)
+        .all()
+    )
+    from mihomes.models.property import Property as Prop
+    for prop_id, cnt in by_prop:
+        p = session.get(Prop, prop_id)
+        prop_name = p.name if p else f"property {prop_id}"
+        lines.append(f"- {prop_name}: {cnt} books")
+
+    # Genre breakdown (top 10)
+    by_genre = (
+        session.query(Book.genre, func.count(Book.id))
+        .filter(Book.active.is_(True), Book.genre.isnot(None))
+        .group_by(Book.genre)
+        .order_by(func.count(Book.id).desc())
+        .limit(10)
+        .all()
+    )
+    if by_genre:
+        lines.append("Top genres: " + ", ".join(f"{g} ({n})" for g, n in by_genre))
+
     return "\n".join(lines)
 
 
@@ -294,13 +370,14 @@ def _fetch_work_orders(session: Session, property_slug: str | None) -> str:
     for wo in work_orders:
         vendor = wo.vendor.company_name if wo.vendor else "unassigned"
         cost = f"${wo.estimated_cost:,.0f}" if wo.estimated_cost else "no estimate"
-        lines.append(f"- [{wo.status.value}] {wo.title} @ {wo.property.name} — {vendor}, {cost}")
+        prop_name = wo.property.name if wo.property else "unknown"
+        lines.append(f"- [{wo.status.value}] {wo.title} @ {prop_name} — {vendor}, {cost}")
     return "\n".join(lines)
 
 
 def _fetch_weather(session: Session, property_slug: str | None) -> str:
     from mihomes.models.property import Property
-    from mihomes.services.weather import get_forecast_for_property, forecast_summary
+    from mihomes.services.weather import forecast_summary, get_forecast_for_property
 
     query = session.query(Property)
     if property_slug:
@@ -308,7 +385,7 @@ def _fetch_weather(session: Session, property_slug: str | None) -> str:
         try:
             prop = resolve_identifier(session, Property, property_slug)
             props = [prop]
-        except Exception:
+        except (ValueError, KeyError):
             props = []
     else:
         props = query.all()
@@ -319,7 +396,7 @@ def _fetch_weather(session: Session, property_slug: str | None) -> str:
             forecast = get_forecast_for_property(session, prop)
             if forecast:
                 summaries.append(forecast_summary(forecast))
-        except Exception:
+        except (OSError, KeyError, ValueError, TypeError):
             pass
 
     return "\n\n".join(summaries) if summaries else ""

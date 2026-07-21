@@ -337,6 +337,23 @@ def _fetch_books(session: Session, property_slug: str | None) -> str:
         prop_name = p.name if p else f"property {prop_id}"
         lines.append(f"- {prop_name}: {cnt} books")
 
+    # Count by space (room) within the filtered property
+    if property_slug:
+        from mihomes.models.space import Space
+        by_space = (
+            session.query(Book.space_id, func.count(Book.id))
+            .filter(Book.active.is_(True), Book.property_id == prop.id)
+            .group_by(Book.space_id)
+            .order_by(func.count(Book.id).desc())
+            .all()
+        )
+        if by_space:
+            lines.append("By room:")
+            for space_id, cnt in by_space:
+                s = session.get(Space, space_id)
+                space_name = s.name if s else f"space {space_id}"
+                lines.append(f"  - {space_name}: {cnt} books")
+
     # Genre breakdown (top 10)
     by_genre = (
         session.query(Book.genre, func.count(Book.id))

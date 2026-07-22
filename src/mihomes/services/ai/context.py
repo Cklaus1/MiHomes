@@ -324,18 +324,20 @@ def _fetch_books(session: Session, property_slug: str | None) -> str:
 
     lines = [f"## Library / Books ({total} total)"]
 
-    # Count by property
-    by_prop = (
-        session.query(Book.property_id, func.count(Book.id))
-        .filter(Book.active.is_(True))
-        .group_by(Book.property_id)
-        .all()
-    )
-    from mihomes.models.property import Property as Prop
-    for prop_id, cnt in by_prop:
-        p = session.get(Prop, prop_id)
-        prop_name = p.name if p else f"property {prop_id}"
-        lines.append(f"- {prop_name}: {cnt} books")
+    # Per-property breakdown (only when not scoped)
+    if not property_slug:
+        by_prop = (
+            session.query(Book.property_id, func.count(Book.id))
+            .filter(Book.active.is_(True))
+            .group_by(Book.property_id)
+            .all()
+        )
+        from mihomes.models.property import Property as Prop
+        for prop_id, cnt in by_prop:
+            p = session.get(Prop, prop_id)
+            prop_name = p.name if p else f"property {prop_id}"
+            lines.append(f"- {prop_name}: {cnt} books")
+        lines.append("")
 
     # Count by space (room) within the filtered property
     if property_slug:
@@ -353,16 +355,18 @@ def _fetch_books(session: Session, property_slug: str | None) -> str:
                 s = session.get(Space, space_id)
                 space_name = s.name if s else f"space {space_id}"
                 lines.append(f"  - {space_name}: {cnt} books")
+            lines.append("")
 
-    # Genre breakdown (top 10)
-    by_genre = (
-        session.query(Book.genre, func.count(Book.id))
-        .filter(Book.active.is_(True), Book.genre.isnot(None))
-        .group_by(Book.genre)
-        .order_by(func.count(Book.id).desc())
-        .limit(10)
-        .all()
+    # Genre breakdown (top 10, scoped when property_slug is set)
+    genre_base = session.query(Book.genre, func.count(Book.id)).filter(
+        Book.active.is_(True),
+        Book.genre.isnot(None),
     )
+    if property_slug:
+        genre_base = genre_base.filter(Book.property_id == prop.id)
+    by_genre = genre_base.group_by(Book.genre).order_by(
+        func.count(Book.id).desc()
+    ).limit(10).all()
     if by_genre:
         lines.append("Top genres: " + ", ".join(f"{g} ({n})" for g, n in by_genre))
 

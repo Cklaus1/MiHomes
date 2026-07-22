@@ -39,9 +39,26 @@ def _pid_running(pid: int) -> bool:
     except ProcessLookupError:
         return False
     except PermissionError:
+        # Process exists but we lack permission — check if it's a zombie
+        try:
+            with open(f"/proc/{pid}/status") as f:
+                for line in f:
+                    if line.startswith("State:"):
+                        return line[6:2] != "Z"
+        except Exception:
+            pass
         return True
     except Exception:
         return False
+    # Linux: check for zombie state
+    if sys.platform != "win32":
+        try:
+            with open(f"/proc/{pid}/status") as f:
+                for line in f:
+                    if line.startswith("State:"):
+                        return line[6:2] != "Z"
+        except Exception:
+            pass
     return True
 
 

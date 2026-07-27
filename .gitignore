@@ -26,6 +26,9 @@ cache/npm-packages/
 .env
 .env.*
 
+# Claude Code — per-user local settings (machine-specific paths, personal toggles)
+.claude/settings.local.json
+
 # Runtime-generated upload storage
 src/web/
 

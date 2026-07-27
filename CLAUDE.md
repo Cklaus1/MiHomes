@@ -57,6 +57,15 @@ AI-first multi-home estate management system.
 - Zero context switching required from the user
 - Go fix failing CI tests without being told how
 
+### Worktree Workflow
+- When starting a task that uses a Git worktree:
+  1. Create and work inside the temporary worktree as needed.
+  2. Complete the requested coding tasks and verify the changes.
+  3. Once finished, switch back to my primary active branch.
+  4. Merge the worktree branch into my primary branch using --no-ff.
+  5. Delete the temporary worktree and delete the temporary branch.
+  6. Confirm when the merge is complete and cleanup is clean.
+
 ## Task Management
 - **Plan First**: Write plan to `tasks/todo.md` with checkable items before starting
 - **Verify Plan**: Check in with user before starting implementation on non-trivial work

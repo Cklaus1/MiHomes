@@ -122,6 +122,9 @@
       <button onclick="switchTab('staff','{{ member.id }}','notes')"
               id="staff-tab-{{ member.id }}-notes"
               class="px-1 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 mr-5">Notes ({{ notes_map[member.id]|length }})</button>
+      <button onclick="switchTab('staff','{{ member.id }}','docs')"
+              id="staff-tab-{{ member.id }}-docs"
+              class="px-1 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 mr-5">Docs ({{ staff_docs_map[member.slug]|length }})</button>
     </div>
 
     <!-- Modal body -->
@@ -246,6 +249,13 @@
         {% endwith %}
       </div>
 
+      <!-- Docs tab (hidden by default) -->
+      <div id="staff-panel-{{ member.id }}-docs" class="hidden px-6 py-5" data-docs-container>
+        {% with docs=staff_docs_map[member.slug], post_url="/staff/"+member.slug+"/documents", delete_url_prefix="/staff/"+member.slug+"/documents" %}
+        {% include "partials/docs_section.html" %}
+        {% endwith %}
+      </div>
+
     </div>
   </div>
 </div>
@@ -330,13 +340,15 @@ function filterByCategory(cat) {
 function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
 function switchTab(prefix, id, tab) {
-  ['details','notes'].forEach(t => {
+  ['details','notes','docs'].forEach(t => {
     document.getElementById(prefix+'-panel-'+id+'-'+t).classList.toggle('hidden', t !== tab);
     const btn = document.getElementById(prefix+'-tab-'+id+'-'+t);
-    btn.classList.toggle('border-brand-600', t === tab);
-    btn.classList.toggle('text-brand-600', t === tab);
-    btn.classList.toggle('border-transparent', t !== tab);
-    btn.classList.toggle('text-gray-500', t !== tab);
+    if (btn) {
+      btn.classList.toggle('border-brand-600', t === tab);
+      btn.classList.toggle('text-brand-600', t === tab);
+      btn.classList.toggle('border-transparent', t !== tab);
+      btn.classList.toggle('text-gray-500', t !== tab);
+    }
   });
 }
 function enterEdit(prefix, id) {

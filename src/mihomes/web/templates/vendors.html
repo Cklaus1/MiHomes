@@ -171,6 +171,9 @@
         <button onclick="switchTab('vendor','{{ vendor.slug }}','notes')"
                 id="vendor-tab-{{ vendor.slug }}-notes"
                 class="px-1 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 mr-5">Notes ({{ notes_map[vendor.id]|length }})</button>
+        <button onclick="switchTab('vendor','{{ vendor.slug }}','documents')"
+                id="vendor-tab-{{ vendor.slug }}-documents"
+                class="px-1 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 mr-5">Documents ({{ vendor_docs_map[vendor.slug]|length }})</button>
       </div>
 
       <!-- Modal body -->
@@ -437,6 +440,13 @@
           {% endwith %}
         </div>
 
+        <!-- Documents tab (hidden by default) -->
+        <div id="vendor-panel-{{ vendor.slug }}-documents" class="hidden px-6 py-5" data-docs-container>
+          {% with docs=vendor_docs_map.get(vendor.slug, []), post_url="/vendors/"+vendor.slug+"/documents", delete_url_prefix="/vendors/"+vendor.slug+"/documents" %}
+          {% include "partials/docs_section.html" %}
+          {% endwith %}
+        </div>
+
       </div>
     </div>
   </div>
@@ -542,6 +552,9 @@
         <button onclick="switchTab('vendor','{{ vendor.slug }}','notes')"
                 id="vendor-tab-{{ vendor.slug }}-notes"
                 class="px-1 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 mr-5">Notes ({{ notes_map[vendor.id]|length }})</button>
+        <button onclick="switchTab('vendor','{{ vendor.slug }}','documents')"
+                id="vendor-tab-{{ vendor.slug }}-documents"
+                class="px-1 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 mr-5">Documents ({{ vendor_docs_map[vendor.slug]|length }})</button>
       </div>
       <div class="flex-1 overflow-y-auto">
         <div id="vendor-panel-{{ vendor.slug }}-details" class="px-6 py-5">
@@ -777,6 +790,11 @@
           {% include "partials/notes_section.html" %}
           {% endwith %}
         </div>
+        <div id="vendor-panel-{{ vendor.slug }}-documents" class="hidden px-6 py-5" data-docs-container>
+          {% with docs=vendor_docs_map.get(vendor.slug, []), post_url="/vendors/"+vendor.slug+"/documents", delete_url_prefix="/vendors/"+vendor.slug+"/documents" %}
+          {% include "partials/docs_section.html" %}
+          {% endwith %}
+        </div>
       </div>
     </div>
   </div>
@@ -951,7 +969,7 @@ function addContact(slug) {
 function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
 function switchTab(prefix, id, tab) {
-  const tabs = ['details','ratings','notes'];
+  const tabs = ['details','ratings','notes','documents'];
   tabs.forEach(t => {
     const panel = document.getElementById(prefix+'-panel-'+id+'-'+t);
     const btn = document.getElementById(prefix+'-tab-'+id+'-'+t);

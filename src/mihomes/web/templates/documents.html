@@ -93,15 +93,41 @@
         </td>
         <td class="px-4 py-3 hidden lg:table-cell">
           {% if doc.file_path and doc.file_path != '—' %}
+            {% set fp = doc.file_path %}
+            {% set is_image = fp.endswith('.jpg') or fp.endswith('.jpeg') or fp.endswith('.png') or fp.endswith('.webp') or fp.endswith('.gif') or doc.document_type.value == 'photo' %}
+            {% set is_pdf = fp.endswith('.pdf') %}
             {% if doc.file_path.startswith('http') %}
-            <a href="{{ doc.file_path }}" target="_blank" rel="noopener"
-               onclick="event.stopPropagation()"
-               class="inline-flex items-center gap-1 text-brand-600 hover:underline text-xs">
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
-              Open
-            </a>
+            <div class="flex items-center gap-2">
+              {% if is_pdf %}
+              <button onclick="previewDoc('{{ fp }}','{{ doc.title | replace("'", "\\'") }}','pdf')"
+                      class="text-brand-600 hover:underline text-xs" title="Preview PDF">Preview</button>
+              {% elif is_image %}
+              <button onclick="previewDoc('{{ fp }}','{{ doc.title | replace("'", "\\'") }}','image')"
+                      class="text-brand-600 hover:underline text-xs" title="Preview Image">Preview</button>
+              {% endif %}
+              <a href="{{ doc.file_path }}" target="_blank" rel="noopener"
+                 onclick="event.stopPropagation()"
+                 class="inline-flex items-center gap-1 text-brand-600 hover:underline text-xs">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                Open
+              </a>
+            </div>
             {% else %}
-            <span class="text-xs text-gray-400 font-mono truncate max-w-[160px] block">{{ doc.file_path }}</span>
+            <div class="flex items-center gap-2">
+              {% if is_pdf %}
+              <button onclick="previewDoc('{{ fp }}','{{ doc.title | replace("'", "\\'") }}','pdf')"
+                      class="text-brand-600 hover:underline text-xs" title="Preview PDF">Preview</button>
+              {% elif is_image %}
+              <button onclick="previewDoc('{{ fp }}','{{ doc.title | replace("'", "\\'") }}','image')"
+                      class="text-brand-600 hover:underline text-xs" title="Preview Image">Preview</button>
+              {% endif %}
+              <a href="{{ doc.file_path }}" target="_blank" rel="noopener"
+                 onclick="event.stopPropagation()"
+                 class="inline-flex items-center gap-1 text-brand-600 hover:underline text-xs">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                Open
+              </a>
+            </div>
             {% endif %}
           {% else %}
           <span class="text-gray-300">—</span>
@@ -256,15 +282,31 @@
           <div class="bg-gray-50 rounded-xl p-3">
             <div class="text-xs text-gray-400 mb-0.5">Link / Path</div>
             {% if doc.file_path and doc.file_path != '—' %}
-              {% if doc.file_path.startswith('http') %}
-              <a href="{{ doc.file_path }}" target="_blank" rel="noopener"
-                 class="text-sm text-brand-600 hover:underline inline-flex items-center gap-1">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
-                Open Link
-              </a>
-              {% else %}
-              <div class="text-sm font-mono text-gray-700 break-all">{{ doc.file_path }}</div>
-              {% endif %}
+              {% set fp = doc.file_path %}
+              {% set is_image = fp.endswith('.jpg') or fp.endswith('.jpeg') or fp.endswith('.png') or fp.endswith('.webp') or fp.endswith('.gif') or doc.document_type.value == 'photo' %}
+              {% set is_pdf = fp.endswith('.pdf') %}
+              <div class="flex items-center gap-2 flex-wrap">
+                {% if is_pdf %}
+                <button onclick="previewDoc('{{ fp }}','{{ doc.title | replace("'", "\\'") }}','pdf')"
+                        class="text-brand-600 hover:underline text-xs font-medium">Preview PDF</button>
+                {% elif is_image %}
+                <button onclick="previewDoc('{{ fp }}','{{ doc.title | replace("'", "\\'") }}','image')"
+                        class="text-brand-600 hover:underline text-xs font-medium">Preview Image</button>
+                {% endif %}
+                {% if doc.file_path.startswith('http') %}
+                <a href="{{ doc.file_path }}" target="_blank" rel="noopener"
+                   class="text-sm text-brand-600 hover:underline inline-flex items-center gap-1">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                  Open Link
+                </a>
+                {% else %}
+                <a href="{{ doc.file_path }}" target="_blank" rel="noopener"
+                   class="text-sm text-brand-600 hover:underline inline-flex items-center gap-1">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                  Open File
+                </a>
+                {% endif %}
+              </div>
             {% else %}
             <div class="text-sm text-gray-400">—</div>
             {% endif %}

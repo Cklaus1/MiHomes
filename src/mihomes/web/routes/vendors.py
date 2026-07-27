@@ -1,20 +1,26 @@
 """Vendor routes."""
 
+from pathlib import Path
 from typing import List
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
+from mihomes.models.document import DocumentType
+from mihomes.services import document as document_svc
 from mihomes.services import note as note_svc
 from mihomes.services import vendor as vendor_svc
 from mihomes.web.deps import get_db, templates
 
 router = APIRouter()
+_UPLOADS_DIR = Path(__file__).parent.parent / "static" / "uploads"
 
 
 def _ctx(db: Session) -> dict:
     from collections import Counter
+
     from mihomes.services import property as prop_svc
 
     active_vendors = vendor_svc.list_vendors(db, active_only=True)
@@ -39,12 +45,17 @@ def _ctx(db: Session) -> dict:
                 cat_groups.setdefault(cat.lower(), Counter())[cat] += 1
     all_categories = sorted(max(counts, key=counts.get) for counts in cat_groups.values())
 
+    vendor_docs_map = {
+        v.slug: document_svc.list_documents(db, entity_type="vendor", entity_id=v.id)
+        for v in all_vendors
+    }
     return {
         "page": "vendors",
         "active_vendors": active_vendors,
         "inactive_vendors": inactive_vendors,
         "vendor_ratings": {v.slug: vendor_svc.get_vendor_ratings(db, v.slug)["ratings"] for v in all_vendors},
         "notes_map": {v.id: note_svc.list_notes(db, f"vendor:{v.id}") for v in all_vendors},
+        "vendor_docs_map": vendor_docs_map,
         "properties": properties,
         "vendor_properties": vendor_properties,
         "all_categories": all_categories,
@@ -140,7 +151,7 @@ def edit_vendor(
 
     # Build contacts list — skip entirely empty rows
     contacts = []
-    for name, role, phone, email in zip(c_name, c_role, c_phone, c_email):
+    for name, role, phone, email in zip(c_name, c_role, c_phone, c_email, strict=True):
         if any([name.strip(), phone.strip(), email.strip()]):
             contacts.append({
                 "name": name.strip(),
@@ -195,4 +206,45 @@ def delete_note(request: Request, slug: str, note_id: int, db: Session = Depends
         "notes": notes,
         "post_url": f"/vendors/{slug}/notes",
         "delete_url_prefix": f"/vendors/{slug}/notes",
+    })
+
+
+@router.post("/{slug}/documents", response_class=HTMLResponse)
+async def add_document(
+    request: Request,
+    slug: str,
+    title: str = Form(...),
+    doc_type: str = Form("invoice"),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    vendor = vendor_svc.get_vendor(db, slug)
+    suffix = Path(file.filename).suffix.lower()
+    filename = f"{uuid4().hex}{suffix}"
+    (_UPLOADS_DIR / filename).write_bytes(await file.read())
+    document_svc.create_document(
+        db,
+        title=title,
+        file_path=f"/static/uploads/{filename}",
+        document_type=DocumentType(doc_type),
+        entity_type="vendor",
+        entity_id=vendor.id,
+    )
+    docs = document_svc.list_documents(db, entity_type="vendor", entity_id=vendor.id)
+    return templates.TemplateResponse(request, "partials/docs_section.html", {
+        "docs": docs,
+        "post_url": f"/vendors/{slug}/documents",
+        "delete_url_prefix": f"/vendors/{slug}/documents",
+    })
+
+
+@router.delete("/{slug}/documents/{doc_id}", response_class=HTMLResponse)
+def delete_document(request: Request, slug: str, doc_id: int, db: Session = Depends(get_db)):
+    document_svc.delete_document(db, str(doc_id))
+    vendor = vendor_svc.get_vendor(db, slug)
+    docs = document_svc.list_documents(db, entity_type="vendor", entity_id=vendor.id)
+    return templates.TemplateResponse(request, "partials/docs_section.html", {
+        "docs": docs,
+        "post_url": f"/vendors/{slug}/documents",
+        "delete_url_prefix": f"/vendors/{slug}/documents",
     })

@@ -11,7 +11,15 @@
       "Bash(python -m mihomes --help)",
       "Bash(mihomes --help)",
       "Bash(python -c \":*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(mihomes property *)",
+      "Bash(mihomes space *)",
+      "Bash(mihomes asset *)",
+      "Bash(mihomes config *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "WebFetch(domain:www.ycloud.com)",
+      "WebFetch(domain:flowcall.co)"
     ]
   }
 }

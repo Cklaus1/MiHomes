@@ -1,16 +1,22 @@
 """Staff routes."""
 
-from fastapi import APIRouter, Depends, Form, Request
+from pathlib import Path
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, Form, Request, UploadFile, File
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
+from mihomes.models.document import DocumentType
 from mihomes.models.staff import CATEGORY_ORDER, StaffRole, category_for_role, is_staff_role
+from mihomes.services import document as document_svc
 from mihomes.services import note as note_svc
 from mihomes.services import property as prop_svc
 from mihomes.services import staff as staff_svc
 from mihomes.web.deps import get_db, templates
 
 router = APIRouter()
+_UPLOADS_DIR = Path(__file__).parent.parent / "static" / "uploads"
 
 
 def _ctx(db: Session) -> dict:
@@ -34,12 +40,15 @@ def _ctx(db: Session) -> dict:
         "roles": [r.value for r in StaffRole],
         "role_groups": role_groups,
         "notes_map": {m.id: note_svc.list_notes(db, f"staff:{m.id}") for m in staff},
+        "staff_docs_map": {m.slug: document_svc.list_documents(db, entity_type="staff", entity_id=m.id) for m in staff},
     }
 
 
 @router.get("/")
 def list_staff(request: Request, db: Session = Depends(get_db)):
-    return templates.TemplateResponse(request, "staff.html", _ctx(db))
+    ctx = _ctx(db)
+    ctx["staff_docs_map"] = ctx["staff_docs_map"]
+    return templates.TemplateResponse(request, "staff.html", ctx)
 
 
 @router.post("/", response_class=HTMLResponse)
@@ -129,4 +138,45 @@ def delete_note(request: Request, slug: str, note_id: int, db: Session = Depends
         "notes": notes,
         "post_url": f"/staff/{slug}/notes",
         "delete_url_prefix": f"/staff/{slug}/notes",
+    })
+
+
+@router.post("/{slug}/documents", response_class=HTMLResponse)
+async def add_document(
+    request: Request,
+    slug: str,
+    title: str = Form(...),
+    doc_type: str = Form("invoice"),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    member = staff_svc.get_staff(db, slug)
+    suffix = Path(file.filename).suffix.lower()
+    filename = f"{uuid4().hex}{suffix}"
+    (_UPLOADS_DIR / filename).write_bytes(await file.read())
+    document_svc.create_document(
+        db,
+        title=title,
+        file_path=f"/static/uploads/{filename}",
+        document_type=DocumentType(doc_type),
+        entity_type="staff",
+        entity_id=member.id,
+    )
+    docs = document_svc.list_documents(db, entity_type="staff", entity_id=member.id)
+    return templates.TemplateResponse(request, "partials/docs_section.html", {
+        "docs": docs,
+        "post_url": f"/staff/{slug}/documents",
+        "delete_url_prefix": f"/staff/{slug}/documents",
+    })
+
+
+@router.delete("/{slug}/documents/{doc_id}", response_class=HTMLResponse)
+def delete_document(request: Request, slug: str, doc_id: int, db: Session = Depends(get_db)):
+    document_svc.delete_document(db, str(doc_id))
+    member = staff_svc.get_staff(db, slug)
+    docs = document_svc.list_documents(db, entity_type="staff", entity_id=member.id)
+    return templates.TemplateResponse(request, "partials/docs_section.html", {
+        "docs": docs,
+        "post_url": f"/staff/{slug}/documents",
+        "delete_url_prefix": f"/staff/{slug}/documents",
     })

@@ -19,6 +19,7 @@ TOOL_SCHEMAS: list[dict] = [
             "type": "object",
             "properties": {
                 "property_slug": {"type": "string", "description": "Filter by property slug (optional)"},
+                "space_id": {"type": "integer", "description": "Filter by space/room ID (optional)"},
                 "genre": {"type": "string", "description": "Filter by genre (partial match, optional)"},
                 "author": {"type": "string", "description": "Filter by author (partial match, optional)"},
                 "title": {"type": "string", "description": "Search by title (partial match, optional)"},
@@ -294,6 +295,8 @@ def _query_library(session: Session, inp: dict) -> str:
         from mihomes.services.slug import resolve_identifier
         prop = resolve_identifier(session, Property, inp["property_slug"])
         q = q.filter(Book.property_id == prop.id)
+    if inp.get("space_id"):
+        q = q.filter(Book.space_id == inp["space_id"])
     if inp.get("genre"):
         q = q.filter(Book.genre.ilike(f"%{inp['genre']}%"))
     if inp.get("author"):
@@ -306,18 +309,33 @@ def _query_library(session: Session, inp: dict) -> str:
     total = q.count()
 
     if inp.get("count_only"):
-        # Also break down by property
-        from mihomes.models.property import Property as Prop
-        by_prop = (
-            session.query(Prop.name, func.count(Book.id))
-            .join(Book, Book.property_id == Prop.id)
+        lines = [f"Total books in library: {total}"]
+        # Break down by property (only when not scoped by space_id)
+        if not inp.get("space_id"):
+            from mihomes.models.property import Property as Prop
+            by_prop = (
+                session.query(Prop.name, func.count(Book.id))
+                .join(Book, Book.property_id == Prop.id)
+                .filter(Book.active.is_(True))
+                .group_by(Prop.id)
+                .all()
+            )
+            for name, cnt in by_prop:
+                lines.append(f"  - {name}: {cnt} books")
+        # Break down by space/room
+        from mihomes.models.space import Space
+        by_space = (
+            session.query(Space.name, func.count(Book.id))
+            .join(Book, Book.space_id == Space.id)
             .filter(Book.active.is_(True))
-            .group_by(Prop.id)
+            .group_by(Space.id)
+            .order_by(func.count(Book.id).desc())
             .all()
         )
-        lines = [f"Total books in library: {total}"]
-        for name, cnt in by_prop:
-            lines.append(f"  - {name}: {cnt} books")
+        if by_space:
+            lines.append("By room:")
+            for name, cnt in by_space:
+                lines.append(f"  - {name}: {cnt} books")
         # Genre breakdown
         genres = (
             session.query(Book.genre, func.count(Book.id))

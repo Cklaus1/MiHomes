@@ -1,8 +1,10 @@
 """Documents & playbooks routes."""
 
+import uuid
 from datetime import date
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from sqlalchemy.orm import Session
 
 from mihomes.models.document import DocumentType
@@ -11,6 +13,8 @@ from mihomes.services import property as prop_svc
 from mihomes.web.deps import get_db, templates
 
 router = APIRouter()
+
+_UPLOADS_DIR = Path(__file__).parent.parent / "static" / "uploads"
 
 DOC_TYPE_LABELS = {
     "sop": "Playbook / SOP",
@@ -55,6 +59,21 @@ def _ctx(db: Session, type_filter: str = "", **kwargs) -> dict:
     }
 
 
+def _save_file(file: UploadFile | None) -> str:
+    """Save an uploaded file and return its /static/uploads/ path.
+
+    Returns an empty string when no file is uploaded (caller can fall back
+    to a URL / manual file_path).
+    """
+    if not file or not file.filename:
+        return ""
+    _UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    suffix = Path(file.filename).suffix.lower()
+    filename = f"{uuid.uuid4().hex}{suffix}"
+    (_UPLOADS_DIR / filename).write_bytes(file.file.read())
+    return f"/static/uploads/{filename}"
+
+
 @router.get("/")
 def list_documents(request: Request, type: str = "", db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "documents.html", _ctx(db, type_filter=type))
@@ -66,15 +85,19 @@ def create_document(
     title: str = Form(...),
     document_type: str = Form(...),
     file_path: str = Form(""),
+    file: UploadFile = File(None),
     notes: str | None = Form(None),
     expires_at: str | None = Form(None),
     property_id: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
+    uploaded = _save_file(file)
+    path = uploaded or file_path.strip() or "—"
+
     doc_svc.create_document(
         db,
         title=title,
-        file_path=file_path.strip() or "—",
+        file_path=path,
         document_type=DocumentType(document_type),
         notes=notes or None,
         expires_at=date.fromisoformat(expires_at) if expires_at else None,
@@ -91,16 +114,20 @@ def edit_document(
     title: str = Form(...),
     document_type: str = Form(...),
     file_path: str = Form(""),
+    file: UploadFile = File(None),
     notes: str | None = Form(None),
     expires_at: str | None = Form(None),
     property_id: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
+    uploaded = _save_file(file)
+    path = uploaded or file_path.strip() or "—"
+
     doc_svc.update_document(
         db, slug,
         title=title,
         document_type=DocumentType(document_type),
-        file_path=file_path.strip() or "—",
+        file_path=path,
         notes=notes or None,
         expires_at=date.fromisoformat(expires_at) if expires_at else None,
         entity_type="property" if property_id else None,

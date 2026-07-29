@@ -129,7 +129,9 @@ def _resync_transaction(session: Session, wo: WorkOrder) -> None:
     ).first()
     if tx is None:
         return
-    cost = wo.actual_cost or wo.estimated_cost
+    # M2: use actual_cost when it is set even if 0.0 (warranty/$0 work); a
+    # bare `or` would discard 0.0 and book a phantom estimate instead.
+    cost = wo.actual_cost if wo.actual_cost is not None else wo.estimated_cost
     if cost is None:
         return
     old_tx_snap = snapshot_instance(tx)
@@ -183,7 +185,9 @@ def complete(
     session.flush()
 
     # Create a budget transaction for the completed work
-    cost = wo.actual_cost or wo.estimated_cost
+    # M2: use actual_cost when it is set even if 0.0 (warranty/$0 work); a
+    # bare `or` would discard 0.0 and book a phantom estimate instead.
+    cost = wo.actual_cost if wo.actual_cost is not None else wo.estimated_cost
     if cost is None:
         raise ValueError("Cannot complete work order without estimated or actual cost. Provide --actual-cost.")
     if cost > 0:

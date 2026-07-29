@@ -7,6 +7,7 @@ from sqlalchemy import Date, Enum, Float, ForeignKey, Integer, String, Text, Uni
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mihomes.models import Base, SlugMixin, TimestampMixin
+from mihomes.type.money import Money
 
 
 class EventStatus(str, enum.Enum):
@@ -26,7 +27,7 @@ class Event(Base, TimestampMixin, SlugMixin):
     event_date: Mapped[date] = mapped_column(Date, nullable=False)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     expected_guests: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    budget: Mapped[float | None] = mapped_column(Float, nullable=True)
+    budget: Mapped[float | None] = mapped_column(Money, nullable=True)
     currency: Mapped[str] = mapped_column(String(10), default="USD")
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[EventStatus] = mapped_column(Enum(EventStatus), default=EventStatus.PLANNING)

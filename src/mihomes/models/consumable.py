@@ -7,6 +7,7 @@ from sqlalchemy import Date, DateTime, Enum, Float, ForeignKey, Integer, String,
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mihomes.models import Base, SlugMixin, TimestampMixin
+from mihomes.type.money import Money
 
 
 class ConsumableStatus(str, enum.Enum):
@@ -28,7 +29,7 @@ class Consumable(Base, TimestampMixin, SlugMixin):
     quantity_to_order: Mapped[float | None] = mapped_column(Float, nullable=True)
     par_level: Mapped[float | None] = mapped_column(Float, nullable=True)
     low_stock_threshold: Mapped[float | None] = mapped_column(Float, nullable=True)
-    unit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    unit_price: Mapped[float | None] = mapped_column(Money, nullable=True)
     last_ordered_at: Mapped[date | None] = mapped_column(Date, nullable=True)
     status: Mapped[ConsumableStatus] = mapped_column(
         Enum(ConsumableStatus), default=ConsumableStatus.OK, nullable=False
@@ -48,7 +49,7 @@ class ConsumablePriceEntry(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     consumable_id: Mapped[int] = mapped_column(Integer, ForeignKey("consumables.id"), nullable=False, index=True)
     date: Mapped[date] = mapped_column(Date, nullable=False)
-    price: Mapped[float] = mapped_column(Float, nullable=False)
+    price: Mapped[float] = mapped_column(Money, nullable=False)
     quantity: Mapped[float] = mapped_column(Float, default=1.0)
     entry_type: Mapped[str] = mapped_column(String(50), default="purchase")
     note: Mapped[str | None] = mapped_column(Text, nullable=True)

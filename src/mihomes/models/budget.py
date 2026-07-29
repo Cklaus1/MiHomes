@@ -7,6 +7,7 @@ from sqlalchemy import Date, Enum, Float, ForeignKey, Integer, String, Text, Uni
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mihomes.models import Base, TimestampMixin
+from mihomes.type.money import Money
 
 
 class BudgetPeriod(str, enum.Enum):
@@ -29,7 +30,7 @@ class Budget(Base, TimestampMixin):
     category: Mapped[str] = mapped_column(String(100), nullable=False)
     period: Mapped[BudgetPeriod] = mapped_column(Enum(BudgetPeriod), nullable=False)
     period_start: Mapped[date] = mapped_column(Date, nullable=False)
-    amount: Mapped[float] = mapped_column(Float, nullable=False)
+    amount: Mapped[float] = mapped_column(Money, nullable=False)
     currency: Mapped[str] = mapped_column(String(10), default="USD")
 
     property = relationship("Property")
@@ -39,7 +40,7 @@ class Transaction(Base, TimestampMixin):
     __tablename__ = "transactions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    amount: Mapped[float] = mapped_column(Float, nullable=False)
+    amount: Mapped[float] = mapped_column(Money, nullable=False)
     currency: Mapped[str] = mapped_column(String(10), default="USD")
     property_id: Mapped[int] = mapped_column(Integer, ForeignKey("properties.id"), index=True, nullable=False)
     vendor_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("vendors.id"), index=True, nullable=True)

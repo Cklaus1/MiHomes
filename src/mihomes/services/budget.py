@@ -33,10 +33,15 @@ def set_budget(
         Budget.period_start == period_start,
     ).first()
     if existing:
+        # Capture the old amount BEFORE reassigning, or the audit log records
+        # old==new (M6). currency changes ride along in the same audit entry.
+        old_amount = existing.amount
         existing.amount = amount
         existing.currency = currency
         session.flush()
-        record_change(session, "budget", existing.id, "update", {"amount": {"old": existing.amount, "new": amount}})
+        if old_amount != amount:
+            record_change(session, "budget", existing.id, "update",
+                          {"amount": {"old": old_amount, "new": amount}})
         return existing
     budget = Budget(
         property_id=prop.id, category=category, period=period,

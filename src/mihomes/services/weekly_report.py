@@ -162,7 +162,7 @@ def generate(session: Session, property_slug: str | None = None) -> dict:
     for prop in properties:
         prop_budgets = session.query(Budget).filter(Budget.property_id == prop.id).all()
         budgeted_mtd = sum(
-            b.amount for b in prop_budgets
+            _monthly_budget_share(b.amount, b.period) for b in prop_budgets
             if _budget_covers_month(b.period_start, b.period, month_start)
         )
         spent_mtd = (
@@ -292,6 +292,20 @@ def _serialize_wo(wo: WorkOrder) -> dict:
         "title": wo.title,
         "status": wo.status.value,
     }
+
+
+def _monthly_budget_share(amount: float, period: BudgetPeriod) -> float:
+    """The monthly-equivalent slice of a budget (M3).
+
+    A quarterly/annual budget is a total for its whole period; comparing its
+    full value against a single month's spend meant the over-budget flag never
+    fired for them. Prorate to a per-month figure (÷3, ÷12).
+    """
+    if period == BudgetPeriod.QUARTERLY:
+        return amount / 3
+    if period == BudgetPeriod.ANNUAL:
+        return amount / 12
+    return amount  # MONTHLY
 
 
 def _budget_covers_month(period_start: date, period: BudgetPeriod, month_start: date) -> bool:

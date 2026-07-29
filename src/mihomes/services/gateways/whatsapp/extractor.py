@@ -2,11 +2,9 @@
 
 import json
 from datetime import datetime, timezone
-from pathlib import Path
 
 from sqlalchemy.orm import Session
 
-from mihomes.config import MIHOMES_DIR
 from mihomes.services.config_service import get_config, set_config
 from mihomes.services.gateways.whatsapp.client import WhatsAppClient
 from mihomes.services.gateways.whatsapp.review import analyze_messages
@@ -16,8 +14,10 @@ LAST_RUN_KEY = "whatsapp.last_extract_ts"
 # Persisted set of message IDs already processed — prevents duplicate
 # issue/task creation if the extractor runs before the timestamp advances
 # or if messages arrive with out-of-order timestamps.
-PROCESSED_IDS_FILE = MIHOMES_DIR / "whatsapp-processed-ids.json"
-MAX_PROCESSED_IDS = 5000  # cap file size; oldest entries are pruned first
+# M22: share ONE dedup store with the monitor (same config key), not a separate
+# sidecar file, so an id handled by either poller is seen by both.
+PROCESSED_IDS_KEY = "whatsapp.processed_ids"
+MAX_PROCESSED_IDS = 5000  # cap store size; oldest entries are pruned first
 
 
 def extract_and_create(
@@ -46,7 +46,7 @@ def extract_and_create(
             except ValueError:
                 since = None
 
-    messages = client.get_messages(since=since, limit=500)
+    messages = client.drain_messages(since=since, limit=500)
 
     if not messages:
         _update_last_run(session)
@@ -110,7 +110,7 @@ def extract_and_create(
 
     # Mark all fetched messages as processed (not just actionable ones)
     new_ids = [m["id"] for m in new_messages if m.get("id")]
-    _save_processed_ids(processed_ids | set(new_ids))
+    _add_processed_ids(new_ids)
     _update_last_run(session)
 
     return {
@@ -122,26 +122,20 @@ def extract_and_create(
     }
 
 
+def _id_store() -> "ProcessedIdStore":
+    from mihomes.services.gateways.dedup import ProcessedIdStore
+
+    return ProcessedIdStore(PROCESSED_IDS_KEY, cap=MAX_PROCESSED_IDS)
+
+
 def _load_processed_ids() -> set:
-    """Load the set of already-processed message IDs from disk."""
-    if PROCESSED_IDS_FILE.exists():
-        try:
-            return set(json.loads(PROCESSED_IDS_FILE.read_text()))
-        except (json.JSONDecodeError, OSError):
-            pass
-    return set()
+    """Load the set of already-processed message IDs (shared store)."""
+    return set(_id_store().load())
 
 
-def _save_processed_ids(ids: set) -> None:
-    """Persist processed message IDs, pruning oldest if over the cap."""
-    id_list = list(ids)
-    if len(id_list) > MAX_PROCESSED_IDS:
-        id_list = id_list[-MAX_PROCESSED_IDS:]
-    try:
-        PROCESSED_IDS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        PROCESSED_IDS_FILE.write_text(json.dumps(id_list))
-    except OSError:
-        pass  # Non-fatal — worst case we re-process a message
+def _add_processed_ids(ids) -> None:
+    """Append processed message IDs to the shared store (prunes oldest)."""
+    _id_store().add(ids)
 
 
 def _update_last_run(session: Session) -> None:

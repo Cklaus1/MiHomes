@@ -27,11 +27,13 @@ WA_BACKOFF_MAX = 900               # cap WhatsApp restart backoff at 15 min
 def _pid_running(pid: int) -> bool:
     if sys.platform == "win32":
         try:
+            sys.path.insert(0, str(PROJECT_ROOT / "src"))
+            from mihomes.services.gateways.pid import tasklist_has_pid
             result = subprocess.run(
                 ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV"],
                 capture_output=True, text=True,
             )
-            return str(pid) in result.stdout
+            return tasklist_has_pid(result.stdout, pid)
         except Exception:
             return False
     try:

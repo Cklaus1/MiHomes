@@ -188,68 +188,87 @@ def process_and_respond(
     if not messages:
         return {"replied": 0, "logged": 0, "errors": []}
 
-    # Resolve reply target early so we can report errors to the group
-    reply_jid = next(
-        (m["jid"] for m in messages if m.get("jid") and (m.get("propertySlug") or property_slug)),
-        None,
+    # M26: a batch can span several groups of the same property. Dispatch each
+    # group independently so replies land in the group they came from.
+    groups = rc.group_by_target(
+        [m for m in messages if m.get("propertySlug") or property_slug]
     )
-    if not reply_jid:
+    if not groups:
         return {"replied": 0, "logged": 0, "errors": ["No linked group JID found"]}
 
-    # Route inventory group messages straight to the room scanner
+    from mihomes.models.staff import Staff
     from mihomes.services.config_service import get_config
     inventory_jid = get_config(session, "whatsapp.inventory_group_jid")
-    if inventory_jid and reply_jid == inventory_jid:
-        inv_property = (messages[0].get("propertySlug") or property_slug or "belle-estate")
-        return handle_inventory_scan(session, messages, inv_property, reply_jid, client)
 
-    def _send_error_to_group(detail: str) -> None:
+    totals = {"replied": 0, "logged": 0, "errors": []}
+    for reply_jid, group_msgs in groups.items():
+        # Route inventory group messages straight to the room scanner
+        if inventory_jid and reply_jid == inventory_jid:
+            inv_property = (group_msgs[0].get("propertySlug") or property_slug or "belle-estate")
+            r = handle_inventory_scan(session, group_msgs, inv_property, reply_jid, client)
+            totals["replied"] += r.get("replied", 0)
+            totals["logged"] += r.get("logged", 0)
+            totals["errors"].extend(r.get("errors", []))
+            continue
+
+        def _send_error_to_group(detail: str, _jid=reply_jid) -> None:
+            # M27: generic message to the group; detail is logged locally only.
+            try:
+                client.send_group_message(
+                    _jid, "🏠 ⚠️ Bot error — couldn't process message(s). Please log manually."
+                )
+            except Exception:
+                logger.exception("_send_error_to_group: suppressed exception")
+            logger.error("responder group error (jid %s): %s", _jid, detail)
+
         try:
-            client.send_group_message(
-                reply_jid,
-                f"🏠 ⚠️ Bot error — couldn't process message(s). Please log manually.\n_{detail}_",
-            )
-        except Exception:
-            logger.exception("_send_error_to_group: suppressed exception")
+            result = analyze_messages(session, group_msgs, property_name=property_slug, property_slug=property_slug)
+        except AIProviderError as e:
+            logger.error("AI provider error during message analysis: %s", e)
+            _send_error_to_group(str(e))
+            totals["errors"].append(f"AI provider error: {e}")
+            continue
+        except Exception as e:
+            logger.error("Unexpected error during message analysis: %s", e)
+            _send_error_to_group(str(e))
+            totals["errors"].append(f"Unexpected error: {e}")
+            continue
 
-    try:
-        result = analyze_messages(session, messages, property_name=property_slug, property_slug=property_slug)
-    except AIProviderError as e:
-        logger.error("AI provider error during message analysis: %s", e)
-        _send_error_to_group(str(e))
-        return {"replied": 0, "logged": 0, "errors": [f"AI provider error: {e}"]}
-    except Exception as e:
-        logger.error("Unexpected error during message analysis: %s", e)
-        _send_error_to_group(str(e))
-        return {"replied": 0, "logged": 0, "errors": [f"Unexpected error: {e}"]}
-
-    items = result.get("items", [])
-
-    # Build phone → staff lookup for reporter identification (H25: phone from `sender`).
-    from mihomes.models.staff import Staff
-    phone_to_staff: dict[str, object] = {}
-    for msg in messages:
-        phone = rc.sender_phone(msg)
-        if phone and phone not in phone_to_staff:
-            for s in session.query(Staff).filter(Staff.whatsapp_phone.isnot(None)).all():
-                s_phone = (s.whatsapp_phone or "").replace("+", "").replace("-", "").replace(" ", "")
-                if s_phone and (s_phone in phone or phone in s_phone):
-                    phone_to_staff[phone] = s
-                    break
-
-    def _resolve_reporter(item: dict) -> int | None:
-        """Match reporter by phone (from the batch) first, then by AI-extracted name."""
-        for msg in messages:
+        # Build phone → staff lookup for reporter identification (H25: phone from `sender`).
+        phone_to_staff: dict[str, object] = {}
+        for msg in group_msgs:
             phone = rc.sender_phone(msg)
-            if phone and phone in phone_to_staff:
-                return phone_to_staff[phone].id
-        return rc.resolve_reporter_by_name(session, item.get("reported_by"))
+            if phone and phone not in phone_to_staff:
+                for s in session.query(Staff).filter(Staff.whatsapp_phone.isnot(None)).all():
+                    s_phone = (s.whatsapp_phone or "").replace("+", "").replace("-", "").replace(" ", "")
+                    if s_phone and (s_phone in phone or phone in s_phone):
+                        phone_to_staff[phone] = s
+                        break
 
-    return rc.dispatch_items(
-        session, items,
-        adapter=adapter,
-        reply_target=reply_jid,
-        messages=messages,
-        property_slug=property_slug,
-        resolve_reporter=_resolve_reporter,
-    )
+        def _resolve_reporter(item: dict, _p2s=phone_to_staff, _msgs=group_msgs) -> int | None:
+            """Match reporter by phone (from the batch) first, then by AI-extracted name."""
+            for msg in _msgs:
+                phone = rc.sender_phone(msg)
+                if phone and phone in _p2s:
+                    return _p2s[phone].id
+            return rc.resolve_reporter_by_name(session, item.get("reported_by"))
+
+        # M27: sensitive actions only for a group whose every sender is trusted.
+        sender_trusted = bool(group_msgs) and all(
+            rc.is_trusted_sender(session, m, gateway="whatsapp") for m in group_msgs
+        )
+
+        r = rc.dispatch_items(
+            session, result.get("items", []),
+            adapter=adapter,
+            reply_target=reply_jid,
+            messages=group_msgs,
+            property_slug=property_slug,
+            resolve_reporter=_resolve_reporter,
+            sender_trusted=sender_trusted,
+        )
+        totals["replied"] += r.get("replied", 0)
+        totals["logged"] += r.get("logged", 0)
+        totals["errors"].extend(r.get("errors", []))
+
+    return totals

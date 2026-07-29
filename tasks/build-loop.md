@@ -119,7 +119,7 @@ Group headers carry the resume checkbox (§1.3).
 - [x] S.12 · M5+M10 · rating 1–5 validation shared helper; exact `func.lower(col)==` / escaped LIKE across the M10 census · verify: `tests/unit/test_vendor_rating.py`, `tests/unit/test_fuzzy_match.py`
 - [x] S.13 · M34+M35+M37 · situation-report max_tokens/stop_reason; `content[0]` guard + attachment handling in structured_output; NIM `media_type`; file_processor size cap · verify: `tests/unit/test_provider_content.py` (12 tests)
 
-### [ ] G-R2 — Gateway dedup core — *dep: G-R1*
+### [x] G-R2 — Gateway dedup core — *dep: G-R1*
 - [x] R2.1 · R2 · extract `services/gateways/review_common.py` (schema, `_ai_response`, `_handle_approval_message`, dispatch, photo-attach, gateway-aware notifier, monitor-loop); parameterize by client · verify: `tests/integration/test_gateway_review_common.py`
 - [x] R2.2 · H25 · WhatsApp approval derives phone from `sender` (`split("@")[0]`) · verify: `test_gateway_review_common.py` (sender_phone)
 - [x] R2.3 · H24 · route approver DMs into `_handle_approval_message` before propertySlug filter (**after H25**) · verify: `test_gateway_review_common.py` (handle_approval_messages)
@@ -127,14 +127,14 @@ Group headers carry the resume checkbox (§1.3).
 - [x] R2.5 · H36+M38 · `Vendor.company_name` (not `.name`) in telegram `_resolve_vendor` + `cli/report.py:326` · verify: `test_gateway_review_common.py` (resolve_vendor), `tests/integration/test_report_upcoming.py`
 - [x] R2.6 · H26 · issue photo path via shared helper (correct parents / MEDIA_DIR) · verify: `test_gateway_review_common.py::test_uploads_dir_is_real_package_path`
 - [x] R2.7 · H27 · rollback guard in `_ai_response` (or subsumed by R2.1) · verify: covered by test_gateway_review_common
-- [ ] R2.8 · H28 · clamp `getUpdates` limit ≤100, page by offset · verify: `test_telegram_client.py::test_limit_clamped`
-- [ ] R2.9 · M21 · **poison-message guard**: mark IDs/attempt-count before processing (no ack-then-crash loss, no hot-loop) · verify: `test_offset_ack.py::test_crash_no_loss_no_hotloop`
-- [ ] R2.10 · M22+M23 · one dedup store per gateway; insertion-ordered prune (`dict.fromkeys`, front); guard concurrent poll vs extractor · verify: `test_dedup.py`
+- [x] R2.8 · H28 · clamp `getUpdates` limit ≤100, page by offset · verify: `tests/unit/test_telegram_client.py::test_limit_clamped`
+- [x] R2.9 · M21 · **poison-message guard**: mark IDs/attempt-count before processing (no ack-then-crash loss, no hot-loop) · verify: `tests/integration/test_offset_ack.py::test_crash_no_loss_no_hotloop`
+- [x] R2.10 · M22+M23 · one dedup store per gateway; insertion-ordered prune (`dict.fromkeys`, front); guard concurrent poll vs extractor · verify: `tests/integration/test_dedup.py`
 - [x] R2.11 · M24+L14 · unified review schema **and** dispatch; report skipped categories · verify: `test_gateway_review_common.py` (dispatch_items / DISPATCHABLE_CATEGORIES)
-- [ ] R2.12 · M25+M26+M27 · approval-failure feedback; group replies by jid; sender allowlist + generic group errors · verify: `test_gateway_safety.py`
-- [ ] R2.13 · M28+M30+M31 · exact Windows PID field match; WhatsApp burst loop-until-drained; `telegram stop` also stops whatsapp+bridge; add `whatsapp stop` · verify: `test_gateway_lifecycle.py`
-- [ ] R2.14 · M29 · bridge reconnect guard flag; rotate `messages.jsonl` on startup · verify: `tests/gateways/test_bridge.js` or documented manual check
-- [ ] R2.15 · L12+L13+L15 · `_parse_event_date` via `fromisoformat` (%z); read `"note"` (not `"notes"`); lazy media download after property filter · verify: `test_gateway_misc.py`
+- [x] R2.12 · M25+M26+M27 · approval-failure feedback; group replies by jid; sender allowlist + generic group errors · verify: `tests/integration/test_gateway_safety.py`
+- [x] R2.13 · M28+M30+M31 · exact Windows PID field match; WhatsApp burst loop-until-drained; `telegram stop` also stops whatsapp+bridge; add `whatsapp stop` · verify: `tests/unit/test_pid_match.py`, `tests/unit/test_whatsapp_drain.py`, `tests/unit/test_gateway_stop.py`
+- [x] R2.14 · M29 · bridge reconnect guard flag; rotate `messages.jsonl` on startup · verify: `bridge/test/lib.test.js` (`node --test`)
+- [x] R2.15 · L12+L13+L15 · `_parse_event_date` via `fromisoformat` (%z); read `"note"` (not `"notes"`); lazy media download after property filter · verify: `test_gateway_misc.py`
 
 ### [ ] G-Web — Web hardening — *dep: G-R2 (R3 web half), G0.3*
 - [ ] W.1 · M43/Q3 · **delete** `web/routes/reports.py` + `templates/reports.html` (dead) · verify: no import references; app still boots

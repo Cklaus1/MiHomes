@@ -14,7 +14,7 @@ Last updated: 2026-07-29
 - [x] **G-R5 — Money int-cents**: M1 TypeDecorator (`type/money.py`, 15 columns) · cast migration `b3f5c1d9a72e` (dollars→int-cents, round-trip clean) · M2+M3+M4+M6 finance math — *859 tests green; single head; autogenerate empty*
 - [x] **G-R1 — Ban silent swallows**: R1 census→`logger.exception` (42 sites/17 files) · smoke test (every tool+report) · L1 logging config — *882 tests green; smoke net caught a real latent bug (`TaskStatus.DONE`→`COMPLETED`)*
 - [x] **G-Svc — Silent-corruption sweep**: H15 double-count · H16 health period · H18 daily recurrence · H19 backfill · H20 calendar · H21 vendor soft-delete · H22 WO cost · H23 issue↔WO link · H12 date · H13 image-capability · H14 stream session · M5+M10 fuzzy · M34+M35+M37 provider content — *933 tests green*
-- [ ] **G-R2 — Gateway dedup core**: R2 `review_common.py` · H24–H28 · H35 PTO notifier · H36 vendor name · M21 poison-guard · M22–M31 · L12–L15
+- [x] **G-R2 — Gateway dedup core**: R2 `review_common.py` · H24–H28 · H35 PTO notifier · H36 vendor name · M21 poison-guard · M22–M31 · L12–L15 — *994 tests green + 5 bridge JS tests; shared `dedup.py`/`pid.py`; per-jid replies + sender allowlist (M25–M27); WA burst-drain (M30); `whatsapp stop` + telegram-stop reaps WA/bridge (M31); bridge reconnect guard + log compaction (M29)*
 - [ ] **G-Web — Web hardening**: M43 delete reports · H29 chart · H31+R3 error handlers · M40 ValueError · H30 CSRF/Host · H32 zip · M16 form parse · M17 active toggle · M18 XSS · M19+M20
 - [ ] **G-CLI — CLI parsing + tail**: M39+M40 · M41 exit code · M42 dashboard · L2–L11 hygiene
 - [ ] **G-Final — Compound stop**: full suite green · smoke green · spec reconciled · empty autogenerate · end-of-run report

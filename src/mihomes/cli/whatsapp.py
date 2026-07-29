@@ -44,12 +44,17 @@ def _start_bridge_process() -> bool:
         si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         si.wShowWindow = subprocess.SW_HIDE
         kwargs = {"creationflags": 0x08000000, "startupinfo": si}
-    subprocess.Popen(
+    proc = subprocess.Popen(
         ["node", "index.js"],
         cwd=str(_BRIDGE_DIR),
         stdout=log, stderr=log,
         **kwargs,
     )
+    # Record the bridge PID so `whatsapp stop` / `telegram stop` can reap it (M31).
+    try:
+        (_LOG_DIR / "bridge.pid").write_text(str(proc.pid))
+    except OSError:
+        pass
     for _ in range(15):
         time.sleep(2)
         if _bridge_running():
@@ -159,10 +164,11 @@ def _watchdog_pid_running(pid: int) -> bool:
             si = subprocess.STARTUPINFO()
             si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             si.wShowWindow = subprocess.SW_HIDE
+            from mihomes.services.gateways.pid import tasklist_has_pid
             r = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV"],
                                capture_output=True, text=True,
                                creationflags=0x08000000, startupinfo=si)
-            return str(pid) in r.stdout
+            return tasklist_has_pid(r.stdout, pid)
         except Exception:
             return False
     try:
@@ -241,6 +247,46 @@ def watchdog_cmd():
 
     _start_watchdog_now(watchdog_script, monitor_property)
     format_success("Watchdog started — bridge and monitor running silently in background")
+
+
+def stop_whatsapp_processes() -> bool:
+    """Stop the WhatsApp monitor and Node bridge on this device (spec M31).
+
+    Reusable so `telegram stop` (whose shared watchdog spawns these) can reap them
+    too. Returns True if anything was actually stopped.
+    """
+    import signal as _signal
+
+    from mihomes.services.gateways.pid import pid_running, stop_pid_file
+
+    def _kill(pid):
+        os.kill(pid, _signal.SIGTERM)
+
+    stopped_any = False
+    for label, filename in (("WhatsApp monitor", "whatsapp_monitor.pid"),
+                            ("WhatsApp bridge", "bridge.pid")):
+        status, pid = stop_pid_file(_LOG_DIR / filename, pid_running, _kill)
+        if status == "stopped":
+            format_success(f"Stopped local {label} (PID {pid})")
+            stopped_any = True
+        elif status == "error":
+            console.print(
+                f"[yellow]Could not stop {label} (PID {pid})[/yellow] "
+                f"— it may need an elevated terminal"
+            )
+    return stopped_any
+
+
+@app.command("stop")
+def stop_cmd():
+    """Stop the WhatsApp monitor + bridge on this device and disable autostart."""
+    from mihomes.services.config_service import set_config
+
+    stopped = stop_whatsapp_processes()
+    if not stopped:
+        console.print("[dim]No local WhatsApp monitor or bridge was running.[/dim]")
+    with get_session() as session:
+        set_config(session, "whatsapp.autostart", "false")
 
 
 @app.command("status")
@@ -458,25 +504,16 @@ def monitor(
 
     import json
     from datetime import timedelta
-    from pathlib import Path as _Path
 
-    _IDS_FILE = _Path.home() / ".mihomes" / "processed_msg_ids.json"
+    from mihomes.services.gateways.dedup import ProcessedIdStore
 
-    def _load_ids() -> set:
-        try:
-            return set(json.loads(_IDS_FILE.read_text()))
-        except Exception:
-            return set()
-
-    def _save_ids(ids: set) -> None:
-        try:
-            _IDS_FILE.write_text(json.dumps(list(ids)[-1000:]))
-        except Exception:
-            logger.exception("_save_ids: suppressed exception")
+    # One shared, insertion-ordered store per gateway (M22/M23): the extractor
+    # uses this same key; pruning drops the oldest ids, never the newest.
+    _id_store = ProcessedIdStore("whatsapp.processed_ids", cap=2000)
 
     # Load persisted IDs so restarts don't reprocess already-handled messages
     last_check = datetime.now(timezone.utc) - timedelta(minutes=15)
-    processed_ids: set = _load_ids()
+    processed_ids: set = set(_id_store.load())
 
     def _run_monitor_loop():
         nonlocal last_check, processed_ids
@@ -484,7 +521,9 @@ def monitor(
         while True:
             try:
                 now = datetime.now(timezone.utc)
-                messages = client.get_messages(since=last_check, limit=50)
+                # Drain the full backlog since last_check (M30): a burst larger
+                # than one page must not be truncated before we advance the cursor.
+                messages = client.drain_messages(since=last_check, limit=50)
 
                 new_msgs = [
                     m for m in messages
@@ -519,10 +558,9 @@ def monitor(
                     for err in all_errors:
                         console.print(f"  [yellow]⚠[/yellow] {err}")
 
-                    processed_ids.update(m["id"] for m in new_msgs if m.get("id"))
-                    if len(processed_ids) > 2000:
-                        processed_ids = set(list(processed_ids)[-1000:])
-                    _save_ids(processed_ids)
+                    new_ids = [m["id"] for m in new_msgs if m.get("id")]
+                    _id_store.add(new_ids)
+                    processed_ids.update(new_ids)
 
                 last_check = now
                 time.sleep(interval)

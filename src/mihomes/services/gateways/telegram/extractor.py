@@ -4,13 +4,14 @@ import json
 
 from sqlalchemy.orm import Session
 
-from mihomes.config import MIHOMES_DIR
 from mihomes.services.config_service import get_config, set_config
 from mihomes.services.gateways.telegram.review import analyze_messages
 
 LAST_UPDATE_ID_KEY = "telegram.last_update_id"
 
-PROCESSED_IDS_FILE = MIHOMES_DIR / "telegram-processed-ids.json"
+# M22: share ONE dedup store with the monitor (same config key) instead of a
+# separate sidecar JSON file, so an id handled by either poller is seen by both.
+PROCESSED_IDS_KEY = "telegram.processed_ids"
 MAX_PROCESSED_IDS = 5000
 
 
@@ -114,7 +115,7 @@ def extract_and_create(
             errors.append(f"Failed to create '{title}': {e}")
 
     new_ids = [m["id"] for m in new_messages if m.get("id")]
-    _save_processed_ids(processed_ids | set(new_ids))
+    _add_processed_ids(new_ids)
     _save_last_update_id(session, new_last_update_id)
 
     return {
@@ -141,24 +142,18 @@ def _save_last_update_id(session: Session, update_id: int | None) -> None:
         set_config(session, LAST_UPDATE_ID_KEY, str(update_id))
 
 
+def _id_store() -> "ProcessedIdStore":
+    from mihomes.services.gateways.dedup import ProcessedIdStore
+
+    return ProcessedIdStore(PROCESSED_IDS_KEY, cap=MAX_PROCESSED_IDS)
+
+
 def _load_processed_ids() -> set:
-    if PROCESSED_IDS_FILE.exists():
-        try:
-            return set(json.loads(PROCESSED_IDS_FILE.read_text()))
-        except (json.JSONDecodeError, OSError):
-            pass
-    return set()
+    return set(_id_store().load())
 
 
-def _save_processed_ids(ids: set) -> None:
-    id_list = list(ids)
-    if len(id_list) > MAX_PROCESSED_IDS:
-        id_list = id_list[-MAX_PROCESSED_IDS:]
-    try:
-        PROCESSED_IDS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        PROCESSED_IDS_FILE.write_text(json.dumps(id_list))
-    except OSError:
-        pass
+def _add_processed_ids(ids) -> None:
+    _id_store().add(ids)
 
 
 def _empty_result(messages_processed: int) -> dict:

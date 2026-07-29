@@ -607,32 +607,102 @@ def handle_approval_messages(
         reply_target = message.get("jid")
 
         if approve_match:
+            req_id = approve_match.group(1)
             try:
-                req = approve_pto(session, int(approve_match.group(1)), decided_by="approver")
+                req = approve_pto(session, int(req_id), decided_by="approver")
                 notify_staff(session, req)
                 if reply_target:
                     adapter.send(reply_target, f"PTO approved for {req.staff.name} — {', '.join(req.dates)} ✓")
             except Exception:
-                logger.exception("handle_approval_messages: approve failed")
+                # M25: the approver must hear that it failed — but only a generic
+                # message; the exception detail is logged locally, never sent.
+                logger.exception("handle_approval_messages: approve failed for #%s", req_id)
+                if reply_target:
+                    adapter.send(reply_target, f"Could not approve #{req_id} — please try again or log manually.")
             continue
 
         if deny_match:
+            req_id = deny_match.group(1)
             try:
                 req = deny_pto(
-                    session, int(deny_match.group(1)),
+                    session, int(req_id),
                     decided_by="approver", reason=deny_match.group(2) or None,
                 )
                 notify_staff(session, req)
                 if reply_target:
                     adapter.send(reply_target, f"PTO denied for {req.staff.name} — {', '.join(req.dates)}")
             except Exception:
-                logger.exception("handle_approval_messages: deny failed")
+                logger.exception("handle_approval_messages: deny failed for #%s", req_id)
+                if reply_target:
+                    adapter.send(reply_target, f"Could not deny #{req_id} — please try again or log manually.")
             continue
 
         # From the approver but not a command — let it flow through analysis.
         remaining.append(message)
 
     return remaining
+
+
+# Categories that create money/PTO/resolution records — gated behind a trusted
+# sender so a random group member can't move the estate's books (M27). Plain
+# issue/task/question reporting stays open to everyone.
+SENSITIVE_CATEGORIES = frozenset({
+    "expense_log", "pto_request", "issue_resolution",
+    "work_order_request", "task_completion",
+})
+
+
+def group_by_target(messages: list[dict]) -> dict[str, list[dict]]:
+    """Group messages by their originating chat jid, preserving order (M26).
+
+    A batch can span multiple chats of the same property; each chat must get its
+    own replies rather than everything landing on the first message's jid.
+    Messages without a jid are dropped (there is nowhere to reply).
+    """
+    groups: dict[str, list[dict]] = {}
+    for m in messages:
+        jid = m.get("jid")
+        if not jid:
+            continue
+        groups.setdefault(jid, []).append(m)
+    return groups
+
+
+def is_trusted_sender(session: Session, message: dict, *, gateway: str) -> bool:
+    """True if the sender may trigger sensitive (money/PTO) actions (M27).
+
+    Trust is granted to (a) any configured allowlist entry for the gateway, or
+    (b) a known staff member matched by phone (WhatsApp) or sender id (Telegram).
+    An empty allowlist does NOT trust everyone — staff-matching is the floor.
+    """
+    from mihomes.services.config_service import get_config
+
+    raw_sender = str(message.get("sender") or "")
+    if not raw_sender:
+        return False
+
+    allow = get_config(session, f"{gateway}.sender_allowlist") or ""
+    allow_ids = {a.strip() for a in allow.split(",") if a.strip()}
+
+    if gateway == "whatsapp":
+        phone = sender_phone(message)
+        norm_allow = {a.replace("+", "").replace("-", "").replace(" ", "") for a in allow_ids}
+        if phone and any(phone in a or a in phone for a in norm_allow if a):
+            return True
+        if phone:
+            from mihomes.models.staff import Staff
+            for s in session.query(Staff).filter(Staff.whatsapp_phone.isnot(None)).all():
+                s_phone = (s.whatsapp_phone or "").replace("+", "").replace("-", "").replace(" ", "")
+                if s_phone and (s_phone in phone or phone in s_phone):
+                    return True
+        return False
+
+    # Telegram: staff have no stored telegram id, so trust is the allowlist plus
+    # the configured approver id (the owner is always trusted).
+    if raw_sender in allow_ids:
+        return True
+    approver_id = get_config(session, "telegram.pto_approver_id")
+    return bool(approver_id) and raw_sender == str(approver_id).strip()
 
 
 # --------------------------------------------------------------------------- #
@@ -647,12 +717,17 @@ def dispatch_items(
     messages: list[dict],
     property_slug: str | None,
     resolve_reporter: Callable[[dict], int | None],
+    sender_trusted: bool = True,
 ) -> dict:
     """Act on every extracted item, sending confirmations via `adapter`.
 
     `resolve_reporter(item)` is the one genuinely gateway-specific step:
     WhatsApp can match a reporter by phone number, Telegram can only match by
     name. Everything else is identical across gateways.
+
+    `sender_trusted` (M27) gates the sensitive categories: when False, an item in
+    `SENSITIVE_CATEGORIES` is skipped (not logged) so an untrusted group member
+    can't create money/PTO/resolution records.
     """
     send = adapter.send
     logged = 0
@@ -665,6 +740,13 @@ def dispatch_items(
         seen_categories.add(category)
         title = item.get("title", "Unknown")
         prop = item.get("property_slug") or property_slug
+
+        # M27: money/PTO/resolution actions require a trusted sender.
+        if not sender_trusted and category in SENSITIVE_CATEGORIES:
+            logger.warning(
+                "dispatch_items: skipping sensitive '%s' from untrusted sender", category
+            )
+            continue
 
         # --- Questions ---
         if category == "question":

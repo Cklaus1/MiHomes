@@ -192,52 +192,69 @@ def process_and_respond(
     if not messages:
         return {"replied": 0, "logged": 0, "errors": []}
 
-    # Resolve reply target (chat_id stored in the "jid" slot)
-    reply_chat_id = next(
-        (m["jid"] for m in messages if m.get("jid") and (m.get("propertySlug") or property_slug)),
-        None,
+    # M26: a batch can span several chats of the same property. Dispatch each
+    # chat independently so replies land in the chat they came from.
+    groups = rc.group_by_target(
+        [m for m in messages if m.get("propertySlug") or property_slug]
     )
-    if not reply_chat_id:
+    if not groups:
         return {"replied": 0, "logged": 0, "errors": ["No linked chat found"]}
 
-    # Route inventory chat straight to room scanner
     from mihomes.services.config_service import get_config
     inventory_chat_id = get_config(session, "telegram.inventory_chat_id")
-    if inventory_chat_id and reply_chat_id == str(inventory_chat_id):
-        inv_property = (messages[0].get("propertySlug") or property_slug or "belle-estate")
-        return handle_inventory_scan(session, messages, inv_property, reply_chat_id, client)
-
-    def _send_error_to_group(detail: str) -> None:
-        try:
-            client.send_message(
-                reply_chat_id,
-                f"Bot error — couldn't process message(s). Please log manually.\n{detail}",
-            )
-        except Exception:
-            logger.exception("_send_error_to_group: suppressed exception")
-
-    try:
-        result = analyze_messages(session, messages, property_name=property_slug, property_slug=property_slug)
-    except AIProviderError as e:
-        logger.error("AI provider error: %s", e)
-        _send_error_to_group(str(e))
-        return {"replied": 0, "logged": 0, "errors": [f"AI provider error: {e}"]}
-    except Exception as e:
-        logger.error("Unexpected error: %s", e)
-        _send_error_to_group(str(e))
-        return {"replied": 0, "logged": 0, "errors": [f"Unexpected error: {e}"]}
-
-    items = result.get("items", [])
 
     # Telegram has no phone numbers — reporter is matched by name only.
     def _resolve_reporter(item: dict) -> int | None:
         return rc.resolve_reporter_by_name(session, item.get("reported_by"))
 
-    return rc.dispatch_items(
-        session, items,
-        adapter=adapter,
-        reply_target=reply_chat_id,
-        messages=messages,
-        property_slug=property_slug,
-        resolve_reporter=_resolve_reporter,
-    )
+    totals = {"replied": 0, "logged": 0, "errors": []}
+    for reply_chat_id, chat_msgs in groups.items():
+        # Route inventory chat straight to room scanner
+        if inventory_chat_id and reply_chat_id == str(inventory_chat_id):
+            inv_property = (chat_msgs[0].get("propertySlug") or property_slug or "belle-estate")
+            r = handle_inventory_scan(session, chat_msgs, inv_property, reply_chat_id, client)
+            totals["replied"] += r.get("replied", 0)
+            totals["logged"] += r.get("logged", 0)
+            totals["errors"].extend(r.get("errors", []))
+            continue
+
+        def _send_error_to_group(detail: str, _cid=reply_chat_id) -> None:
+            # M27: generic message to the group; detail is logged locally only.
+            try:
+                client.send_message(_cid, "Bot error — couldn't process message(s). Please log manually.")
+            except Exception:
+                logger.exception("_send_error_to_group: suppressed exception")
+            logger.error("responder group error (chat %s): %s", _cid, detail)
+
+        try:
+            result = analyze_messages(session, chat_msgs, property_name=property_slug, property_slug=property_slug)
+        except AIProviderError as e:
+            logger.error("AI provider error: %s", e)
+            _send_error_to_group(str(e))
+            totals["errors"].append(f"AI provider error: {e}")
+            continue
+        except Exception as e:
+            logger.error("Unexpected error: %s", e)
+            _send_error_to_group(str(e))
+            totals["errors"].append(f"Unexpected error: {e}")
+            continue
+
+        # M27: sensitive actions only for a group whose every sender is trusted.
+        sender_trusted = bool(chat_msgs) and all(
+            rc.is_trusted_sender(session, m, gateway="telegram") for m in chat_msgs
+        )
+
+        r = rc.dispatch_items(
+            session, result.get("items", []),
+            adapter=adapter,
+            reply_target=reply_chat_id,
+            messages=chat_msgs,
+            property_slug=property_slug,
+            resolve_reporter=_resolve_reporter,
+            sender_trusted=sender_trusted,
+        )
+        totals["replied"] += r.get("replied", 0)
+        totals["logged"] += r.get("logged", 0)
+        totals["errors"].extend(r.get("errors", []))
+
+    return totals

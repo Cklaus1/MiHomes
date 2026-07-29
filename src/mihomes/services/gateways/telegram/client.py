@@ -70,7 +70,9 @@ class TelegramClient:
         Returns a list of raw Telegram Update objects.
         """
         payload: dict = {
-            "limit": limit,
+            # Bot API rejects limit>100 with HTTP 400. Clamp here so every
+            # caller (review=200, extractor=500) is covered at one point.
+            "limit": max(1, min(limit, 100)),
             "timeout": timeout,
             "allowed_updates": ["message"],
         }
@@ -134,11 +136,12 @@ class TelegramClient:
         chat = msg.get("chat") or {}
         chat_id = str(chat.get("id", ""))
         user_id = str(from_user.get("id", ""))
+        property_slug = chat_links.get(chat_id)
 
         ts = datetime.fromtimestamp(msg.get("date", 0), tz=timezone.utc).isoformat()
         text = (msg.get("text") or msg.get("caption") or "").strip()
 
-        # Detect and download media — largest photo, or document/video
+        # Detect media — largest photo, or document/video.
         file_id = None
         if msg.get("photo"):
             file_id = msg["photo"][-1]["file_id"]
@@ -147,8 +150,12 @@ class TelegramClient:
         elif msg.get("video"):
             file_id = msg["video"]["file_id"]
 
+        # L15: download lazily — only for chats linked to a property. Fetching
+        # media for unlinked/filtered chats fills MEDIA_DIR and slows the poll.
         has_media = file_id is not None
-        media_path = self.download_file(file_id) if file_id else None
+        media_path = (
+            self.download_file(file_id) if file_id and property_slug else None
+        )
 
         first = from_user.get("first_name", "")
         last = from_user.get("last_name", "")
@@ -165,7 +172,7 @@ class TelegramClient:
             "text": text,
             "hasMedia": has_media and media_path is not None,
             "mediaPath": media_path,
-            "propertySlug": chat_links.get(chat_id),
+            "propertySlug": property_slug,
         }
 
     # -------------------------------------------------------------------------

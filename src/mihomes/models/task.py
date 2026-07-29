@@ -74,7 +74,7 @@ class Task(Base, TimestampMixin, SlugMixin):
     completion_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     estimated_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
     gcal_event_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    zone_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("zones.id"), nullable=True)
+    zone_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("zones.id"), index=True, nullable=True)
     category: Mapped[TaskCategory | None] = mapped_column(Enum(TaskCategory), nullable=True, index=True)
 
     property = relationship("Property")

@@ -40,7 +40,7 @@ class WorkOrder(Base, TimestampMixin, SlugMixin):
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    issue_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("issues.id"), nullable=True)
+    issue_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("issues.id"), index=True, nullable=True)
     completion_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     ai_report: Mapped[str | None] = mapped_column(Text, nullable=True)
 

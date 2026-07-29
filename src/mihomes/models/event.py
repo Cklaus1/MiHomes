@@ -3,7 +3,7 @@
 import enum
 from datetime import date
 
-from sqlalchemy import Date, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Date, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mihomes.models import Base, SlugMixin, TimestampMixin
@@ -50,6 +50,9 @@ class Guest(Base, TimestampMixin, SlugMixin):
 
 class EventGuest(Base, TimestampMixin):
     __tablename__ = "event_guests"
+    __table_args__ = (
+        UniqueConstraint("event_id", "guest_id", name="uq_event_guest"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     event_id: Mapped[int] = mapped_column(Integer, ForeignKey("events.id"), nullable=False)

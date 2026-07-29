@@ -5,6 +5,7 @@ from datetime import date
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from mihomes.models.property import Property
 from mihomes.models.vendor import Vendor
 from mihomes.models.vendor_rating import VendorRating
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
@@ -141,6 +142,13 @@ def normalize_vendor_categories(session: Session) -> int:
     return count
 
 
+def _resolve_properties(session: Session, property_ids: list[int]) -> list[Property]:
+    """Resolve a list of property IDs to Property rows, ignoring unknown IDs."""
+    if not property_ids:
+        return []
+    return session.query(Property).filter(Property.id.in_(property_ids)).all()
+
+
 def create_vendor(
     session: Session,
     company_name: str,
@@ -166,8 +174,9 @@ def create_vendor(
         service_areas=service_areas,
         insurance_info=insurance_info,
         notes=notes,
-        property_ids=property_ids,
     )
+    if property_ids:
+        vendor.properties = _resolve_properties(session, property_ids)
     session.add(vendor)
     session.flush()
     record_change(session, "vendor", vendor.id, "create", snapshot_instance(vendor))
@@ -205,6 +214,11 @@ def update_vendor(session: Session, id_or_slug: str, **kwargs) -> Vendor:
             kwargs["contact_name"] = first.get("name") or None
             kwargs["phone"] = first.get("phone") or None
             kwargs["email"] = first.get("email") or None
+    # property_ids is a read-only view over the vendor_properties link table;
+    # route it through the relationship instead of the generic column setter.
+    if "property_ids" in kwargs:
+        pid_list = kwargs.pop("property_ids")
+        vendor.properties = _resolve_properties(session, pid_list or [])
     safe_update(vendor, kwargs)
     session.flush()
     new_snap = snapshot_instance(vendor)

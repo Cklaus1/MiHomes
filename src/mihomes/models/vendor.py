@@ -1,9 +1,19 @@
 """Vendor model — contractors and service providers."""
 
-from sqlalchemy import Boolean, Integer, JSON, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, JSON, String, Table, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mihomes.models import Base, SlugMixin, TimestampMixin
+
+# M14: vendor ↔ property is a many-to-many link, mirroring staff_properties.
+# Replaces the former vendors.property_ids JSON blob (normalized in migration
+# 9c1f2a7b4d8e). A vendor tagged to a property is reachable from both sides.
+vendor_property_association = Table(
+    "vendor_properties",
+    Base.metadata,
+    Column("vendor_id", Integer, ForeignKey("vendors.id"), primary_key=True),
+    Column("property_id", Integer, ForeignKey("properties.id"), primary_key=True),
+)
 
 
 class Vendor(Base, TimestampMixin, SlugMixin):
@@ -22,4 +32,12 @@ class Vendor(Base, TimestampMixin, SlugMixin):
     insurance_info: Mapped[str | None] = mapped_column(Text, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
-    property_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
+    properties = relationship(
+        "Property", secondary=vendor_property_association, backref="vendors"
+    )
+
+    @property
+    def property_ids(self) -> list[int]:
+        """Read-only view of linked property IDs (back-compat for templates)."""
+        return [p.id for p in self.properties]

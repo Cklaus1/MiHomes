@@ -85,14 +85,14 @@ Group headers carry the resume checkbox (§1.3).
 - [x] G0.7 · H8+H9+Q1 · **atomic**: `DEFAULT_MODEL="claude-sonnet-5"` single constant; factory forwards `model=` all 4 branches; fix `reports.py:168,395`+`weather_tasks.py:77` call sites; remove `agent.py:41-42` workaround · verify: `tests/unit/test_provider_model.py` (configured model reaches provider for claude/openai/nim/ollama + default resolves to DEFAULT_MODEL)
 - [x] G0.8 · H11 · final no-tools call sends `tools=…, tool_choice={"type":"none"}` · verify: `tests/unit/test_agent_roundlimit.py`
 
-### [ ] G-R4 — Reconciliation migration + env hardening (extra-gated §2) — *dep: G0*
-- [ ] R4.1 · H7 · `render_as_batch=True` in `env.py` (leave compare_type default) · verify: autogenerate on SQLite doesn't error
-- [ ] R4.2 · H2/Q5 · delete dead `HaEntity` model (+ any dangling import) · verify: import graph clean, no `ha_entities` reference
-- [ ] R4.3 · H1+M11+M12+M13+M15+M0/Q10 · one batch-mode reconciliation migration: add 6 missing FKs (orphan-clean **first**), FK indexes, missing UNIQUE constraints, nullability/type drift, normalize enum defaults to names · verify: G-R4a/b/c/d gates
-- [ ] R4.4 · H5 · rewrite broken `add_zones` downgrade (batch-drop 2 cols + zones only; stop touching `staff_pto.updated_at`) · verify: G-R4a round-trip
-- [ ] R4.5 · H6 · re-run daily-recurrence data migration with correct enum casing (`WEEKLY`) · verify: seeded weekly rows actually update
-- [ ] R4.6 · H17 · add `alerts.property_id` column (in this migration) + filter health-score alert deduction by property · verify: `tests/services/test_health_score.py::test_alert_scoped_to_property`
-- [ ] R4.7 · M14 · `vendor_properties` association table (mirror `staff_properties`); migrate `vendor.property_ids` JSON; **no personal slugs in migrations** · verify: `tests/services/test_vendor_properties.py`
+### [x] G-R4 — Reconciliation migration + env hardening (extra-gated §2) — *dep: G0*
+- [x] R4.1 · H7 · `render_as_batch=True` in `env.py` (leave compare_type default) · verify: autogenerate on SQLite doesn't error ✓ probe ran clean under batch mode
+- [x] R4.2 · H2/Q5 · delete dead `HaEntity` model (+ any dangling import) · verify: import graph clean, no `ha_entities` reference ✓ only a string audit-tag `"ha_entity"` remains in bridge.py (not a model ref); Q5 deferral already in opportunities.md
+- [x] R4.3 · H1+M11+M12+M13+M15+M0/Q10 · one batch-mode reconciliation migration (`7514b34eed7b`): add 6 missing FKs (orphan-clean **first** via SET NULL), FK indexes, missing UNIQUE constraints, nullability/type drift, normalize enum defaults to names · verify: G-R4a/b/c/d gates ✓ all 6 gate tests green in `tests/integration/test_migration_reconciliation.py`; **discovered+fixed**: env.py must `PRAGMA foreign_keys=OFF` on the migration connection (batch rebuild of a referenced table fails under FK-ON) — done via connect-event listener
+- [x] R4.4 · H5 · rewrite broken `add_zones` downgrade (batch-drop 2 cols + zones only; stop touching `staff_pto.updated_at`) · verify: G-R4a round-trip ✓
+- [x] R4.5 · H6 · re-run daily-recurrence data migration with correct enum casing (`WEEKLY`→`DAILY` uppercase) · verify: seeded weekly rows actually update ✓ folded into `7514b34eed7b`; `test_g_r4c_h6_daily_recurrence_flips`
+- [x] R4.6 · H17 · add `alerts.property_id` column (in `7514b34eed7b`) + filter health-score alert deduction by property + populate property_id at alert-creation sites · verify: `tests/unit/test_health_score.py::test_alert_scoped_to_property` ✓ (path was `tests/services/` in spec; real home is `tests/unit/`)
+- [x] R4.7 · M14 · `vendor_properties` association table (mirror `staff_properties`); migrate `vendor.property_ids` JSON→table (`ce1a992f291e`); read-only `property_ids` property for back-compat; **no personal slugs in migrations** · verify: `tests/integration/test_vendor_properties.py` ✓ (path was `tests/services/` in spec; real home is `tests/integration/`)
 
 ### [ ] G-R5 — Money type (int-cents TypeDecorator) — *dep: G-R4*
 - [ ] R5.1 · M1/Q2 · `type/money.py` `Money` TypeDecorator (impl Integer, dollars↔cents); apply to all money columns · verify: `tests/models/test_money_type.py` (round-trip exact; no float drift)

@@ -3,7 +3,7 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, Integer, String, Text
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from mihomes.models import Base, TimestampMixin
@@ -30,6 +30,9 @@ class Alert(Base, TimestampMixin):
     alert_type: Mapped[str] = mapped_column(String(100), nullable=False)
     source_entity_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     source_entity_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    property_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("properties.id", ondelete="SET NULL"), index=True, nullable=True
+    )
     severity: Mapped[AlertSeverity] = mapped_column(Enum(AlertSeverity), default=AlertSeverity.MEDIUM)
     message: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[AlertStatus] = mapped_column(Enum(AlertStatus), default=AlertStatus.GENERATED)

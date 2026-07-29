@@ -74,7 +74,8 @@ def suggest_tasks_for_weather(
 
     provider_name = get_ai_provider_name(session)
     api_key = get_ai_api_key(session, provider_name)
-    provider = get_provider(provider_name, api_key)
+    model = get_ai_model(session, provider_name)
+    provider = get_provider(provider_name, api_key, model=model)
 
     # Build context: property + tasks + issues (maintenance role categories)
     role = ROLES["maintenance"]

@@ -149,14 +149,37 @@ def autostart_cmd(
             console.print(f"[dim]Add to cron or systemd: {sys.executable} {watchdog_script}[/dim]")
 
 
+def _watchdog_pid_running(pid: int) -> bool:
+    """Cross-platform liveness check for a previously recorded PID (spec D7)."""
+    if sys.platform == "win32":
+        try:
+            si = subprocess.STARTUPINFO()
+            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            si.wShowWindow = subprocess.SW_HIDE
+            r = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV"],
+                               capture_output=True, text=True,
+                               creationflags=0x08000000, startupinfo=si)
+            return str(pid) in r.stdout
+        except Exception:
+            return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except Exception:
+        return False
+    return True
+
+
 def _start_watchdog_now(watchdog_script, monitor_property: str = "belle-estate"):
     """Start the watchdog process immediately, silently."""
     import os
     import subprocess
     import sys
-    from pathlib import Path
 
-    log_dir = Path(os.path.expanduser("~/.mihomes"))
+    log_dir = _LOG_DIR
     log_dir.mkdir(parents=True, exist_ok=True)
     pid_file = log_dir / "watchdog.pid"
 
@@ -164,20 +187,10 @@ def _start_watchdog_now(watchdog_script, monitor_property: str = "belle-estate")
     if pid_file.exists():
         try:
             pid = int(pid_file.read_text().strip())
-            si_check = subprocess.STARTUPINFO()
-            si_check.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            si_check.wShowWindow = subprocess.SW_HIDE
-            r = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV"],
-                               capture_output=True, text=True,
-                               creationflags=0x08000000, startupinfo=si_check)
-            if str(pid) in r.stdout:
+            if _watchdog_pid_running(pid):
                 return  # Already running
         except (ValueError, OSError):
             pass
-
-    si = subprocess.STARTUPINFO()
-    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-    si.wShowWindow = subprocess.SW_HIDE
 
     env = os.environ.copy()
     env["MIHOMES_MONITOR_PROPERTY"] = monitor_property
@@ -191,14 +204,22 @@ def _start_watchdog_now(watchdog_script, monitor_property: str = "belle-estate")
     except Exception:
         pass
 
-    log = open(log_dir / "watchdog.log", "a")
-    proc = subprocess.Popen(
-        [sys.executable, str(watchdog_script)],
-        stdout=log, stderr=log,
-        env=env,
-        creationflags=0x08000000,
-        startupinfo=si,
-    )
+    # STARTUPINFO / creationflags are Windows-only — guarding them keeps
+    # `whatsapp watchdog` from crashing on Linux/macOS (spec D7).
+    hidden_kwargs: dict = {}
+    if sys.platform == "win32":
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = subprocess.SW_HIDE
+        hidden_kwargs = {"creationflags": 0x08000000, "startupinfo": si}
+
+    with open(log_dir / "watchdog.log", "a") as log:
+        proc = subprocess.Popen(
+            [sys.executable, str(watchdog_script)],
+            stdout=log, stderr=log,
+            env=env,
+            **hidden_kwargs,
+        )
     pid_file.write_text(str(proc.pid))
 
 

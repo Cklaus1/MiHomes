@@ -52,13 +52,15 @@ def get_provider(provider_name: str = "claude", api_key: str | None = None, mode
     """Factory: returns the configured AIProvider instance."""
     if provider_name == "claude":
         from mihomes.services.ai.claude_provider import ClaudeProvider
-        return ClaudeProvider(api_key=api_key)
+        return ClaudeProvider(api_key=api_key, model=model)
     elif provider_name == "openai":
         from mihomes.services.ai.openai_provider import OpenAIProvider
-        return OpenAIProvider(api_key=api_key)
+        return OpenAIProvider(api_key=api_key, model=model)
     elif provider_name == "ollama":
         from mihomes.services.ai.ollama_provider import OllamaProvider
-        return OllamaProvider()
+        # Ollama's model is keyword-only with a non-None default; only override
+        # when a model was actually requested.
+        return OllamaProvider(model=model) if model else OllamaProvider()
     elif provider_name == "nim":
         from mihomes.services.ai.nim_provider import NIMProvider
         return NIMProvider(api_key=api_key, model=model)

@@ -73,21 +73,61 @@ def _hidden_popen_kwargs():
     return {"creationflags": 0x08000000, "startupinfo": si}
 
 
+# Handle to the Telegram monitor we spawned, so we can reap it (poll) instead
+# of probing os.kill(pid, 0) — which reports a zombie child as alive forever.
+_monitor_proc: "subprocess.Popen | None" = None
+_wa_monitor_proc: "subprocess.Popen | None" = None
+
+
 def _start_monitor():
+    global _monitor_proc
     env = os.environ.copy()
     env["MIHOMES_MONITOR"] = "1"
 
-    monitor_log = open(LOG_DIR / "monitor.log", "a")
-    proc = subprocess.Popen(
-        [sys.executable, "-c", "from mihomes.cli import app; app()",
-         "telegram", "monitor"],
-        env=env,
-        cwd=str(PROJECT_ROOT),
-        stdout=monitor_log, stderr=monitor_log,
-        **_hidden_popen_kwargs(),
-    )
+    # Close over the log handle: the child inherits the fd, and the parent's
+    # copy is closed on `with` exit, so repeated restarts don't leak fds.
+    with open(LOG_DIR / "monitor.log", "a") as monitor_log:
+        proc = subprocess.Popen(
+            [sys.executable, "-c", "from mihomes.cli import app; app()",
+             "telegram", "monitor"],
+            env=env,
+            cwd=str(PROJECT_ROOT),
+            stdout=monitor_log, stderr=monitor_log,
+            **_hidden_popen_kwargs(),
+        )
+    _monitor_proc = proc
     PID_FILE.write_text(str(proc.pid))
     return proc.pid
+
+
+def _monitor_alive() -> bool:
+    """True only if the Telegram monitor we manage is genuinely running.
+
+    Prefers the retained Popen handle (`poll()` reaps a dead child so it never
+    lingers as a zombie); falls back to the recorded PID when this watchdog
+    instance didn't spawn it (e.g. after its own restart)."""
+    if _monitor_proc is not None:
+        return _monitor_proc.poll() is None
+    if PID_FILE.exists():
+        try:
+            pid = int(PID_FILE.read_text().strip())
+        except (ValueError, OSError):
+            return False
+        return _pid_running(pid)
+    return False
+
+
+def _wa_monitor_alive() -> bool:
+    """WhatsApp counterpart of `_monitor_alive` — reap via the retained handle."""
+    if _wa_monitor_proc is not None:
+        return _wa_monitor_proc.poll() is None
+    if WA_PID_FILE.exists():
+        try:
+            wa_pid = int(WA_PID_FILE.read_text().strip())
+        except (ValueError, OSError):
+            return False
+        return _pid_running(wa_pid)
+    return False
 
 
 def _whatsapp_autostart_enabled() -> bool:
@@ -114,18 +154,20 @@ def _whatsapp_bridge_running() -> bool:
 
 
 def _start_whatsapp_monitor():
+    global _wa_monitor_proc
     env = os.environ.copy()
     env["MIHOMES_MONITOR"] = "1"
 
-    wa_log = open(LOG_DIR / "whatsapp-monitor.log", "a")
-    proc = subprocess.Popen(
-        [sys.executable, "-c", "from mihomes.cli import app; app()",
-         "whatsapp", "monitor"],
-        env=env,
-        cwd=str(PROJECT_ROOT),
-        stdout=wa_log, stderr=wa_log,
-        **_hidden_popen_kwargs(),
-    )
+    with open(LOG_DIR / "whatsapp-monitor.log", "a") as wa_log:
+        proc = subprocess.Popen(
+            [sys.executable, "-c", "from mihomes.cli import app; app()",
+             "whatsapp", "monitor"],
+            env=env,
+            cwd=str(PROJECT_ROOT),
+            stdout=wa_log, stderr=wa_log,
+            **_hidden_popen_kwargs(),
+        )
+    _wa_monitor_proc = proc
     WA_PID_FILE.write_text(str(proc.pid))
     return proc.pid
 
@@ -149,28 +191,14 @@ def run():
     while True:
         try:
             # --- Check Telegram monitor ---
-            monitor_up = False
-            if PID_FILE.exists():
-                try:
-                    pid = int(PID_FILE.read_text().strip())
-                    monitor_up = _pid_running(pid)
-                except (ValueError, OSError):
-                    pass
-
-            if not monitor_up:
+            if not _monitor_alive():
                 _log("Telegram monitor down — restarting...")
                 new_pid = _start_monitor()
                 _log(f"Telegram monitor started (PID {new_pid})")
 
             # --- Check WhatsApp monitor (only when opted in) ---
             if _whatsapp_autostart_enabled():
-                wa_up = False
-                if WA_PID_FILE.exists():
-                    try:
-                        wa_pid = int(WA_PID_FILE.read_text().strip())
-                        wa_up = _pid_running(wa_pid)
-                    except (ValueError, OSError):
-                        pass
+                wa_up = _wa_monitor_alive()
 
                 if wa_up:
                     wa_backoff = WA_BACKOFF_BASE   # healthy — reset backoff

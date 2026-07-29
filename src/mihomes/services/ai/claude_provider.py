@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Iterator
 
 import anthropic
 
+from mihomes.services.ai.ai_config import DEFAULT_MODEL
 from mihomes.services.ai.provider import AIAuthError, AIProviderError, AIRateLimitError
 
 if TYPE_CHECKING:
@@ -24,7 +25,7 @@ class ClaudeProvider:
                 "Anthropic API key not found. Set ANTHROPIC_API_KEY environment variable "
                 "or run: mihomes ai setup"
             )
-        self.model = model or os.environ.get("MIHOMES_AI_MODEL", "claude-sonnet-4-20250514")
+        self.model = model or os.environ.get("MIHOMES_AI_MODEL", DEFAULT_MODEL)
         self.client = anthropic.Anthropic(api_key=self.api_key)
 
     def complete(

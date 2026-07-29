@@ -1,6 +1,82 @@
 """Helpers for parsing/validating web form input."""
 
+import uuid
+from pathlib import Path
+
+from mihomes.config import UPLOADS_DIR, UPLOADS_URL_PREFIX
 from mihomes.services.ai.file_processor import Attachment, process_upload
+
+# Documents the estate legitimately attaches: photos and PDFs (invoices,
+# contracts, warranties, permits). Everything else — crucially .html/.svg/.xhtml,
+# which execute as same-origin script when served inline — is rejected (spec D6).
+DOCUMENT_EXTENSIONS = {
+    ".jpg", ".jpeg", ".png", ".gif", ".webp",  # images
+    ".pdf",                                      # documents
+}
+DOCUMENT_CONTENT_TYPES = {
+    "image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp",
+    "application/pdf",
+}
+MAX_DOCUMENT_BYTES = 25_000_000  # 25 MB — invoices/contracts are small
+
+
+async def read_document_upload(
+    file,
+    *,
+    max_bytes: int = MAX_DOCUMENT_BYTES,
+    extra_extensions: set[str] | None = None,
+) -> str:
+    """Validate + persist one uploaded document, returning its served URL path.
+
+    Guards the four defects shared by every document route (spec D6/H34/M45):
+    a ``None`` filename (→ 500), a client-controlled extension that lets an
+    ``.svg``/``.html`` become a stored-XSS page, an unbounded body (OOM), and
+    the package-internal write location that ``pip upgrade`` wipes. Files land
+    under the user-data ``UPLOADS_DIR`` with a random name.
+
+    Raises ``ValueError`` (routes surface it as a friendly message) on a missing
+    filename, a disallowed type, or an oversized file.
+    """
+    filename = getattr(file, "filename", None)
+    if not filename:
+        raise ValueError("Please choose a file to upload.")
+
+    allowed_ext = DOCUMENT_EXTENSIONS | (extra_extensions or set())
+    suffix = Path(filename).suffix.lower()
+    content_type = (getattr(file, "content_type", "") or "").lower()
+    ext_ok = suffix in allowed_ext
+    type_ok = content_type in DOCUMENT_CONTENT_TYPES if content_type else False
+    # Require the *extension* to be safe regardless of the declared MIME type —
+    # the served file's handling keys off its extension, so an .svg claiming
+    # image/png must still be rejected.
+    if not ext_ok or (content_type and not type_ok and suffix not in allowed_ext):
+        raise ValueError(
+            f"“{filename}” isn’t an allowed document type. "
+            "Attach a JPG, PNG, GIF, WebP, or PDF."
+        )
+
+    data = await file.read()
+    if not data:
+        raise ValueError("The uploaded file is empty.")
+    if len(data) > max_bytes:
+        raise ValueError(f"“{filename}” is larger than {max_bytes // 1_000_000} MB.")
+
+    stored_name = f"{uuid.uuid4().hex}{suffix}"
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    (UPLOADS_DIR / stored_name).write_bytes(data)
+    return f"{UPLOADS_URL_PREFIX}/{stored_name}"
+
+
+def save_document_text(base_name: str, text: str, *, suffix: str = ".md") -> str:
+    """Persist generated text (e.g. a saved AI report) into UPLOADS_DIR.
+
+    Same location + random-name discipline as ``read_document_upload`` so saved
+    reports survive upgrades and are backed up (spec M45/H34).
+    """
+    stored_name = f"{base_name}-{uuid.uuid4().hex[:8]}{suffix}"
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    (UPLOADS_DIR / stored_name).write_text(text, encoding="utf-8")
+    return f"{UPLOADS_URL_PREFIX}/{stored_name}"
 
 
 async def read_image_uploads(files, *, max_files: int = 6, max_bytes: int = 10_000_000) -> list[Attachment]:

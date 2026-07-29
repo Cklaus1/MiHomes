@@ -43,6 +43,9 @@ def list_backups():
 @app.command("restore")
 def restore_backup(
     backup_file: str = typer.Argument(..., help="Path to backup file"),
+    force: bool = typer.Option(
+        False, "--force", help="Restore even if background services are running (unsafe)"
+    ),
 ):
     """Restore from a backup."""
     path = Path(backup_file)
@@ -50,5 +53,9 @@ def restore_backup(
         format_error(f"File not found: {backup_file}")
         raise typer.Exit(1)
     typer.confirm(f"Restore from {path.name}? This will overwrite current data.", abort=True)
-    backup_svc.restore_backup(path)
+    try:
+        backup_svc.restore_backup(path, force=force)
+    except RuntimeError as e:
+        format_error(str(e))
+        raise typer.Exit(1)
     format_success(f"Restored from {path.name}")

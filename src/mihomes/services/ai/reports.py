@@ -165,7 +165,7 @@ def generate_situation_report(
     provider_name = get_ai_provider_name(session)
     api_key = get_ai_api_key(session, provider_name)
     model = get_ai_model(session, provider_name)
-    provider = get_provider(provider_name, api_key)
+    provider = get_provider(provider_name, api_key, model=model)
 
     response_text = provider.complete(SITUATION_REPORT_PROMPT, user_message, attachments=attachments)
 
@@ -392,7 +392,7 @@ def generate_estate_digest(
     provider_name = get_ai_provider_name(session)
     api_key = get_ai_api_key(session, provider_name)
     model = get_ai_model(session, provider_name)
-    provider = get_provider(provider_name, api_key)
+    provider = get_provider(provider_name, api_key, model=model)
 
     response_text = provider.complete(ESTATE_DIGEST_PROMPT, user_message, attachments=attachments)
 

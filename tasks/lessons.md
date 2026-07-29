@@ -41,6 +41,10 @@ Review this at the start of each session.
 - **Run commands, don't just read code**: When doing a PRD gap analysis, invoke every listed command and check exit codes. A file existing in the codebase does NOT mean the command works — `staff schedule` existed as a concept but was never implemented. The subagent found the file; only running it would have caught the gap.
 - **Gap analysis = code survey + live test**: After identifying what *should* exist from the PRD, run `r.invoke(app, cmd)` for each one and check `exit_code == 0`. Report failures, not assumptions.
 
+## Hardening Build-Loop Lessons (2026-07-29)
+- **Verify each finding against CURRENT source before writing its test/fix, not against the spec's quoted line-state.** The spec's baseline predated the telegram-bot merge; D7/D8 were described as fully broken but the merge had already fixed the telegram.py STARTUPINFO guard, the WhatsApp backoff/gate/bridge-check, and the hot-loop. Only a subset (whatsapp `_start_watchdog_now` STARTUPINFO + scripts/watchdog zombie-reaping/fd-leak) was still live. Writing the test first caught this — the test for the "already fixed" half would have passed pre-fix, exposing the stale claim. Always `grep`/Read the exact cited lines before assuming a finding is real.
+- **The zombie-vs-os.kill(pid,0) bug only matters where the process is a REAPING PARENT.** scripts/watchdog.py spawns and must `poll()` a retained Popen handle. The CLI `os.kill` sites check PIDs they did NOT spawn (read from a pid file), so no zombie can form there — the spec's "fix in all 3 copies" over-counted. Fix the reaping parent; the pid-file readers just need the platform guard.
+
 ## Fifth Review Lessons (2026-03-27)
 - **SIGPIPE data loss**: When CLI output is piped through `head`/`tail`/etc, SIGPIPE can kill the process before `get_session()` commits. Fix: collect data inside `with get_session()`, print AFTER the session context exits (so commit happens before any output). Critical for commands with long output that modify data.
 - Always test CLI commands with `| head -1` to catch SIGPIPE issues.

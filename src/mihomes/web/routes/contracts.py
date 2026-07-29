@@ -1,8 +1,6 @@
 """Contracts routes."""
 
-import uuid
 from datetime import date
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
@@ -15,6 +13,7 @@ from mihomes.services import note as note_svc
 from mihomes.services import property as prop_svc
 from mihomes.services import vendor as vendor_svc
 from mihomes.web.deps import get_db, templates
+from mihomes.web.forms import read_document_upload
 
 router = APIRouter()
 
@@ -100,9 +99,6 @@ def delete_note(request: Request, contract_id: int, note_id: int, db: Session = 
     })
 
 
-UPLOADS_DIR = Path(__file__).parent.parent / "static" / "uploads"
-
-
 @router.post("/{contract_id}/documents", response_class=HTMLResponse)
 async def add_document(
     request: Request,
@@ -112,23 +108,23 @@ async def add_document(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    suffix = Path(file.filename).suffix.lower()
-    filename = f"{uuid.uuid4().hex}{suffix}"
-    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-    dest = UPLOADS_DIR / filename
-    dest.write_bytes(await file.read())
-    file_path = f"/static/uploads/{filename}"
+    ctx = {
+        "post_url": f"/contracts/{contract_id}/documents",
+        "delete_url_prefix": f"/contracts/{contract_id}/documents",
+    }
+    try:
+        file_path = await read_document_upload(file)
+    except ValueError as e:
+        ctx["docs"] = doc_svc.list_documents(db, entity_type="contract", entity_id=contract_id)
+        ctx["error"] = str(e)
+        return templates.TemplateResponse(request, "partials/docs_section.html", ctx)
     doc_svc.create_document(
         db, title=title, file_path=file_path,
         document_type=DocumentType(doc_type),
         entity_type="contract", entity_id=contract_id,
     )
-    docs = doc_svc.list_documents(db, entity_type="contract", entity_id=contract_id)
-    return templates.TemplateResponse(request, "partials/docs_section.html", {
-        "docs": docs,
-        "post_url": f"/contracts/{contract_id}/documents",
-        "delete_url_prefix": f"/contracts/{contract_id}/documents",
-    })
+    ctx["docs"] = doc_svc.list_documents(db, entity_type="contract", entity_id=contract_id)
+    return templates.TemplateResponse(request, "partials/docs_section.html", ctx)
 
 
 @router.delete("/{contract_id}/documents/{doc_id}", response_class=HTMLResponse)

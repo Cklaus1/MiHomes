@@ -13,7 +13,7 @@ def _demo_flag() -> bool:
 
 def _seed_demo_db() -> None:
     """Create and seed demo.db if it hasn't been seeded yet."""
-    from sqlalchemy import create_engine
+    from sqlalchemy import create_engine, inspect
     from sqlalchemy.orm import Session
 
     from mihomes.models import Base
@@ -21,12 +21,32 @@ def _seed_demo_db() -> None:
 
     url = f"sqlite:///{DB_DIR / 'demo.db'}"
     engine = create_engine(url, connect_args={"check_same_thread": False})
+    already_seeded = inspect(engine).has_table("alembic_version")
     Base.metadata.create_all(engine)
+    if not already_seeded:
+        # create_all() builds the schema directly, so the migrations must be
+        # recorded as already-applied — otherwise init_db()'s `alembic upgrade
+        # head` re-runs the first migration and dies on "table already exists".
+        _stamp_head(url)
     with Session(engine) as session:
         if session.query(Property).count() == 0:
             from mihomes.services.demo import load_demo_data
             load_demo_data(session)
             session.commit()
+    engine.dispose()
+
+
+def _stamp_head(url: str) -> None:
+    """Mark the DB at the latest migration without running any migrations."""
+    from alembic.config import Config
+
+    from alembic import command
+    from mihomes.db import _get_alembic_dir
+
+    cfg = Config()
+    cfg.set_main_option("script_location", _get_alembic_dir())
+    cfg.set_main_option("sqlalchemy.url", url)
+    command.stamp(cfg, "head")
 
 
 def main() -> None:

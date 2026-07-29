@@ -6,6 +6,9 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from mihomes.config import UPLOADS_DIR, UPLOADS_URL_PREFIX, ensure_dirs
+from mihomes.web.secure_static import SecureStaticFiles
+
 from mihomes.web.routes import ai as ai_route
 from mihomes.web.routes import (
     alerts,
@@ -41,6 +44,16 @@ def create_app() -> FastAPI:
     app = FastAPI(title="MiHomes", docs_url=None, redoc_url=None)
 
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+    # User-uploaded documents live outside the package (survive pip upgrade,
+    # included in backups — spec H34) and are served with nosniff + forced
+    # attachment for non-inline types (spec D6).
+    ensure_dirs()
+    app.mount(
+        UPLOADS_URL_PREFIX,
+        SecureStaticFiles(directory=str(UPLOADS_DIR)),
+        name="uploads",
+    )
 
     app.include_router(dashboard.router)
     app.include_router(properties.router, prefix="/properties")

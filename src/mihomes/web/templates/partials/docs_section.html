@@ -1,4 +1,9 @@
-{# Reusable documents section. Expects: docs, post_url, delete_url_prefix #}
+{# Reusable documents section. Expects: docs, post_url, delete_url_prefix; optional: error #}
+{% if error %}
+<div class="mb-2 px-3 py-2 text-xs text-red-700 border border-red-200 rounded-lg bg-red-50">
+  {{ error }}
+</div>
+{% endif %}
 <div class="space-y-2 max-h-64 overflow-y-auto mb-3">
   {% if docs %}
     {% for doc in docs %}

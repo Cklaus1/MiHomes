@@ -1,8 +1,5 @@
 """Issue routes."""
 
-import uuid
-from pathlib import Path
-
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
@@ -17,6 +14,7 @@ from mihomes.services import space as space_svc
 from mihomes.services import staff as staff_svc
 from mihomes.services import work_order as wo_svc
 from mihomes.web.deps import get_db, templates
+from mihomes.web.forms import read_document_upload
 
 router = APIRouter()
 
@@ -151,9 +149,6 @@ def delete_note(request: Request, slug: str, note_id: int, db: Session = Depends
     })
 
 
-_UPLOADS_DIR = Path(__file__).parent.parent / "static" / "uploads"
-
-
 @router.post("/{slug}/documents", response_class=HTMLResponse)
 async def add_document(
     request: Request,
@@ -164,21 +159,23 @@ async def add_document(
     db: Session = Depends(get_db),
 ):
     issue = issue_svc.get_issue(db, slug)
-    suffix = Path(file.filename).suffix.lower()
-    filename = f"{uuid.uuid4().hex}{suffix}"
-    _UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-    (_UPLOADS_DIR / filename).write_bytes(await file.read())
+    ctx = {
+        "post_url": f"/issues/{slug}/documents",
+        "delete_url_prefix": f"/issues/{slug}/documents",
+    }
+    try:
+        file_path = await read_document_upload(file)
+    except ValueError as e:
+        ctx["docs"] = doc_svc.list_documents(db, entity_type="issue", entity_id=issue.id)
+        ctx["error"] = str(e)
+        return templates.TemplateResponse(request, "partials/docs_section.html", ctx)
     doc_svc.create_document(
-        db, title=title, file_path=f"/static/uploads/{filename}",
+        db, title=title, file_path=file_path,
         document_type=DocumentType(doc_type),
         entity_type="issue", entity_id=issue.id,
     )
-    docs = doc_svc.list_documents(db, entity_type="issue", entity_id=issue.id)
-    return templates.TemplateResponse(request, "partials/docs_section.html", {
-        "docs": docs,
-        "post_url": f"/issues/{slug}/documents",
-        "delete_url_prefix": f"/issues/{slug}/documents",
-    })
+    ctx["docs"] = doc_svc.list_documents(db, entity_type="issue", entity_id=issue.id)
+    return templates.TemplateResponse(request, "partials/docs_section.html", ctx)
 
 
 @router.delete("/{slug}/documents/{doc_id}", response_class=HTMLResponse)

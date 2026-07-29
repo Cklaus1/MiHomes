@@ -3,7 +3,6 @@
 import json
 import uuid
 from datetime import date, datetime, timedelta
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
@@ -14,8 +13,7 @@ from mihomes.services import document as doc_svc
 from mihomes.services import property as prop_svc
 from mihomes.services.ai.file_processor import Attachment, process_upload
 from mihomes.web.deps import get_db, templates
-
-UPLOADS_DIR = Path(__file__).parent.parent / "static" / "uploads"
+from mihomes.web.forms import save_document_text
 
 router = APIRouter()
 
@@ -477,11 +475,8 @@ async def save_report(
     db: Session = Depends(get_db),
 ):
     slug_part = subject.lower().replace(" ", "-").replace("/", "-")[:40]
-    filename = f"report-{slug_part}-{uuid.uuid4().hex[:8]}.md"
-    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     header = f"# {subject}\n\n**Type:** {report_type}  \n**Generated:** {generated_at}\n\n---\n\n"
-    (UPLOADS_DIR / filename).write_text(header + report_text, encoding="utf-8")
-    file_path = f"/static/uploads/{filename}"
+    file_path = save_document_text(f"report-{slug_part}", header + report_text)
 
     prop = prop_svc.get_property(db, property_slug) if property_slug else None
     doc_svc.create_document(

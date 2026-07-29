@@ -38,6 +38,21 @@ def get_engine(url: str | None = None) -> Engine:
     return _engine
 
 
+def dispose_engine() -> None:
+    """Dispose the global engine and reset the session factory.
+
+    Restore (spec D1) must release this process's SQLite handle before the
+    on-disk ``mihomes.db{,-wal,-shm}`` files are deleted, otherwise the stale
+    WAL is replayed against the freshly restored file and corrupts it. The next
+    ``get_engine`` call lazily recreates the engine against the new file.
+    """
+    global _engine, _SessionLocal
+    if _engine is not None:
+        _engine.dispose()
+    _engine = None
+    _SessionLocal = None
+
+
 def get_session_factory(engine: Engine | None = None) -> sessionmaker:
     """Get or create the session factory."""
     global _SessionLocal

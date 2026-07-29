@@ -12,6 +12,7 @@
 
 ## Optimizations (captured, not acted on)
 <!-- format: `- [OPT] file:line — one-line description (surfaced during <task-id>)` -->
+- [OPT] scripts/watchdog.py + cli/{telegram,whatsapp}.py — extract shared `watchdog_common.py` (spawn/liveness/log-handle helpers). Deferred from G0.2: after the telegram-bot merge only `scripts/watchdog.py` is a true reaping parent, so extraction is cosmetic now; revisit if a 2nd supervisor appears. (surfaced during G0.2)
 
 ## New bugs (candidate tasks for next loop)
 <!-- format: `- [BUG][proposed-severity] file:line — title — concrete failure — proposed fix (surfaced during <task-id>)` -->

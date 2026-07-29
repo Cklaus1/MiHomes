@@ -323,7 +323,7 @@ def upcoming_report(
             Contract.end_date <= cutoff,
         )
         for c in q.order_by(Contract.end_date).all():
-            rows.append((c.end_date, str(c.end_date), "Contract Renewal", c.vendor.name if c.vendor else "-", "-"))
+            rows.append((c.end_date, str(c.end_date), "Contract Renewal", c.vendor.company_name if c.vendor else "-", "-"))
 
         # Insurance renewals
         q = session.query(InsurancePolicy).filter(

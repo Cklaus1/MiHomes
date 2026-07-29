@@ -70,9 +70,9 @@
         <div>
           <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Vendor</dt>
           <dd class="text-gray-700 pt-0.5">
-            {% if txn.vendor %}{{ txn.vendor.name }}
+            {% if txn.vendor %}{{ txn.vendor.company_name }}
             {% elif txn.vendor_name %}{{ txn.vendor_name }}
-            {% elif txn.work_order and txn.work_order.vendor %}{{ txn.work_order.vendor.name }}
+            {% elif txn.work_order and txn.work_order.vendor %}{{ txn.work_order.vendor.company_name }}
             {% elif txn.work_order and txn.work_order.vendor_name %}{{ txn.work_order.vendor_name }}
             {% else %}—{% endif %}
           </dd>

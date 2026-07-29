@@ -169,6 +169,7 @@ def complete_work_order(
     notes: str = Form(""),
     db: Session = Depends(get_db),
 ):
+    error = None
     try:
         wo_svc.complete(
             db,
@@ -176,9 +177,16 @@ def complete_work_order(
             actual_cost=float(actual_cost) if actual_cost else None,
             notes=notes or None,
         )
-    except ValueError:
-        pass
-    return templates.TemplateResponse(request, "work_orders.html", _ctx(db))
+    except ValueError as e:
+        # H22: surface the validation error (e.g. missing cost) instead of
+        # silently swallowing it — the work order stays un-completed and the
+        # user sees why.
+        db.rollback()
+        error = str(e)
+    ctx = _ctx(db)
+    if error:
+        ctx["error"] = error
+    return templates.TemplateResponse(request, "work_orders.html", ctx)
 
 
 @router.post("/{slug}/verify", response_class=HTMLResponse)

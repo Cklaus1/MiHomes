@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from mihomes.services.gateways.telegram.client import TelegramClient, TelegramError
 from mihomes.services.gateways.telegram.review import analyze_messages
+from mihomes.services.query_helpers import escape_like
 
 logger = logging.getLogger("mihomes.telegram")
 
@@ -209,7 +210,7 @@ def _resolve_staff_slug(session: Session, name: str | None) -> str | None:
     if not name:
         return None
     from mihomes.models.staff import Staff
-    staff = session.query(Staff).filter(Staff.name.ilike(f"%{name}%")).first()
+    staff = session.query(Staff).filter(Staff.name.ilike(f"%{escape_like(name)}%", escape="\\")).first()
     return staff.slug if staff else None
 
 
@@ -344,7 +345,7 @@ def process_and_respond(
         name = item.get("reported_by")
         if name:
             from mihomes.models.staff import Staff
-            s = session.query(Staff).filter(Staff.name.ilike(f"%{name}%")).first()
+            s = session.query(Staff).filter(Staff.name.ilike(f"%{escape_like(name)}%", escape="\\")).first()
             if s:
                 return s.id
         return None

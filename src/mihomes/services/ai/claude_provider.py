@@ -9,7 +9,35 @@ from typing import TYPE_CHECKING, Iterator
 import anthropic
 
 from mihomes.services.ai.ai_config import DEFAULT_MODEL
-from mihomes.services.ai.provider import AIAuthError, AIProviderError, AIRateLimitError
+from mihomes.services.ai.provider import (
+    MAX_OUTPUT_TOKENS,
+    TRUNCATION_MARKER,
+    AIAuthError,
+    AIProviderError,
+    AIRateLimitError,
+)
+
+
+def _extract_text(response) -> str:
+    """M35: pull the answer text out of a Messages response, skipping non-text
+    blocks (thinking/redacted) instead of blindly reading `content[0].text`.
+
+    M34: append a marker if the model stopped because it ran out of output
+    tokens, so a truncated report is never shown as if it were complete.
+    """
+    parts = [
+        block.text
+        for block in response.content
+        if getattr(block, "type", None) == "text" and getattr(block, "text", None)
+    ]
+    if not parts:
+        raise AIProviderError(
+            "Claude returned no text content (possible refusal or empty response)."
+        )
+    text = "".join(parts)
+    if getattr(response, "stop_reason", None) == "max_tokens":
+        text += TRUNCATION_MARKER
+    return text
 
 if TYPE_CHECKING:
     from mihomes.services.ai.file_processor import Attachment
@@ -17,6 +45,9 @@ if TYPE_CHECKING:
 
 class ClaudeProvider:
     """AI provider using Anthropic's Claude API."""
+
+    # H13: Claude forwards image attachments to the model as real image blocks.
+    supports_images: bool = True
 
     def __init__(self, api_key: str | None = None, model: str | None = None):
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
@@ -65,11 +96,11 @@ class ClaudeProvider:
         try:
             response = self.client.messages.create(
                 model=self.model,
-                max_tokens=4096,
+                max_tokens=MAX_OUTPUT_TOKENS,
                 system=system_prompt,
                 messages=[{"role": "user", "content": content}],
             )
-            return response.content[0].text
+            return _extract_text(response)
         except anthropic.AuthenticationError as e:
             raise AIAuthError(f"Invalid API key: {e}")
         except anthropic.RateLimitError as e:
@@ -114,7 +145,7 @@ class ClaudeProvider:
         try:
             with self.client.messages.stream(
                 model=self.model,
-                max_tokens=4096,
+                max_tokens=MAX_OUTPUT_TOKENS,
                 system=system_prompt,
                 messages=[{"role": "user", "content": content}],
             ) as stream:
@@ -152,6 +183,14 @@ class ClaudeProvider:
                             "data": att.base64_data,
                         },
                     })
+                    content.append({"type": "text", "text": f"[Image: {att.filename}]"})
+                elif att.text_content:
+                    # M35: mirror complete()'s handling — a text/PDF attachment
+                    # (e.g. a contractor quote) was silently dropped here.
+                    content.append({
+                        "type": "text",
+                        "text": f"--- Attached file: {att.filename} ---\n{att.text_content}\n---",
+                    })
             content.append({"type": "text", "text": message_content})
         else:
             content = message_content  # type: ignore[assignment]
@@ -165,7 +204,7 @@ class ClaudeProvider:
         try:
             response = self.client.messages.create(
                 model=self.model,
-                max_tokens=4096,
+                max_tokens=MAX_OUTPUT_TOKENS,
                 system=system_prompt,
                 messages=[{"role": "user", "content": content}],
                 tools=[tool],

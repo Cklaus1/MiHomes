@@ -399,43 +399,64 @@ async def ai_ask_stream(
         queue: asyncio.Queue = asyncio.Queue()
 
         def _run_sync():
+            # H14: the streaming work runs in a worker thread. It opens its own
+            # dedicated DB session (never touching the request-scoped `db` across
+            # threads) both for the agent's own reads and to persist the finished
+            # conversation from inside the worker, committing it. A failed save is
+            # logged, not silently swallowed.
+            from mihomes.db import get_session as _get_worker_session
+
+            worker_parts: list[str] = []
             try:
-                if provider_name == "claude":
-                    stream_gen = agent_stream(
-                        db, query,
-                        system_prompt=system_prompt,
-                        api_key=api_key,
+                with _get_worker_session() as worker_db:
+                    if provider_name == "claude":
+                        stream_gen = agent_stream(
+                            worker_db, query,
+                            system_prompt=system_prompt,
+                            api_key=api_key,
+                            model=model,
+                            property_slug=property_id or None,
+                            attachments=attachments or None,
+                        )
+                    else:
+                        stream_gen = provider_stream(
+                            worker_db, query,
+                            system_prompt=system_prompt,
+                            provider_name=provider_name,
+                            api_key=api_key,
+                            model=model,
+                            roles=roles,
+                            property_slug=property_id or None,
+                            attachments=attachments or None,
+                        )
+                    for event_type, data in stream_gen:
+                        if event_type == "token":
+                            worker_parts.append(data)
+                        loop.call_soon_threadsafe(queue.put_nowait, (event_type, data))
+
+                    # Persist the finished conversation from the worker session.
+                    worker_db.add(AIConversation(
+                        session_id=session_id,
+                        role=primary_role.name,
+                        user_message=query,
+                        ai_response="".join(worker_parts),
+                        context_summary=f"Agent; roles: {', '.join(r.name for r in roles)}; property: {property_id or 'all'}",
+                        provider=provider_name,
                         model=model,
-                        property_slug=property_id or None,
-                        attachments=attachments or None,
-                    )
-                else:
-                    stream_gen = provider_stream(
-                        db, query,
-                        system_prompt=system_prompt,
-                        provider_name=provider_name,
-                        api_key=api_key,
-                        model=model,
-                        roles=roles,
-                        property_slug=property_id or None,
-                        attachments=attachments or None,
-                    )
-                for event_type, data in stream_gen:
-                    loop.call_soon_threadsafe(queue.put_nowait, (event_type, data))
+                    ))
             except Exception as exc:
+                logger.exception("ai_ask_stream worker failed")
                 loop.call_soon_threadsafe(queue.put_nowait, ("error", _ai_error(str(exc))))
             finally:
                 loop.call_soon_threadsafe(queue.put_nowait, (None, None))
 
         future = loop.run_in_executor(None, _run_sync)
 
-        full_text_parts: list[str] = []
         while True:
             msg_type, msg_data = await queue.get()
             if msg_type is None:
                 break
             if msg_type == "token":
-                full_text_parts.append(msg_data)
                 yield f"data: {json.dumps({'t': msg_data})}\n\n"
             elif msg_type == "status":
                 yield f"data: {json.dumps({'status': msg_data})}\n\n"
@@ -444,21 +465,6 @@ async def ai_ask_stream(
 
         yield "data: [DONE]\n\n"
         await future
-
-        try:
-            response_text = "".join(full_text_parts)
-            db.add(AIConversation(
-                session_id=session_id,
-                role=primary_role.name,
-                user_message=query,
-                ai_response=response_text,
-                context_summary=f"Agent; roles: {', '.join(r.name for r in roles)}; property: {property_id or 'all'}",
-                provider=provider_name,
-                model=model,
-            ))
-            db.flush()
-        except Exception:
-            logger.exception("_generate: suppressed exception")
 
     return StreamingResponse(
         _generate(),

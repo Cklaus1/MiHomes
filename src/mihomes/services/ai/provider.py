@@ -8,6 +8,16 @@ if TYPE_CHECKING:
     from mihomes.services.ai.file_processor import Attachment
 
 
+# M34: the Situation Report alone demands 17 sections; 4096 output tokens
+# truncated it mid-report and returned it as if complete. Give completions a
+# real budget, and mark any response the model still had to cut short.
+MAX_OUTPUT_TOKENS = 16384
+TRUNCATION_MARKER = (
+    "\n\n[⚠️ Response truncated — the model hit its output limit before finishing. "
+    "Narrow the request or split it into parts to get the full report.]"
+)
+
+
 class AIProviderError(Exception):
     """Base exception for AI provider errors."""
     pass
@@ -25,6 +35,10 @@ class AIRateLimitError(AIProviderError):
 
 class AIProvider(Protocol):
     """Protocol for AI provider implementations."""
+
+    # H13: whether this provider forwards real image attachments to the model.
+    # Vision tasks (e.g. room scans) must refuse providers where this is False.
+    supports_images: bool
 
     def complete(
         self,

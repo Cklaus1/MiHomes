@@ -119,3 +119,27 @@ class TestCompareVendors:
 
     def test_empty_list(self, session):
         assert compare_vendors(session, []) == []
+
+
+class TestCreateRatingValidation:
+    """M5 — create_rating must enforce the same 1–5 bounds as rate_vendor."""
+
+    def test_score_above_five_raises(self, session, vendor_a):
+        with pytest.raises(ValueError, match="quality"):
+            create_rating(session, vendor_a.slug, 6, 4, 4, 4)
+
+    def test_score_below_one_raises(self, session, vendor_a):
+        with pytest.raises(ValueError, match="reliability"):
+            create_rating(session, vendor_a.slug, 4, 0, 4, 4)
+
+    def test_cost_out_of_range_raises(self, session, vendor_a):
+        with pytest.raises(ValueError, match="cost"):
+            create_rating(session, vendor_a.slug, 4, 4, 9, 4)
+
+    def test_communication_out_of_range_raises(self, session, vendor_a):
+        with pytest.raises(ValueError, match="communication"):
+            create_rating(session, vendor_a.slug, 4, 4, 4, -1)
+
+    def test_valid_scores_accepted(self, session, vendor_a):
+        r = create_rating(session, vendor_a.slug, 1, 5, 3, 4)
+        assert r.id is not None

@@ -11,6 +11,7 @@ from mihomes.models.property import Property
 from mihomes.models.staff import Staff
 from mihomes.models.task import Task, TaskPriority, TaskStatus
 from mihomes.models.work_order import WorkOrder, WorkOrderStatus
+from mihomes.services.query_helpers import escape_like
 
 
 def generate(session: Session, property_slug: str | None = None) -> dict:
@@ -27,8 +28,11 @@ def generate(session: Session, property_slug: str | None = None) -> dict:
     # Resolve property filter
     prop_filter_ids: list[int] | None = None
     if property_slug and property_slug != "all":
+        # M10: escape LIKE wildcards so a slug containing %/_ can't broaden the
+        # name match to the wrong property.
         prop = session.query(Property).filter(
-            (Property.slug == property_slug) | (Property.name.ilike(f"%{property_slug}%"))
+            (Property.slug == property_slug)
+            | (Property.name.ilike(f"%{escape_like(property_slug)}%", escape="\\"))
         ).first()
         if not prop:
             raise ValueError(f"Property not found: {property_slug}")

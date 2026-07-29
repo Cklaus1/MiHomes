@@ -171,10 +171,24 @@ class TestGetVendorRatings:
 
 
 class TestDeleteVendor:
-    def test_delete_removes_vendor(self, session):
+    def test_delete_soft_deletes_vendor(self, session):
+        # H21/Q9: delete is a soft-delete — the row is preserved (so contracts,
+        # transactions and history keep referencing it) but marked inactive.
         v = create_vendor(session, "Plumber")
         delete_vendor(session, v.slug)
-        assert session.get(Vendor, v.id) is None
+        row = session.get(Vendor, v.id)
+        assert row is not None
+        assert row.active is False
+
+    def test_deleted_vendor_hidden_from_default_list(self, session):
+        from mihomes.services.vendor import list_vendors
+        v = create_vendor(session, "Plumber")
+        delete_vendor(session, v.slug)
+        slugs = [x.slug for x in list_vendors(session)]
+        assert v.slug not in slugs
+        # ...but visible when explicitly including inactive.
+        all_slugs = [x.slug for x in list_vendors(session, active_only=False)]
+        assert v.slug in all_slugs
 
     def test_delete_returns_name(self, session):
         v = create_vendor(session, "Plumber")
@@ -191,3 +205,28 @@ class TestDeleteVendor:
         delete_vendor(session, v.slug)
         log = session.query(AuditLog).filter_by(entity_type="vendor", action="delete").first()
         assert log is not None
+
+    def test_soft_delete_with_contract(self, session):
+        """A vendor referenced by a (non-nullable FK) contract must survive
+        deletion as an inactive row — a hard delete would violate the FK or
+        orphan the contract."""
+        from mihomes.models.property import Property, PropertyType
+        from mihomes.models.contract import Contract
+        from datetime import date
+
+        v = create_vendor(session, "Contracted Co")
+        p = Property(name="Contract House", slug="contract-house",
+                     property_type=PropertyType.PRIMARY)
+        session.add(p)
+        session.flush()
+        c = Contract(vendor_id=v.id, property_id=p.id,
+                     service_category="hvac", start_date=date.today())
+        session.add(c)
+        session.flush()
+
+        delete_vendor(session, v.slug)
+
+        # Contract still resolves to a live vendor row.
+        session.refresh(c)
+        assert session.get(Vendor, v.id) is not None
+        assert c.vendor_id == v.id

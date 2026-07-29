@@ -61,9 +61,15 @@ def create_work_order(
         assignee = resolve_identifier(session, Staff, assignee_id_or_slug)
         assignee_id = assignee.id
     slug = ensure_unique_slug(session, WorkOrder, slug or generate_slug(title))
+    # H23: converge the issue↔WO link on `issue_id`. The CLI passes the link as
+    # source_type="issue"/source_id; the web layer sets issue_id directly. Mirror
+    # an issue source into issue_id so both list_work_orders_by_issue() and
+    # verify() (which now read issue_id) see every issue-sourced work order.
+    issue_id = source_id if source_type == "issue" else None
     wo = WorkOrder(
         title=title, slug=slug, description=description,
         property_id=prop.id, source_type=source_type, source_id=source_id,
+        issue_id=issue_id,
         vendor_id=vendor_id, vendor_name=vendor_name, assignee_id=assignee_id,
         estimated_cost=estimated_cost, currency=currency, due_date=due_date,
     )
@@ -175,6 +181,17 @@ def complete(
     """Complete a work order and create a budget transaction."""
     wo = resolve_identifier(session, WorkOrder, id_or_slug)
     _validate_transition(wo.status, WorkOrderStatus.COMPLETED)
+
+    # H22: resolve and validate the cost BEFORE mutating the work order. The old
+    # order set status=COMPLETED + completed_at, flushed, and only then raised on
+    # a missing cost — leaving the WO wedged in COMPLETED with no transaction.
+    # M2: use actual_cost when it is set even if 0.0 (warranty/$0 work); a bare
+    # `or` would discard 0.0 and book a phantom estimate instead.
+    effective_cost = actual_cost if actual_cost is not None else wo.actual_cost
+    cost = effective_cost if effective_cost is not None else wo.estimated_cost
+    if cost is None:
+        raise ValueError("Cannot complete work order without estimated or actual cost. Provide --actual-cost.")
+
     old_snap = snapshot_instance(wo)
     wo.status = WorkOrderStatus.COMPLETED
     wo.completed_at = datetime.now(timezone.utc)
@@ -184,12 +201,7 @@ def complete(
         wo.completion_notes = notes
     session.flush()
 
-    # Create a budget transaction for the completed work
-    # M2: use actual_cost when it is set even if 0.0 (warranty/$0 work); a
-    # bare `or` would discard 0.0 and book a phantom estimate instead.
-    cost = wo.actual_cost if wo.actual_cost is not None else wo.estimated_cost
-    if cost is None:
-        raise ValueError("Cannot complete work order without estimated or actual cost. Provide --actual-cost.")
+    # Create a budget transaction for the completed work.
     if cost > 0:
         from mihomes.services.budget import add_transaction
         add_transaction(
@@ -215,9 +227,12 @@ def verify(session: Session, id_or_slug: str) -> WorkOrder:
     wo.verified_at = datetime.now(timezone.utc)
     session.flush()
 
-    # If sourced from an issue, update the issue status to VERIFIED
-    if wo.source_type == "issue" and wo.source_id:
-        issue = session.get(Issue, wo.source_id)
+    # If sourced from an issue, update the issue status to VERIFIED.
+    # H23: read the converged `issue_id` link (falling back to the legacy
+    # source_type/source_id pair for any rows created before convergence).
+    linked_issue_id = wo.issue_id or (wo.source_id if wo.source_type == "issue" else None)
+    if linked_issue_id:
+        issue = session.get(Issue, linked_issue_id)
         if issue:
             old_issue_status = issue.status.value
             issue.status = IssueStatus.VERIFIED

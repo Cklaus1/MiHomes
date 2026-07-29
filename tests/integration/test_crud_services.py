@@ -126,7 +126,11 @@ class TestVendorService:
         slug = v.slug
         name = delete_vendor(session, slug)
         assert name == "Delete Vendor Co"
-        assert session.query(Vendor).filter(Vendor.slug == slug).first() is None
+        # H21/Q9: delete is a soft-delete — the row survives (historical FKs stay
+        # intact) but is flagged inactive.
+        row = session.query(Vendor).filter(Vendor.slug == slug).first()
+        assert row is not None
+        assert row.active is False
 
     def test_filter_by_category(self, session):
         from mihomes.services.vendor import create_vendor, list_vendors

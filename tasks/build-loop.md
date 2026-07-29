@@ -104,20 +104,20 @@ Group headers carry the resume checkbox (§1.3).
 - [x] R1.2 · R1 · smoke test: invokes every AI tool executor (15, ×2 unfiltered+scoped) + situation-report + estate-digest vs seeded demo DB, stubbed provider · verify: `tests/integration/test_smoke_all_tools.py` (18 tests; §1.5 permanent net — path is `tests/integration/` not spec's `tests/ai/`)
 - [x] R1.3 · L1 · `logging_config.setup_logging()` installs a tagged RotatingFileHandler (5 MB × 5) under `<data_dir>/logs/mihomes.log`, level via `MIHOMES_LOG_LEVEL` (default INFO), idempotent; wired into root CLI callback · verify: `tests/integration/test_logging.py` (5 tests; path is `tests/integration/` not spec's `tests/cli/`)
 
-### [ ] G-Svc — Silent-corruption sweep (finance/health/recurrence/vendor/WO/AI logic) — *dep: G-R1, G-R5*
-- [ ] S.1 · H15 · vendor_spending: exclude `source="work_order"` tx (or drop WO leg); filter by `completed_at` · verify: `tests/services/test_financial_report.py::test_no_double_count`
-- [ ] S.2 · H16 · health-score budget overrun scoped to budget period window · verify: `test_health_score.py::test_budget_period_window`
-- [ ] S.3 · H18 · `RecurrenceFrequency.DAILY` case in `calculate_next_due` · verify: `test_recurrence.py::test_daily`
-- [ ] S.4 · H19 · `generate_transactions` while-loop catch-up; end_date per-occurrence · verify: `test_recurring.py::test_backfill`
-- [ ] S.5 · H20 · calendar pull: skip unmatched events (**both** branches); dedup gcal ids; no turnover re-spawn on unchanged occupancy · verify: `test_calendar_sync.py`
-- [ ] S.6 · H21/Q9 · vendor soft-delete (`active=False`); filter active in default lists · verify: `test_vendor.py::test_soft_delete_with_contract`
-- [ ] S.7 · H22 · WO `complete()` validate cost (`is None`) **before** mutating; web route surfaces the error (not swallow) · verify: `test_work_order.py::test_complete_requires_cost`, `tests/web/test_work_orders.py::test_complete_error_surfaced`
-- [ ] S.8 · H23 · converge issue↔WO link on `issue_id` (verify() + list both read it) · verify: `test_work_order.py::test_issue_link_converged`
-- [ ] S.9 · H12 · per-request date in roles (not import-frozen) · verify: `test_roles.py::test_date_not_frozen`
-- [ ] S.10 · H13 · provider image-capability flag; raise if active provider can't send images (**NIM=capable**); batch error-path catches raise · verify: `test_assessors.py::test_room_scan_requires_image_provider`
-- [ ] S.11 · H14 · `agent_stream` worker opens own session + saves in worker + logs (no cross-thread session, no swallow) · verify: `tests/web/test_ai_stream.py`
-- [ ] S.12 · M5+M10 · rating 1–5 validation shared helper; exact `func.lower(col)==` / escaped LIKE across the M10 census · verify: `test_vendor_rating.py`, `test_fuzzy_match.py`
-- [ ] S.13 · M34+M35+M37 · situation-report max_tokens/stop_reason; `content[0]` guard + attachment handling in structured_output; NIM `media_type`; file_processor size cap · verify: `tests/ai/test_provider_content.py`
+### [x] G-Svc — Silent-corruption sweep (finance/health/recurrence/vendor/WO/AI logic) — *dep: G-R1, G-R5* — *933 tests green; verify: paths corrected from spec's nonexistent tests/{services,web,ai}/ dirs to real tests/{unit,integration}/ locations*
+- [x] S.1 · H15 · vendor_spending: exclude `source="work_order"` tx (or drop WO leg); filter by `completed_at` · verify: `tests/unit/test_financial_report.py::test_no_double_count`
+- [x] S.2 · H16 · health-score budget overrun scoped to budget period window · verify: `tests/unit/test_health_score.py::test_budget_period_window`
+- [x] S.3 · H18 · `RecurrenceFrequency.DAILY` case in `calculate_next_due` · verify: `tests/unit/test_recurrence.py::test_daily`
+- [x] S.4 · H19 · `generate_transactions` while-loop catch-up; end_date per-occurrence · verify: `tests/unit/test_recurring.py::test_backfill`
+- [x] S.5 · H20 · calendar pull: skip unmatched events (**both** branches); dedup gcal ids; no turnover re-spawn on unchanged occupancy · verify: `tests/unit/test_calendar_sync.py`
+- [x] S.6 · H21/Q9 · vendor soft-delete (`active=False`); filter active in default lists · verify: `tests/unit/test_vendor.py::test_soft_delete_with_contract` (+ stale hard-delete assertion in `tests/integration/test_crud_services.py` corrected to soft-delete)
+- [x] S.7 · H22 · WO `complete()` validate cost (`is None`) **before** mutating; web route surfaces the error (not swallow) · verify: `tests/unit/test_work_order.py::test_complete_requires_cost`, `tests/integration/test_web_smoke.py::test_complete_error_surfaced`
+- [x] S.8 · H23 · converge issue↔WO link on `issue_id` (verify() + list both read it) · verify: `tests/unit/test_work_order.py` (TestIssueLinkConverged)
+- [x] S.9 · H12 · per-request date in roles (not import-frozen) · verify: `tests/unit/test_ai_roles.py` (TestSystemPromptDate)
+- [x] S.10 · H13 · provider image-capability flag; raise if active provider can't send images (**NIM=capable**); batch error-path catches raise · verify: `tests/unit/test_room_scan.py::test_parse_room_scan_raises_on_blind_provider`
+- [x] S.11 · H14 · `agent_stream` worker opens own session + saves in worker + logs (no cross-thread session, no swallow) · verify: `tests/integration/test_web_smoke.py::test_ai_stream_persists_conversation`
+- [x] S.12 · M5+M10 · rating 1–5 validation shared helper; exact `func.lower(col)==` / escaped LIKE across the M10 census · verify: `tests/unit/test_vendor_rating.py`, `tests/unit/test_fuzzy_match.py`
+- [x] S.13 · M34+M35+M37 · situation-report max_tokens/stop_reason; `content[0]` guard + attachment handling in structured_output; NIM `media_type`; file_processor size cap · verify: `tests/unit/test_provider_content.py` (12 tests)
 
 ### [ ] G-R2 — Gateway dedup core — *dep: G-R1*
 - [ ] R2.1 · R2 · extract `services/gateways/review_common.py` (schema, `_ai_response`, `_handle_approval_message`, dispatch, photo-attach, gateway-aware notifier, monitor-loop); parameterize by client · verify: `tests/gateways/test_review_common.py`

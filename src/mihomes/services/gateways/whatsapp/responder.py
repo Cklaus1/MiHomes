@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from mihomes.services.gateways.whatsapp.client import WhatsAppClient
 from mihomes.services.gateways.whatsapp.review import analyze_messages
+from mihomes.services.query_helpers import escape_like
 
 logger = logging.getLogger("mihomes.whatsapp")
 
@@ -194,7 +195,7 @@ def _resolve_staff_slug(session: Session, name: str | None) -> str | None:
     if not name:
         return None
     from mihomes.models.staff import Staff
-    staff = session.query(Staff).filter(Staff.name.ilike(f"%{name}%")).first()
+    staff = session.query(Staff).filter(Staff.name.ilike(f"%{escape_like(name)}%", escape="\\")).first()
     return staff.slug if staff else None
 
 
@@ -355,7 +356,7 @@ def process_and_respond(
         # Fallback: name match from AI-extracted reported_by
         name = item.get("reported_by")
         if name:
-            s = session.query(Staff).filter(Staff.name.ilike(f"%{name}%")).first()
+            s = session.query(Staff).filter(Staff.name.ilike(f"%{escape_like(name)}%", escape="\\")).first()
             if s:
                 return s.id
         return None

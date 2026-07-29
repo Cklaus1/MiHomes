@@ -9,6 +9,7 @@ from mihomes.models.property import Property
 from mihomes.models.vendor import Vendor
 from mihomes.models.vendor_rating import VendorRating
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
+from mihomes.services.rating_validation import validate_scores
 from mihomes.services.update_helpers import safe_update
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
 
@@ -241,12 +242,13 @@ def rate_vendor(
     property_id: int | None = None,
 ) -> VendorRating:
     """Add a rating for a vendor. Scores are 1–5."""
-    for name, val in [("quality", quality), ("reliability", reliability)]:
-        if not 1 <= val <= 5:
-            raise ValueError(f"{name} score must be between 1 and 5")
-    for name, val in [("cost", cost), ("communication", communication)]:
-        if val is not None and not 1 <= val <= 5:
-            raise ValueError(f"{name} score must be between 1 and 5")
+    # M5: shared 1–5 validation (cost/communication optional).
+    validate_scores({
+        "quality": (quality, True),
+        "reliability": (reliability, True),
+        "cost": (cost, False),
+        "communication": (communication, False),
+    })
 
     vendor = resolve_identifier(session, Vendor, id_or_slug)
     scores = [quality, reliability]
@@ -334,9 +336,17 @@ def rename_category(session: Session, old_name: str, new_name: str) -> int:
 
 
 def delete_vendor(session: Session, id_or_slug: str) -> str:
+    # H21/Q9: soft-delete. Vendors are referenced by contracts, transactions,
+    # work orders and rating history via non-nullable FKs — a hard delete would
+    # either violate those constraints or orphan the referencing rows. Instead
+    # we flag the vendor inactive so it drops out of default lists while all
+    # historical references stay intact.
     vendor = resolve_identifier(session, Vendor, id_or_slug)
     name = vendor.company_name
-    record_change(session, "vendor", vendor.id, "delete", snapshot_instance(vendor))
-    session.delete(vendor)
-    session.flush()
+    if vendor.active:
+        old_snap = snapshot_instance(vendor)
+        vendor.active = False
+        session.flush()
+        changes = diff_instance(old_snap, snapshot_instance(vendor))
+        record_change(session, "vendor", vendor.id, "delete", changes)
     return name

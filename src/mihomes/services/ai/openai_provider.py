@@ -14,6 +14,11 @@ except ImportError:
 class OpenAIProvider:
     """AI provider using OpenAI's API."""
 
+    # H13: this provider flattens attachments to a text block (see complete /
+    # structured_output) — it never sends real image data, so it must not be
+    # used for vision tasks like room scans.
+    supports_images: bool = False
+
     def __init__(self, api_key: str | None = None, model: str | None = None):
         if openai is None:
             raise AIProviderError(

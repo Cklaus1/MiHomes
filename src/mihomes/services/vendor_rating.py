@@ -10,6 +10,7 @@ from mihomes.models.vendor import Vendor
 from mihomes.models.vendor_rating import VendorRating
 from mihomes.models.work_order import WorkOrder
 from mihomes.services.audit import record_change, snapshot_instance
+from mihomes.services.rating_validation import validate_scores
 from mihomes.services.slug import resolve_identifier
 
 
@@ -26,6 +27,13 @@ def create_rating(
     notes: str | None = None,
     rated_date: date | None = None,
 ) -> VendorRating:
+    # M5: enforce the same 1–5 bounds as vendor.rate_vendor via the shared helper.
+    validate_scores({
+        "quality": (quality_score, True),
+        "reliability": (reliability_score, True),
+        "cost": (cost_score, True),
+        "communication": (communication_score, True),
+    })
     vendor = resolve_identifier(session, Vendor, vendor_id_or_slug)
     wo_id = None
     if work_order_id_or_slug:

@@ -25,6 +25,9 @@ class NIMProvider:
 
     max_images_per_request: int = 1
 
+    # H13: NIM's _build_content forwards real image_url blocks to the model.
+    supports_images: bool = True
+
     def __init__(self, api_key: str | None = None, model: str | None = None):
         if openai is None:
             raise AIProviderError(
@@ -44,20 +47,36 @@ class NIMProvider:
         )
 
     def _build_content(self, text: str, attachments=None) -> list | str:
-        """Build multimodal content list when images present, plain string otherwise."""
+        """Build multimodal content list when attachments present, plain string otherwise."""
         if not attachments:
             return text
         images = [a for a in attachments if getattr(a, "is_image", False) and a.base64_data]
-        if not images:
+        # M35: fold any text/PDF attachments into the prompt — previously they were
+        # silently dropped, so an attached quote or log never reached the model.
+        text_atts = [
+            a for a in attachments
+            if not getattr(a, "is_image", False) and getattr(a, "text_content", "")
+        ]
+        if not images and not text_atts:
             return text
+        combined_text = text
+        if text_atts:
+            blocks = "\n\n".join(
+                f"--- Attached file: {a.filename} ---\n{a.text_content}\n---" for a in text_atts
+            )
+            combined_text = f"{blocks}\n\n{text}"
+        if not images:
+            return combined_text
         content = []
         for a in images:
-            mime = a.content_type if hasattr(a, "content_type") and a.content_type else "image/jpeg"
+            # M35: Attachment exposes `media_type`, not `content_type`; the old
+            # attribute never existed so every image was mislabelled image/jpeg.
+            mime = getattr(a, "media_type", "") or "image/jpeg"
             content.append({
                 "type": "image_url",
                 "image_url": {"url": f"data:{mime};base64,{a.base64_data}"},
             })
-        content.append({"type": "text", "text": text})
+        content.append({"type": "text", "text": combined_text})
         return content
 
     def complete(

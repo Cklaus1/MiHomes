@@ -1,6 +1,25 @@
 # MiHomes — Project State & Next Actions
 
-Last updated: 2026-05-14
+Last updated: 2026-07-29
+
+---
+
+## ACTIVE: Hardening Build Loop (branch `hardening-build`)
+
+> Harness: `tasks/build-loop.md` · Spec: `tasks/hardening-spec.md` (v2, adversarially verified) · run via `/loop tasks/build-loop.md`.
+> Mirror of the §4 DAG — authoritative checkboxes live in `build-loop.md`; this is the at-a-glance view. Group `[x]` = committed + full suite green.
+
+- [ ] **G0 — Stop-the-bleeding (P0)**: D5 demo boot · D7+D8 watchdog · D6+H34+M45 uploads · D1 backup/restore · D3+H10+M32+M33 tools.py · M44 query_inventory · H8+H9 model · H11 round-limit
+- [ ] **G-R4 — Reconciliation migration** (extra-gated): H7 batch · H2 drop HaEntity · H1+M11–M15+M0 FKs/indexes/uniques/enum-defaults · H5 downgrade · H6 recasting · H17 alerts.property_id · M14 vendor_properties
+- [ ] **G-R5 — Money int-cents**: M1 TypeDecorator · cast migration · M2+M3+M4+M6 finance math
+- [ ] **G-R1 — Ban silent swallows**: R1 census→`logger.exception` · smoke test (every tool+report) · L1 logging config
+- [ ] **G-Svc — Silent-corruption sweep**: H15 double-count · H16 health period · H18 daily recurrence · H19 backfill · H20 calendar · H21 vendor soft-delete · H22 WO cost · H23 issue↔WO link · H12 date · H13 image-capability · H14 stream session · M5+M10 fuzzy · M34+M35+M37 provider content
+- [ ] **G-R2 — Gateway dedup core**: R2 `review_common.py` · H24–H28 · H35 PTO notifier · H36 vendor name · M21 poison-guard · M22–M31 · L12–L15
+- [ ] **G-Web — Web hardening**: M43 delete reports · H29 chart · H31+R3 error handlers · M40 ValueError · H30 CSRF/Host · H32 zip · M16 form parse · M17 active toggle · M18 XSS · M19+M20
+- [ ] **G-CLI — CLI parsing + tail**: M39+M40 · M41 exit code · M42 dashboard · L2–L11 hygiene
+- [ ] **G-Final — Compound stop**: full suite green · smoke green · spec reconciled · empty autogenerate · end-of-run report
+
+**Stop condition (all four):** every DAG box `[x]` · every spec finding landed-or-deferred · full suite green · R1 smoke green. No intermediate review stops.
 
 ---
 

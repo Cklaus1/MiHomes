@@ -78,10 +78,15 @@ def generate_transactions(session: Session) -> list[Transaction]:
     expenses = session.query(RecurringExpense).filter(RecurringExpense.active.is_(True)).all()
 
     for exp in expenses:
-        if exp.end_date and exp.end_date < today:
-            continue
+        # H19: catch up EVERY missed occurrence, not just the oldest one. A
+        # single-shot generate meant that a monthly expense untouched for three
+        # months only ever booked one transaction and silently dropped the rest.
+        # end_date is enforced per-occurrence inside the loop so occurrences that
+        # fall before an already-passed end_date are still generated.
         next_due = _next_due_date(exp)
-        if next_due and next_due <= today:
+        while next_due and next_due <= today:
+            if exp.end_date and next_due > exp.end_date:
+                break
             tx = Transaction(
                 amount=exp.amount, currency=exp.currency,
                 property_id=exp.property_id, vendor_id=exp.vendor_id,
@@ -91,6 +96,7 @@ def generate_transactions(session: Session) -> list[Transaction]:
             session.add(tx)
             exp.last_generated = next_due
             generated.append(tx)
+            next_due = _step_date(next_due, exp)
 
     session.flush()
     return generated

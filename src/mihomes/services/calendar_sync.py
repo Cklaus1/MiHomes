@@ -163,6 +163,7 @@ def pull_from_google(session: Session, days: int = 60) -> dict:
     props = list_properties(session)
 
     pulled, tasks_created, errors = 0, 0, []
+    skipped_unmatched = 0
 
     for event in events:
         title = event.get("title", "")
@@ -180,6 +181,10 @@ def pull_from_google(session: Session, days: int = 60) -> dict:
         desc = event.get("description") or ""
 
         # Try to match event to a property by name mention in title/description
+        # H20: an event that names no property is genuinely ambiguous. Silently
+        # attaching it to the primary/estate property fabricated occupancy and
+        # tasks against the wrong home. Skip unmatched events entirely (both the
+        # task and occupancy branches) and report the skip.
         matched_prop = None
         title_lower = title.lower()
         desc_lower = desc.lower()
@@ -187,51 +192,65 @@ def pull_from_google(session: Session, days: int = 60) -> dict:
             if prop.name.lower() in title_lower or prop.name.lower() in desc_lower:
                 matched_prop = prop
                 break
-        # Default to primary/estate property if no match
-        if not matched_prop and props:
-            for prop in props:
-                if prop.property_type and prop.property_type.value in ("estate", "primary"):
-                    matched_prop = prop
-                    break
-            if not matched_prop:
-                matched_prop = props[0]
 
         if not matched_prop:
+            skipped_unmatched += 1
             continue
 
         # Vendor/task events → create a task instead of occupancy
         if _is_task_event(title, desc):
             try:
-                # Avoid duplicates: skip if a task with same title + property + due_date exists
-                existing = session.query(Task).filter(
-                    Task.title == title,
-                    Task.property_id == matched_prop.id,
-                    Task.due_date == start_date,
-                ).first()
+                # H20: dedup on the Google event id first, then fall back to the
+                # title+property+due_date natural key. The id match makes repeat
+                # pulls idempotent even if the title changes upstream.
+                existing = None
+                gcal_id = event.get("id")
+                if gcal_id:
+                    existing = session.query(Task).filter(
+                        Task.gcal_event_id == gcal_id,
+                    ).first()
+                if existing is None:
+                    existing = session.query(Task).filter(
+                        Task.title == title,
+                        Task.property_id == matched_prop.id,
+                        Task.due_date == start_date,
+                    ).first()
                 if existing:
                     # If re-discovered and still missing the event ID, backfill it
-                    if not existing.gcal_event_id and event.get("id"):
-                        existing.gcal_event_id = event["id"]
+                    if not existing.gcal_event_id and gcal_id:
+                        existing.gcal_event_id = gcal_id
                         session.flush()
                 else:
                     from mihomes.services.task import create_task
                     new_task = create_task(session, title, str(matched_prop.id),
                                            description=desc or None, due_date=start_date)
                     # Store the Google Calendar event ID so push never re-pushes this task
-                    if event.get("id"):
-                        new_task.gcal_event_id = event["id"]
+                    if gcal_id:
+                        new_task.gcal_event_id = gcal_id
                         session.flush()
                     tasks_created += 1
             except Exception as e:
                 errors.append(f"{title} (task): {e}")
         else:
             try:
+                # H20: only (re)occupy when the window actually changed. Re-running
+                # a pull over an unchanged stay previously re-ran the turnover
+                # template every time, duplicating tasks on each sync.
+                if (matched_prop.occupied
+                        and matched_prop.occupied_since == start_date
+                        and matched_prop.occupied_until == end_date):
+                    continue
                 occupy_property(session, str(matched_prop.id), start_date, end_date)
                 pulled += 1
             except Exception as e:
                 errors.append(f"{title}: {e}")
 
-    return {"pulled": pulled, "tasks_created": tasks_created, "errors": errors}
+    return {
+        "pulled": pulled,
+        "tasks_created": tasks_created,
+        "skipped_unmatched": skipped_unmatched,
+        "errors": errors,
+    }
 
 
 def auto_sync(session: Session) -> dict:

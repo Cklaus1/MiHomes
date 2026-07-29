@@ -161,6 +161,9 @@ def vendor_spending_report(
         prop_id = prop.id
 
     # --- Transactions with vendor_id ---
+    # H15: exclude transactions booked by work-order completion (source=
+    # "work_order"). Those are counted via the work-order leg below; summing
+    # both here double-counts every WO-driven expense.
     tx_q = session.query(
         Transaction.vendor_id,
         Vendor.company_name,
@@ -168,6 +171,7 @@ def vendor_spending_report(
         func.count(Transaction.id).label("tx_count"),
     ).outerjoin(Vendor, Transaction.vendor_id == Vendor.id).filter(
         Transaction.vendor_id.isnot(None),
+        Transaction.source != "work_order",
         Transaction.date >= start,
         Transaction.date <= end,
     )
@@ -176,6 +180,9 @@ def vendor_spending_report(
     tx_rows = tx_q.group_by(Transaction.vendor_id, Vendor.company_name).all()
 
     # --- Work orders with actual_cost ---
+    # H15: filter on completed_at (when the spend actually occurred), not
+    # updated_at — a later edit to any field would otherwise pull a WO into an
+    # unrelated reporting window or push it out of its true one.
     wo_q = session.query(
         WorkOrder.vendor_id,
         Vendor.company_name,
@@ -184,8 +191,9 @@ def vendor_spending_report(
     ).join(Vendor, WorkOrder.vendor_id == Vendor.id).filter(
         WorkOrder.vendor_id.isnot(None),
         WorkOrder.actual_cost.isnot(None),
-        WorkOrder.updated_at >= start,
-        WorkOrder.updated_at <= end,
+        WorkOrder.completed_at.isnot(None),
+        func.date(WorkOrder.completed_at) >= start,
+        func.date(WorkOrder.completed_at) <= end,
     )
     if prop_id:
         wo_q = wo_q.filter(WorkOrder.property_id == prop_id)

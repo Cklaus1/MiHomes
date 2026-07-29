@@ -33,6 +33,31 @@ class Budget(Base, TimestampMixin):
     amount: Mapped[float] = mapped_column(Money, nullable=False)
     currency: Mapped[str] = mapped_column(String(10), default="USD")
 
+    # NOTE: defined before the `property` relationship below, which otherwise
+    # shadows the built-in `property` decorator inside the class body.
+    @property
+    def period_end(self) -> date:
+        """Exclusive end of this budget's period window (H16).
+
+        Returns the date one period after ``period_start`` so callers can use a
+        half-open ``[period_start, period_end)`` range. Day-of-month is
+        preserved and clamped to the last valid day of the target month (so a
+        Jan-31 monthly budget ends Feb-28/29). Month arithmetic is done by hand
+        to avoid a dateutil dependency.
+        """
+        import calendar
+
+        months = {
+            BudgetPeriod.MONTHLY: 1,
+            BudgetPeriod.QUARTERLY: 3,
+            BudgetPeriod.ANNUAL: 12,
+        }[self.period]
+        total = (self.period_start.month - 1) + months
+        year = self.period_start.year + total // 12
+        month = total % 12 + 1
+        day = min(self.period_start.day, calendar.monthrange(year, month)[1])
+        return date(year, month, day)
+
     property = relationship("Property")
 
 

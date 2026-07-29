@@ -1,6 +1,9 @@
-"""Regression tests for property health scoring — H17 alert scoping."""
+"""Regression tests for property health scoring — H17 alert scoping, H16 budget window."""
+
+from datetime import date, timedelta
 
 from mihomes.models.alert import Alert, AlertSeverity, AlertStatus
+from mihomes.models.budget import Budget, BudgetPeriod, Transaction
 from mihomes.models.property import Property, PropertyType
 from mihomes.services.health_score import compute_property_health
 
@@ -46,3 +49,51 @@ def test_systemwide_alert_hits_every_property(session):
     score_a = compute_property_health(session, a.id)
     assert score_a.breakdown.get("alerts", 0) < 0
     assert score_a.score < 100
+
+
+def test_budget_period_window(session):
+    """H16 — budget overrun must be measured within the budget's period window.
+    Spending from a *prior* period must not count against the current period's
+    budget, or an old overrun permanently tanks the health score."""
+    p = _prop(session, "windowed")
+    today = date.today()
+    period_start = today.replace(day=1)  # current month
+
+    session.add(Budget(
+        property_id=p.id, category="maintenance",
+        period=BudgetPeriod.MONTHLY, period_start=period_start,
+        amount=1000.0, currency="USD",
+    ))
+    # Overspend that happened LAST period — outside the current window.
+    session.add(Transaction(
+        amount=5000.0, currency="USD", property_id=p.id,
+        category="maintenance", description="last period blowout",
+        date=period_start - timedelta(days=20),
+    ))
+    session.flush()
+
+    score = compute_property_health(session, p.id)
+    # No in-window spend → no overrun deduction.
+    assert "budget" not in score.breakdown, score.breakdown
+
+
+def test_budget_overrun_within_window_deducts(session):
+    """Control: an overrun *inside* the current period still deducts."""
+    p = _prop(session, "overrun-now")
+    today = date.today()
+    period_start = today.replace(day=1)
+
+    session.add(Budget(
+        property_id=p.id, category="maintenance",
+        period=BudgetPeriod.MONTHLY, period_start=period_start,
+        amount=100.0, currency="USD",
+    ))
+    session.add(Transaction(
+        amount=500.0, currency="USD", property_id=p.id,
+        category="maintenance", description="in-window overrun",
+        date=today,
+    ))
+    session.flush()
+
+    score = compute_property_health(session, p.id)
+    assert score.breakdown.get("budget", 0) < 0

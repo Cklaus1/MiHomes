@@ -7,6 +7,7 @@ import pytest
 from mihomes.models.budget import Transaction
 from mihomes.models.property import Property, PropertyType
 from mihomes.models.recurring_expense import ExpenseFrequency, RecurringExpense
+from mihomes.services.recurrence import add_months
 from mihomes.services.recurring import (
     _next_due_date,
     create_recurring_expense,
@@ -186,15 +187,20 @@ class TestGenerateTransactions:
         ).count()
         assert new_txs == 0
 
-    def test_skips_ended_expense(self, session, prop):
+    def test_ended_expense_backfills_only_within_window(self, session, prop):
+        # H19: an expense active Jan–Jun 2025 that was never generated backfills
+        # its six in-window occurrences (those costs really were incurred) and
+        # generates nothing dated after end_date.
         create_recurring_expense(
             session, "Ended Expense", 50.0, ExpenseFrequency.MONTHLY,
             str(prop.id), "misc", date(2025, 1, 1),
             end_date=date(2025, 6, 1),
         )
         generated = generate_transactions(session)
-        tx = next((t for t in generated if t.description == "Recurring: Ended Expense"), None)
-        assert tx is None
+        mine = [t for t in generated if t.description == "Recurring: Ended Expense"]
+        assert mine, "in-window occurrences should backfill"
+        assert all(t.date <= date(2025, 6, 1) for t in mine)
+        assert max(t.date for t in mine) <= date(2025, 6, 1)
 
     def test_updates_last_generated(self, session, prop):
         exp = create_recurring_expense(
@@ -219,6 +225,55 @@ class TestGenerateTransactions:
             Transaction.description == "Recurring: Inactive Recurring"
         ).first()
         assert tx is None
+
+
+class TestBackfill:
+    """H19 — generate_transactions must catch up ALL missed occurrences, not
+    just the single oldest one, and must stop at end_date per-occurrence."""
+
+    def test_backfill(self, session, prop):
+        # Monthly expense that started ~3 months ago and never generated.
+        start = add_months(date.today(), -3)
+        create_recurring_expense(
+            session, "Backfill Me", 100.0, ExpenseFrequency.MONTHLY,
+            str(prop.id), "utilities", start,
+        )
+        generated = generate_transactions(session)
+        mine = [t for t in generated if t.description == "Recurring: Backfill Me"]
+        # start, +1mo, +2mo, +3mo all <= today → 4 occurrences.
+        assert len(mine) >= 4, f"only backfilled {len(mine)} occurrences"
+        dates = sorted(t.date for t in mine)
+        assert dates[0] == start
+        # No duplicate dates.
+        assert len(dates) == len(set(dates))
+        # None past today.
+        assert all(d <= date.today() for d in dates)
+
+    def test_backfill_stops_at_end_date(self, session, prop):
+        start = add_months(date.today(), -6)
+        end = add_months(date.today(), -3)
+        create_recurring_expense(
+            session, "Capped Backfill", 100.0, ExpenseFrequency.MONTHLY,
+            str(prop.id), "utilities", start, end_date=end,
+        )
+        generated = generate_transactions(session)
+        mine = [t for t in generated if t.description == "Recurring: Capped Backfill"]
+        assert mine, "expected at least one backfilled occurrence"
+        # Nothing generated past the end_date.
+        assert all(t.date <= end for t in mine)
+
+    def test_backfill_idempotent(self, session, prop):
+        start = add_months(date.today(), -2)
+        create_recurring_expense(
+            session, "Once Only", 100.0, ExpenseFrequency.MONTHLY,
+            str(prop.id), "utilities", start,
+        )
+        first = generate_transactions(session)
+        n_first = len([t for t in first if t.description == "Recurring: Once Only"])
+        assert n_first >= 3
+        second = generate_transactions(session)
+        n_second = len([t for t in second if t.description == "Recurring: Once Only"])
+        assert n_second == 0, "re-running generated duplicates"
 
 
 class TestGenerateUpcomingAppointments:

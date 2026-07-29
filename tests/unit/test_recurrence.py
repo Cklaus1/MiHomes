@@ -34,6 +34,13 @@ class TestCalculateNextDue:
     def test_once_returns_none(self):
         assert calculate_next_due("once", date(2026, 4, 1)) is None
 
+    def test_daily(self):
+        # H18: DAILY frequency was missing → tasks never recurred (fell through
+        # to the None default). Daily must advance exactly one day, including
+        # across month boundaries.
+        assert calculate_next_due("daily", date(2026, 4, 1)) == date(2026, 4, 2)
+        assert calculate_next_due("daily", date(2026, 4, 30)) == date(2026, 5, 1)
+
     def test_weekly(self):
         assert calculate_next_due("weekly", date(2026, 4, 1)) == date(2026, 4, 8)
 

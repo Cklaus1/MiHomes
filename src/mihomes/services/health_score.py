@@ -97,11 +97,16 @@ def compute_property_health(session: Session, property_id: int) -> HealthScore:
     )
     budget_deduction = 0
     for b in budgets:
+        # H16: measure spend only within this budget's period window. Summing
+        # all-time transactions against a single-period amount means one old
+        # overrun permanently deducts, and multi-period spend always "overruns".
         spent = (
             session.query(func.sum(Transaction.amount))
             .filter(
                 Transaction.property_id == property_id,
                 Transaction.category == b.category,
+                Transaction.date >= b.period_start,
+                Transaction.date < b.period_end,
             )
             .scalar()
         ) or 0.0

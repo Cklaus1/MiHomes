@@ -13,6 +13,9 @@ from mihomes.db import get_session
 from mihomes.services.dashboard import get_dashboard_data
 from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError, resolve_identifier
 from mihomes.models.property import Property
+import logging
+
+logger = logging.getLogger(__name__)
 
 app = typer.Typer(name="dashboard", help="Estate overview dashboard", invoke_without_command=True)
 
@@ -127,7 +130,7 @@ def dashboard(
                         start_str = start.strftime("%b %d") if start else "-"
                         cal_lines.append(f"  [cyan]◆ Google[/cyan]  {title} — {start_str}")
             except Exception:
-                pass
+                logger.exception("dashboard: suppressed exception")
 
         calendar_panel = Panel(
             "\n".join(cal_lines) if cal_lines else "[dim]No active or upcoming occupancy[/dim]",

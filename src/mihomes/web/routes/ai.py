@@ -14,6 +14,9 @@ from mihomes.services import property as prop_svc
 from mihomes.services.ai.file_processor import Attachment, process_upload
 from mihomes.web.deps import get_db, templates
 from mihomes.web.forms import save_document_text
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -455,7 +458,7 @@ async def ai_ask_stream(
             ))
             db.flush()
         except Exception:
-            pass
+            logger.exception("_generate: suppressed exception")
 
     return StreamingResponse(
         _generate(),

@@ -6,6 +6,9 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+import logging
+
+logger = logging.getLogger(__name__)
 
 TELEGRAM_API = "https://api.telegram.org"
 MEDIA_DIR = Path(os.path.expanduser("~/.mihomes/media/telegram"))
@@ -99,7 +102,8 @@ class TelegramClient:
                 local_path.write_bytes(resp.read())
             return str(local_path)
         except Exception:
-            return None
+            logger.exception("download_file: suppressed exception")
+            return
 
     # -------------------------------------------------------------------------
     # Message normalization

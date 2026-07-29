@@ -13,6 +13,9 @@ from rich.live import Live
 from mihomes.cli.formatters import format_error, format_success
 from mihomes.db import get_session
 from mihomes.services.ai.provider import AIAuthError, AIProviderError
+import logging
+
+logger = logging.getLogger(__name__)
 
 console = Console()
 app = typer.Typer(name="ai", help="AI advisory commands")
@@ -416,7 +419,7 @@ def rank_resumes_cmd(
                 path = ranker.save_candidate_notes(r, role)
                 saved.append(path)
             except Exception:
-                pass
+                logger.exception("rank_resumes_cmd: suppressed exception")
         if saved:
             console.print(f"\n[dim]  Saved {len(saved)} candidate note(s) to knowledge/staff/candidates/[/dim]")
 

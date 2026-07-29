@@ -17,6 +17,9 @@ from rich.table import Table
 from mihomes.cli.formatters import console, format_error, format_success, severity_color
 from mihomes.db import get_session
 from mihomes.services.gateways.telegram.client import TelegramClient, TelegramError
+import logging
+
+logger = logging.getLogger(__name__)
 
 app = typer.Typer(name="telegram", help="Telegram bot gateway")
 
@@ -732,7 +735,7 @@ def _start_watchdog_now(watchdog_script: Path, monitor_property: str = "belle-es
         if key:
             env["NVIDIA_API_KEY"] = key
     except Exception:
-        pass
+        logger.exception("_start_watchdog_now: suppressed exception")
 
     if sys.platform == "win32":
         si = subprocess.STARTUPINFO()

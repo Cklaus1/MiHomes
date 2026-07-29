@@ -8,6 +8,9 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from mihomes.web.deps import get_db, templates
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -97,7 +100,7 @@ def weather_analyze(request: Request, db: Session = Depends(get_db)):
     try:
         total_alerts = generate_weather_alerts(db)
     except Exception:
-        pass
+        logger.exception("weather_analyze: suppressed exception")
 
     # 2. Build groups + AI task suggestions per property
     for group in _group_by_zip(properties):

@@ -15,6 +15,9 @@ from mihomes.services.ai.ai_config import get_ai_api_key, get_ai_model, get_ai_p
 from mihomes.services.ai.context import assemble_context
 from mihomes.services.ai.provider import get_provider
 from mihomes.services.ai.roles import ROLES, route_query
+import logging
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from mihomes.services.ai.file_processor import Attachment
@@ -102,7 +105,7 @@ def ask(
                 model=model,
             ))
     except Exception:
-        pass
+        logger.exception("ask: suppressed exception")
 
     _save_session_id(session_id)
 
@@ -184,7 +187,7 @@ def budget_review(
                 for r in by_cat:
                     extra_lines.append(f"  - {r['category']}: ${r['total']:,.0f} ({r['transaction_count']} transactions)")
         except Exception:
-            pass
+            logger.exception("budget_review: suppressed exception")
 
         # Top vendors by spend YTD
         try:
@@ -194,7 +197,7 @@ def budget_review(
                 for r in by_vendor[:5]:
                     extra_lines.append(f"  - {r['vendor']}: ${r['total']:,.0f}")
         except Exception:
-            pass
+            logger.exception("budget_review: suppressed exception")
 
         # Recurring expenses annualized
         try:
@@ -213,7 +216,7 @@ def budget_review(
                     mult = freq_multiplier.get(r.frequency.value, 12)
                     extra_lines.append(f"  - {r.name}: ${r.amount:,.0f}/{r.frequency.value} (~${r.amount * mult:,.0f}/yr)")
         except Exception:
-            pass
+            logger.exception("budget_review: suppressed exception")
 
     extra_context = "\n".join(extra_lines)
 
@@ -260,7 +263,7 @@ def budget_review(
                 model=model,
             ))
     except Exception:
-        pass
+        logger.exception("budget_review: suppressed exception")
     _save_session_id(session_id)
 
     return AIResponse(text=response_text, role=role.display_name, session_id=session_id)

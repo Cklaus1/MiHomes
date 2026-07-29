@@ -12,6 +12,7 @@ MEDIA_DIR = MIHOMES_DIR / "media"
 UPLOADS_DIR = MEDIA_DIR / "uploads"
 BACKUPS_DIR = MIHOMES_DIR / "backups"
 EXPORTS_DIR = MIHOMES_DIR / "exports"
+LOGS_DIR = MIHOMES_DIR / "logs"
 WHATSAPP_AUTH_DIR = MIHOMES_DIR / "whatsapp-auth"
 
 DB_PATH = DB_DIR / "mihomes.db"

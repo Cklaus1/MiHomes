@@ -11,6 +11,9 @@ from __future__ import annotations
 
 import os
 from typing import Any
+import logging
+
+logger = logging.getLogger(__name__)
 
 _SUPERVISOR_TOKEN = os.environ.get("SUPERVISOR_TOKEN")
 _API_BASE = "http://supervisor/core/api"
@@ -81,7 +84,8 @@ async def get_ha_version() -> str | None:
             r.raise_for_status()
             return r.json().get("version")
     except Exception:
-        return None
+        logger.exception("get_ha_version: suppressed exception")
+        return
 
 
 def group_states_by_domain(states: list[dict]) -> dict[str, list[dict]]:

@@ -11,6 +11,9 @@ from mihomes.db import get_session
 from mihomes.models.property import PropertyStatus, PropertyType
 from mihomes.services import property as prop_svc
 from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
+import logging
+
+logger = logging.getLogger(__name__)
 
 app = typer.Typer(name="property", help="Manage properties")
 
@@ -176,7 +179,7 @@ def show_property(
                         console.print(f"  → [cyan]mihomes template run {r['template']} --property {prop.slug}[/cyan]")
                         console.print(f"    {r['reason']}")
             except Exception:
-                pass  # Seasonal recommendations are advisory, not critical
+                logger.exception("show_property: suppressed exception")
 
 
 @app.command("edit")

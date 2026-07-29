@@ -1,6 +1,7 @@
 """WhatsApp responder — logs issues/tasks and answers questions via AI."""
 
 import base64
+import logging
 import mimetypes
 import os
 import re
@@ -10,6 +11,8 @@ from sqlalchemy.orm import Session
 
 from mihomes.services.gateways.whatsapp.client import WhatsAppClient
 from mihomes.services.gateways.whatsapp.review import analyze_messages
+
+logger = logging.getLogger("mihomes.whatsapp")
 
 
 def handle_inventory_scan(
@@ -229,7 +232,7 @@ def _handle_approval_message(session: Session, message: dict, client) -> bool:
             if reply_jid:
                 client.send_group_message(reply_jid, f"🏠 PTO approved for {req.staff.name} — {', '.join(req.dates)} ✓")
         except Exception:
-            pass
+            logger.exception("_handle_approval_message: suppressed exception")
         return True
 
     if deny_match:
@@ -242,7 +245,7 @@ def _handle_approval_message(session: Session, message: dict, client) -> bool:
             if reply_jid:
                 client.send_group_message(reply_jid, f"🏠 PTO denied for {req.staff.name} — {', '.join(req.dates)}")
         except Exception:
-            pass
+            logger.exception("_handle_approval_message: suppressed exception")
         return True
 
     return False
@@ -306,7 +309,7 @@ def process_and_respond(
                 f"🏠 ⚠️ Bot error — couldn't process message(s). Please log manually.\n_{detail}_",
             )
         except Exception:
-            pass
+            logger.exception("_send_error_to_group: suppressed exception")
 
     try:
         result = analyze_messages(session, messages, property_name=property_slug, property_slug=property_slug)
@@ -492,7 +495,7 @@ def process_and_respond(
                             entity_id=issue.id,
                         )
                     except Exception:
-                        pass
+                        logger.exception("process_and_respond: suppressed exception")
                 logged += 1
             elif category == "task":
                 from mihomes.services.task import create_task

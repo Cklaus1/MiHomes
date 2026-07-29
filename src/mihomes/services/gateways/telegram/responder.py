@@ -2,6 +2,7 @@
 
 import base64
 import json
+import logging
 import mimetypes
 import os
 import re
@@ -11,6 +12,8 @@ from sqlalchemy.orm import Session
 
 from mihomes.services.gateways.telegram.client import TelegramClient, TelegramError
 from mihomes.services.gateways.telegram.review import analyze_messages
+
+logger = logging.getLogger("mihomes.telegram")
 
 
 def _get_client(session: Session) -> TelegramClient:
@@ -183,7 +186,7 @@ def _ai_response(session: Session, prompt: str, role: str, property_slug: str | 
         try:
             session.rollback()
         except Exception:
-            pass
+            logger.exception("_ai_response: suppressed exception")
         return None
 
 
@@ -244,7 +247,7 @@ def _handle_approval_message(session: Session, message: dict, client: TelegramCl
             if reply_chat_id:
                 client.send_message(reply_chat_id, f"PTO approved for {req.staff.name} — {', '.join(req.dates)} ✓")
         except Exception:
-            pass
+            logger.exception("_handle_approval_message: suppressed exception")
         return True
 
     if deny_match:
@@ -257,7 +260,7 @@ def _handle_approval_message(session: Session, message: dict, client: TelegramCl
             if reply_chat_id:
                 client.send_message(reply_chat_id, f"PTO denied for {req.staff.name} — {', '.join(req.dates)}")
         except Exception:
-            pass
+            logger.exception("_handle_approval_message: suppressed exception")
         return True
 
     return False
@@ -318,7 +321,7 @@ def process_and_respond(
                 f"Bot error — couldn't process message(s). Please log manually.\n{detail}",
             )
         except Exception:
-            pass
+            logger.exception("_send_error_to_group: suppressed exception")
 
     try:
         result = analyze_messages(session, messages, property_name=property_slug, property_slug=property_slug)
@@ -468,7 +471,7 @@ def process_and_respond(
                     client.send_message(reply_chat_id, "No books identified — send photos of the covers or list titles to add.")
                     replied += 1
                 except Exception:
-                    pass
+                    logger.exception("process_and_respond: suppressed exception")
                 continue
             from mihomes.models.book import BookCondition
             from mihomes.services.book import create_book
@@ -517,7 +520,7 @@ def process_and_respond(
                     client.send_message(reply_chat_id, "No assets identified — send photos or describe items to add.")
                     replied += 1
                 except Exception:
-                    pass
+                    logger.exception("process_and_respond: suppressed exception")
                 continue
             from mihomes.models.asset import AssetCondition, AssetType
             from mihomes.services.asset import create_asset
@@ -650,7 +653,7 @@ def process_and_respond(
                     client.send_message(reply_chat_id, 'Expense noted but no amount found — log manually.')
                     replied += 1
                 except Exception:
-                    pass
+                    logger.exception("process_and_respond: suppressed exception")
                 continue
             try:
                 from mihomes.services.budget import add_transaction
@@ -748,7 +751,7 @@ def process_and_respond(
                             entity_id=issue.id,
                         )
                     except Exception:
-                        pass
+                        logger.exception("process_and_respond: suppressed exception")
                 logged += 1
             elif category == "task":
                 from mihomes.services.task import create_task

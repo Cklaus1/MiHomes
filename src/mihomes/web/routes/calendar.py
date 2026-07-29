@@ -13,6 +13,9 @@ from mihomes.services import event as event_svc
 from mihomes.services import property as prop_svc
 from mihomes.services import vendor as vendor_svc
 from mihomes.web.deps import get_db, templates
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -143,7 +146,7 @@ def _ctx(db: Session, month_date: date, property_id: int | None = None) -> dict:
                         day_gcal.setdefault(d, []).append(ev)
                     d += timedelta(days=1)
         except Exception:
-            pass
+            logger.exception("_ctx: suppressed exception")
 
     # Build holiday map for the displayed month (spanning year boundary if needed)
     all_holidays = _us_holidays(month_start.year)

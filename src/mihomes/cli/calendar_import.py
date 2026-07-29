@@ -7,6 +7,9 @@ from rich.table import Table
 
 from mihomes.cli.formatters import console, format_error, format_success
 from mihomes.db import get_session
+import logging
+
+logger = logging.getLogger(__name__)
 
 app = typer.Typer(name="calendar", help="Calendar sync and occupancy management")
 
@@ -85,7 +88,7 @@ def google_pull(
                     occupy_property(session, property, start_date, end_date)
                     imported += 1
                 except Exception:
-                    pass
+                    logger.exception("google_pull: suppressed exception")
             format_success(f"{imported} event(s) imported as occupancy for {property}")
 
 

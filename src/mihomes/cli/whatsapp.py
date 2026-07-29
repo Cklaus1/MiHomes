@@ -15,6 +15,9 @@ from rich.table import Table
 from mihomes.cli.formatters import console, format_error, format_success, severity_color
 from mihomes.db import get_session
 from mihomes.services.gateways.whatsapp.client import WhatsAppBridgeError, WhatsAppClient
+import logging
+
+logger = logging.getLogger(__name__)
 
 app = typer.Typer(name="whatsapp", help="WhatsApp staff gateway")
 
@@ -202,7 +205,7 @@ def _start_watchdog_now(watchdog_script, monitor_property: str = "belle-estate")
         if key:
             env["NVIDIA_API_KEY"] = key
     except Exception:
-        pass
+        logger.exception("_start_watchdog_now: suppressed exception")
 
     # STARTUPINFO / creationflags are Windows-only — guarding them keeps
     # `whatsapp watchdog` from crashing on Linux/macOS (spec D7).
@@ -469,7 +472,7 @@ def monitor(
         try:
             _IDS_FILE.write_text(json.dumps(list(ids)[-1000:]))
         except Exception:
-            pass
+            logger.exception("_save_ids: suppressed exception")
 
     # Load persisted IDs so restarts don't reprocess already-handled messages
     last_check = datetime.now(timezone.utc) - timedelta(minutes=15)

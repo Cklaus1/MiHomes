@@ -12,6 +12,9 @@ from mihomes.models.ai_conversation import AIConversation
 from mihomes.services.ai.ai_config import get_ai_api_key, get_ai_model, get_ai_provider_name
 from mihomes.services.ai.orchestrator import AIResponse, _get_session_id, _save_session_id
 from mihomes.services.ai.provider import get_provider
+import logging
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from mihomes.services.ai.file_processor import Attachment
@@ -136,7 +139,7 @@ def generate_situation_report(
             if wo.description:
                 context_lines.append(f"Description: {wo.description[:600]}")
         except Exception:
-            pass
+            logger.exception("generate_situation_report: suppressed exception")
 
     if property_slug:
         try:
@@ -155,7 +158,7 @@ def generate_situation_report(
                     + ", ".join(f"[{i.severity.value}] {i.title}" for i in open_issues[:5])
                 )
         except Exception:
-            pass
+            logger.exception("generate_situation_report: suppressed exception")
 
     subject_line = f"Subject: {subject}\n" if subject else ""
     user_message = f"{subject_line}\n{content}" if subject_line else content
@@ -222,7 +225,7 @@ def generate_estate_digest(
             from mihomes.services.slug import resolve_identifier
             prop_filter = resolve_identifier(session, Property, property_slug)
         except Exception:
-            pass
+            logger.exception("generate_estate_digest: suppressed exception")
 
     period_label = f"{start_date.strftime('%B %d')} – {end_date.strftime('%B %d, %Y')}"
     lines = [f"## Estate Activity: {period_label}"]
@@ -233,7 +236,7 @@ def generate_estate_digest(
     try:
         from mihomes.models.task import Task, TaskStatus
         q_done = session.query(Task).filter(
-            Task.status == TaskStatus.DONE,
+            Task.status == TaskStatus.COMPLETED,
             Task.updated_at >= start_dt,
             Task.updated_at <= end_dt,
         )
@@ -242,7 +245,7 @@ def generate_estate_digest(
         tasks_done = q_done.all()
 
         q_overdue = session.query(Task).filter(
-            Task.status.notin_([TaskStatus.DONE, TaskStatus.CANCELLED]),
+            Task.status.notin_([TaskStatus.COMPLETED, TaskStatus.CANCELLED]),
             Task.due_date < end_date,
         )
         if prop_filter:
@@ -262,7 +265,7 @@ def generate_estate_digest(
             for t in tasks_overdue[:10]:
                 lines.append(f"  - [{t.priority.value}] {t.title} @ {t.property.name}, due {t.due_date}")
     except Exception:
-        pass
+        logger.exception("generate_estate_digest: suppressed exception")
 
     # Work Orders & Vendors
     try:
@@ -301,7 +304,7 @@ def generate_estate_digest(
         if not wos_new and not wos_done:
             lines.append("  No work order activity this period.")
     except Exception:
-        pass
+        logger.exception("generate_estate_digest: suppressed exception")
 
     # Issues
     try:
@@ -335,7 +338,7 @@ def generate_estate_digest(
         if not issues_new and not issues_resolved:
             lines.append("  No issue activity this period.")
     except Exception:
-        pass
+        logger.exception("generate_estate_digest: suppressed exception")
 
     # Financial Activity
     try:
@@ -361,7 +364,7 @@ def generate_estate_digest(
         else:
             lines.append("  No transactions recorded this period.")
     except Exception:
-        pass
+        logger.exception("generate_estate_digest: suppressed exception")
 
     # Staff snapshot
     try:
@@ -373,7 +376,7 @@ def generate_estate_digest(
                 props = ", ".join(p.name for p in s.properties) or "unassigned"
                 lines.append(f"  - {s.name} ({s.role.value}) — {props}")
     except Exception:
-        pass
+        logger.exception("generate_estate_digest: suppressed exception")
 
     # Upcoming context (next 14 days after end_date)
     try:
@@ -384,7 +387,7 @@ def generate_estate_digest(
             for t in upcoming[:10]:
                 lines.append(f"  - {t.title} @ {t.property.name}, due {t.due_date}")
     except Exception:
-        pass
+        logger.exception("generate_estate_digest: suppressed exception")
 
     estate_data = "\n".join(lines)
     user_message = f"Generate an estate digest for {period_label}.\n\n{estate_data}"

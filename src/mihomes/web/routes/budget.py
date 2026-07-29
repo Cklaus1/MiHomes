@@ -16,6 +16,9 @@ from mihomes.services import property as prop_svc
 from mihomes.services import recurring as recurring_svc
 from mihomes.services import vendor as vendor_svc
 from mihomes.web.deps import get_db, templates
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -60,7 +63,7 @@ def _ctx(
                 row["property_slug"] = prop.slug
             reports.extend(rows)
         except Exception:
-            pass
+            logger.exception("_ctx: suppressed exception")
     transactions = budget_svc.list_transactions(
         db,
         search=txn_search or None,
@@ -102,7 +105,7 @@ def _ctx(
                     [d["total"] for d in vendor_data],
                 )
         except Exception:
-            pass
+            logger.exception("_ctx: suppressed exception")
 
     return {
         "page": "budget",
@@ -206,6 +209,6 @@ def set_budget(
                 row["property"] = prop.name
             reports.extend(rows)
         except Exception:
-            pass
+            logger.exception("set_budget: suppressed exception")
 
     return templates.TemplateResponse(request, "partials/budget_report.html", {"reports": reports})

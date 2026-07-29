@@ -3,6 +3,28 @@
 Corrections, patterns, and self-improvement rules learned during development.
 Review this at the start of each session.
 
+## Git Worktree Lessons (2026-07-29)
+- **Commit untracked files in a worktree BEFORE removing it.** `git worktree remove` deletes
+  them permanently — no reflog, no recovery. Near-miss: two PRDs (~70KB, 1,266 lines) existed
+  on no branch in any history and would have been destroyed. Always run
+  `git -C <worktree> status --porcelain` and confirm empty output first.
+- **Push the primary branch before deleting anything.** A local-only merge is not durable.
+  Deletion order is: commit → merge `--no-ff` → push primary → remove worktree → `branch -d`.
+- Use `git branch -d`, never `-D`. `-d` refuses unmerged branches, so its acceptance is
+  independent proof the merge landed. If `-d` objects, investigate — don't force.
+- **Check the worktree's base before editing.** A worktree branched from a stale ref (e.g.
+  `main` when primary is `telegram-bot`) carries older file content; merging it silently
+  reverts newer work. Verify with `git diff --stat <primary> -- <files>`, rebase if behind.
+- Verify untracked files are truly unique before assuming loss: `git log --all --oneline
+  --diff-filter=A -- '*filename*'` — empty output means never committed anywhere.
+- Windows: `worktree remove` may fail with "Device or resource busy" from a held handle. If
+  `git worktree list` no longer shows it, only an empty dir remains — cosmetic, not failure.
+  Never kill processes to clear it.
+- Never create a worktree to fix a worktree-cleanup problem.
+- Don't delete runtime-generated files (hashed uploads in
+  `src/mihomes/web/static/uploads/`) during "file cleanup" — they're referenced by DB rows.
+  Gitignore them instead. `src/web/` in `.gitignore` was a stale path that never matched.
+
 ## PRD Process
 - Always renumber ALL section cross-references when inserting new sections (not just headers)
 - When doing find/replace on section numbers, do it in reverse order (highest first) to avoid cascading replacements (e.g., 6→7→8→9 chains)

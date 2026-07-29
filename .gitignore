@@ -29,8 +29,17 @@ cache/npm-packages/
 # Claude Code — per-user local settings (machine-specific paths, personal toggles)
 .claude/settings.local.json
 
-# Runtime-generated upload storage
+# Claude Code — transient worktrees and plan scratch (never commit worktree internals)
+.claude/worktrees/
+.claude/plans/
+
+# Scratch/working notes
+tmp/
+
+# Runtime-generated upload storage (keep the directory, ignore user uploads)
 src/web/
+src/mihomes/web/static/uploads/*
+!src/mihomes/web/static/uploads/.gitkeep
 
 # Home Assistant — runtime files, credentials, and generated data
 ha-config/.storage/

@@ -1,8 +1,14 @@
 # MiHomes SaaS PRD Set — Cross-Document Review
 
 **Reviewed:** 2026-07-29
-**Scope:** all 10 planning docs in `docs/product/` (8) and `docs/architecture/` (2) — 3,040 lines
+**Scope:** all **12** planning docs — 10 in `docs/product/`, 2 in `docs/architecture/` — 4,304 lines
 **Purpose:** verify the doc set is coherent and unambiguous before implementation specs are written against it
+
+> **Sections A–F** cover the original 10 docs. **Section G** covers
+> `OMNICHANNEL_GATEWAY_PRD.md` and `WHATSAPP_GATEWAY_PRD.md` (added later in commit
+> `67252f3`), which are held to a **lower standard of trust** — their factual claims about
+> the existing code do not hold up. **Section H** is the consolidated open-question
+> inventory across all 12.
 
 ---
 
@@ -51,6 +57,9 @@ specified:
 | `agent_stream()` hardwired to Anthropic SDK | `VENDOR_DISCOVERY_PRD.md:129` | ✅ `agent.py:76,79` |
 | `configurations` PK is bare `key` | `MULTITENANCY.md:150` | ✅ `configuration.py:12` |
 | No `homes` table exists | — | ✅ confirmed: `properties` only |
+
+Note the contrast with §G: every code claim in the original ten docs that I checked held up.
+The two later gateway PRDs are where the citations break down.
 
 ---
 
@@ -335,16 +344,189 @@ guards. Most migration plans miss that entirely.
 
 ---
 
+---
+
+## G. The two later gateway PRDs — do not spec from these yet
+
+`OMNICHANNEL_GATEWAY_PRD.md` (603 lines) and `WHATSAPP_GATEWAY_PRD.md` (661 lines) were added
+in commit `67252f3`, after the other ten. **Neither `README.md` nor `SAAS_PRD.md` §13 indexes
+them**, though both claim to list the complete doc set — so the doc set is 12 documents while
+its own two indexes say 10.
+
+These two are different in kind from the other ten. The original ten cite code accurately
+(every count and path I checked held). These two **do not**, and the errors are load-bearing.
+
+### G1. `WHATSAPP:44`'s divergence list is false on all five points ⚠
+
+> "**Divergence from Telegram**: No PTO approval flow, no inventory chat routing, no
+> photo-to-Document linking on issue creation, no maintenance-expert assessment appended to
+> issue confirmations, no structured commands (APPROVE/DENY)."
+
+Verified against `whatsapp/responder.py` — every one exists:
+
+| Claim | Reality |
+|---|---|
+| No PTO approval flow | `_handle_approval_message()` at `:198`, called at `:281` |
+| No structured APPROVE/DENY | regex at `:220-221` |
+| No inventory chat routing | `whatsapp.inventory_group_jid` at `:297` → `handle_inventory_scan()` at `:300` |
+| No photo→Document linking | `create_document()` at `:486` |
+| No maintenance-expert assessment | `_issue_expert_reply()` at `:172`, invoked `:514` |
+
+This claim is the premise for §2 gap #6 (`:88`), three §3 P1 rows (`:111,116,117`), and §8.2
+(`:406`). Fix `:44` before anything downstream is trusted.
+
+### G2. Category counts wrong in three directions
+
+Actual enums: WhatsApp **8** (`whatsapp/review.py:29`), Telegram **15**
+(`telegram/review.py:29-35`).
+
+- `WHATSAPP:88` and `:406` say WhatsApp handles **4**. It handles 8. `OMNICHANNEL:12`
+  correctly says 8 — **the two new docs contradict each other.**
+- `WHATSAPP:34` says `task_completion` doesn't exist in WhatsApp's schema. It does.
+- `WHATSAPP:406` says Telegram handles **11**; `:34` and `:369` say 15. Internal contradiction.
+
+### G3. The prerequisite module has two different paths
+
+`TWILIO_PRD` §2.3 canon names `gateways/core/responder.py`.
+`OMNICHANNEL:50,68,584` says `core/`. `WHATSAPP:361,369,400` says `shared/`.
+**Neither directory exists.** Two new docs give different paths for the module both call a
+hard prerequisite. Pick `core/`.
+
+### G4. OMNICHANNEL invents a colliding phase numbering and calls the work launch-blocking
+
+`OMNICHANNEL:580-589` defines its own **Phase 0–4**, where its "Phase 0" is the responder-core
+refactor. Canon Phase 0 is landing + waitlist with zero gateway code (`TELEGRAM_PRD:184` states
+this explicitly). Same numbers, different meaning, in a set where `README` declares phases canon.
+
+Worse, `OMNICHANNEL:64` declares "**P0 = launch-blocking**" and marks six items P0
+(`:68-73`). `SAAS_PRD:186` says chat gateways are "**not part of the hosted MVP**" and a
+"4+ growth bet". OMNICHANNEL never uses the words "growth bet", "post-GA", or "Phase 4+"
+anywhere. `TELEGRAM_PRD:186` carries exactly the hedge both new docs lack — copy its wording.
+
+### G5. `WHATSAPP` §16 Phase 0 is impossible on the doc's own evidence
+
+`:159` (tier table) — Developer API is "verified numbers only. **No group support.**"
+`:643` (Phase 0) — migrate to Developer API with "**no behavior change** for existing users."
+
+The live product is group-based: `cli/whatsapp.py` has `groups`, `link-group`, `unlink-group`,
+`send-group`, and `whatsapp.inventory_group_jid` routes an inventory *group*. Migrating to a
+tier without group support is total loss of function. `:194` then asserts group messaging works
+without tier qualification, and §17 Q8 (`:660`) *re-asks* whether Developer API supports
+groups. The doc answers, contradicts, and re-asks the same question in three places.
+
+### G6. Other verified-false code claims
+
+| Doc:line | Claim | Verified reality |
+|---|---|---|
+| `WHATSAPP:71` | watchdog "**does** supervise the WhatsApp monitor" | **False** — `grep -ci whatsapp scripts/watchdog.py` = **0** |
+| `OMNI:9,167` | wraps "existing **`TelegramBot` Protocol**" | No such class; it's `TelegramClient`, and there is **no Protocol** on the Telegram side — so Telegram currently *violates* the behind-a-Protocol canon |
+| `OMNI:9` | WhatsApp Protocol's 4 methods as current state | Protocol exists but **nothing implements it**; 3 of 4 methods exist nowhere |
+| `WHATSAPP:361` | extract "the `normalize_message()` function" | Doesn't exist. Telegram has `normalize_update()`; WhatsApp normalizes in **Node** — there is no Python WhatsApp normalizer to extract from |
+| `OMNI:11` | both responders **529** lines ("parity") | **528 and 781** — the size parity that frames the whole divergence argument is false |
+| `OMNI:35,358` | `AIOrchestrator.ask()` class | No such class; `orchestrator.py` is module-level functions |
+| `OMNI:112`, `WA:330` | "**Reuse** `require_permission(...)`" | Does not exist in code — it's a design spec in `ONBOARDING` §9.4. "Reuse" is misleading |
+| `WHATSAPP:75` | 7 `whatsapp.*` config keys | Only **4** exist (`autostart`, `inventory_group_jid`, `last_extract_ts`, `monitor_property`); 5 listed don't, and 2 real ones are unlisted |
+| `OMNI:173-286` | async functions "**extracted from** the common patterns in" both responders | Both responders contain **zero `async def`**, and there is **no FastAPI webhook route anywhere**. A sync→async conversion plus building the webhook surface is unscoped work |
+
+`OMNICHANNEL:51-60` also presents STOP/HELP handling, rate limiting, and `@estate2` account
+switching as *current state* to be centralized. All three return zero grep hits.
+
+### G7. Schema and canon violations
+
+- **`omnichannel_dedup` has no `account_id`** (`OMNI:415-423`) — violates the canon rule. Its
+  `UNIQUE(channel, sender_id, created_at)` commented "60s window dedup" doesn't implement a
+  window; two rows 1 ms apart both pass.
+- **All DDL is SQLite** (`INTEGER PRIMARY KEY`, `BOOLEAN DEFAULT FALSE`) against a Postgres
+  Phase 1. No RLS policies mentioned for any new table.
+- **`OMNI:437-444`** is headed "no changes needed" then lists column additions, and calls
+  `*_chat_links` both "keep as-is" *and* "deprecated view over `omnichannel_chat_links`".
+- **Phone storage contradicts itself**: `WHATSAPP:331` says numbers are stored **hashed**,
+  "never logged or displayed"; `:427-429` stores `phone_hash` *and* `phone_number` ("full
+  number, encrypted"). Encrypted-reversible ≠ hashed.
+- **7 new tables** defined inline (4 in OMNICHANNEL, 3 in WHATSAPP) plus 2 referenced but never
+  defined (`omnichannel_links` `:105`, `whatsapp_dm_context` `:139`). Neither doc defers schema
+  ownership to `MULTITENANCY.md`.
+- **Neither doc names a single entitlement key**, and neither carries the "add them to PRICING
+  §3.1, not here" pointer that `TWILIO_PRD:208` and `TELEGRAM_PRD:187` both do. So paid
+  per-conversation WhatsApp arrives with no plan gate specified anywhere.
+
+### G8. Neither doc admits WhatsApp is currently down
+
+`WHATSAPP:18` opens "The WhatsApp gateway is a **working** … interface" and `:96` frames Baileys
+risk in the future tense. Baileys pairing is **currently broken** ("cannot link device") — which
+is the single strongest argument *for* the Cloud API migration, and neither doc uses it.
+
+**The founder question neither §17 asks:** given `SAAS_PRD` §6.2/§10 puts chat gateways at
+Phase 4+ and WhatsApp is currently dark — is the Cloud API migration a **pre-GA necessity or a
+post-GA growth bet**? That answer determines whether either §16 roadmap is real.
+
+---
+
+## H. Consolidated open-question inventory
+
+**47 open questions across 11 formal sections; 32 `PLACEHOLDER` values** (20 in `PRICING`
+alone). Most do not block spec-writing. Filtered by what actually gates work:
+
+### Blocks Phase 0 (days)
+
+| Question | Source | Why |
+|---|---|---|
+| ToS/Privacy counsel-reviewed before collecting emails? | `GTM` §9 | Legally cannot take the first waitlist email without them. "Likely yes" is not a decision |
+| Founding-member offer — extended trial or annual discount? | `PRICING` Q6, `GTM` §9 | Landing copy promises an offer that isn't defined |
+| Waitlist gate number | `SAAS_PRD` §14, `GTM` §8 | GTM proposes ≥250 @ ≥3%; SAAS_PRD defers to founder. Gates Phase 1 spend |
+| Apex = marketing, app on subdomain? | `GTM` §9 | Marked "assumed". Determines DNS + deploy shape |
+
+### Blocks Phase 1 (before the baseline migration)
+
+| Question | Source | Note |
+|---|---|---|
+| **PK strategy: UUID vs integer** | `MULTITENANCY` Q1 | Doc says "decide before the baseline migration". Recommend UUIDv7 app-side — but `pyproject.toml:9` declares `>=3.11` while `uuid.uuid7()` is stdlib only from **3.14** |
+| **Local/self-hosted edition long-term?** | `SAAS_PRD` §14 | **Highest-leverage question in the set** — see below |
+| Data residency / region | `SAAS_PRD` §14 | Plus the hosting target underneath it, which no doc asks (E3) |
+| Account-switching carrier: subdomain / path / session? | `MULTITENANCY` Q6 | Affects §4.1 tenant resolution |
+| Founder's live gateways during re-platform | `SAAS_PRD` §14 | The Telegram bot writes continuously to the DB being migrated |
+
+**Why the local/self-hosted question dominates:** if the answer is "hosted only", a large part
+of Phase 1 evaporates — the dual-mode `db.py` fork, the dialect-aware Alembic chain (§5.2
+option b), the local-mode entitlements bypass (B1), and the local↔SaaS drift risk
+(`MULTITENANCY` Q5). If "keep local", all of it is required scope. One answer, materially
+different Phase 1.
+
+### Deferrable with a stated leaning (no action now)
+
+`PRICING` Q1–Q5, Q7–Q8 (pricing mix, add-ons, AI top-ups, nonprofit, fair-use ceiling,
+currency) · `BILLING` §10 (tax: Stripe Tax vs merchant-of-record — the doc notes MoR "would
+change the implementation but not the interface", so it is safely a Phase 3 call; also dunning
+cadence, proration, refunds) · `ONBOARDING` Q1–Q6 · `MULTITENANCY` Q2–Q5, Q7–Q8 (all
+engineering, with mitigations already named) · `TELEGRAM` Q1–Q8 · `TWILIO` all · `VENDOR` all.
+
+### Lead-time items — start now even though the work is later
+
+- **A2P 10DLC + WhatsApp template registration** (`TWILIO:229`, `OMNI:594`) — weeks, and can be
+  rejected. The one growth-bet item that genuinely belongs in Phase 0–1.
+- **Vendor Discovery counsel sign-off** — `VENDOR:295` requires it *before D0*, the earliest
+  stage.
+- **ToS/Privacy drafting** — needed for Phase 0 and owned by no doc (E6).
+
+---
+
 ## Recommended sequence
 
 1. **Doc-fix pass (~2–3 h)** — A0–A6, B1–B4, C, C1. Mechanical. The only real decisions are
    A2 (ownership mechanism), A3 (one name per colliding field), and A5 (`sessions` /
    `processed_webhook_events` tenancy); all are recommended above.
-2. **Answer E1–E3** — file storage strategy, backup posture, hosting target. Founder
-   decisions that change the Phase 1 spec.
-3. **Then write specs — Phase 0 and Phase 1 only.** Phase 2–4 specs should wait: the
+2. **Answer the four Phase-0 questions in H** — ToS/Privacy, founding offer, waitlist gate,
+   apex. All four gate Phase 0 and none is an engineering call.
+3. **Answer E1–E3 + the Phase-1 questions in H** — file storage, backup posture, hosting
+   target, PK strategy, and above all **local-vs-hosted-only**.
+4. **Fix or quarantine the two gateway PRDs (§G).** They are not spec-ready: their central
+   factual claims about the existing code are false, they use a colliding phase numbering, and
+   they contradict each other on the module path and the category counts. Also index them in
+   `README` and `SAAS_PRD` §13.
+5. **Then write specs — Phase 0 and Phase 1 only.** Phase 2–4 specs should wait: the
    entitlements/billing surface is already well specified, and Phase 1 will teach things about
-   the scoping layer that later specs would have to absorb as rework.
+   the scoping layer that later specs would have to absorb as rework. Gateway specs wait on
+   step 4.
 
 ## Verification for the doc-fix pass
 

@@ -17,6 +17,9 @@ from rich.table import Table
 from mihomes.cli.formatters import console, format_error, format_success, severity_color
 from mihomes.db import get_session
 from mihomes.services.gateways.telegram.client import TelegramClient, TelegramError
+import logging
+
+logger = logging.getLogger(__name__)
 
 app = typer.Typer(name="telegram", help="Telegram bot gateway")
 
@@ -288,24 +291,14 @@ def monitor(
     )
 
     from mihomes.services.config_service import get_config, set_config
+    from mihomes.services.gateways.dedup import PoisonGuard, ProcessedIdStore
 
-    def _load_ids() -> set:
-        # Stored in the database (not a local file) so it always travels
-        # with the database on backup/restore/migration — a dedup list that
-        # lives next to the data it protects can never drift out of sync
-        # with it the way a sidecar file on local disk can.
-        with get_session() as s:
-            stored = get_config(s, "telegram.processed_ids")
-        try:
-            return set(json.loads(stored)) if stored else set()
-        except (json.JSONDecodeError, TypeError):
-            return set()
-
-    def _save_ids(ids: set) -> None:
-        with get_session() as s:
-            set_config(s, "telegram.processed_ids", json.dumps(list(ids)[-2000:]))
-
-    processed_ids: set = _load_ids()
+    # One shared, insertion-ordered store per gateway (M22/M23): the extractor
+    # uses this same key, and pruning drops the oldest ids, never the newest.
+    _id_store = ProcessedIdStore("telegram.processed_ids", cap=2000)
+    # M21 poison guard: quarantine updates that repeatedly crash processing.
+    _poison = PoisonGuard("telegram", max_attempts=3)
+    processed_ids: set = set(_id_store.load())
 
     # Load last_update_id from config so restarts don't replay old messages
     with get_session() as session:
@@ -332,11 +325,6 @@ def monitor(
                 if updates:
                     new_last_id = max(u["update_id"] for u in updates)
 
-                    # Acknowledge FIRST — advance the offset before processing so
-                    # a crash or Ctrl+C mid-run never replays these updates on restart.
-                    last_update_id = new_last_id
-                    _save_update_id(new_last_id)
-
                     messages = []
                     for update in updates:
                         msg = client.normalize_update(update, chat_links)
@@ -345,6 +333,18 @@ def monitor(
 
                     if property:
                         messages = [m for m in messages if m.get("propertySlug") == property]
+
+                    # M21 poison guard: record an attempt for each id BEFORE
+                    # processing so a crash mid-batch leaves the counter bumped
+                    # (retry on restart → no loss). Ids past the retry cap are
+                    # quarantined and dropped so they can't hot-loop the monitor.
+                    live, poisoned = _poison.partition(m["id"] for m in messages if m.get("id"))
+                    if poisoned:
+                        console.print(
+                            f"  [red]⚠[/red] quarantined {len(poisoned)} poison message(s) after repeated failures"
+                        )
+                        live_set = set(live)
+                        messages = [m for m in messages if m.get("id") in live_set]
 
                     if messages:
                         from collections import defaultdict
@@ -373,10 +373,19 @@ def monitor(
                         for err in all_errors:
                             console.print(f"  [yellow]⚠[/yellow] {err}")
 
-                        processed_ids.update(m["id"] for m in messages if m.get("id"))
-                        if len(processed_ids) > 2000:
-                            processed_ids = set(list(processed_ids)[-1000:])
-                        _save_ids(processed_ids)
+                        new_ids = [m["id"] for m in messages if m.get("id")]
+                        _id_store.add(new_ids)
+                        processed_ids.update(new_ids)
+                        # Processing succeeded — clear these ids' attempt
+                        # counters so a future reuse isn't pre-poisoned.
+                        _poison.clear(new_ids)
+
+                    # Advance the offset only AFTER processing (or after
+                    # quarantining an all-poison batch): a crash above leaves the
+                    # offset where it was, so the batch is refetched and retried
+                    # on restart (M21 — no silent loss).
+                    last_update_id = new_last_id
+                    _save_update_id(new_last_id)
 
                 time.sleep(interval)
 
@@ -591,6 +600,15 @@ def stop_cmd():
             )
             still_running = True
 
+    # The shared watchdog supervises the WhatsApp monitor + bridge too, so a full
+    # stop must reap them as well — otherwise they are orphaned (spec M31).
+    try:
+        from mihomes.cli.whatsapp import stop_whatsapp_processes
+        if stop_whatsapp_processes():
+            stopped_any = True
+    except Exception as e:  # pragma: no cover - defensive: never block telegram stop
+        console.print(f"[yellow]Could not stop WhatsApp processes:[/yellow] {e}")
+
     if not stopped_any and not still_running:
         console.print("[dim]No local watchdog or monitor was running.[/dim]")
 
@@ -692,10 +710,11 @@ def _pid_running(pid: int) -> bool:
             si_check = subprocess.STARTUPINFO()
             si_check.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             si_check.wShowWindow = subprocess.SW_HIDE
+            from mihomes.services.gateways.pid import tasklist_has_pid
             r = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV"],
                                capture_output=True, text=True,
                                creationflags=0x08000000, startupinfo=si_check)
-            return str(pid) in r.stdout
+            return tasklist_has_pid(r.stdout, pid)
         except Exception:
             return False
     try:
@@ -732,7 +751,7 @@ def _start_watchdog_now(watchdog_script: Path, monitor_property: str = "belle-es
         if key:
             env["NVIDIA_API_KEY"] = key
     except Exception:
-        pass
+        logger.exception("_start_watchdog_now: suppressed exception")
 
     if sys.platform == "win32":
         si = subprocess.STARTUPINFO()

@@ -8,7 +8,8 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from mihomes.config import DB_DIR, DB_URL, ensure_dirs
+import mihomes.config as config
+from mihomes.config import ensure_dirs
 
 _engine: Engine | None = None
 _SessionLocal: sessionmaker | None = None
@@ -25,17 +26,39 @@ def _set_sqlite_pragmas(dbapi_conn, connection_record):
 
 
 def _active_url() -> str:
+    # Resolve config paths live rather than binding them at import: a test that
+    # reloads mihomes.config (logging/backup isolation) rebinds config.DB_DIR to
+    # a new object, and a by-value import here would silently keep the stale one.
     if os.environ.get("MIHOMES_DEMO") == "1":
-        return f"sqlite:///{DB_DIR / 'demo.db'}"
-    return DB_URL
+        return f"sqlite:///{config.DB_DIR / 'demo.db'}"
+    return config.DB_URL
 
 
 def get_engine(url: str | None = None) -> Engine:
     """Get or create the SQLAlchemy engine."""
-    global _engine
+    global _engine, _SessionLocal
     if _engine is None or url is not None:
         _engine = create_engine(url or _active_url(), echo=False)
+        # H3: a swapped engine must invalidate the cached session factory, or
+        # get_session() keeps binding new sessions to the previous DB. cli/init.py
+        # used to hand-poke this global as a workaround; the reset belongs here.
+        _SessionLocal = None
     return _engine
+
+
+def dispose_engine() -> None:
+    """Dispose the global engine and reset the session factory.
+
+    Restore (spec D1) must release this process's SQLite handle before the
+    on-disk ``mihomes.db{,-wal,-shm}`` files are deleted, otherwise the stale
+    WAL is replayed against the freshly restored file and corrupts it. The next
+    ``get_engine`` call lazily recreates the engine against the new file.
+    """
+    global _engine, _SessionLocal
+    if _engine is not None:
+        _engine.dispose()
+    _engine = None
+    _SessionLocal = None
 
 
 def get_session_factory(engine: Engine | None = None) -> sessionmaker:

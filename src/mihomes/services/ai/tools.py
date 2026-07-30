@@ -55,7 +55,7 @@ TOOL_SCHEMAS: list[dict] = [
             "type": "object",
             "properties": {
                 "property_slug": {"type": "string", "description": "Filter by property slug (optional)"},
-                "status": {"type": "string", "description": "Filter by status: todo, in_progress, done, cancelled"},
+                "status": {"type": "string", "description": "Filter by status: pending, in-progress, completed, cancelled"},
                 "priority": {"type": "string", "description": "Filter by priority: low, medium, high, urgent"},
                 "overdue_only": {"type": "boolean", "description": "Return only overdue tasks"},
                 "upcoming_days": {"type": "integer", "description": "Return tasks due within N days"},
@@ -76,8 +76,8 @@ TOOL_SCHEMAS: list[dict] = [
             "properties": {
                 "property_slug": {"type": "string", "description": "Filter by property slug (optional)"},
                 "severity": {"type": "string", "description": "Filter by severity: low, medium, high, critical"},
-                "status": {"type": "string", "description": "Filter by status: open, in_progress, resolved, verified, closed"},
-                "open_only": {"type": "boolean", "description": "Return only open/in-progress issues (default true)"},
+                "status": {"type": "string", "description": "Filter by status: reported, assessed, scheduled, in-progress, resolved, verified"},
+                "open_only": {"type": "boolean", "description": "Return only unresolved issues (default true)"},
                 "search": {"type": "string", "description": "Search issue titles (partial match)"},
                 "limit": {"type": "integer", "description": "Max records to return (default 20)"},
             },
@@ -93,7 +93,7 @@ TOOL_SCHEMAS: list[dict] = [
             "type": "object",
             "properties": {
                 "property_slug": {"type": "string", "description": "Filter by property slug (optional)"},
-                "status": {"type": "string", "description": "Filter by status: pending, approved, scheduled, in_progress, completed, verified, cancelled"},
+                "status": {"type": "string", "description": "Filter by status: draft, estimated, approved, assigned, in_progress, completed, verified, cancelled"},
                 "vendor": {"type": "string", "description": "Filter by vendor name (partial match)"},
                 "search": {"type": "string", "description": "Search work order titles (partial match)"},
                 "limit": {"type": "integer", "description": "Max records to return (default 20)"},
@@ -233,11 +233,13 @@ TOOL_SCHEMAS: list[dict] = [
     },
     {
         "name": "query_alerts",
-        "description": "Query active system alerts and warnings. Use to check what urgent items need attention.",
+        "description": "Query active system alerts and warnings. Use to check what urgent items need attention. Returns only unresolved, non-snoozed alerts by default.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "severity": {"type": "string", "description": "Filter by severity: low, medium, high, critical"},
+                "status": {"type": "string", "description": "Filter by status: generated, seen, acknowledged, resolved (default: exclude resolved)"},
+                "include_snoozed": {"type": "boolean", "description": "Include snoozed alerts (default false)"},
             },
         },
     },
@@ -269,6 +271,23 @@ def tool_label(name: str) -> str:
 
 
 # ── Executor ──────────────────────────────────────────────────────────────────
+
+def _parse_enum(enum_cls, value: str, field: str):
+    """Resolve a status/enum filter value or raise with the valid options.
+
+    The old code wrapped enum construction in ``except ValueError: pass``, so an
+    unrecognized status silently dropped the filter and returned *all* rows
+    presented as filtered (spec D3/H10). Raising here lets ``execute_tool``
+    surface the valid values back to the model instead of lying.
+    """
+    try:
+        return enum_cls(value)
+    except ValueError:
+        valid = ", ".join(m.value for m in enum_cls)
+        raise ValueError(
+            f"Invalid {field} '{value}'. Valid values: {valid}."
+        ) from None
+
 
 def execute_tool(session: Session, name: str, inputs: dict[str, Any]) -> str:
     try:
@@ -404,10 +423,7 @@ def _query_tasks(session: Session, inp: dict) -> str:
         prop = resolve_identifier(session, Property, inp["property_slug"])
         q = q.filter(Task.property_id == prop.id)
     if inp.get("status"):
-        try:
-            q = q.filter(Task.status == TaskStatus(inp["status"]))
-        except ValueError:
-            pass
+        q = q.filter(Task.status == _parse_enum(TaskStatus, inp["status"], "status"))
     if inp.get("priority"):
         try:
             q = q.filter(Task.priority == TaskPriority(inp["priority"]))
@@ -460,17 +476,11 @@ def _query_issues(session: Session, inp: dict) -> str:
         prop = resolve_identifier(session, Property, inp["property_slug"])
         q = q.filter(Issue.property_id == prop.id)
     if inp.get("severity"):
-        try:
-            q = q.filter(Issue.severity == IssueSeverity(inp["severity"]))
-        except ValueError:
-            pass
+        q = q.filter(Issue.severity == _parse_enum(IssueSeverity, inp["severity"], "severity"))
     if inp.get("status"):
-        try:
-            q = q.filter(Issue.status == IssueStatus(inp["status"]))
-        except ValueError:
-            pass
+        q = q.filter(Issue.status == _parse_enum(IssueStatus, inp["status"], "status"))
     elif inp.get("open_only", True):
-        q = q.filter(Issue.status.notin_([IssueStatus.RESOLVED, IssueStatus.VERIFIED, IssueStatus.CLOSED]))
+        q = q.filter(Issue.status.notin_([IssueStatus.RESOLVED, IssueStatus.VERIFIED]))
     if inp.get("search"):
         q = q.filter(Issue.title.ilike(f"%{inp['search']}%"))
 
@@ -501,10 +511,7 @@ def _query_work_orders(session: Session, inp: dict) -> str:
         prop = resolve_identifier(session, Property, inp["property_slug"])
         q = q.filter(WorkOrder.property_id == prop.id)
     if inp.get("status"):
-        try:
-            q = q.filter(WorkOrder.status == WorkOrderStatus(inp["status"]))
-        except ValueError:
-            pass
+        q = q.filter(WorkOrder.status == _parse_enum(WorkOrderStatus, inp["status"], "status"))
     if inp.get("vendor"):
         from mihomes.models.vendor import Vendor
         q = q.join(Vendor, WorkOrder.vendor_id == Vendor.id, isouter=True)
@@ -540,17 +547,20 @@ def _query_budget(session: Session, inp: dict) -> str:
     start = date(year, 1, 1)
     end = date(year, 12, 31)
 
-    q = session.query(Transaction).filter(
-        Transaction.date >= start,
-        Transaction.date <= end,
-    )
+    # Collect every filter once so the summary aggregate honours the same
+    # property/category scope as the row listing (spec M32 — previously the
+    # aggregate re-queried with only the date filter, so "how much did Beach
+    # House spend?" silently reported the whole estate on the default path).
+    filters = [Transaction.date >= start, Transaction.date <= end]
     if inp.get("property_slug"):
         from mihomes.models.property import Property
         from mihomes.services.slug import resolve_identifier
         prop = resolve_identifier(session, Property, inp["property_slug"])
-        q = q.filter(Transaction.property_id == prop.id)
+        filters.append(Transaction.property_id == prop.id)
     if inp.get("category"):
-        q = q.filter(Transaction.category.ilike(f"%{inp['category']}%"))
+        filters.append(Transaction.category.ilike(f"%{inp['category']}%"))
+
+    q = session.query(Transaction).filter(*filters)
 
     if inp.get("summary_only", True):
         by_cat = (
@@ -559,7 +569,7 @@ def _query_budget(session: Session, inp: dict) -> str:
                 func.sum(Transaction.amount).label("total"),
                 func.count(Transaction.id).label("cnt"),
             )
-            .filter(Transaction.date >= start, Transaction.date <= end)
+            .filter(*filters)
             .group_by(Transaction.category)
             .order_by(func.sum(Transaction.amount).desc())
             .all()
@@ -743,76 +753,78 @@ def _query_consumables(session: Session, inp: dict) -> str:
 
 
 def _query_inventory(session: Session, inp: dict) -> str:
-    from sqlalchemy import text
+    """Room/estate inventory = durable Assets + Consumable stock (spec M44/Q4).
 
-    conditions = ["1=1"]
-    params: dict = {}
+    The old implementation queried a phantom ``inventory_items`` table that no
+    migration ever created, so every call raised "no such table". Inventory is
+    modelled as ``Asset`` (durable, room-placed, valued) plus ``Consumable``
+    (stocked supplies), so this queries both ORM entities.
+    """
+    from mihomes.models.asset import Asset, AssetType
+    from mihomes.models.consumable import Consumable
+    from mihomes.models.space import Space
 
+    prop = None
     if inp.get("property_slug"):
-        from mihomes.models.property import Property as Prop
-        prop_obj = session.query(Prop).filter(
-            (Prop.slug == inp["property_slug"]) | (Prop.name.ilike(f"%{inp['property_slug']}%"))
-        ).first()
-        if prop_obj:
-            conditions.append("ii.property_id = :prop_id")
-            params["prop_id"] = prop_obj.id
-    if inp.get("space"):
-        conditions.append("s.name LIKE :space")
-        params["space"] = f"%{inp['space']}%"
-    if inp.get("category"):
-        conditions.append("(ii.category LIKE :cat OR ii.subcategory LIKE :cat)")
-        params["cat"] = f"%{inp['category']}%"
-    if inp.get("high_value_only"):
-        conditions.append("ii.is_high_value = 1")
-    if inp.get("search"):
-        conditions.append("(ii.name LIKE :search OR ii.item_title LIKE :search)")
-        params["search"] = f"%{inp['search']}%"
+        from mihomes.models.property import Property
+        from mihomes.services.slug import resolve_identifier
+        prop = resolve_identifier(session, Property, inp["property_slug"])
 
-    where = " AND ".join(conditions)
+    # --- Durable assets ---
+    aq = session.query(Asset).filter(Asset.active.is_(True))
+    if prop is not None:
+        aq = aq.filter(Asset.property_id == prop.id)
+    if inp.get("space"):
+        aq = aq.join(Space, Asset.space_id == Space.id).filter(Space.name.ilike(f"%{inp['space']}%"))
+    if inp.get("category"):
+        cat = inp["category"]
+        aq = aq.filter((Asset.asset_type.ilike(f"%{cat}%")) | (Asset.name.ilike(f"%{cat}%")))
+    if inp.get("high_value_only"):
+        aq = aq.filter(Asset.asset_type == AssetType.VALUABLE)
+    if inp.get("search"):
+        aq = aq.filter(Asset.name.ilike(f"%{inp['search']}%"))
+
+    # --- Consumable stock (no space/high-value concept; excluded when those filter) ---
+    cq = session.query(Consumable)
+    if prop is not None:
+        cq = cq.filter(Consumable.property_id == prop.id)
+    if inp.get("category"):
+        cq = cq.filter(Consumable.category.ilike(f"%{inp['category']}%"))
+    if inp.get("search"):
+        cq = cq.filter(Consumable.name.ilike(f"%{inp['search']}%"))
+    include_consumables = not inp.get("space") and not inp.get("high_value_only")
+
+    assets = aq.all()
+    consumables = cq.all() if include_consumables else []
 
     if inp.get("count_only"):
-        row = session.execute(text(f"""
-            SELECT COUNT(*), SUM(ii.estimated_value_usd * COALESCE(ii.quantity, 1))
-            FROM inventory_items ii
-            LEFT JOIN spaces s ON ii.space_id = s.id
-            WHERE {where}
-        """), params).fetchone()
-        cnt, val = row
+        asset_val = sum(a.purchase_price or 0 for a in assets)
+        stock_val = sum((c.unit_price or 0) * (c.quantity_in_stock or 0) for c in consumables)
+        total = len(assets) + len(consumables)
+        val = asset_val + stock_val
         val_str = f", total estimated value ${val:,.0f}" if val else ""
-        return f"Inventory: {cnt or 0} item(s){val_str}"
+        return f"Inventory: {total} item(s) ({len(assets)} assets, {len(consumables)} consumables){val_str}"
 
     limit = int(inp.get("limit", 20))
-    rows = session.execute(text(f"""
-        SELECT ii.name, ii.item_title, ii.category, ii.subcategory, ii.brand,
-               ii.condition, ii.estimated_value_usd, ii.quantity, ii.is_high_value,
-               s.name as space_name, p.name as prop_name
-        FROM inventory_items ii
-        LEFT JOIN spaces s ON ii.space_id = s.id
-        LEFT JOIN properties p ON ii.property_id = p.id
-        WHERE {where}
-        LIMIT :lim
-    """), {**params, "lim": limit}).fetchall()
-
-    total_row = session.execute(text(f"""
-        SELECT COUNT(*) FROM inventory_items ii
-        LEFT JOIN spaces s ON ii.space_id = s.id
-        WHERE {where}
-    """), params).fetchone()
-    total = total_row[0] if total_row else 0
+    total = len(assets) + len(consumables)
+    rows = []
+    for a in assets:
+        space = f" in {a.space.name}" if a.space else ""
+        prop_name = f" @ {a.property.name}" if a.property else ""
+        val = f", est. ${a.purchase_price:,.0f}" if a.purchase_price else ""
+        hv = " ★ high-value" if a.asset_type == AssetType.VALUABLE else ""
+        rows.append(f"- {a.name} [{a.asset_type.value}]{space}{prop_name}{val}{hv}")
+    for c in consumables:
+        prop_name = f" @ {c.property.name}" if c.property else ""
+        cat = f" [{c.category}]" if c.category else ""
+        qty = f", {c.quantity_in_stock:g} {c.unit or 'units'} in stock" if c.quantity_in_stock is not None else ""
+        rows.append(f"- {c.name}{cat}{prop_name}{qty} ({c.status.value})")
 
     if not rows:
         return "No inventory items found matching the criteria."
 
-    lines = [f"Found {total} inventory item(s) (showing {len(rows)}):"]
-    for r in rows:
-        display_name = r.item_title or r.name or "Unknown"
-        cat = f" [{r.category}]" if r.category else ""
-        space = f" in {r.space_name}" if r.space_name else ""
-        prop = f" @ {r.prop_name}" if r.prop_name else ""
-        val = f", est. ${r.estimated_value_usd:,.0f}" if r.estimated_value_usd else ""
-        hv = " ★ high-value" if r.is_high_value else ""
-        lines.append(f"- {display_name}{cat}{space}{prop}{val}{hv}")
-    return "\n".join(lines)
+    rows = rows[:limit]
+    return "\n".join([f"Found {total} inventory item(s) (showing {len(rows)}):", *rows])
 
 
 def _query_events(session: Session, inp: dict) -> str:
@@ -880,13 +892,22 @@ def _query_property(session: Session, inp: dict) -> str:
 
 
 def _query_alerts(session: Session, inp: dict) -> str:
-    from mihomes.models.alert import Alert
+    from mihomes.models.alert import AlertSeverity, AlertStatus
+    from mihomes.services.alerts import list_alerts
 
-    q = session.query(Alert)
+    # Route through the service so resolved/snoozed alerts are excluded by
+    # default (spec M33 — the old direct query returned every alert regardless
+    # of status while claiming to show only active ones).
+    status = (
+        _parse_enum(AlertStatus, inp["status"], "status") if inp.get("status") else None
+    )
+    alerts = list_alerts(
+        session, status=status, include_snoozed=bool(inp.get("include_snoozed", False))
+    )
     if inp.get("severity"):
-        q = q.filter(Alert.severity.ilike(inp["severity"]))
+        sev = _parse_enum(AlertSeverity, inp["severity"], "severity")
+        alerts = [a for a in alerts if a.severity == sev]
 
-    alerts = q.all()
     if not alerts:
         return "No active alerts."
 

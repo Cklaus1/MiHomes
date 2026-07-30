@@ -32,6 +32,10 @@ app = typer.Typer(
 def main(ctx: typer.Context):
     """MiHomes — AI-first multi-home estate management."""
     from mihomes.config import is_initialized
+    from mihomes.logging_config import setup_logging
+
+    # Wire the rotating file log (L1) so R1's logger.exception records persist.
+    setup_logging()
 
     # Allow init and version without initialization
     if ctx.invoked_subcommand in ("init", "version", "help", None):

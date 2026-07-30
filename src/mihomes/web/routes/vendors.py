@@ -15,6 +15,7 @@ router = APIRouter()
 
 def _ctx(db: Session) -> dict:
     from collections import Counter
+
     from mihomes.services import property as prop_svc
 
     active_vendors = vendor_svc.list_vendors(db, active_only=True)
@@ -123,7 +124,7 @@ def edit_vendor(
     slug: str,
     company_name: str = Form(...),
     notes: str = Form(""),
-    active: str | None = Form(None),
+    active: List[str] = Form(default=[]),
     service_cats: List[str] = Form(default=[]),
     service_cat_other: str = Form(""),
     website: str = Form(""),
@@ -136,11 +137,23 @@ def edit_vendor(
     db: Session = Depends(get_db),
 ):
     current = vendor_svc.get_vendor(db, slug)
-    active_val = (active == "1") if active is not None else current.active
+    # M17: the form submits a hidden active=0 followed by a checkbox active=1
+    # when checked. Active iff any submitted value is truthy ("1"). If the field
+    # is entirely absent (non-form callers), preserve the current state.
+    active_val = ("1" in active) if active else current.active
 
-    # Build contacts list — skip entirely empty rows
+    # Build contacts list — skip entirely empty rows. strict=True (H32) makes a
+    # length mismatch across the four parallel arrays a hard error rather than
+    # silently truncating and pairing the wrong name/phone/email.
     contacts = []
-    for name, role, phone, email in zip(c_name, c_role, c_phone, c_email):
+    try:
+        rows = list(zip(c_name, c_role, c_phone, c_email, strict=True))
+    except ValueError:
+        return HTMLResponse(
+            "Contact fields are misaligned — please resubmit the form.",
+            status_code=400,
+        )
+    for name, role, phone, email in rows:
         if any([name.strip(), phone.strip(), email.strip()]):
             contacts.append({
                 "name": name.strip(),

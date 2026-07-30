@@ -7,6 +7,7 @@ from sqlalchemy import Date, DateTime, Enum, Float, ForeignKey, Integer, String,
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mihomes.models import Base, SlugMixin, TimestampMixin
+from mihomes.type.money import Money
 
 
 class WorkOrderStatus(str, enum.Enum):
@@ -32,15 +33,15 @@ class WorkOrder(Base, TimestampMixin, SlugMixin):
     vendor_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("vendors.id"), nullable=True)
     vendor_name: Mapped[str | None] = mapped_column(String(300), nullable=True)
     assignee_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("staff.id"), nullable=True)
-    estimated_cost: Mapped[float | None] = mapped_column(Float, nullable=True)
-    actual_cost: Mapped[float | None] = mapped_column(Float, nullable=True)
+    estimated_cost: Mapped[float | None] = mapped_column(Money, nullable=True)
+    actual_cost: Mapped[float | None] = mapped_column(Money, nullable=True)
     currency: Mapped[str] = mapped_column(String(10), default="USD")
     status: Mapped[WorkOrderStatus] = mapped_column(Enum(WorkOrderStatus), default=WorkOrderStatus.DRAFT)
     due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    issue_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("issues.id"), nullable=True)
+    issue_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("issues.id"), index=True, nullable=True)
     completion_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     ai_report: Mapped[str | None] = mapped_column(Text, nullable=True)
 

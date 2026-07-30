@@ -1,5 +1,6 @@
 """Staff PTO service — request creation, approval, denial, and balance tracking."""
 
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -9,6 +10,8 @@ from mihomes.models.staff_pto import PTOStatus, StaffPTORequest
 from mihomes.models.staff import Staff
 from mihomes.models.task import Task, TaskStatus
 from mihomes.services.slug import resolve_identifier
+
+_log = logging.getLogger("mihomes.staff_pto")
 
 
 def _coverage_warning(session: Session, staff_id: int, dates: list[str]) -> str | None:
@@ -63,6 +66,8 @@ def approve_pto(session: Session, request_id: int, decided_by: str = "admin") ->
     req = session.get(StaffPTORequest, request_id)
     if not req:
         raise ValueError(f"PTO request #{request_id} not found")
+    if req.status != PTOStatus.PENDING:
+        raise ValueError(f"PTO request #{request_id} is not pending (status: {req.status.value})")
     req.status = PTOStatus.APPROVED
     req.decided_at = datetime.now(timezone.utc)
     req.decided_by = decided_by
@@ -75,6 +80,8 @@ def deny_pto(session: Session, request_id: int, decided_by: str = "admin", reaso
     req = session.get(StaffPTORequest, request_id)
     if not req:
         raise ValueError(f"PTO request #{request_id} not found")
+    if req.status != PTOStatus.PENDING:
+        raise ValueError(f"PTO request #{request_id} is not pending (status: {req.status.value})")
     req.status = PTOStatus.DENIED
     req.decided_at = datetime.now(timezone.utc)
     req.decided_by = decided_by
@@ -156,27 +163,46 @@ def _sync_to_calendar(req: StaffPTORequest) -> None:
 
 
 def notify_approver(session: Session, req: StaffPTORequest) -> bool:
-    """Send a WhatsApp message to the configured PTO approver."""
-    try:
-        from mihomes.services.config_service import get_config
-        approver_phone = (
-            get_config(session, "staff.pto_approver_phone")
-            or get_config(session, "owner.whatsapp_phone")
-        )
-        if not approver_phone:
+    """Notify the configured PTO approver over whichever gateway is set up.
+
+    H35: this used to hardcode ``WhatsAppClient`` and read only the approver
+    phone, so a Telegram-only install (phone unset, ``telegram.pto_approver_id``
+    set) had a silently dead approval loop. A configured phone still means a
+    WhatsApp install and wins; Telegram is the fallback. Failures are logged
+    rather than silently swallowed.
+    """
+    from mihomes.services.config_service import get_config
+
+    staff_name = req.staff.name if req.staff else "Unknown"
+    dates_str = ", ".join(req.dates) if req.dates else "unknown dates"
+    msg = f"🏠 PTO request from {staff_name}: {dates_str}. Reply:\nAPPROVE {req.id}\nor\nDENY {req.id}"
+    if req.coverage_warning:
+        msg += f"\n\n⚠️ {req.coverage_warning}"
+
+    approver_phone = (
+        get_config(session, "staff.pto_approver_phone")
+        or get_config(session, "owner.whatsapp_phone")
+    )
+    if approver_phone:
+        try:
+            from mihomes.services.gateways.whatsapp.client import WhatsAppClient
+            WhatsAppClient().send_message(approver_phone, msg)
+            return True
+        except Exception:
+            _log.exception("notify_approver: WhatsApp send failed")
             return False
 
-        from mihomes.services.gateways.whatsapp.client import WhatsAppClient
-        client = WhatsAppClient()
-        staff_name = req.staff.name if req.staff else "Unknown"
-        dates_str = ", ".join(req.dates) if req.dates else "unknown dates"
-        msg = f"🏠 PTO request from {staff_name}: {dates_str}. Reply:\nAPPROVE {req.id}\nor\nDENY {req.id}"
-        if req.coverage_warning:
-            msg += f"\n\n⚠️ {req.coverage_warning}"
-        client.send_message(approver_phone, msg)
-        return True
-    except Exception:
-        return False
+    approver_chat_id = get_config(session, "telegram.pto_approver_id")
+    if approver_chat_id:
+        try:
+            from mihomes.services.gateways.telegram.responder import _get_client
+            _get_client(session).send_message(str(approver_chat_id).strip(), msg)
+            return True
+        except Exception:
+            _log.exception("notify_approver: Telegram send failed")
+            return False
+
+    return False
 
 
 def notify_staff(session: Session, req: StaffPTORequest) -> bool:
@@ -199,4 +225,5 @@ def notify_staff(session: Session, req: StaffPTORequest) -> bool:
         client.send_message(staff.whatsapp_phone, msg)
         return True
     except Exception:
+        _log.exception("notify_staff: send failed")
         return False

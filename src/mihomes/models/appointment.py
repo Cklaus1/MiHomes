@@ -25,7 +25,7 @@ class Appointment(Base, TimestampMixin):
     property_id: Mapped[int] = mapped_column(Integer, ForeignKey("properties.id"), nullable=False)
     vendor_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("vendors.id"), nullable=True)
     contract_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("contracts.id"), nullable=True)
-    recurring_expense_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("recurring_expenses.id"), nullable=True)
+    recurring_expense_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("recurring_expenses.id"), index=True, nullable=True)
     date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     start_time: Mapped[time | None] = mapped_column(Time, nullable=True)
     appointment_type: Mapped[str] = mapped_column(String(50), default="vendor_visit", nullable=False)

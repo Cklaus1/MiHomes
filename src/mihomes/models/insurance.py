@@ -7,6 +7,7 @@ from sqlalchemy import Date, Enum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mihomes.models import Base, TimestampMixin
+from mihomes.type.money import Money
 
 
 class InsuranceType(str, enum.Enum):
@@ -28,9 +29,9 @@ class InsurancePolicy(Base, TimestampMixin):
     carrier: Mapped[str] = mapped_column(String(200), nullable=False)
     agent_contact: Mapped[str | None] = mapped_column(String(200), nullable=True)
     insurance_type: Mapped[InsuranceType] = mapped_column(Enum(InsuranceType), nullable=False)
-    coverage_limit: Mapped[float | None] = mapped_column(Float, nullable=True)
-    deductible: Mapped[float | None] = mapped_column(Float, nullable=True)
-    annual_premium: Mapped[float | None] = mapped_column(Float, nullable=True)
+    coverage_limit: Mapped[float | None] = mapped_column(Money, nullable=True)
+    deductible: Mapped[float | None] = mapped_column(Money, nullable=True)
+    annual_premium: Mapped[float | None] = mapped_column(Money, nullable=True)
     renewal_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     property_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("properties.id"), nullable=True)
     currency: Mapped[str] = mapped_column(String(10), default="USD")

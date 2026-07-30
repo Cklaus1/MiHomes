@@ -1,5 +1,8 @@
 """Tests for AI role routing."""
 
+from datetime import date
+from unittest import mock
+
 from mihomes.services.ai.roles import route_query, ROLES
 
 
@@ -41,3 +44,24 @@ class TestRouteQuery:
         for role in ROLES.values():
             assert len(role.system_prompt) > 100
             assert "SPACE" in role.system_prompt
+
+
+class TestSystemPromptDate:
+    """H12 — the system prompt's 'Current date' must be rendered per access,
+    not frozen at import, so a long-running server never tells the model a
+    stale date."""
+
+    def test_current_date_is_today(self):
+        role = ROLES["estate_manager"]
+        assert f"Current date: {date.today().isoformat()}" in role.system_prompt
+
+    def test_date_not_frozen_across_days(self):
+        role = ROLES["maintenance"]
+
+        class FakeDate(date):
+            @classmethod
+            def today(cls):
+                return cls(2999, 1, 2)
+
+        with mock.patch("mihomes.services.ai.roles.date", FakeDate):
+            assert "Current date: 2999-01-02" in role.system_prompt

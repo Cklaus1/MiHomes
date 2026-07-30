@@ -69,6 +69,25 @@ def spending_by_category(
     return sorted(results, key=lambda r: r["total"], reverse=True)
 
 
+def _history_months(session: Session, property_id: int, start: date, end: date) -> float:
+    """Number of months of transaction history actually on record (M4).
+
+    Spans from the earliest transaction in the look-back window to `end`, so a
+    property with only three months of data averages over three months, not
+    twelve. Clamped to [1, 12]: never divide by zero, never claim more history
+    than the one-year window holds.
+    """
+    earliest = session.query(func.min(Transaction.date)).filter(
+        Transaction.property_id == property_id,
+        Transaction.date >= start,
+        Transaction.date <= end,
+    ).scalar()
+    if earliest is None:
+        return 1.0
+    span = (end.year - earliest.year) * 12 + (end.month - earliest.month) + 1
+    return float(max(1, min(12, span)))
+
+
 def forecast(
     session: Session,
     property_id_or_slug: str,
@@ -76,9 +95,11 @@ def forecast(
 ) -> dict:
     """Forecast spending for a property based on historical average."""
     prop = resolve_identifier(session, Property, property_id_or_slug)
-    # Look back 12 months for historical data
+    # Look back 12 months for historical data. Subtract 365 days rather than
+    # constructing date(year-1, month, day) — the latter crashes on Feb 29 in a
+    # non-leap prior year (M4).
     end = date.today()
-    start = date(end.year - 1, end.month, end.day)
+    start = end - timedelta(days=365)
 
     total_spending = session.query(
         func.sum(Transaction.amount),
@@ -88,8 +109,11 @@ def forecast(
         Transaction.date <= end,
     ).scalar() or 0.0
 
-    # Monthly average
-    monthly_avg = total_spending / 12.0
+    # Divide by the actual months of history available, not a blind 12 (M4).
+    # A property with 3 months of data should forecast off a 3-month average,
+    # otherwise the monthly figure is diluted 4x and every forecast reads low.
+    divisor = _history_months(session, prop.id, start, end)
+    monthly_avg = total_spending / divisor
 
     # Category breakdown
     category_rows = session.query(
@@ -103,7 +127,7 @@ def forecast(
 
     category_forecast = []
     for row in category_rows:
-        cat_monthly = row.total / 12.0
+        cat_monthly = row.total / divisor
         category_forecast.append({
             "category": row.category,
             "monthly_avg": round(cat_monthly, 2),
@@ -137,6 +161,9 @@ def vendor_spending_report(
         prop_id = prop.id
 
     # --- Transactions with vendor_id ---
+    # H15: exclude transactions booked by work-order completion (source=
+    # "work_order"). Those are counted via the work-order leg below; summing
+    # both here double-counts every WO-driven expense.
     tx_q = session.query(
         Transaction.vendor_id,
         Vendor.company_name,
@@ -144,6 +171,7 @@ def vendor_spending_report(
         func.count(Transaction.id).label("tx_count"),
     ).outerjoin(Vendor, Transaction.vendor_id == Vendor.id).filter(
         Transaction.vendor_id.isnot(None),
+        Transaction.source != "work_order",
         Transaction.date >= start,
         Transaction.date <= end,
     )
@@ -152,6 +180,9 @@ def vendor_spending_report(
     tx_rows = tx_q.group_by(Transaction.vendor_id, Vendor.company_name).all()
 
     # --- Work orders with actual_cost ---
+    # H15: filter on completed_at (when the spend actually occurred), not
+    # updated_at — a later edit to any field would otherwise pull a WO into an
+    # unrelated reporting window or push it out of its true one.
     wo_q = session.query(
         WorkOrder.vendor_id,
         Vendor.company_name,
@@ -160,8 +191,9 @@ def vendor_spending_report(
     ).join(Vendor, WorkOrder.vendor_id == Vendor.id).filter(
         WorkOrder.vendor_id.isnot(None),
         WorkOrder.actual_cost.isnot(None),
-        WorkOrder.updated_at >= start,
-        WorkOrder.updated_at <= end,
+        WorkOrder.completed_at.isnot(None),
+        func.date(WorkOrder.completed_at) >= start,
+        func.date(WorkOrder.completed_at) <= end,
     )
     if prop_id:
         wo_q = wo_q.filter(WorkOrder.property_id == prop_id)

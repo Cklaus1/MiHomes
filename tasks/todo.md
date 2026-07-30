@@ -1,6 +1,25 @@
 # MiHomes — Project State & Next Actions
 
-Last updated: 2026-05-14
+Last updated: 2026-07-29
+
+---
+
+## ACTIVE: Hardening Build Loop (branch `hardening-build`)
+
+> Harness: `tasks/build-loop.md` · Spec: `tasks/hardening-spec.md` (v2, adversarially verified) · run via `/loop tasks/build-loop.md`.
+> Mirror of the §4 DAG — authoritative checkboxes live in `build-loop.md`; this is the at-a-glance view. Group `[x]` = committed + full suite green.
+
+- [x] **G0 — Stop-the-bleeding (P0)**: D5 demo boot · D7+D8 watchdog · D6+H34+M45 uploads · D1 backup/restore · D3+H10+M32+M33 tools.py · M44 query_inventory · H8+H9 model · H11 round-limit
+- [x] **G-R4 — Reconciliation migration** (extra-gated): H7 batch · H2 drop HaEntity · H1+M11–M15+M0 FKs/indexes/uniques/enum-defaults · H5 downgrade · H6 recasting · H17 alerts.property_id · M14 vendor_properties — *846 tests green; G-R4a/b/c/d gates pass; autogenerate empty; env.py FK-OFF-during-migration fix*
+- [x] **G-R5 — Money int-cents**: M1 TypeDecorator (`type/money.py`, 15 columns) · cast migration `b3f5c1d9a72e` (dollars→int-cents, round-trip clean) · M2+M3+M4+M6 finance math — *859 tests green; single head; autogenerate empty*
+- [x] **G-R1 — Ban silent swallows**: R1 census→`logger.exception` (42 sites/17 files) · smoke test (every tool+report) · L1 logging config — *882 tests green; smoke net caught a real latent bug (`TaskStatus.DONE`→`COMPLETED`)*
+- [x] **G-Svc — Silent-corruption sweep**: H15 double-count · H16 health period · H18 daily recurrence · H19 backfill · H20 calendar · H21 vendor soft-delete · H22 WO cost · H23 issue↔WO link · H12 date · H13 image-capability · H14 stream session · M5+M10 fuzzy · M34+M35+M37 provider content — *933 tests green*
+- [x] **G-R2 — Gateway dedup core**: R2 `review_common.py` · H24–H28 · H35 PTO notifier · H36 vendor name · M21 poison-guard · M22–M31 · L12–L15 — *994 tests green + 5 bridge JS tests; shared `dedup.py`/`pid.py`; per-jid replies + sender allowlist (M25–M27); WA burst-drain (M30); `whatsapp stop` + telegram-stop reaps WA/bridge (M31); bridge reconnect guard + log compaction (M29)*
+- [x] **G-Web — Web hardening**: M43 delete reports · H29 chart · H31+R3 error handlers · M40 ValueError · H30 CSRF/Host · H32 zip · M16 form parse · M17 active toggle · M18 XSS · M19+M20 — *1038 green, ruff-clean*
+- [x] **G-CLI — CLI parsing + tail**: M39+M40 date-parse→BadParameter · M41 import-csv exit code · M42 dashboard aggregation · L2–L11 hygiene (belle-estate default, real_data idempotency, `--format` Enum, Rich escape, `--accept` guard, hide_input, PTO state guard, nullable vendor scores + migration, iCal/config/openai/bridge/watchdog residue, create-property full page) — *1076 tests green; alembic check clean; latent `weekly_report.full_name` bug found+fixed+logged*
+- [x] **G-Final — Compound stop**: full suite green (1080) · smoke green (18) · spec reconciled (P0 7/7, P1 36/36, P2 43+2 deferred, P3 15/15, R1–R5, A1) · empty autogenerate (single head 4db594964c82) · end-of-run report → `tasks/build-loop-report.md` — *F.3 caught 4 DAG-omissions: H3/M8/M9 fixed test-first, M7 + M9-tz deferred*
+
+**Stop condition (all four):** every DAG box `[x]` · every spec finding landed-or-deferred · full suite green · R1 smoke green. No intermediate review stops.
 
 ---
 

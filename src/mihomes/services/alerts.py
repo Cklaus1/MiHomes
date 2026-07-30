@@ -47,6 +47,7 @@ def _check_overdue_tasks(session: Session) -> int:
             alert_type="overdue_task",
             source_entity_type="task",
             source_entity_id=task.id,
+            property_id=task.property_id,
             severity=severity,
             message=f"Task '{task.title}' is {days_overdue} days overdue (due: {task.due_date})",
         )
@@ -81,6 +82,7 @@ def _check_critical_issues(session: Session) -> int:
             alert_type="unresolved_issue",
             source_entity_type="issue",
             source_entity_id=issue.id,
+            property_id=issue.property_id,
             severity=AlertSeverity.HIGH if issue.severity == IssueSeverity.CRITICAL else AlertSeverity.MEDIUM,
             message=f"Issue '{issue.title}' ({issue.severity.value}) unresolved for 3+ days",
         )
@@ -116,6 +118,7 @@ def _check_low_inventory(session: Session) -> int:
             alert_type="low_inventory",
             source_entity_type="consumable",
             source_entity_id=item.id,
+            property_id=item.property_id,
             severity=severity,
             message=f"Consumable '{item.name}' is {status_label} — reorder needed",
         )

@@ -4,13 +4,24 @@ from dataclasses import dataclass, field
 from datetime import date
 
 
+_CURRENT_DATE_TOKEN = "__CURRENT_DATE__"
+
+
 @dataclass
 class AIRole:
     name: str
     display_name: str
     keywords: list[str]
-    system_prompt: str
+    prompt_template: str
     data_categories: list[str] = field(default_factory=list)
+
+    @property
+    def system_prompt(self) -> str:
+        # H12: render the current date per access. Previously the date was
+        # baked into the prompt string at import time, so a long-running server
+        # fed the model a stale date and corrupted all "overdue / within N days"
+        # reasoning. The template carries a token that we resolve on every read.
+        return self.prompt_template.replace(_CURRENT_DATE_TOKEN, date.today().isoformat())
 
 
 SPACE_FRAMEWORK = """
@@ -34,7 +45,7 @@ def _base_prompt(role_desc: str) -> str:
 
 {SPACE_FRAMEWORK}
 
-Current date: {date.today().isoformat()}
+Current date: {_CURRENT_DATE_TOKEN}
 
 Respond concisely. Use bullet points for action items. Reference specific properties, tasks, issues, and vendors by name.
 
@@ -46,7 +57,7 @@ ROLES: dict[str, AIRole] = {
         name="estate_manager",
         display_name="Estate Manager",
         keywords=["prioritize", "overview", "status", "plan", "recommend", "what should", "summary"],
-        system_prompt=_base_prompt(
+        prompt_template=_base_prompt(
             "You are the Estate Manager for a multi-home portfolio. You oversee all properties, "
             "coordinate staff and vendors, manage budgets, and ensure every home is ready when needed. "
             "You are the generalist who synthesizes information across all domains."
@@ -58,7 +69,7 @@ ROLES: dict[str, AIRole] = {
         display_name="Maintenance Advisor",
         keywords=["leak", "repair", "hvac", "plumbing", "roof", "appliance", "break", "fix",
                   "maintenance", "broken", "damage", "crack", "mold", "pest", "water"],
-        system_prompt=_base_prompt(
+        prompt_template=_base_prompt(
             "You are the Maintenance Advisor for a multi-home portfolio. You specialize in "
             "building systems, preventive maintenance scheduling, failure prediction, and vendor matching. "
             "You know when equipment should be replaced vs repaired and can estimate costs."
@@ -70,7 +81,7 @@ ROLES: dict[str, AIRole] = {
         display_name="Financial Analyst",
         keywords=["budget", "cost", "spend", "expense", "price", "money", "forecast",
                   "over budget", "savings", "invoice", "payment", "financial"],
-        system_prompt=_base_prompt(
+        prompt_template=_base_prompt(
             "You are the Financial Analyst for a multi-home portfolio. You specialize in "
             "budget variance analysis, cost optimization, spending patterns, and forecasting. "
             "You identify anomalies and recommend cost-saving opportunities."
@@ -82,7 +93,7 @@ ROLES: dict[str, AIRole] = {
         display_name="Vendor Strategist",
         keywords=["vendor", "contractor", "service provider", "quote", "bid", "contract",
                   "negotiate", "hire", "fire", "replace vendor"],
-        system_prompt=_base_prompt(
+        prompt_template=_base_prompt(
             "You are the Vendor Strategist for a multi-home portfolio. You specialize in "
             "vendor performance analysis, contract negotiation, and matching the right vendor "
             "to the right job. You track reliability, pricing, and service quality."
@@ -94,7 +105,7 @@ ROLES: dict[str, AIRole] = {
         display_name="Compliance Monitor",
         keywords=["insurance", "permit", "license", "expir", "renew", "compliance",
                   "regulation", "hoa", "deadline", "filing"],
-        system_prompt=_base_prompt(
+        prompt_template=_base_prompt(
             "You are the Compliance Monitor for a multi-home portfolio. You track "
             "insurance policies, permits, certifications, contract renewals, and regulatory "
             "requirements. You ensure nothing lapses and flag upcoming deadlines."

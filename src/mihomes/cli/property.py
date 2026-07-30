@@ -6,11 +6,14 @@ from typing import Optional
 import typer
 from rich.table import Table
 
-from mihomes.cli.formatters import console, format_enum, format_panel, format_success, format_error, status_icon
+from mihomes.cli.formatters import cli_date, console, esc, format_enum, format_panel, format_success, format_error, status_icon
 from mihomes.db import get_session
 from mihomes.models.property import PropertyStatus, PropertyType
 from mihomes.services import property as prop_svc
 from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
+import logging
+
+logger = logging.getLogger(__name__)
 
 app = typer.Typer(name="property", help="Manage properties")
 
@@ -66,11 +69,11 @@ def list_properties(
         for p in props:
             table.add_row(
                 str(p.id),
-                p.name,
+                esc(p.name),
                 p.slug,
                 format_enum(p.property_type),
                 f"{status_icon(p.status)} {format_enum(p.status)}",
-                p.climate_zone or "-",
+                esc(p.climate_zone) or "-",
                 "Yes" if p.occupied else "No",
             )
         console.print(table)
@@ -109,7 +112,7 @@ def show_property(
             table.add_column("Type")
             table.add_column("Slug", style="dim")
             for s in prop.spaces:
-                table.add_row(s.name, s.space_type or "-", s.slug)
+                table.add_row(esc(s.name), esc(s.space_type) or "-", s.slug)
             console.print(table)
 
         # Show related entities
@@ -127,7 +130,7 @@ def show_property(
             table.add_column("Priority")
             table.add_column("Due")
             for t in open_tasks:
-                table.add_row(t.title, t.priority.value, str(t.due_date) if t.due_date else "-")
+                table.add_row(esc(t.title), t.priority.value, str(t.due_date) if t.due_date else "-")
             console.print(table)
 
         open_issues = session.query(Issue).filter(
@@ -140,7 +143,7 @@ def show_property(
             table.add_column("Severity")
             table.add_column("Status")
             for i in open_issues:
-                table.add_row(i.title, i.severity.value, i.status.value)
+                table.add_row(esc(i.title), i.severity.value, i.status.value)
             console.print(table)
 
         assets = session.query(Asset).filter(
@@ -152,7 +155,7 @@ def show_property(
             table.add_column("Type")
             table.add_column("Warranty")
             for a in assets:
-                table.add_row(a.name, a.asset_type.value, str(a.warranty_expires) if a.warranty_expires else "-")
+                table.add_row(esc(a.name), a.asset_type.value, str(a.warranty_expires) if a.warranty_expires else "-")
             console.print(table)
 
         # Staff assigned
@@ -161,7 +164,7 @@ def show_property(
             table.add_column("Name", style="bold")
             table.add_column("Role")
             for s in prop.staff_members:
-                table.add_row(s.name, s.role.value)
+                table.add_row(esc(s.name), s.role.value)
             console.print(table)
 
         # Seasonal recommendations for closed/seasonal properties
@@ -176,7 +179,7 @@ def show_property(
                         console.print(f"  → [cyan]mihomes template run {r['template']} --property {prop.slug}[/cyan]")
                         console.print(f"    {r['reason']}")
             except Exception:
-                pass  # Seasonal recommendations are advisory, not critical
+                logger.exception("show_property: suppressed exception")
 
 
 @app.command("edit")
@@ -249,8 +252,8 @@ def occupy_property(
     """Mark a property as occupied."""
     with get_session() as session:
         try:
-            fd = date.fromisoformat(from_date) if from_date else None
-            ud = date.fromisoformat(until_date) if until_date else None
+            fd = cli_date(from_date, "--from")
+            ud = cli_date(until_date, "--to")
             prop = prop_svc.occupy_property(session, id_or_slug, fd, ud)
             format_success(f"Property '{prop.name}' marked as occupied")
         except (AmbiguousIdentifierError, EntityNotFoundError) as e:
@@ -283,6 +286,6 @@ def property_status():
         for p in props:
             occ = " [green](occupied)[/green]" if p.occupied else ""
             console.print(
-                f"  {status_icon(p.status)} [bold]{p.name}[/bold] — "
+                f"  {status_icon(p.status)} [bold]{esc(p.name)}[/bold] — "
                 f"{format_enum(p.status)}{occ}"
             )

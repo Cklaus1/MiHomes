@@ -9,6 +9,9 @@ from rich.table import Table
 from mihomes.cli.formatters import console, format_error, format_success, severity_color
 from mihomes.db import get_session
 from mihomes.services import automation as auto_svc
+import logging
+
+logger = logging.getLogger(__name__)
 
 app = typer.Typer(name="auto", help="Automation and scheduled operations")
 
@@ -113,7 +116,7 @@ def run_all():
             wa_tasks = wa_result["tasks_created"]
             wa_status = f"{wa_issues} issue(s), {wa_tasks} task(s) from {wa_result['messages_processed']} messages"
         except Exception:
-            pass
+            logger.exception("run_all: suppressed exception")
 
         weather_alerts = auto_svc.run_weather_alerts(session)
         weather_suggestions = auto_svc.run_weather_task_suggestions(session)

@@ -34,6 +34,8 @@ def calculate_next_due(
     match frequency:
         case "once":
             return None
+        case "daily":
+            return current_due + timedelta(days=1)
         case "weekly":
             return current_due + timedelta(weeks=1)
         case "biweekly":

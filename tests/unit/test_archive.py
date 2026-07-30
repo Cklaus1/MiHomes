@@ -140,3 +140,38 @@ class TestRunArchival:
         results = run_archival(session, dry_run=True)
         assert results["audit_log"] == 0
         assert results["ai_conversations"] == 0
+
+    def test_raw_sql_delete_matches_orm_count_at_boundary(self, session, monkeypatch):
+        """M8: the raw-SQL predicate used an f-string ISO literal (T-separated,
+        `2024-...T...`) while SQLite stores DateTime space-separated
+        (`2024-... ...`). Since ' ' (0x20) < 'T' (0x54), a row stored at exactly
+        the cutoff instant is EXCLUDED by the ORM (`timestamp < cutoff` is
+        strict) yet INCLUDED by the buggy raw-string DELETE — so a row within
+        the retention window gets archived and deleted anyway. The raw DELETE
+        must archive exactly the rows the ORM counted, no more."""
+        import mihomes.services.archive as archive_mod
+
+        # Pin the cutoff so the boundary row lands on it deterministically.
+        fixed_cutoff = datetime(2024, 7, 29, 12, 0, 0, tzinfo=timezone.utc)
+        monkeypatch.setattr(archive_mod, "_retention_cutoff",
+                            lambda *a, **k: fixed_cutoff)
+
+        self._setup_archive_tables(session)
+        clearly_old = _make_audit(session, timestamp=fixed_cutoff - timedelta(days=1))
+        boundary = _make_audit(session, timestamp=fixed_cutoff)  # NOT eligible (== cutoff)
+        boundary_id = boundary.id
+        session.commit()
+
+        results = run_archival(session, dry_run=False)
+        # ORM counts only the clearly-old row.
+        assert results["audit_log"] == 1
+
+        # The boundary row (within retention) must survive in the active table…
+        remaining = {a.id for a in session.query(AuditLog).all()}
+        assert boundary_id in remaining, "boundary row was wrongly archived (M8)"
+        assert clearly_old.id not in remaining
+        # …and the archive table holds exactly the one counted row, not two.
+        archived = session.execute(
+            text("SELECT COUNT(*) FROM audit_log_archive")
+        ).scalar()
+        assert archived == 1

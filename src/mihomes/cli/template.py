@@ -6,7 +6,7 @@ from typing import Optional
 import typer
 from rich.table import Table
 
-from mihomes.cli.formatters import console, format_error, format_success
+from mihomes.cli.formatters import console, esc, format_error, format_success
 from mihomes.db import get_session
 from mihomes.models.task import TaskPriority
 from mihomes.services import template as tmpl_svc
@@ -43,7 +43,7 @@ def list_templates():
         table.add_column("Steps")
         table.add_column("Slug", style="dim")
         for t in templates:
-            table.add_row(str(t.id), t.name, str(len(t.items)), t.slug)
+            table.add_row(str(t.id), esc(t.name), str(len(t.items)), t.slug)
         console.print(table)
 
 
@@ -56,12 +56,12 @@ def show_template(id_or_slug: str = typer.Argument(...)):
         except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)
-        console.print(f"\n[bold]{tmpl.name}[/bold]")
+        console.print(f"\n[bold]{esc(tmpl.name)}[/bold]")
         if tmpl.description:
-            console.print(f"[dim]{tmpl.description}[/dim]")
+            console.print(f"[dim]{esc(tmpl.description)}[/dim]")
         console.print()
         for i, item in enumerate(tmpl.items, 1):
-            console.print(f"  {i}. {item.title}")
+            console.print(f"  {i}. {esc(item.title)}")
         console.print()
 
 
@@ -79,7 +79,7 @@ def run_template(
             tasks = tmpl_svc.run_template(session, id_or_slug, property, due_date=due_date, priority=priority)
             format_success(f"{len(tasks)} tasks created from template")
             for t in tasks:
-                console.print(f"  - {t.title} (due: {t.due_date})")
+                console.print(f"  - {esc(t.title)} (due: {t.due_date})")
         except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
             raise typer.Exit(1)

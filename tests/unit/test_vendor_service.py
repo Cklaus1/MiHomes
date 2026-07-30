@@ -146,6 +146,15 @@ class TestRateVendor:
         with pytest.raises(ValueError, match="communication"):
             rate_vendor(session, v.slug, quality=3, reliability=3, communication=0)
 
+    def test_omitted_cost_communication_stored_as_null(self, session):
+        # L9: an unrated dimension must be stored as NULL, not fabricated from
+        # another score. Previously cost defaulted to quality and communication
+        # to reliability, silently inventing data the rater never gave.
+        v = create_vendor(session, "Plumber")
+        rating = rate_vendor(session, v.slug, quality=5, reliability=1)
+        assert rating.cost_score is None
+        assert rating.communication_score is None
+
 
 class TestGetVendorRatings:
     def test_no_ratings_returns_empty(self, session):
@@ -163,6 +172,28 @@ class TestGetVendorRatings:
         assert result["averages"]["reliability"] == 3.0
         assert result["averages"]["count"] == 2
 
+    def test_averages_exclude_null_dimensions(self, session):
+        # L9: cost/communication averages must only reflect ratings that
+        # actually supplied them. A rating that omitted cost must not drag the
+        # cost average toward a fabricated value.
+        v = create_vendor(session, "Plumber")
+        rate_vendor(session, v.slug, quality=4, reliability=4)  # no cost/comm
+        rate_vendor(session, v.slug, quality=2, reliability=2, cost=5, communication=5)
+        result = get_vendor_ratings(session, v.slug)
+        # cost/comm supplied only once (=5) → avg 5.0, count reflects only that one
+        assert result["averages"]["cost"] == 5.0
+        assert result["averages"]["communication"] == 5.0
+        assert result["averages"]["quality"] == 3.0
+        assert result["averages"]["count"] == 2
+
+    def test_averages_none_when_all_dimensions_null(self, session):
+        # L9: if no rating supplied cost, its average is None, not 0 or an error.
+        v = create_vendor(session, "Plumber")
+        rate_vendor(session, v.slug, quality=4, reliability=4)
+        result = get_vendor_ratings(session, v.slug)
+        assert result["averages"]["cost"] is None
+        assert result["averages"]["communication"] is None
+
     def test_returns_vendor(self, session):
         v = create_vendor(session, "Plumber")
         rate_vendor(session, v.slug, quality=5, reliability=5)
@@ -171,10 +202,24 @@ class TestGetVendorRatings:
 
 
 class TestDeleteVendor:
-    def test_delete_removes_vendor(self, session):
+    def test_delete_soft_deletes_vendor(self, session):
+        # H21/Q9: delete is a soft-delete — the row is preserved (so contracts,
+        # transactions and history keep referencing it) but marked inactive.
         v = create_vendor(session, "Plumber")
         delete_vendor(session, v.slug)
-        assert session.get(Vendor, v.id) is None
+        row = session.get(Vendor, v.id)
+        assert row is not None
+        assert row.active is False
+
+    def test_deleted_vendor_hidden_from_default_list(self, session):
+        from mihomes.services.vendor import list_vendors
+        v = create_vendor(session, "Plumber")
+        delete_vendor(session, v.slug)
+        slugs = [x.slug for x in list_vendors(session)]
+        assert v.slug not in slugs
+        # ...but visible when explicitly including inactive.
+        all_slugs = [x.slug for x in list_vendors(session, active_only=False)]
+        assert v.slug in all_slugs
 
     def test_delete_returns_name(self, session):
         v = create_vendor(session, "Plumber")
@@ -191,3 +236,28 @@ class TestDeleteVendor:
         delete_vendor(session, v.slug)
         log = session.query(AuditLog).filter_by(entity_type="vendor", action="delete").first()
         assert log is not None
+
+    def test_soft_delete_with_contract(self, session):
+        """A vendor referenced by a (non-nullable FK) contract must survive
+        deletion as an inactive row — a hard delete would violate the FK or
+        orphan the contract."""
+        from mihomes.models.property import Property, PropertyType
+        from mihomes.models.contract import Contract
+        from datetime import date
+
+        v = create_vendor(session, "Contracted Co")
+        p = Property(name="Contract House", slug="contract-house",
+                     property_type=PropertyType.PRIMARY)
+        session.add(p)
+        session.flush()
+        c = Contract(vendor_id=v.id, property_id=p.id,
+                     service_category="hvac", start_date=date.today())
+        session.add(c)
+        session.flush()
+
+        delete_vendor(session, v.slug)
+
+        # Contract still resolves to a live vendor row.
+        session.refresh(c)
+        assert session.get(Vendor, v.id) is not None
+        assert c.vendor_id == v.id

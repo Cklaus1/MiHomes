@@ -38,8 +38,7 @@ def provider_stream(
 
     full_system = system_prompt.rstrip() + "\n" + _PROVIDER_SYSTEM_SUFFIX
     context_data = assemble_context(session, roles, query, property_slug=property_slug)
-    provider = get_provider(provider_name, api_key=api_key)
-    provider.model = model
+    provider = get_provider(provider_name, api_key=api_key, model=model)
 
     try:
         for chunk in provider.stream(full_system, query, context_data=context_data, attachments=attachments):
@@ -153,12 +152,16 @@ def agent_stream(
         yield ("status", "Preparing response…")
 
     try:
-        # Final call without tools so Claude can't loop further
+        # Final call: keep `tools` present (the history still contains tool_use /
+        # tool_result blocks, which the API requires a tools definition to accept),
+        # but pin tool_choice=none so Claude answers in prose instead of looping.
         with client.messages.stream(
             model=model,
             max_tokens=4096,
             system=full_system,
             messages=messages,
+            tools=TOOL_SCHEMAS,
+            tool_choice={"type": "none"},
         ) as stream:
             for chunk in stream.text_stream:
                 yield ("token", chunk)

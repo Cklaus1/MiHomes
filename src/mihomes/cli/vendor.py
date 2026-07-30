@@ -5,7 +5,7 @@ from typing import Optional
 import typer
 from rich.table import Table
 
-from mihomes.cli.formatters import console, format_error, format_panel, format_success
+from mihomes.cli.formatters import console, esc, format_error, format_panel, format_success
 from mihomes.db import get_session
 from mihomes.services import vendor as vendor_svc
 from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
@@ -52,7 +52,7 @@ def list_vendors(
         for v in vendors:
             cats = ", ".join(v.service_categories) if v.service_categories else "-"
             props = ", ".join(v.service_areas) if v.service_areas else "-"
-            table.add_row(str(v.id), v.company_name, v.contact_name or "-", v.phone or "-", cats, props, v.slug)
+            table.add_row(str(v.id), esc(v.company_name), esc(v.contact_name) or "-", esc(v.phone) or "-", esc(cats), esc(props), v.slug)
         console.print(table)
 
 
@@ -105,7 +105,7 @@ def show_vendor(id_or_slug: str = typer.Argument(...)):
             table.add_column("Due", style="dim")
             for wo in work_orders:
                 table.add_row(
-                    str(wo.id), wo.title, wo.property.name,
+                    str(wo.id), esc(wo.title), esc(wo.property.name),
                     f"{status_icon(wo.status)} {wo.status.value.replace('_', ' ')}",
                     f"{wo.currency} {wo.estimated_cost:,.0f}" if wo.estimated_cost else "-",
                     str(wo.due_date.date()) if wo.due_date else "-",
@@ -206,11 +206,15 @@ def show_ratings(
         averages = data["averages"]
 
         if not ratings:
-            console.print(f"[dim]No ratings yet for {vendor.company_name}.[/dim]")
+            console.print(f"[dim]No ratings yet for {esc(vendor.company_name)}.[/dim]")
             return
 
         # Averages panel
-        def _stars(score: float) -> str:
+        def _stars(score: float | None) -> str:
+            # L9: cost/communication averages are None when no rating supplied
+            # that dimension — show a dash rather than crashing on int(None).
+            if score is None:
+                return "— (not rated)"
             full = int(round(score))
             return "★" * full + "☆" * (5 - full) + f"  {score:.1f}"
 
@@ -221,7 +225,7 @@ def show_ratings(
             f"Cost/Value:    {_stars(averages['cost'])}",
             f"Communication: {_stars(averages['communication'])}",
         ]
-        console.print(Panel("\n".join(avg_lines), title=f"[bold]{vendor.company_name}[/bold] — Ratings", expand=False))
+        console.print(Panel("\n".join(avg_lines), title=f"[bold]{esc(vendor.company_name)}[/bold] — Ratings", expand=False))
 
         # Individual ratings table
         table = Table(title="Rating History")
@@ -238,9 +242,9 @@ def show_ratings(
                 f"{r.overall_score:.1f}",
                 str(r.quality_score),
                 str(r.reliability_score),
-                str(r.cost_score),
-                str(r.communication_score),
-                r.notes or "-",
+                str(r.cost_score) if r.cost_score is not None else "-",
+                str(r.communication_score) if r.communication_score is not None else "-",
+                esc(r.notes) or "-",
             )
         console.print(table)
 

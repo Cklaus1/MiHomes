@@ -7,6 +7,7 @@ from sqlalchemy import Boolean, Date, DateTime, Enum, Float, ForeignKey, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mihomes.models import Base, SlugMixin, TimestampMixin
+from mihomes.type.money import Money
 
 
 class AssetType(str, enum.Enum):
@@ -42,7 +43,7 @@ class Asset(Base, TimestampMixin, SlugMixin):
     model_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     serial_number: Mapped[str | None] = mapped_column(String(200), nullable=True)
     purchase_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    purchase_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    purchase_price: Mapped[float | None] = mapped_column(Money, nullable=True)
     warranty_expires: Mapped[date | None] = mapped_column(Date, nullable=True)
     condition: Mapped[AssetCondition] = mapped_column(Enum(AssetCondition), default=AssetCondition.GOOD)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -53,7 +54,7 @@ class Asset(Base, TimestampMixin, SlugMixin):
     # Lifecycle / capital planning
     install_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     expected_lifespan_years: Mapped[float | None] = mapped_column(Float, nullable=True)
-    replacement_cost_estimate: Mapped[float | None] = mapped_column(Float, nullable=True)
+    replacement_cost_estimate: Mapped[float | None] = mapped_column(Money, nullable=True)
     last_serviced: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     property = relationship("Property")
@@ -69,7 +70,7 @@ class PriceEntry(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     asset_id: Mapped[int] = mapped_column(Integer, ForeignKey("assets.id"), nullable=False, index=True)
     date: Mapped[date] = mapped_column(Date, nullable=False)
-    price: Mapped[float] = mapped_column(Float, nullable=False)
+    price: Mapped[float] = mapped_column(Money, nullable=False)
     quantity: Mapped[float] = mapped_column(Float, default=1.0)
     entry_type: Mapped[str] = mapped_column(String(50), default="purchase")
     note: Mapped[str | None] = mapped_column(Text, nullable=True)

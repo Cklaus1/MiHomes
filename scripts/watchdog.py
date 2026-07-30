@@ -4,7 +4,6 @@ Runs as a background process, checks every 60s, restarts a monitor if it dies.
 Supervises the Telegram monitor always, and the WhatsApp monitor when
 `whatsapp.autostart` is enabled (both gateways can run side by side).
 """
-import json
 import os
 import subprocess
 import sys
@@ -12,11 +11,19 @@ import time
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parents[1]
+# L10: make `mihomes` importable once, at import time — the loop previously
+# re-ran sys.path.insert(0, …) on every tick, growing sys.path unboundedly.
+_SRC = str(PROJECT_ROOT / "src")
+if _SRC not in sys.path:
+    sys.path.insert(0, _SRC)
 LOG_DIR = Path(os.path.expanduser("~/.mihomes"))
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 PID_FILE = LOG_DIR / "monitor.pid"
 WA_PID_FILE = LOG_DIR / "whatsapp_monitor.pid"
 WATCHDOG_PID_FILE = LOG_DIR / "watchdog.pid"
+# L10: persist the last digest date so a Monday restart doesn't re-send the
+# weekly inventory digest (it was tracked in-memory only, resetting on restart).
+DIGEST_MARKER_FILE = LOG_DIR / "last_inventory_digest"
 CHECK_INTERVAL = 60       # seconds between monitor health checks
 CALENDAR_SYNC_INTERVAL = 900  # 15 minutes between Google Calendar syncs
 INVENTORY_DIGEST_DAY = 0  # Monday (weekday index)
@@ -27,11 +34,12 @@ WA_BACKOFF_MAX = 900               # cap WhatsApp restart backoff at 15 min
 def _pid_running(pid: int) -> bool:
     if sys.platform == "win32":
         try:
+            from mihomes.services.gateways.pid import tasklist_has_pid
             result = subprocess.run(
                 ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV"],
                 capture_output=True, text=True,
             )
-            return str(pid) in result.stdout
+            return tasklist_has_pid(result.stdout, pid)
         except Exception:
             return False
     try:
@@ -45,23 +53,20 @@ def _pid_running(pid: int) -> bool:
     return True
 
 
-def _bot_reachable() -> bool:
-    """Quick health check — verify the bot token is valid and Telegram API is reachable."""
+def _read_digest_marker():
+    """Last date the inventory digest was sent, or None (L10 persistence)."""
+    from datetime import date as _date
     try:
-        import urllib.request
-        sys.path.insert(0, str(PROJECT_ROOT / "src"))
-        from mihomes.db import get_session
-        from mihomes.services.config_service import get_config
-        with get_session() as session:
-            token = get_config(session, "telegram.bot_token")
-        if not token:
-            return False
-        req = urllib.request.Request(f"https://api.telegram.org/bot{token}/getMe")
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read())
-        return data.get("ok", False)
-    except Exception:
-        return False
+        return _date.fromisoformat(DIGEST_MARKER_FILE.read_text().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def _write_digest_marker(day) -> None:
+    try:
+        DIGEST_MARKER_FILE.write_text(day.isoformat())
+    except OSError:
+        pass
 
 
 def _hidden_popen_kwargs():
@@ -73,27 +78,66 @@ def _hidden_popen_kwargs():
     return {"creationflags": 0x08000000, "startupinfo": si}
 
 
+# Handle to the Telegram monitor we spawned, so we can reap it (poll) instead
+# of probing os.kill(pid, 0) — which reports a zombie child as alive forever.
+_monitor_proc: "subprocess.Popen | None" = None
+_wa_monitor_proc: "subprocess.Popen | None" = None
+
+
 def _start_monitor():
+    global _monitor_proc
     env = os.environ.copy()
     env["MIHOMES_MONITOR"] = "1"
 
-    monitor_log = open(LOG_DIR / "monitor.log", "a")
-    proc = subprocess.Popen(
-        [sys.executable, "-c", "from mihomes.cli import app; app()",
-         "telegram", "monitor"],
-        env=env,
-        cwd=str(PROJECT_ROOT),
-        stdout=monitor_log, stderr=monitor_log,
-        **_hidden_popen_kwargs(),
-    )
+    # Close over the log handle: the child inherits the fd, and the parent's
+    # copy is closed on `with` exit, so repeated restarts don't leak fds.
+    with open(LOG_DIR / "monitor.log", "a") as monitor_log:
+        proc = subprocess.Popen(
+            [sys.executable, "-c", "from mihomes.cli import app; app()",
+             "telegram", "monitor"],
+            env=env,
+            cwd=str(PROJECT_ROOT),
+            stdout=monitor_log, stderr=monitor_log,
+            **_hidden_popen_kwargs(),
+        )
+    _monitor_proc = proc
     PID_FILE.write_text(str(proc.pid))
     return proc.pid
+
+
+def _monitor_alive() -> bool:
+    """True only if the Telegram monitor we manage is genuinely running.
+
+    Prefers the retained Popen handle (`poll()` reaps a dead child so it never
+    lingers as a zombie); falls back to the recorded PID when this watchdog
+    instance didn't spawn it (e.g. after its own restart)."""
+    if _monitor_proc is not None:
+        return _monitor_proc.poll() is None
+    if PID_FILE.exists():
+        try:
+            pid = int(PID_FILE.read_text().strip())
+        except (ValueError, OSError):
+            return False
+        return _pid_running(pid)
+    return False
+
+
+def _wa_monitor_alive() -> bool:
+    """WhatsApp counterpart of `_monitor_alive` — reap via the retained handle."""
+    if _wa_monitor_proc is not None:
+        return _wa_monitor_proc.poll() is None
+    if WA_PID_FILE.exists():
+        try:
+            wa_pid = int(WA_PID_FILE.read_text().strip())
+        except (ValueError, OSError):
+            return False
+        return _pid_running(wa_pid)
+    return False
 
 
 def _whatsapp_autostart_enabled() -> bool:
     """True only when the operator has opted WhatsApp into supervision."""
     try:
-        sys.path.insert(0, str(PROJECT_ROOT / "src"))
         from mihomes.db import get_session
         from mihomes.services.config_service import get_config
         with get_session() as session:
@@ -114,18 +158,20 @@ def _whatsapp_bridge_running() -> bool:
 
 
 def _start_whatsapp_monitor():
+    global _wa_monitor_proc
     env = os.environ.copy()
     env["MIHOMES_MONITOR"] = "1"
 
-    wa_log = open(LOG_DIR / "whatsapp-monitor.log", "a")
-    proc = subprocess.Popen(
-        [sys.executable, "-c", "from mihomes.cli import app; app()",
-         "whatsapp", "monitor"],
-        env=env,
-        cwd=str(PROJECT_ROOT),
-        stdout=wa_log, stderr=wa_log,
-        **_hidden_popen_kwargs(),
-    )
+    with open(LOG_DIR / "whatsapp-monitor.log", "a") as wa_log:
+        proc = subprocess.Popen(
+            [sys.executable, "-c", "from mihomes.cli import app; app()",
+             "whatsapp", "monitor"],
+            env=env,
+            cwd=str(PROJECT_ROOT),
+            stdout=wa_log, stderr=wa_log,
+            **_hidden_popen_kwargs(),
+        )
+    _wa_monitor_proc = proc
     WA_PID_FILE.write_text(str(proc.pid))
     return proc.pid
 
@@ -142,35 +188,22 @@ def run():
     _log("Watchdog started")
 
     last_calendar_sync = 0
-    last_inventory_digest_date = None
+    # Seed from the persisted marker so a restart on the same Monday is a no-op.
+    last_inventory_digest_date = _read_digest_marker()
     wa_backoff = WA_BACKOFF_BASE   # current WhatsApp restart backoff (seconds)
     wa_retry_at = 0.0              # earliest monotonic time to retry WhatsApp
 
     while True:
         try:
             # --- Check Telegram monitor ---
-            monitor_up = False
-            if PID_FILE.exists():
-                try:
-                    pid = int(PID_FILE.read_text().strip())
-                    monitor_up = _pid_running(pid)
-                except (ValueError, OSError):
-                    pass
-
-            if not monitor_up:
+            if not _monitor_alive():
                 _log("Telegram monitor down — restarting...")
                 new_pid = _start_monitor()
                 _log(f"Telegram monitor started (PID {new_pid})")
 
             # --- Check WhatsApp monitor (only when opted in) ---
             if _whatsapp_autostart_enabled():
-                wa_up = False
-                if WA_PID_FILE.exists():
-                    try:
-                        wa_pid = int(WA_PID_FILE.read_text().strip())
-                        wa_up = _pid_running(wa_pid)
-                    except (ValueError, OSError):
-                        pass
+                wa_up = _wa_monitor_alive()
 
                 if wa_up:
                     wa_backoff = WA_BACKOFF_BASE   # healthy — reset backoff
@@ -193,7 +226,6 @@ def run():
             now = time.time()
             if now - last_calendar_sync >= CALENDAR_SYNC_INTERVAL:
                 try:
-                    sys.path.insert(0, str(PROJECT_ROOT / "src"))
                     from mihomes.db import get_session
                     from mihomes.services.calendar_sync import auto_sync
                     with get_session() as session:
@@ -213,7 +245,6 @@ def run():
             if (today.weekday() == INVENTORY_DIGEST_DAY
                     and last_inventory_digest_date != today):
                 try:
-                    sys.path.insert(0, str(PROJECT_ROOT / "src"))
                     from mihomes.db import get_session
                     from mihomes.services.config_service import get_config
                     from mihomes.services.consumable import get_reorder_list
@@ -240,9 +271,11 @@ def run():
                         _log("Inventory digest skipped: telegram.bot_token or telegram.owner_chat_id not configured")
 
                     last_inventory_digest_date = today
+                    _write_digest_marker(today)
                 except Exception as e:
                     _log(f"Inventory digest failed: {e}")
                     last_inventory_digest_date = today
+                    _write_digest_marker(today)
 
         except Exception as e:
             _log(f"Watchdog error: {e}")

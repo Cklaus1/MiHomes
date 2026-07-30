@@ -4,6 +4,7 @@
 
 {% block head %}
 <script src="https://cdn.jsdelivr.net/npm/marked@4.3.0/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.9/dist/purify.min.js"></script>
 {% endblock %}
 {% block heading %}Portfolio Overview{% endblock %}
 {% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ properties|length }} propert{{ 'y' if properties|length == 1 else 'ies' }} · {{ alerts|length }} active alert{{ 's' if alerts|length != 1 else '' }}</p>{% endblock %}
@@ -307,7 +308,7 @@ async function dashAskSubmit() {
 
           if (data === '[DONE]') {
             if (typeof marked !== 'undefined' && rawText) {
-              responseEl.innerHTML = '<div class="dash-prose">' + marked.parse(rawText) + '</div>';
+              responseEl.innerHTML = '<div class="dash-prose">' + DOMPurify.sanitize(marked.parse(rawText)) + '</div>';
             } else {
               responseEl.innerHTML = '<div class="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">' + rawText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</div>';
             }

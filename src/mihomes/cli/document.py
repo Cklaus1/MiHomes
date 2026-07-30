@@ -5,7 +5,7 @@ from typing import Optional
 import typer
 from rich.table import Table
 
-from mihomes.cli.formatters import console, format_enum, format_error, format_panel, format_success
+from mihomes.cli.formatters import console, esc, format_enum, format_error, format_panel, format_success
 from mihomes.db import get_session
 from mihomes.models.document import DocumentType
 from mihomes.services import document as doc_svc
@@ -94,8 +94,8 @@ def list_documents(
         for d in docs:
             entity_str = f"{d.entity_type}:{d.entity_id}" if d.entity_type else "-"
             table.add_row(
-                str(d.id), d.title, format_enum(d.document_type),
-                d.file_path, entity_str,
+                str(d.id), esc(d.title), format_enum(d.document_type),
+                esc(d.file_path), entity_str,
                 str(d.expires_at) if d.expires_at else "-",
                 d.slug,
             )

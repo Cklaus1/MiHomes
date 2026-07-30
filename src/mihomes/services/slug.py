@@ -3,6 +3,8 @@
 from slugify import slugify
 from sqlalchemy.orm import Session
 
+from mihomes.services.query_helpers import escape_like
+
 
 class EntityNotFoundError(ValueError):
     """Raised when an entity cannot be found by ID or slug."""
@@ -42,8 +44,13 @@ def ensure_unique_slug(
         suffix += 1
 
 
-class AmbiguousIdentifierError(Exception):
-    """Raised when a partial slug matches multiple entities."""
+class AmbiguousIdentifierError(ValueError):
+    """Raised when a partial slug matches multiple entities.
+
+    Subclasses ``ValueError`` (like ``EntityNotFoundError``) so that an
+    ``except ValueError`` in any route catches an ambiguous prefix uniformly
+    with a not-found id, instead of letting it escape as a 500 (M40).
+    """
 
     def __init__(self, entity_type: str, identifier: str, matches: list):
         self.entity_type = entity_type
@@ -77,9 +84,13 @@ def resolve_identifier(session: Session, model_class, id_or_slug: str):
     if instance is not None:
         return instance
 
-    # Try as prefix match (e.g., "a-j-land" → "a-j-landscaping-tree-service-llc")
+    # Try as prefix match (e.g., "a-j-land" → "a-j-landscaping-tree-service-llc").
+    # M10: escape LIKE wildcards so a %/_ in the identifier can't broaden the
+    # prefix into an unintended (possibly ambiguous) match.
     matches = (
-        session.query(model_class).filter(model_class.slug.like(f"{id_or_slug}%")).all()
+        session.query(model_class)
+        .filter(model_class.slug.like(f"{escape_like(id_or_slug)}%", escape="\\"))
+        .all()
     )
     if len(matches) == 1:
         return matches[0]

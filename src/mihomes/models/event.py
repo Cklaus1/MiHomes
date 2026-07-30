@@ -3,10 +3,11 @@
 import enum
 from datetime import date
 
-from sqlalchemy import Date, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Date, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mihomes.models import Base, SlugMixin, TimestampMixin
+from mihomes.type.money import Money
 
 
 class EventStatus(str, enum.Enum):
@@ -26,7 +27,7 @@ class Event(Base, TimestampMixin, SlugMixin):
     event_date: Mapped[date] = mapped_column(Date, nullable=False)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     expected_guests: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    budget: Mapped[float | None] = mapped_column(Float, nullable=True)
+    budget: Mapped[float | None] = mapped_column(Money, nullable=True)
     currency: Mapped[str] = mapped_column(String(10), default="USD")
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[EventStatus] = mapped_column(Enum(EventStatus), default=EventStatus.PLANNING)
@@ -50,6 +51,9 @@ class Guest(Base, TimestampMixin, SlugMixin):
 
 class EventGuest(Base, TimestampMixin):
     __tablename__ = "event_guests"
+    __table_args__ = (
+        UniqueConstraint("event_id", "guest_id", name="uq_event_guest"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     event_id: Mapped[int] = mapped_column(Integer, ForeignKey("events.id"), nullable=False)

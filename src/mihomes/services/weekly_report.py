@@ -11,6 +11,7 @@ from mihomes.models.property import Property
 from mihomes.models.staff import Staff
 from mihomes.models.task import Task, TaskPriority, TaskStatus
 from mihomes.models.work_order import WorkOrder, WorkOrderStatus
+from mihomes.services.query_helpers import escape_like
 
 
 def generate(session: Session, property_slug: str | None = None) -> dict:
@@ -27,8 +28,11 @@ def generate(session: Session, property_slug: str | None = None) -> dict:
     # Resolve property filter
     prop_filter_ids: list[int] | None = None
     if property_slug and property_slug != "all":
+        # M10: escape LIKE wildcards so a slug containing %/_ can't broaden the
+        # name match to the wrong property.
         prop = session.query(Property).filter(
-            (Property.slug == property_slug) | (Property.name.ilike(f"%{property_slug}%"))
+            (Property.slug == property_slug)
+            | (Property.name.ilike(f"%{escape_like(property_slug)}%", escape="\\"))
         ).first()
         if not prop:
             raise ValueError(f"Property not found: {property_slug}")
@@ -162,7 +166,7 @@ def generate(session: Session, property_slug: str | None = None) -> dict:
     for prop in properties:
         prop_budgets = session.query(Budget).filter(Budget.property_id == prop.id).all()
         budgeted_mtd = sum(
-            b.amount for b in prop_budgets
+            _monthly_budget_share(b.amount, b.period) for b in prop_budgets
             if _budget_covers_month(b.period_start, b.period, month_start)
         )
         spent_mtd = (
@@ -252,7 +256,10 @@ def _assignee_name(session: Session, assignee_id: int | None) -> str | None:
     if not assignee_id:
         return None
     s = session.get(Staff, assignee_id)
-    return s.full_name if s else None
+    # Staff has `name`, not `full_name` — the latter raised AttributeError and
+    # crashed `report weekly --format markdown`/`15-5` whenever a task was
+    # assigned (the terminal renderer never hit this path).
+    return s.name if s else None
 
 
 def _serialize_tasks(tasks: list[Task], session: Session) -> list[dict]:
@@ -292,6 +299,20 @@ def _serialize_wo(wo: WorkOrder) -> dict:
         "title": wo.title,
         "status": wo.status.value,
     }
+
+
+def _monthly_budget_share(amount: float, period: BudgetPeriod) -> float:
+    """The monthly-equivalent slice of a budget (M3).
+
+    A quarterly/annual budget is a total for its whole period; comparing its
+    full value against a single month's spend meant the over-budget flag never
+    fired for them. Prorate to a per-month figure (÷3, ÷12).
+    """
+    if period == BudgetPeriod.QUARTERLY:
+        return amount / 3
+    if period == BudgetPeriod.ANNUAL:
+        return amount / 12
+    return amount  # MONTHLY
 
 
 def _budget_covers_month(period_start: date, period: BudgetPeriod, month_start: date) -> bool:

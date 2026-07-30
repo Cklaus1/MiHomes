@@ -8,11 +8,14 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from mihomes.cli.formatters import console, format_enum, severity_color, status_icon
+from mihomes.cli.formatters import console, esc, format_enum, severity_color, status_icon
 from mihomes.db import get_session
 from mihomes.services.dashboard import get_dashboard_data
 from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError, resolve_identifier
 from mihomes.models.property import Property
+import logging
+
+logger = logging.getLogger(__name__)
 
 app = typer.Typer(name="dashboard", help="Estate overview dashboard", invoke_without_command=True)
 
@@ -44,7 +47,7 @@ def dashboard(
             icon = status_icon(p["status"])
             occ = " [green](occupied)[/green]" if p["occupied"] else ""
             issues = f" [red]({p['open_issues']} issues)[/red]" if p["open_issues"] > 0 else ""
-            prop_lines.append(f"  {icon} [bold]{p['name']}[/bold] — {p['status']}{occ}{issues}")
+            prop_lines.append(f"  {icon} [bold]{esc(p['name'])}[/bold] — {p['status']}{occ}{issues}")
         prop_panel = Panel(
             "\n".join(prop_lines) if prop_lines else "[dim]No properties[/dim]",
             title=f"Properties ({len(data['properties'])})",
@@ -55,14 +58,14 @@ def dashboard(
         task_lines = []
         for t in data["tasks_this_week"][:8]:
             prio_icon = "!" if t.priority.value in ("urgent", "high") else "○"
-            task_lines.append(f"  {prio_icon} {t.title} ({t.property.name}) — {t.due_date}")
+            task_lines.append(f"  {prio_icon} {esc(t.title)} ({esc(t.property.name)}) — {t.due_date}")
         if data["overdue_count"] > 0:
             task_lines.insert(0, f"  [red bold]! {data['overdue_count']} overdue task(s)[/red bold]")
         if data["unscheduled_count"] > 0:
             task_lines.append(f"\n  [dim]Unscheduled ({data['unscheduled_count']}):[/dim]")
             for t in data["unscheduled_tasks"]:
-                assignee = f" → {t.assignee.name}" if t.assignee else ""
-                task_lines.append(f"  [dim]○ {t.title} ({t.property.name}){assignee}[/dim]")
+                assignee = f" → {esc(t.assignee.name)}" if t.assignee else ""
+                task_lines.append(f"  [dim]○ {esc(t.title)} ({esc(t.property.name)}){assignee}[/dim]")
         task_panel = Panel(
             "\n".join(task_lines) if task_lines else "[green]No tasks due this week[/green]",
             title=f"Tasks Due This Week ({len(data['tasks_this_week'])})",
@@ -73,7 +76,7 @@ def dashboard(
         issue_lines = []
         for i in data["open_issues"][:6]:
             sev_color = severity_color(i.severity.value)
-            issue_lines.append(f"  [{sev_color}]{i.severity.value.upper()}[/{sev_color}] {i.title} ({i.property.name})")
+            issue_lines.append(f"  [{sev_color}]{i.severity.value.upper()}[/{sev_color}] {esc(i.title)} ({esc(i.property.name)})")
         issue_panel = Panel(
             "\n".join(issue_lines) if issue_lines else "[green]No open issues[/green]",
             title=f"Open Issues ({len(data['open_issues'])})",
@@ -88,7 +91,7 @@ def dashboard(
             filled = int(pct / 100 * bar_len)
             bar_color = "red" if pct > 90 else "yellow" if pct > 75 else "green"
             bar = f"[{bar_color}]{'█' * filled}[/{bar_color}]{'░' * (bar_len - filled)}"
-            budget_lines.append(f"  {b['property']}: {bar} {pct}% (${b['spent']:,.0f} / ${b['budgeted']:,.0f})")
+            budget_lines.append(f"  {esc(b['property'])}: {bar} {pct}% (${b['spent']:,.0f} / ${b['budgeted']:,.0f})")
         budget_panel = Panel(
             "\n".join(budget_lines) if budget_lines else "[dim]No budgets set[/dim]",
             title="Budget Status (YTD)",
@@ -106,10 +109,10 @@ def dashboard(
             until = p["occupied_until"]
             if p["occupied"]:
                 until_str = f"until {until}" if until else "ongoing"
-                cal_lines.append(f"  [green]● Occupied[/green]  [bold]{p['name']}[/bold] — {until_str}")
+                cal_lines.append(f"  [green]● Occupied[/green]  [bold]{esc(p['name'])}[/bold] — {until_str}")
             elif since and since > today:
                 days_away = (since - today).days
-                cal_lines.append(f"  [yellow]○ Upcoming[/yellow]  [bold]{p['name']}[/bold] — {since} ({days_away}d away)")
+                cal_lines.append(f"  [yellow]○ Upcoming[/yellow]  [bold]{esc(p['name'])}[/bold] — {since} ({days_away}d away)")
 
         # Google Calendar events (next 30 days, excluding MiHomes-pushed ones)
         import os
@@ -125,9 +128,9 @@ def dashboard(
                             continue
                         start = ev.get("start")
                         start_str = start.strftime("%b %d") if start else "-"
-                        cal_lines.append(f"  [cyan]◆ Google[/cyan]  {title} — {start_str}")
+                        cal_lines.append(f"  [cyan]◆ Google[/cyan]  {esc(title)} — {start_str}")
             except Exception:
-                pass
+                logger.exception("dashboard: suppressed exception")
 
         calendar_panel = Panel(
             "\n".join(cal_lines) if cal_lines else "[dim]No active or upcoming occupancy[/dim]",
@@ -138,11 +141,11 @@ def dashboard(
         # AI Recommendations panel
         ai_lines = []
         if not os.environ.get("MIHOMES_DEMO"):
+            from mihomes.services.ai import orchestrator
+            from mihomes.services.ai.provider import AIAuthError, AIProviderError
             try:
-                from mihomes.services.ai.orchestrator import dashboard_summary
-                from mihomes.services.ai.provider import AIAuthError, AIProviderError
                 with console.status("[dim]Fetching AI recommendations...[/dim]", spinner="dots"):
-                    ai_resp = dashboard_summary(session, property_slug=property)
+                    ai_resp = orchestrator.dashboard_summary(session, property_slug=property)
                 space_colors = {"S": "bold red", "P": "bold yellow", "A": "yellow", "C": "cyan", "E": "cyan"}
                 for line in ai_resp.text.strip().splitlines():
                     line = line.strip("•- ").strip()
@@ -152,8 +155,19 @@ def dashboard(
                     color = space_colors.get(first)
                     ai_lines.append(f"  [{color}]{line}[/{color}]" if color else f"  {line}")
                 ai_lines.append("\n  [dim]Run `mihomes ai review` for full analysis[/dim]")
-            except Exception:
-                ai_lines = ["  [dim]AI recommendations unavailable. Run `mihomes config set ai.provider claude` to configure.[/dim]"]
+            except AIAuthError as e:
+                logger.warning("dashboard: AI auth failed: %s", e)
+                ai_lines = [f"  [yellow]AI unavailable — {e}[/yellow]",
+                            "  [dim]Run `mihomes config set ai.api_key ...` to configure.[/dim]"]
+            except AIProviderError as e:
+                # A real provider/network failure — surface the reason, don't
+                # disguise it as "not configured" (M42).
+                logger.error("dashboard: AI recommendations failed: %s", e)
+                ai_lines = [f"  [yellow]AI recommendations unavailable — {e}[/yellow]"]
+            except Exception as e:
+                # Unexpected failure: log the full trace and surface the reason.
+                logger.exception("dashboard: unexpected AI panel failure")
+                ai_lines = [f"  [yellow]AI recommendations unavailable — {e}[/yellow]"]
 
         ai_panel = Panel(
             "\n".join(ai_lines) if ai_lines else "[dim]AI not configured[/dim]",
@@ -175,7 +189,7 @@ def dashboard(
         today_str = today.strftime("%A, %B %d, %Y")
         title = f"MiHomes Estate Dashboard — {today_str}"
         if property:
-            title = f"MiHomes — {property} — {today_str}"
+            title = f"MiHomes — {esc(property)} — {today_str}"
 
         console.print()
         console.print(Panel(

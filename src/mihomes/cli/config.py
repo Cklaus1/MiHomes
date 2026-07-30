@@ -5,7 +5,7 @@ from typing import Optional
 import typer
 from rich.table import Table
 
-from mihomes.cli.formatters import console, format_error, format_success
+from mihomes.cli.formatters import console, esc, format_error, format_success
 from mihomes.db import get_session
 from mihomes.services import config_service as config_svc
 
@@ -31,9 +31,9 @@ def get_config(
     with get_session() as session:
         value = config_svc.get_config(session, key)
         if value is not None:
-            console.print(f"{key} = {value}")
+            console.print(f"{esc(key)} = {esc(value)}")
         else:
-            console.print(f"[dim]{key} is not set[/dim]")
+            console.print(f"[dim]{esc(key)} is not set[/dim]")
 
 
 @app.command("list")
@@ -46,7 +46,7 @@ def list_config():
         table.add_column("Value")
         table.add_column("Source", style="dim")
         for c in configs:
-            table.add_row(c["key"], c["value"] or "-", c["source"])
+            table.add_row(esc(c["key"]), esc(c["value"]) or "-", c["source"])
         console.print(table)
 
 

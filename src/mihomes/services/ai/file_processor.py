@@ -16,6 +16,13 @@ IMAGE_TYPES = {
 TEXT_EXTENSIONS = {".txt", ".md", ".csv", ".json", ".html", ".xml", ".yaml", ".yml", ".log"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 
+# M37: cap upload sizes so a giant file (e.g. a 200MB log) can't be forwarded to
+# the model verbatim. Text is truncated with a visible marker; an oversized image
+# is rejected outright (it can't be meaningfully truncated).
+MAX_TEXT_CHARS = 200_000
+MAX_IMAGE_BYTES = 8 * 1024 * 1024  # 8 MiB
+_TEXT_TRUNCATION_MARKER = "\n\n[... file truncated — exceeded {limit:,} character upload cap ...]"
+
 
 @dataclass
 class Attachment:
@@ -34,6 +41,10 @@ def process_upload(filename: str, content_bytes: bytes, content_type: str = "") 
     ext = os.path.splitext(filename)[1].lower()
 
     if ext in IMAGE_EXTENSIONS or content_type in IMAGE_TYPES:
+        # M37: reject an oversized image — it can't be truncated meaningfully and
+        # would balloon the request payload.
+        if len(content_bytes) > MAX_IMAGE_BYTES:
+            return None
         media_type = IMAGE_TYPES.get(content_type) or IMAGE_TYPES.get(f"image/{ext.lstrip('.')}", "image/jpeg")
         return Attachment(
             filename=filename,
@@ -47,13 +58,20 @@ def process_upload(filename: str, content_bytes: bytes, content_type: str = "") 
             text = content_bytes.decode("utf-8", errors="replace")
         except Exception:
             text = content_bytes.decode("latin-1", errors="replace")
-        return Attachment(filename=filename, is_image=False, text_content=text)
+        return Attachment(filename=filename, is_image=False, text_content=_cap_text(text))
 
     if ext == ".pdf" or content_type == "application/pdf":
         text = _extract_pdf_text(content_bytes)
-        return Attachment(filename=filename, is_image=False, text_content=text)
+        return Attachment(filename=filename, is_image=False, text_content=_cap_text(text))
 
     return None
+
+
+def _cap_text(text: str) -> str:
+    """M37: truncate over-long extracted text with a visible marker."""
+    if len(text) <= MAX_TEXT_CHARS:
+        return text
+    return text[:MAX_TEXT_CHARS] + _TEXT_TRUNCATION_MARKER.format(limit=MAX_TEXT_CHARS)
 
 
 def _extract_pdf_text(content_bytes: bytes) -> str:

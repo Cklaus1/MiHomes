@@ -188,3 +188,51 @@ class TestPropertyComparison:
         no_spend = next((r for r in results if r["property_slug"] == "no-spend"), None)
         assert no_spend is not None
         assert no_spend["total_spending"] == 0.0
+
+
+class TestVendorSpendingNoDoubleCount:
+    """H15 — completing a work order books a `source='work_order'` transaction.
+    The vendor spending report must not count both that transaction leg AND the
+    work order's actual_cost, or every WO-driven expense is doubled."""
+
+    def test_no_double_count(self, session, prop, vendor):
+        from mihomes.services.financial_report import vendor_spending_report
+        from mihomes.services.work_order import create_work_order, approve, complete
+
+        wo = create_work_order(
+            session, "Boiler swap", str(prop.id),
+            vendor_id_or_slug=str(vendor.id), estimated_cost=1000.0,
+        )
+        approve(session, str(wo.id))
+        # complete() sets actual_cost AND books a source='work_order' transaction
+        complete(session, str(wo.id), actual_cost=1200.0)
+        session.flush()
+
+        rows = vendor_spending_report(
+            session, date.today() - timedelta(days=1), date.today() + timedelta(days=1),
+        )
+        row = next(r for r in rows if r["vendor_id"] == vendor.id)
+        # The completed work should be counted exactly once (1200), not 2400.
+        assert row["combined_total"] == pytest.approx(1200.0), (
+            f"double-counted WO expense: combined_total={row['combined_total']}"
+        )
+
+    def test_wo_leg_filtered_by_completion_date(self, session, prop, vendor):
+        """A work order completed outside the window must not appear even if its
+        row was touched (updated_at) inside the window."""
+        from mihomes.services.financial_report import vendor_spending_report
+        from mihomes.services.work_order import create_work_order, approve, complete
+
+        wo = create_work_order(
+            session, "Old job", str(prop.id),
+            vendor_id_or_slug=str(vendor.id), estimated_cost=300.0,
+        )
+        approve(session, str(wo.id))
+        complete(session, str(wo.id), actual_cost=300.0)
+        session.flush()
+
+        # Window entirely in the future — nothing completed then.
+        rows = vendor_spending_report(
+            session, date.today() + timedelta(days=10), date.today() + timedelta(days=20),
+        )
+        assert all(r["vendor_id"] != vendor.id or r["combined_total"] == 0.0 for r in rows)

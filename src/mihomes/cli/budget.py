@@ -6,7 +6,7 @@ from typing import Optional
 import typer
 from rich.table import Table
 
-from mihomes.cli.formatters import console, format_error, format_success
+from mihomes.cli.formatters import cli_date, console, esc, format_error, format_success
 from mihomes.db import get_session
 from mihomes.models.budget import BudgetPeriod
 from mihomes.services import budget as budget_svc
@@ -74,7 +74,7 @@ def list_budgets(
     table.add_column("Start")
     for bid, prop_name, category, period, currency, amount, period_start in rows:
         table.add_row(
-            str(bid), prop_name, category,
+            str(bid), esc(prop_name), esc(category),
             period, f"{currency} {amount:,.0f}",
             str(period_start),
         )
@@ -92,7 +92,7 @@ def set_budget(
     """Set a budget for a property category."""
     with get_session() as session:
         try:
-            period_start = date.fromisoformat(start) if start else date(date.today().year, 1, 1)
+            period_start = cli_date(start, "--start") or date(date.today().year, 1, 1)
             b = budget_svc.set_budget(session, property, category, period, amount, period_start)
             format_success(f"Budget set: {category} = {b.currency} {b.amount:,.0f} ({period.value})")
         except (EntityNotFoundError, ValueError) as e:
@@ -134,7 +134,7 @@ def budget_report(
             if r["remaining"] < 0:
                 remaining_val = f"[red]{remaining_val}[/red]"
             table.add_row(
-                r["category"],
+                esc(r["category"]),
                 f"{r['currency']} {r['budgeted']:,.0f}",
                 f"{r['currency']} {r['spent']:,.0f}",
                 remaining_val,
@@ -156,7 +156,7 @@ def add_expense(
     """Add an expense."""
     with get_session() as session:
         try:
-            d = date.fromisoformat(tx_date) if tx_date else date.today()
+            d = cli_date(tx_date, "--date") or date.today()
             tx = budget_svc.add_transaction(
                 session, amount, property, category, d,
                 vendor_id_or_slug=vendor, description=description, notes=notes,
@@ -181,7 +181,7 @@ def edit_expense(
     if amount is not None: kwargs["amount"] = amount
     if category is not None: kwargs["category"] = category
     if description is not None: kwargs["description"] = description
-    if tx_date is not None: kwargs["date"] = date.fromisoformat(tx_date)
+    if tx_date is not None: kwargs["date"] = cli_date(tx_date, "--date")
     if notes is not None: kwargs["notes"] = notes
     if not kwargs:
         format_error("No fields to update.")
@@ -224,8 +224,8 @@ def list_expenses(
             table.add_row(
                 str(tx.id), str(tx.date),
                 f"{tx.currency} {tx.amount:,.2f}",
-                tx.category, tx.property.name,
-                tx.vendor.company_name if tx.vendor else "-",
-                tx.description or "-",
+                esc(tx.category), esc(tx.property.name),
+                esc(tx.vendor.company_name) if tx.vendor else "-",
+                esc(tx.description) or "-",
             )
         console.print(table)

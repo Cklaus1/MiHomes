@@ -5,9 +5,11 @@ from datetime import date
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from mihomes.models.property import Property
 from mihomes.models.vendor import Vendor
 from mihomes.models.vendor_rating import VendorRating
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
+from mihomes.services.rating_validation import validate_scores
 from mihomes.services.update_helpers import safe_update
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
 
@@ -141,6 +143,13 @@ def normalize_vendor_categories(session: Session) -> int:
     return count
 
 
+def _resolve_properties(session: Session, property_ids: list[int]) -> list[Property]:
+    """Resolve a list of property IDs to Property rows, ignoring unknown IDs."""
+    if not property_ids:
+        return []
+    return session.query(Property).filter(Property.id.in_(property_ids)).all()
+
+
 def create_vendor(
     session: Session,
     company_name: str,
@@ -166,8 +175,9 @@ def create_vendor(
         service_areas=service_areas,
         insurance_info=insurance_info,
         notes=notes,
-        property_ids=property_ids,
     )
+    if property_ids:
+        vendor.properties = _resolve_properties(session, property_ids)
     session.add(vendor)
     session.flush()
     record_change(session, "vendor", vendor.id, "create", snapshot_instance(vendor))
@@ -205,6 +215,11 @@ def update_vendor(session: Session, id_or_slug: str, **kwargs) -> Vendor:
             kwargs["contact_name"] = first.get("name") or None
             kwargs["phone"] = first.get("phone") or None
             kwargs["email"] = first.get("email") or None
+    # property_ids is a read-only view over the vendor_properties link table;
+    # route it through the relationship instead of the generic column setter.
+    if "property_ids" in kwargs:
+        pid_list = kwargs.pop("property_ids")
+        vendor.properties = _resolve_properties(session, pid_list or [])
     safe_update(vendor, kwargs)
     session.flush()
     new_snap = snapshot_instance(vendor)
@@ -227,12 +242,13 @@ def rate_vendor(
     property_id: int | None = None,
 ) -> VendorRating:
     """Add a rating for a vendor. Scores are 1–5."""
-    for name, val in [("quality", quality), ("reliability", reliability)]:
-        if not 1 <= val <= 5:
-            raise ValueError(f"{name} score must be between 1 and 5")
-    for name, val in [("cost", cost), ("communication", communication)]:
-        if val is not None and not 1 <= val <= 5:
-            raise ValueError(f"{name} score must be between 1 and 5")
+    # M5: shared 1–5 validation (cost/communication optional).
+    validate_scores({
+        "quality": (quality, True),
+        "reliability": (reliability, True),
+        "cost": (cost, False),
+        "communication": (communication, False),
+    })
 
     vendor = resolve_identifier(session, Vendor, id_or_slug)
     scores = [quality, reliability]
@@ -246,8 +262,8 @@ def rate_vendor(
         vendor_id=vendor.id,
         quality_score=quality,
         reliability_score=reliability,
-        cost_score=cost if cost is not None else quality,
-        communication_score=communication if communication is not None else reliability,
+        cost_score=cost,
+        communication_score=communication,
         overall_score=overall,
         notes=notes,
         rated_date=date.today(),
@@ -271,11 +287,17 @@ def get_vendor_ratings(session: Session, id_or_slug: str) -> dict:
     if not ratings:
         return {"vendor": vendor, "ratings": [], "averages": None}
 
-    avg_quality = round(sum(r.quality_score for r in ratings) / len(ratings), 1)
-    avg_reliability = round(sum(r.reliability_score for r in ratings) / len(ratings), 1)
-    avg_cost = round(sum(r.cost_score for r in ratings) / len(ratings), 1)
-    avg_communication = round(sum(r.communication_score for r in ratings) / len(ratings), 1)
-    avg_overall = round(sum(r.overall_score for r in ratings) / len(ratings), 1)
+    def _avg(values: list) -> float | None:
+        # L9: average only the ratings that actually supplied this dimension;
+        # NULLs (unrated cost/communication) are excluded, not counted as 0.
+        present = [v for v in values if v is not None]
+        return round(sum(present) / len(present), 1) if present else None
+
+    avg_quality = _avg([r.quality_score for r in ratings])
+    avg_reliability = _avg([r.reliability_score for r in ratings])
+    avg_cost = _avg([r.cost_score for r in ratings])
+    avg_communication = _avg([r.communication_score for r in ratings])
+    avg_overall = _avg([r.overall_score for r in ratings])
 
     return {
         "vendor": vendor,
@@ -320,9 +342,17 @@ def rename_category(session: Session, old_name: str, new_name: str) -> int:
 
 
 def delete_vendor(session: Session, id_or_slug: str) -> str:
+    # H21/Q9: soft-delete. Vendors are referenced by contracts, transactions,
+    # work orders and rating history via non-nullable FKs — a hard delete would
+    # either violate those constraints or orphan the referencing rows. Instead
+    # we flag the vendor inactive so it drops out of default lists while all
+    # historical references stay intact.
     vendor = resolve_identifier(session, Vendor, id_or_slug)
     name = vendor.company_name
-    record_change(session, "vendor", vendor.id, "delete", snapshot_instance(vendor))
-    session.delete(vendor)
-    session.flush()
+    if vendor.active:
+        old_snap = snapshot_instance(vendor)
+        vendor.active = False
+        session.flush()
+        changes = diff_instance(old_snap, snapshot_instance(vendor))
+        record_change(session, "vendor", vendor.id, "delete", changes)
     return name

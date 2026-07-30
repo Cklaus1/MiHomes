@@ -56,6 +56,39 @@ class TestIsTaskEvent:
         assert _is_task_event("IRRIGATION SYSTEM CHECK") is True
 
 
+# ── push_appointment_to_google — late-hour rollover (M9) ─────────────────────
+
+class TestPushAppointmentLateHour:
+    """M9: a 23:00 appointment computed end as hour+1=24 → datetime(hour=24)
+    ValueError, swallowed by the bare except → the appointment silently never
+    synced. End must roll into the next day via timedelta(hours=1)."""
+
+    def _appt(self):
+        from datetime import time as _time
+        appt = MagicMock()
+        appt.gcal_event_id = None
+        appt.date = date(2026, 3, 15)
+        appt.start_time = _time(23, 0)
+        appt.vendor = None
+        appt.title = "Late night check"
+        appt.notes = ""
+        return appt
+
+    def test_2300_appointment_still_syncs(self):
+        from mihomes.services.calendar_sync import push_appointment_to_google
+        provider = MagicMock()
+        provider.create_event.return_value = {"event_id": "evt-1"}
+        with patch("mihomes.services.calendar_sync.is_google_auth_available", return_value=True), \
+             patch("mihomes.services.calendar_sync._get_provider", return_value=provider):
+            result = push_appointment_to_google(self._appt())
+        assert result is True
+        provider.create_event.assert_called_once()
+        kwargs = provider.create_event.call_args.kwargs
+        assert kwargs["start"] == datetime(2026, 3, 15, 23, 0, tzinfo=timezone.utc)
+        # end rolls into the next day, not an invalid hour=24
+        assert kwargs["end"] == datetime(2026, 3, 16, 0, 0, tzinfo=timezone.utc)
+
+
 # ── is_google_auth_available ──────────────────────────────────────────────────
 
 class TestIsGoogleAuthAvailable:
@@ -259,7 +292,8 @@ class TestPullFromGoogle:
         mock_provider = MagicMock()
         mock_provider.list_events.return_value = [
             {
-                "title": "Pool maintenance crew",
+                # H20: event must name the property to be matched (no default).
+                "title": "Pool maintenance crew at Main Estate",
                 "start": datetime.now(timezone.utc),
                 "end": datetime.now(timezone.utc) + timedelta(hours=2),
                 "description": "",
@@ -269,6 +303,87 @@ class TestPullFromGoogle:
              patch("mihomes.services.calendar_sync._get_provider", return_value=mock_provider):
             result = pull_from_google(session)
         assert result.get("tasks_created", 0) == 1
+
+
+class TestPullFromGoogleH20:
+    """H20 — unmatched events must be skipped (not force-assigned to a default
+    property); occupancy events must dedup on the gcal id and must not re-spawn
+    turnover tasks when the occupancy window is unchanged."""
+
+    def _mp(self, events):
+        mp = MagicMock()
+        mp.list_events.return_value = events
+        return mp
+
+    def test_unmatched_event_is_skipped_not_defaulted(self, session):
+        # A property exists, but the event mentions neither its name in title
+        # nor description → it must NOT be force-attached to that property.
+        prop = Property(name="Beach House", slug="beach-house",
+                        property_type=PropertyType.PRIMARY)
+        session.add(prop)
+        session.flush()
+        # Distinct multi-day window so occupy_property would succeed (not raise)
+        # if the event were wrongly matched — proving the skip, not a ValueError.
+        mp = self._mp([
+            {"title": "Dentist appointment", "start": datetime.now(timezone.utc),
+             "end": datetime.now(timezone.utc) + timedelta(days=3), "description": "",
+             "id": "evt-unmatched"},
+        ])
+        with patch("mihomes.services.calendar_sync.is_google_auth_available", return_value=True), \
+             patch("mihomes.services.calendar_sync._get_provider", return_value=mp):
+            result = pull_from_google(session)
+        assert result["pulled"] == 0
+        assert result.get("tasks_created", 0) == 0
+        # Property occupancy must be untouched.
+        session.refresh(prop)
+        assert prop.occupied is False
+
+    def test_unmatched_task_event_is_skipped(self, session):
+        prop = Property(name="Beach House", slug="beach-house",
+                        property_type=PropertyType.PRIMARY)
+        session.add(prop)
+        session.flush()
+        # Task-type event (has 'maintenance' keyword) but no property mention.
+        mp = self._mp([
+            {"title": "Car maintenance", "start": datetime.now(timezone.utc),
+             "end": datetime.now(timezone.utc) + timedelta(hours=1), "description": "",
+             "id": "evt-carmaint"},
+        ])
+        with patch("mihomes.services.calendar_sync.is_google_auth_available", return_value=True), \
+             patch("mihomes.services.calendar_sync._get_provider", return_value=mp):
+            result = pull_from_google(session)
+        assert result.get("tasks_created", 0) == 0
+
+    def test_occupancy_event_no_respawn_on_repeat(self, session):
+        from mihomes.models.task import Task
+        from mihomes.services.template import create_template
+
+        # Seed the turnover template so occupy_property actually spawns tasks —
+        # otherwise the assertion passes vacuously.
+        create_template(session, "Guest Turnover", slug="guest-turnover",
+                        steps=["Strip beds", "Clean bathrooms"])
+
+        prop = Property(name="Lake Cabin", slug="lake-cabin",
+                        property_type=PropertyType.PRIMARY)
+        session.add(prop)
+        session.flush()
+        start = datetime.now(timezone.utc)
+        end = start + timedelta(days=3)
+        events = [{"title": "Guests at Lake Cabin", "start": start, "end": end,
+                   "description": "", "id": "evt-stay-1"}]
+        mp = self._mp(events)
+        with patch("mihomes.services.calendar_sync.is_google_auth_available", return_value=True), \
+             patch("mihomes.services.calendar_sync._get_provider", return_value=mp):
+            pull_from_google(session)
+            tasks_after_first = session.query(Task).filter(
+                Task.property_id == prop.id).count()
+            # Pull the SAME event again — occupancy window unchanged.
+            pull_from_google(session)
+            tasks_after_second = session.query(Task).filter(
+                Task.property_id == prop.id).count()
+        assert tasks_after_second == tasks_after_first, (
+            "turnover tasks re-spawned on unchanged occupancy pull"
+        )
 
 
 # ── auto_sync ─────────────────────────────────────────────────────────────────

@@ -5,6 +5,7 @@
 
 {% block head %}
 <script src="https://cdn.jsdelivr.net/npm/marked@4.3.0/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.9/dist/purify.min.js"></script>
 <style>
   /* Report prose styling for marked.js output */
   .report-prose h1 { font-size: 1.125rem; font-weight: 700; color: #111827; margin: 1.25rem 0 0.5rem; }
@@ -423,7 +424,7 @@ async function loadSession(sessionId) {
       if (el) {
         el.className = 'chat-prose bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-3 max-w-2xl text-sm';
         el.style.minHeight = '';
-        el.innerHTML = typeof marked !== 'undefined' ? marked.parse(msg.ai) : escHtml(msg.ai);
+        el.innerHTML = typeof marked !== 'undefined' ? DOMPurify.sanitize(marked.parse(msg.ai)) : escHtml(msg.ai);
       }
     }
     conv.scrollTop = conv.scrollHeight;
@@ -623,7 +624,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 el.style.minHeight = '';
                 if (typeof marked !== 'undefined' && rawText) {
                   el.className = 'chat-prose bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-3 text-sm max-w-2xl';
-                  el.innerHTML = marked.parse(rawText);
+                  el.innerHTML = DOMPurify.sanitize(marked.parse(rawText));
                 } else if (rawText) {
                   el.innerHTML = escHtml(rawText);
                 } else {
@@ -751,7 +752,7 @@ function scrollToReport() {
 function renderMarkdown() {
   if (typeof marked === 'undefined') return;
   document.querySelectorAll('[data-markdown]').forEach(el => {
-    el.innerHTML = marked.parse(el.textContent || '');
+    el.innerHTML = DOMPurify.sanitize(marked.parse(el.textContent || ''));
     el.removeAttribute('data-markdown');
   });
 }

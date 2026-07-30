@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from mihomes.models.alert import Alert, AlertSeverity, AlertStatus
@@ -97,11 +97,16 @@ def compute_property_health(session: Session, property_id: int) -> HealthScore:
     )
     budget_deduction = 0
     for b in budgets:
+        # H16: measure spend only within this budget's period window. Summing
+        # all-time transactions against a single-period amount means one old
+        # overrun permanently deducts, and multi-period spend always "overruns".
         spent = (
             session.query(func.sum(Transaction.amount))
             .filter(
                 Transaction.property_id == property_id,
                 Transaction.category == b.category,
+                Transaction.date >= b.period_start,
+                Transaction.date < b.period_end,
             )
             .scalar()
         ) or 0.0
@@ -113,11 +118,14 @@ def compute_property_health(session: Session, property_id: int) -> HealthScore:
         score -= budget_deduction
 
     # ── Unacknowledged high/critical alerts ───────────────────────────────────
+    # H17: scope alert deductions to this property. Property-less alerts
+    # (property_id IS NULL) are system-wide and count against every property.
     bad_alerts = (
         session.query(Alert)
         .filter(
             Alert.status.in_([AlertStatus.GENERATED, AlertStatus.SEEN]),
             Alert.severity.in_([AlertSeverity.CRITICAL, AlertSeverity.HIGH]),
+            or_(Alert.property_id == property_id, Alert.property_id.is_(None)),
         )
         .all()
     )

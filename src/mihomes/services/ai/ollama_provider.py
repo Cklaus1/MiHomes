@@ -10,6 +10,10 @@ from mihomes.services.ai.provider import AIProviderError
 class OllamaProvider:
     """AI provider using local Ollama models. Zero cloud dependency."""
 
+    # H13: this provider flattens attachments to a text block (see complete) —
+    # it never sends real image data, so it must not be used for vision tasks.
+    supports_images: bool = False
+
     def __init__(self, *, model: str = "llama3.1", base_url: str = "http://localhost:11434"):
         self.model = model
         self.base_url = base_url.rstrip("/")

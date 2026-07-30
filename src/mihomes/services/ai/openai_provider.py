@@ -14,6 +14,11 @@ except ImportError:
 class OpenAIProvider:
     """AI provider using OpenAI's API."""
 
+    # H13: this provider flattens attachments to a text block (see complete /
+    # structured_output) — it never sends real image data, so it must not be
+    # used for vision tasks like room scans.
+    supports_images: bool = False
+
     def __init__(self, api_key: str | None = None, model: str | None = None):
         if openai is None:
             raise AIProviderError(
@@ -51,7 +56,9 @@ class OpenAIProvider:
                     {"role": "user", "content": message_content},
                 ],
             )
-            return response.choices[0].message.content
+            # L10: message.content is Optional per the OpenAI schema (None on a
+            # refusal/tool-only turn); the -> str contract must not leak None.
+            return response.choices[0].message.content or ""
         except openai.AuthenticationError as e:
             raise AIAuthError(f"Invalid API key: {e}")
         except openai.RateLimitError as e:

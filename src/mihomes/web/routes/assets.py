@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
+from mihomes.config import UPLOADS_DIR, UPLOADS_URL_PREFIX
 from mihomes.models.asset import AssetCondition, AssetType
 from mihomes.models.book import BookCondition
 from mihomes.models.document import DocumentType
@@ -20,22 +21,26 @@ from mihomes.services import property as prop_svc
 from mihomes.services import space as space_svc
 from mihomes.services.ai.assessors import parse_room_scan
 from mihomes.web.deps import get_db, templates
-from mihomes.web.forms import parse_money, read_image_uploads
+from mihomes.web.forms import parse_money, read_document_upload, read_image_uploads
 
 router = APIRouter()
-
-UPLOADS_DIR = Path(__file__).parent.parent / "static" / "uploads"
 
 _MEDIA_EXT = {"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/webp": ".webp"}
 
 
 def _save_room_photo(att) -> str:
-    """Persist a scan photo to static/uploads and return its served path."""
+    """Persist a scan photo to the user-data uploads dir and return its served path.
+
+    The photo comes from an AI room-scan Attachment (base64), not a raw upload,
+    so the extension is taken from the media-type whitelist (never client-named).
+    Written under ``UPLOADS_DIR`` so it survives ``pip upgrade`` and is backed up
+    (spec H34), the same location ``read_document_upload`` uses.
+    """
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     suffix = _MEDIA_EXT.get(att.media_type, Path(att.filename).suffix.lower() or ".jpg")
     fname = f"{uuid.uuid4().hex}{suffix}"
     (UPLOADS_DIR / fname).write_bytes(base64.b64decode(att.base64_data))
-    return f"/static/uploads/{fname}"
+    return f"{UPLOADS_URL_PREFIX}/{fname}"
 
 
 def _ai_scan_error(msg: str) -> str:
@@ -69,7 +74,7 @@ def _spaces_ctx(db: Session, property_slug: str) -> dict:
     space_counts: dict[int, int] = {}
     unassigned = 0
     for a in assets:
-        if a.space_id:
+        if a.space_id is not None:
             space_counts[a.space_id] = space_counts.get(a.space_id, 0) + 1
         else:
             unassigned += 1
@@ -89,7 +94,7 @@ def _list_ctx(db: Session, property_slug: str, space_slug: str, asset_type: str 
     all_prop_assets = asset_svc.list_assets(db, property_id_or_slug=property_slug, active_only=False)
     if space_slug == "unassigned":
         space = None
-        assets = [a for a in all_prop_assets if not a.space_id]
+        assets = [a for a in all_prop_assets if a.space_id is None]
     else:
         space = space_svc.get_space(db, space_slug)
         assets = [a for a in all_prop_assets if a.space_id == space.id]
@@ -432,21 +437,23 @@ async def add_asset_document(
     db: Session = Depends(get_db),
 ):
     asset = asset_svc.get_asset(db, slug)
-    suffix = Path(file.filename).suffix.lower()
-    filename = f"{uuid.uuid4().hex}{suffix}"
-    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-    (UPLOADS_DIR / filename).write_bytes(await file.read())
+    ctx = {
+        "post_url": f"/assets/{slug}/documents",
+        "delete_url_prefix": f"/assets/{slug}/documents",
+    }
+    try:
+        file_path = await read_document_upload(file)
+    except ValueError as e:
+        ctx["docs"] = doc_svc.list_documents(db, entity_type="asset", entity_id=asset.id)
+        ctx["error"] = str(e)
+        return templates.TemplateResponse(request, "partials/docs_section.html", ctx)
     doc_svc.create_document(
-        db, title=title, file_path=f"/static/uploads/{filename}",
+        db, title=title, file_path=file_path,
         document_type=DocumentType(doc_type),
         entity_type="asset", entity_id=asset.id,
     )
-    docs = doc_svc.list_documents(db, entity_type="asset", entity_id=asset.id)
-    return templates.TemplateResponse(request, "partials/docs_section.html", {
-        "docs": docs,
-        "post_url": f"/assets/{slug}/documents",
-        "delete_url_prefix": f"/assets/{slug}/documents",
-    })
+    ctx["docs"] = doc_svc.list_documents(db, entity_type="asset", entity_id=asset.id)
+    return templates.TemplateResponse(request, "partials/docs_section.html", ctx)
 
 
 @router.delete("/{slug}/documents/{doc_id}", response_class=HTMLResponse)

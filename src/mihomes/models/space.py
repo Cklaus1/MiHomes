@@ -14,7 +14,7 @@ class Space(Base, TimestampMixin, SlugMixin):
     space_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     property_id: Mapped[int] = mapped_column(Integer, ForeignKey("properties.id"), nullable=False)
-    zone_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("zones.id"), nullable=True)
+    zone_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("zones.id"), index=True, nullable=True)
 
     property = relationship("Property", back_populates="spaces")
     zone = relationship("Zone", back_populates="spaces")

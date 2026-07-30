@@ -1,15 +1,25 @@
-"""WhatsApp responder — logs issues/tasks and answers questions via AI."""
+"""WhatsApp responder — logs issues/tasks and answers questions via AI.
+
+Thin gateway shim over `services.gateways.review_common`: this module supplies
+only the WhatsApp-specific pieces (the `WhatsAppClient` + "🏠 " reply prefix, the
+inventory-scan route, approver identification by phone number, and phone-first
+reporter matching). All analysis, dispatch, and photo-attach logic lives in the
+shared core so it stays identical to the Telegram gateway.
+"""
 
 import base64
+import logging
 import mimetypes
 import os
-import re
-from datetime import date, datetime
 
 from sqlalchemy.orm import Session
 
+from mihomes.services.gateways import review_common as rc
 from mihomes.services.gateways.whatsapp.client import WhatsAppClient
 from mihomes.services.gateways.whatsapp.review import analyze_messages
+from mihomes.services.query_helpers import escape_like
+
+logger = logging.getLogger("mihomes.whatsapp")
 
 
 def handle_inventory_scan(
@@ -26,6 +36,16 @@ def handle_inventory_scan(
     from mihomes.services.ai.assessors import parse_room_scan
     from mihomes.services.ai.file_processor import Attachment
     from mihomes.services.asset import create_asset
+
+    # L2: with several properties and no label on the message, we can't know
+    # which estate the assets belong to. Ask rather than misfile them.
+    if not property_slug:
+        client.send_group_message(
+            reply_jid,
+            "🏠 Which property is this? Set the inventory group's property with "
+            "`mihomes whatsapp monitor --property <slug>` so scanned items file correctly.",
+        )
+        return {"replied": 1, "logged": 0, "errors": ["No property for inventory scan"]}
 
     # Collect images and room name from captions
     image_attachments: list[Attachment] = []
@@ -108,7 +128,7 @@ def handle_inventory_scan(
                 model_name=item.get("model"),
                 condition=condition,
                 purchase_price=float(value) if value else None,
-                notes=item.get("notes"),
+                notes=item.get("note"),
             )
             line = f"• {asset.name}"
             if value:
@@ -126,126 +146,22 @@ def handle_inventory_scan(
     return {"replied": 2, "logged": len(created), "errors": errors}
 
 
-def _parse_event_date(timestamp_str: str | None) -> date | None:
-    """Parse an AI-extracted timestamp string into a date, or return None."""
-    if not timestamp_str:
-        return None
-    for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%d", "%Y-%m-%dT%H:%M:%S"):
-        try:
-            return datetime.strptime(timestamp_str, fmt).date()
-        except ValueError:
-            continue
-    return None
+def _is_approver(session: Session, message: dict) -> bool:
+    """True when a message is from the configured approver (matched by phone).
 
-
-def _strip_markdown(text: str) -> str:
-    text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
-    text = re.sub(r'\*(.*?)\*', r'\1', text)
-    text = re.sub(r'#{1,6}\s*', '', text)
-    text = re.sub(r'[-•]\s+', '', text)
-    return text.strip()
-
-
-def _ai_response(session: Session, prompt: str, role: str, property_slug: str | None) -> str | None:
-    """Call the AI advisor and return a plain-text 1-2 sentence response, or None on failure."""
-    try:
-        from mihomes.services.ai.orchestrator import ask
-        full_prompt = (
-            f"{prompt}\n\n"
-            "Reply in 1-2 sentences maximum. Plain text only — no bullet points, "
-            "no headers, no markdown. Be direct and practical. "
-            "If you are not confident in your answer or do not have enough information, "
-            "respond with exactly: NO_RESPONSE"
-        )
-        response = ask(session, full_prompt, role=role, property_slug=property_slug)
-        text = _strip_markdown(response.text.strip())
-        text = re.sub(r'\n{2,}', ' ', text)
-        if not text or text.upper() == "NO_RESPONSE":
-            return None
-        return text
-    except Exception as e:
-        import logging
-        logging.getLogger("mihomes.whatsapp").warning("AI response failed: %s", e)
-        return None
-
-
-def _issue_expert_reply(session: Session, title: str, description: str | None, property_slug: str | None) -> str | None:
-    """Get a maintenance expert assessment for a logged issue."""
-    context = description or title
-    prompt = (
-        f"A maintenance issue was just reported at a property: '{title}'. "
-        f"Details: {context}. "
-        "As a maintenance expert, give a brief practical assessment: "
-        "what this likely requires and what the immediate next step should be."
-    )
-    return _ai_response(session, prompt, role="maintenance", property_slug=property_slug)
-
-
-def _answer_question(session: Session, question: str, property_slug: str | None) -> str | None:
-    """Answer a home-related question using the estate manager role."""
-    return _ai_response(session, question, role="estate_manager", property_slug=property_slug)
-
-
-def _resolve_staff_slug(session: Session, name: str | None) -> str | None:
-    """Find a staff member by partial name match, return their slug."""
-    if not name:
-        return None
-    from mihomes.models.staff import Staff
-    staff = session.query(Staff).filter(Staff.name.ilike(f"%{name}%")).first()
-    return staff.slug if staff else None
-
-
-def _handle_approval_message(session: Session, message: dict, client) -> bool:
+    H25: the phone is derived from the bridge's `sender` field (not the missing
+    `senderPhone`) via the shared `sender_phone` helper.
     """
-    Check if a message from the approver is an APPROVE/DENY command.
-    Returns True if handled, False if it should flow through normal analysis.
-    """
-    import re
-
     from mihomes.services.config_service import get_config
-    from mihomes.services.staff_pto import approve_pto, deny_pto, notify_staff
-
     approver_phone = (
         get_config(session, "staff.pto_approver_phone")
         or get_config(session, "owner.whatsapp_phone")
     )
     if not approver_phone:
         return False
-
-    sender_phone = message.get("senderPhone", "")
-    if not sender_phone or approver_phone.replace("+", "").replace("-", "") not in sender_phone.replace("+", "").replace("-", ""):
-        return False
-
-    text = (message.get("text") or "").strip().upper()
-    approve_match = re.match(r"APPROVE\s+(\d+)", text)
-    deny_match = re.match(r"DENY\s+(\d+)(?:\s+(.+))?", text, re.IGNORECASE)
-
-    if approve_match:
-        req_id = int(approve_match.group(1))
-        try:
-            req = approve_pto(session, req_id, decided_by="approver")
-            notify_staff(session, req)
-            reply_jid = message.get("jid")
-            if reply_jid:
-                client.send_group_message(reply_jid, f"🏠 PTO approved for {req.staff.name} — {', '.join(req.dates)} ✓")
-        except Exception:
-            pass
-        return True
-
-    if deny_match:
-        req_id = int(deny_match.group(1))
-        reason = deny_match.group(2) or None
-        try:
-            req = deny_pto(session, req_id, decided_by="approver", reason=reason)
-            notify_staff(session, req)
-            reply_jid = message.get("jid")
-            if reply_jid:
-                client.send_group_message(reply_jid, f"🏠 PTO denied for {req.staff.name} — {', '.join(req.dates)}")
-        except Exception:
-            pass
-        return True
-
-    return False
+    norm_approver = approver_phone.replace("+", "").replace("-", "").replace(" ", "")
+    sender = rc.sender_phone(message)
+    return bool(sender) and (norm_approver in sender or sender in norm_approver)
 
 
 def process_and_respond(
@@ -253,276 +169,117 @@ def process_and_respond(
     messages: list[dict],
     property_slug: str | None = None,
 ) -> dict:
-    """
-    Analyze messages, create issues/tasks, answer questions, handle PTO.
+    """Analyze messages, create issues/tasks, answer questions, handle PTO.
 
-    - Issues: log + send '🏠 "title" logged ✓\\n\\n[maintenance expert assessment]'
-    - Tasks/supply_needs with date: log + create event + send '🏠 scheduled "title" ✓'
-    - Tasks/supply_needs without date: log + send '🏠 "title" logged ✓'
-    - Vendor activity: create event + send '🏠 scheduled "title" ✓'
-    - Questions about the home: send '🏠 [AI estate manager answer]'
-    - PTO requests: log as pending + notify approver via direct message
-    - Informational/irrelevant: no response
+    Delegates all analysis and dispatch to `review_common`; only the client,
+    "🏠 " reply prefix, inventory route, approver identity, and phone-based
+    reporter matching are WhatsApp-specific.
 
     Returns dict with: logged, replied, errors.
     """
     if not messages:
         return {"replied": 0, "logged": 0, "errors": []}
 
-    import logging
-
     from mihomes.services.ai.provider import AIProviderError
     client = WhatsAppClient()
-    _log = logging.getLogger("mihomes.whatsapp")
 
-    # Pre-check: handle APPROVE/DENY replies from the approver before AI analysis
-    remaining_messages = []
-    for msg in messages:
-        if not _handle_approval_message(session, msg, client):
-            remaining_messages.append(msg)
-    messages = remaining_messages
+    # WhatsApp prefixes every outbound message with the house emoji.
+    adapter = rc.GatewayAdapter(
+        label="WhatsApp",
+        send=lambda jid, text: client.send_group_message(jid, f"🏠 {text}"),
+    )
+
+    # Pre-check: handle APPROVE/DENY replies from the approver before analysis (H24).
+    messages = rc.handle_approval_messages(
+        session, messages,
+        adapter=adapter,
+        is_approver=lambda m: _is_approver(session, m),
+    )
     if not messages:
         return {"replied": 0, "logged": 0, "errors": []}
 
-    # Resolve reply target early so we can report errors to the group
-    reply_jid = next(
-        (m["jid"] for m in messages if m.get("jid") and (m.get("propertySlug") or property_slug)),
-        None,
+    # M26: a batch can span several groups of the same property. Dispatch each
+    # group independently so replies land in the group they came from.
+    groups = rc.group_by_target(
+        [m for m in messages if m.get("propertySlug") or property_slug]
     )
-    if not reply_jid:
+    if not groups:
         return {"replied": 0, "logged": 0, "errors": ["No linked group JID found"]}
 
-    # Route inventory group messages straight to the room scanner
+    from mihomes.models.staff import Staff
     from mihomes.services.config_service import get_config
     inventory_jid = get_config(session, "whatsapp.inventory_group_jid")
-    if inventory_jid and reply_jid == inventory_jid:
-        inv_property = (messages[0].get("propertySlug") or property_slug or "belle-estate")
-        return handle_inventory_scan(session, messages, inv_property, reply_jid, client)
 
-    def _send_error_to_group(detail: str) -> None:
-        try:
-            client.send_group_message(
-                reply_jid,
-                f"🏠 ⚠️ Bot error — couldn't process message(s). Please log manually.\n_{detail}_",
-            )
-        except Exception:
-            pass
-
-    try:
-        result = analyze_messages(session, messages, property_name=property_slug, property_slug=property_slug)
-    except AIProviderError as e:
-        _log.error("AI provider error during message analysis: %s", e)
-        _send_error_to_group(str(e))
-        return {"replied": 0, "logged": 0, "errors": [f"AI provider error: {e}"]}
-    except Exception as e:
-        _log.error("Unexpected error during message analysis: %s", e)
-        _send_error_to_group(str(e))
-        return {"replied": 0, "logged": 0, "errors": [f"Unexpected error: {e}"]}
-    items = result.get("items", [])
-
-    logged = 0
-    replied = 0
-    errors = []
-
-    # Build phone → staff lookup for reporter identification
-    # Bridge sends 'sender' as '15551234567@s.whatsapp.net' — extract the number part
-    from mihomes.models.staff import Staff
-    phone_to_staff: dict[str, object] = {}
-    for msg in messages:
-        raw = msg.get("sender") or msg.get("senderPhone") or ""
-        phone = raw.split("@")[0].replace("+", "").replace("-", "").replace(" ", "")
-        if phone and phone not in phone_to_staff:
-            matched = session.query(Staff).filter(
-                Staff.whatsapp_phone.isnot(None)
-            ).all()
-            for s in matched:
-                s_phone = (s.whatsapp_phone or "").replace("+", "").replace("-", "").replace(" ", "")
-                if s_phone and s_phone in phone or phone in s_phone:
-                    phone_to_staff[phone] = s
-                    break
-
-    def _resolve_reporter(item: dict, msg_list: list) -> int | None:
-        """Return staff.id for the issue reporter, matching by phone then name."""
-        # Try phone match from messages
-        for msg in msg_list:
-            raw = msg.get("sender") or msg.get("senderPhone") or ""
-            phone = raw.split("@")[0].replace("+", "").replace("-", "").replace(" ", "")
-            if phone and phone in phone_to_staff:
-                return phone_to_staff[phone].id
-        # Fallback: name match from AI-extracted reported_by
-        name = item.get("reported_by")
-        if name:
-            s = session.query(Staff).filter(Staff.name.ilike(f"%{name}%")).first()
-            if s:
-                return s.id
-        return None
-
-    def _resolve_room(room_name: str | None, prop_slug: str | None) -> str | None:
-        """Fuzzy-match a room name against spaces for the property."""
-        if not room_name or not prop_slug:
-            return None
-        from mihomes.models.property import Property
-        from mihomes.models.space import Space
-        prop = session.query(Property).filter(Property.slug == prop_slug).first()
-        if not prop:
-            return None
-        spaces = session.query(Space).filter(Space.property_id == prop.id).all()
-        room_lower = room_name.lower()
-        for space in spaces:
-            if room_lower in space.name.lower() or space.name.lower() in room_lower:
-                return space.slug
-        return None
-
-    for item in items:
-        category = item.get("category", "")
-        title = item.get("title", "Unknown")
-        prop = item.get("property_slug") or property_slug
-
-        # --- Questions: answer with AI estate manager ---
-        if category == "question":
-            question_text = item.get("description") or title
-            answer = _answer_question(session, question_text, prop or property_slug)
-            if answer:
-                try:
-                    client.send_group_message(reply_jid, f"🏠 {answer}")
-                    replied += 1
-                except Exception as e:
-                    errors.append(f"Failed to send answer: {e}")
+    totals = {"replied": 0, "logged": 0, "errors": []}
+    for reply_jid, group_msgs in groups.items():
+        # Route inventory group messages straight to the room scanner
+        if inventory_jid and reply_jid == inventory_jid:
+            inv_property = (group_msgs[0].get("propertySlug") or property_slug
+                            or rc.resolve_default_property(session))
+            r = handle_inventory_scan(session, group_msgs, inv_property, reply_jid, client)
+            totals["replied"] += r.get("replied", 0)
+            totals["logged"] += r.get("logged", 0)
+            totals["errors"].extend(r.get("errors", []))
             continue
 
-        # --- PTO requests: log as pending + notify approver ---
-        if category == "pto_request":
-            reporter = item.get("reported_by") or item.get("assigned_to")
-            pto_dates = item.get("pto_dates") or []
-            if not reporter or not pto_dates:
-                continue
+        def _send_error_to_group(detail: str, _jid=reply_jid) -> None:
+            # M27: generic message to the group; detail is logged locally only.
             try:
-                from mihomes.models.staff import Staff
-                from mihomes.services.staff_pto import create_pto_request, notify_approver
-                staff = session.query(Staff).filter(Staff.name.ilike(f"%{reporter}%")).first()
-                if not staff:
-                    continue
-                req = create_pto_request(session, str(staff.id), pto_dates, notes=item.get("description"))
-                logged += 1
-                notify_approver(session, req)
-                # Confirm in group chat
-                dates_str = ", ".join(pto_dates)
-                warning = f"\n⚠️ {req.coverage_warning}" if req.coverage_warning else ""
-                try:
-                    client.send_group_message(reply_jid, f"🏠 PTO request logged for {staff.name} — {dates_str}. Pending approval.{warning}")
-                    replied += 1
-                except Exception as e:
-                    errors.append(f"Failed to confirm PTO: {e}")
-            except Exception as e:
-                errors.append(f"Failed to log PTO request: {e}")
-            continue
-
-        # --- Supply needs: silently update inventory, no group reply ---
-        if category == "supply_need":
-            if not prop:
-                continue
-            try:
-                from mihomes.services.consumable import update_stock
-                reporter = item.get("reported_by") or "WhatsApp"
-                update_stock(
-                    session, title, prop,
-                    quantity_in_stock=item.get("quantity_in_stock"),
-                    quantity_to_order=item.get("quantity_to_order"),
-                    unit=item.get("unit"),
-                    updated_by=reporter,
+                client.send_group_message(
+                    _jid, "🏠 ⚠️ Bot error — couldn't process message(s). Please log manually."
                 )
-                logged += 1
-            except Exception as e:
-                errors.append(f"Failed to log supply '{title}': {e}")
-            continue  # No group chat reply for supply needs
-
-        # --- Actionable items: log + confirm ---
-        if category not in ("issue", "task", "vendor_activity"):
-            continue
-
-        if not prop:
-            continue
-
-        event_date = _parse_event_date(item.get("timestamp"))
+            except Exception:
+                logger.exception("_send_error_to_group: suppressed exception")
+            logger.error("responder group error (jid %s): %s", _jid, detail)
 
         try:
-            if category == "issue":
-                from mihomes.models.document import DocumentType
-                from mihomes.models.issue import IssueSeverity
-                from mihomes.services.document import create_document
-                from mihomes.services.issue import create_issue
-                sev_val = item.get("severity", "medium")
-                try:
-                    sev = IssueSeverity(sev_val)
-                except ValueError:
-                    sev = IssueSeverity.MEDIUM
-                reporter_id = _resolve_reporter(item, messages)
-                room_slug = _resolve_room(item.get("room"), prop)
-                issue = create_issue(
-                    session, title, prop,
-                    severity=sev,
-                    description=item.get("description"),
-                    reported_by_id=reporter_id,
-                    space_id_or_slug=room_slug,
-                )
-                # Save any photos from the batch as Documents linked to the issue
-                import uuid as _uuid
-                from pathlib import Path as _Path
-                uploads_dir = _Path(__file__).parents[4] / "web" / "static" / "uploads"
-                uploads_dir.mkdir(parents=True, exist_ok=True)
-                for idx, msg in enumerate(messages):
-                    media_path = msg.get("mediaPath")
-                    if not media_path or not os.path.isfile(media_path):
-                        continue
-                    try:
-                        mime = mimetypes.guess_type(media_path)[0] or "image/jpeg"
-                        if not mime.startswith("image/"):
-                            continue
-                        ext = _Path(media_path).suffix.lower() or ".jpg"
-                        fname = f"{_uuid.uuid4().hex}{ext}"
-                        dest = uploads_dir / fname
-                        import shutil as _shutil
-                        _shutil.copy2(media_path, dest)
-                        create_document(
-                            session,
-                            title=f"Photo {idx + 1} — {title}",
-                            file_path=f"/static/uploads/{fname}",
-                            document_type=DocumentType.OTHER,
-                            entity_type="issue",
-                            entity_id=issue.id,
-                        )
-                    except Exception:
-                        pass
-                logged += 1
-            elif category == "task":
-                from mihomes.services.task import create_task
-                assignee = _resolve_staff_slug(session, item.get("assigned_to"))
-                create_task(session, title, prop, description=item.get("description"), assignee_id_or_slug=assignee)
-                logged += 1
-            elif category == "vendor_activity":
-                from mihomes.services.task import create_task
-                assignee = _resolve_staff_slug(session, item.get("assigned_to"))
-                create_task(session, title, prop, description=item.get("description"),
-                            due_date=event_date, assignee_id_or_slug=assignee)
-                logged += 1
+            result = analyze_messages(session, group_msgs, property_name=property_slug, property_slug=property_slug)
+        except AIProviderError as e:
+            logger.error("AI provider error during message analysis: %s", e)
+            _send_error_to_group(str(e))
+            totals["errors"].append(f"AI provider error: {e}")
+            continue
         except Exception as e:
-            errors.append(f"Failed to create '{title}': {e}")
-            continue  # Don't send confirmation if logging failed
+            logger.error("Unexpected error during message analysis: %s", e)
+            _send_error_to_group(str(e))
+            totals["errors"].append(f"Unexpected error: {e}")
+            continue
 
-        # Build confirmation message
-        if category == "issue":
-            expert_note = _issue_expert_reply(session, title, item.get("description"), prop)
-            if expert_note:
-                confirmation = f'🏠 "{title}" logged ✓\n\n{expert_note}'
-            else:
-                confirmation = f'🏠 "{title}" logged ✓'
-        else:
-            confirmation = f'🏠 "{title}" logged ✓'
+        # Build phone → staff lookup for reporter identification (H25: phone from `sender`).
+        phone_to_staff: dict[str, object] = {}
+        for msg in group_msgs:
+            phone = rc.sender_phone(msg)
+            if phone and phone not in phone_to_staff:
+                for s in session.query(Staff).filter(Staff.whatsapp_phone.isnot(None)).all():
+                    s_phone = (s.whatsapp_phone or "").replace("+", "").replace("-", "").replace(" ", "")
+                    if s_phone and (s_phone in phone or phone in s_phone):
+                        phone_to_staff[phone] = s
+                        break
 
-        try:
-            client.send_group_message(reply_jid, confirmation)
-            replied += 1
-        except Exception as e:
-            errors.append(f"Failed to send confirmation for '{title}': {e}")
+        def _resolve_reporter(item: dict, _p2s=phone_to_staff, _msgs=group_msgs) -> int | None:
+            """Match reporter by phone (from the batch) first, then by AI-extracted name."""
+            for msg in _msgs:
+                phone = rc.sender_phone(msg)
+                if phone and phone in _p2s:
+                    return _p2s[phone].id
+            return rc.resolve_reporter_by_name(session, item.get("reported_by"))
 
-    return {"replied": replied, "logged": logged, "errors": errors}
+        # M27: sensitive actions only for a group whose every sender is trusted.
+        sender_trusted = bool(group_msgs) and all(
+            rc.is_trusted_sender(session, m, gateway="whatsapp") for m in group_msgs
+        )
+
+        r = rc.dispatch_items(
+            session, result.get("items", []),
+            adapter=adapter,
+            reply_target=reply_jid,
+            messages=group_msgs,
+            property_slug=property_slug,
+            resolve_reporter=_resolve_reporter,
+            sender_trusted=sender_trusted,
+        )
+        totals["replied"] += r.get("replied", 0)
+        totals["logged"] += r.get("logged", 0)
+        totals["errors"].extend(r.get("errors", []))
+
+    return totals

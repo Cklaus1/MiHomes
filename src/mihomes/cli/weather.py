@@ -226,6 +226,18 @@ def suggest_tasks(
         return
 
     # ── All properties ───────────────────────────────────────────────────
+    # L6: --accept selects suggestions *by number*, but numbering restarts per
+    # property, so a single --accept list can't mean anything coherent across
+    # all properties (it would apply the same indices to every one). Reject it
+    # up front and steer the user to per-property acceptance. --auto is fine —
+    # it means "all of them" regardless of property.
+    if accept:
+        format_error(
+            "--accept needs a specific property (numbering is per-property). "
+            "Run 'mihomes weather suggest <property> --accept ...', or use --auto to create all."
+        )
+        raise typer.Exit(1)
+
     console.print("[dim]Fetching weather and generating suggestions for all properties...[/dim]")
     try:
         with get_session() as session:
@@ -244,20 +256,15 @@ def suggest_tasks(
     for slug, suggestions in results.items():
         _display_suggestions(slug, suggestions)
 
-    if not auto and not accept:
+    # --accept was rejected above, so here only --auto ("create all") applies.
+    if not auto:
         console.print("\n[dim]Run 'mihomes weather suggest <property> --accept ...' to create tasks.[/dim]")
         return
 
     with get_session() as session:
         total_created = 0
         for slug, suggestions in results.items():
-            if auto:
-                indices = None
-            else:
-                indices = _parse_indices(accept, len(suggestions))
-                if indices is None:
-                    continue
-            created = create_tasks_from_suggestions(session, slug, suggestions, indices)
+            created = create_tasks_from_suggestions(session, slug, suggestions, indices=None)
             total_created += len(created)
 
     if total_created:

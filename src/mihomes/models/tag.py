@@ -1,6 +1,6 @@
 """Tag model — user-defined labels attachable to any entity."""
 
-from sqlalchemy import ForeignKey, Integer, String
+from sqlalchemy import ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from mihomes.models import Base, TimestampMixin
@@ -15,6 +15,9 @@ class Tag(Base, TimestampMixin):
 
 class TagAssignment(Base, TimestampMixin):
     __tablename__ = "tag_assignments"
+    __table_args__ = (
+        UniqueConstraint("tag_id", "entity_type", "entity_id", name="uq_tag_assignment"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     tag_id: Mapped[int] = mapped_column(Integer, ForeignKey("tags.id"), nullable=False)

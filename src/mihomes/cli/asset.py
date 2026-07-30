@@ -5,7 +5,7 @@ from typing import Optional
 import typer
 from rich.table import Table
 
-from mihomes.cli.formatters import console, format_enum, format_error, format_panel, format_success
+from mihomes.cli.formatters import cli_date, console, esc, format_enum, format_error, format_panel, format_success
 from mihomes.db import get_session
 from mihomes.models.asset import AssetCondition, AssetType
 from mihomes.services import asset as asset_svc
@@ -41,14 +41,14 @@ def add_asset(
                 session, name, asset_type, property,
                 space_id_or_slug=space, make=make, model_name=model_name,
                 serial_number=serial,
-                purchase_date=date.fromisoformat(purchase_date) if purchase_date else None,
+                purchase_date=cli_date(purchase_date, "--purchased"),
                 purchase_price=purchase_price,
-                warranty_expires=date.fromisoformat(warranty_expires) if warranty_expires else None,
+                warranty_expires=cli_date(warranty_expires, "--warranty"),
                 condition=condition, notes=notes,
-                install_date=date.fromisoformat(install_date) if install_date else None,
+                install_date=cli_date(install_date, "--installed"),
                 expected_lifespan_years=lifespan,
                 replacement_cost_estimate=replacement_cost,
-                last_serviced=date.fromisoformat(last_serviced) if last_serviced else None,
+                last_serviced=cli_date(last_serviced, "--last-serviced"),
             )
             format_success(f"Asset '{asset.name}' added (slug: {asset.slug}, type: {asset.asset_type.value})")
         except (AmbiguousIdentifierError, EntityNotFoundError) as e:
@@ -89,8 +89,8 @@ def list_assets(
         table.add_column("Slug", style="dim")
         for a in assets:
             table.add_row(
-                str(a.id), a.name, format_enum(a.asset_type),
-                a.property.name, format_enum(a.condition),
+                str(a.id), esc(a.name), format_enum(a.asset_type),
+                esc(a.property.name), format_enum(a.condition),
                 str(a.warranty_expires) if a.warranty_expires else "-",
                 a.slug,
             )
@@ -151,11 +151,11 @@ def edit_asset(
     if name is not None: kwargs["name"] = name
     if condition is not None: kwargs["condition"] = condition
     if notes is not None: kwargs["notes"] = notes
-    if warranty_expires is not None: kwargs["warranty_expires"] = date.fromisoformat(warranty_expires)
-    if install_date is not None: kwargs["install_date"] = date.fromisoformat(install_date)
+    if warranty_expires is not None: kwargs["warranty_expires"] = cli_date(warranty_expires, "--warranty")
+    if install_date is not None: kwargs["install_date"] = cli_date(install_date, "--installed")
     if lifespan is not None: kwargs["expected_lifespan_years"] = lifespan
     if replacement_cost is not None: kwargs["replacement_cost_estimate"] = replacement_cost
-    if last_serviced is not None: kwargs["last_serviced"] = date.fromisoformat(last_serviced)
+    if last_serviced is not None: kwargs["last_serviced"] = cli_date(last_serviced, "--last-serviced")
     if not kwargs:
         format_error("No fields to update.")
         raise typer.Exit(1)
@@ -226,7 +226,7 @@ def lifecycle_view(
             eol_str = str(eol) if eol else "-"
 
         table.add_row(
-            r["name"], r["property"],
+            esc(r["name"]), esc(r["property"]),
             f"{r['age_years']}y" if r["age_years"] is not None else "-",
             f"{r['lifespan']:.0f}y",
             f"{r['remaining_years']}y" if r["remaining_years"] is not None else "-",
@@ -294,7 +294,7 @@ def capital_plan(
                 rem_str = f"[red]{rem_str}[/red]"
 
             table.add_row(
-                r["name"], r["property"], r["asset_type"],
+                esc(r["name"]), esc(r["property"]), r["asset_type"],
                 f"{r['age_years']}y" if r["age_years"] is not None else "-",
                 rem_str,
                 f"${r['replacement_cost']:,.0f}" if r["replacement_cost"] else "—",
@@ -341,7 +341,7 @@ def list_vehicles():
         table.add_column("Slug", style="dim")
         for a in assets:
             table.add_row(
-                str(a.id), a.name, a.make or "-", a.model_name or "-",
-                a.property.name, format_enum(a.condition), a.slug,
+                str(a.id), esc(a.name), esc(a.make) or "-", esc(a.model_name) or "-",
+                esc(a.property.name), format_enum(a.condition), a.slug,
             )
         console.print(table)

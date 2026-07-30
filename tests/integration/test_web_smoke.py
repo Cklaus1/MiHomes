@@ -59,7 +59,10 @@ def client():
 
     app = create_app()
     app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as c:
+    # Bind to a loopback base_url so the H30 Host guard (added in create_app)
+    # accepts these requests; the default `testserver` host is rejected as a
+    # potential DNS-rebinding host.
+    with TestClient(app, base_url="http://localhost") as c:
         c._SessionLocal = TestSessionLocal  # exposed for assertions if needed
         yield c
 
@@ -305,3 +308,76 @@ def test_scan_rejects_missing_photo(client):
     r = client.post("/assets/scan", data={"property_slug": "test-manor", "space_slug": "living-room"})
     assert r.status_code == 200  # friendly error, not a 500
     assert "at least one photo" in r.text.lower()
+
+
+# --- H14: agent stream persists the conversation from the worker session ----
+
+def test_ai_stream_persists_conversation(client, monkeypatch):
+    """The streaming endpoint must save the finished conversation from inside
+    the worker thread (its own committed session), not from the cross-thread
+    request session with a swallowed error."""
+    import contextlib
+
+    import mihomes.db as db_mod
+    from mihomes.services.ai import agent as agent_mod
+    from mihomes.services.ai import ai_config
+    from mihomes.models.ai_conversation import AIConversation
+
+    # Force the non-Claude path and stub the provider stream (no real API call).
+    monkeypatch.setattr(ai_config, "get_ai_provider_name", lambda db: "openai")
+    monkeypatch.setattr(ai_config, "get_ai_api_key", lambda db, n: "key")
+    monkeypatch.setattr(ai_config, "get_ai_model", lambda db, n: "gpt-4o")
+
+    def _fake_provider_stream(session, query, **kwargs):
+        yield ("token", "Hello ")
+        yield ("token", "world")
+
+    monkeypatch.setattr(agent_mod, "provider_stream", _fake_provider_stream)
+
+    # The worker opens its own session via mihomes.db.get_session — bind it to
+    # the test engine so the save lands in the same in-memory DB.
+    @contextlib.contextmanager
+    def _worker_session():
+        s = client._SessionLocal()
+        try:
+            yield s
+            s.commit()
+        finally:
+            s.close()
+
+    monkeypatch.setattr(db_mod, "get_session", _worker_session)
+
+    resp = client.post("/ai/ask-stream", data={"query": "hi there", "session_id": "sess-h14"})
+    assert resp.status_code == 200
+    assert "Hello " in resp.text and "world" in resp.text
+
+    with client._SessionLocal() as s:
+        convos = s.query(AIConversation).filter_by(session_id="sess-h14").all()
+        assert len(convos) == 1
+        assert convos[0].ai_response == "Hello world"
+
+
+# --- H22: completing a costless work order surfaces the error --------------
+
+def test_complete_error_surfaced(client):
+    """A work order with neither estimated nor actual cost cannot be completed;
+    the web route must show the validation error, not swallow it, and must not
+    leave the WO stuck in COMPLETED."""
+    from mihomes.models.work_order import WorkOrder, WorkOrderStatus
+    from mihomes.services import work_order as wo_svc
+
+    with client._SessionLocal() as s:
+        wo = wo_svc.create_work_order(s, "Costless job", "test-manor")
+        wo_svc.approve(s, str(wo.id))
+        s.commit()
+        wo_id = wo.id
+        slug = wo.slug
+
+    resp = client.post(f"/work-orders/{slug}/complete", data={"actual_cost": "", "notes": ""})
+    assert resp.status_code == 200
+    assert "without estimated or actual cost" in resp.text
+
+    with client._SessionLocal() as s:
+        refreshed = s.get(WorkOrder, wo_id)
+        assert refreshed.status != WorkOrderStatus.COMPLETED
+        assert refreshed.completed_at is None

@@ -17,6 +17,7 @@ const fs = require('fs');
 const path = require('path');
 const pino = require('pino');
 const qrcode = require('qrcode-terminal');
+const { compactMessages } = require('./lib');
 
 const PORT = process.env.BRIDGE_PORT || 7867;
 const AUTH_DIR = process.env.AUTH_DIR || path.join(__dirname, '..', '.mihomes', 'whatsapp-auth');
@@ -34,10 +35,18 @@ app.use(express.json());
 
 let sock = null;
 let connectionStatus = 'disconnected';
+// M29: guard against stacking reconnect timers. Multiple 'close' events (or a
+// close firing while a reconnect is already pending) would each queue another
+// setTimeout(startConnection), spawning overlapping sockets. This flag ensures
+// at most one reconnect is in flight.
+let reconnecting = false;
 
 // --- Baileys Connection ---
 
 async function startConnection() {
+  // The pending reconnect (if any) is now running; clear the guard so a failure
+  // of this attempt can schedule the next one (M29).
+  reconnecting = false;
   fs.mkdirSync(AUTH_DIR, { recursive: true });
   fs.mkdirSync(MEDIA_DIR, { recursive: true });
 
@@ -72,6 +81,7 @@ async function startConnection() {
 
     if (connection === 'open') {
       connectionStatus = 'connected';
+      reconnecting = false;  // healthy again — allow future reconnects
       console.log('WhatsApp connected successfully');
       app.locals.lastQR = null;
     }
@@ -81,7 +91,9 @@ async function startConnection() {
       const isLoggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401;
       connectionStatus = isLoggedOut ? 'logged-out' : 'reconnecting';
       console.log(`Connection closed. Status: ${statusCode}. Reconnecting: ${!isLoggedOut}`);
-      if (!isLoggedOut) {
+      if (!isLoggedOut && !reconnecting) {
+        // Only schedule one reconnect at a time (M29).
+        reconnecting = true;
         setTimeout(startConnection, 3000);
       }
     }
@@ -110,7 +122,11 @@ async function startConnection() {
           const ext = msg.message.imageMessage ? 'jpg'
             : msg.message.videoMessage ? 'mp4'
             : 'bin';
-          const filename = `${Date.now()}-${sender.split('@')[0]}.${ext}`;
+          // L10: albums deliver several images in the same millisecond from the
+          // same sender — a Date.now()+sender name collided and later images
+          // overwrote earlier ones. Add a short random suffix to disambiguate.
+          const rand = Math.random().toString(36).slice(2, 8);
+          const filename = `${Date.now()}-${sender.split('@')[0]}-${rand}.${ext}`;
           mediaPath = path.join(MEDIA_DIR, filename);
           fs.writeFileSync(mediaPath, buffer);
         } catch (e) {
@@ -255,7 +271,7 @@ app.delete('/messages', (req, res) => {
 });
 
 app.get('/messages', (req, res) => {
-  const { since, groupJid, limit } = req.query;
+  const { since, groupJid, limit, order } = req.query;
   let msgs = [...messageStore];
 
   if (since) {
@@ -266,7 +282,10 @@ app.get('/messages', (req, res) => {
     msgs = msgs.filter(m => m.jid === groupJid);
   }
   const maxResults = parseInt(limit) || 100;
-  res.json({ messages: msgs.slice(-maxResults) });
+  // order=asc pages forward from `since` (oldest first) so a burst larger than
+  // one page can be fully drained (spec M30). Default keeps the newest window.
+  const page = order === 'asc' ? msgs.slice(0, maxResults) : msgs.slice(-maxResults);
+  res.json({ messages: page });
 });
 
 app.get('/groups', async (req, res) => {
@@ -328,20 +347,22 @@ function loadGroupLinks() {
   }
 }
 
-// Load persisted messages on startup
+// Load persisted messages on startup, compacting the on-disk log (M29).
+// The file is append-only and grows without bound, but only the newest
+// MAX_MESSAGES are ever served — so we rewrite it to just that tail on startup.
 function loadMessages() {
   if (fs.existsSync(MESSAGES_FILE)) {
     try {
-      const lines = fs.readFileSync(MESSAGES_FILE, 'utf-8').trim().split('\n');
-      const recent = lines.slice(-MAX_MESSAGES);
-      for (const line of recent) {
-        if (line.trim()) {
-          try {
-            messageStore.push(JSON.parse(line));
-          } catch (_) {}
-        }
+      const content = fs.readFileSync(MESSAGES_FILE, 'utf-8');
+      const { records, text } = compactMessages(content, MAX_MESSAGES);
+      for (const rec of records) messageStore.push(rec);
+      // Rewrite the file so it never outgrows the retained window.
+      try {
+        fs.writeFileSync(MESSAGES_FILE, text);
+      } catch (e) {
+        console.error('Failed to compact messages log:', e.message);
       }
-      console.log(`Loaded ${messageStore.length} messages from disk`);
+      console.log(`Loaded ${messageStore.length} messages from disk (log compacted)`);
     } catch (e) {
       console.error('Failed to load messages:', e.message);
     }

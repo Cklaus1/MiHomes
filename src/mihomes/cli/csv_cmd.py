@@ -69,3 +69,8 @@ def import_csv(
         console.print(f"\n[yellow]{len(errors)} error(s):[/yellow]")
         for err in errors:
             console.print(f"  Row {err['row']}: {err['error']}")
+
+    # M41: a CSV in which every row failed must exit non-zero so a scripted
+    # caller can detect the wholesale failure (partial success still exits 0).
+    if errors and not created:
+        raise typer.Exit(1)

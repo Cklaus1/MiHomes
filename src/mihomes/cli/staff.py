@@ -6,7 +6,7 @@ from typing import Optional
 import typer
 from rich.table import Table
 
-from mihomes.cli.formatters import console, format_enum, format_error, format_panel, format_success
+from mihomes.cli.formatters import console, esc, format_enum, format_error, format_panel, format_success
 from mihomes.db import get_session
 from mihomes.models.staff import StaffRole
 from mihomes.services import staff as staff_svc
@@ -56,7 +56,7 @@ def list_staff(
         table.add_column("Slug", style="dim")
         for m in members:
             props = ", ".join(p.name for p in m.properties) or "-"
-            table.add_row(str(m.id), m.name, format_enum(m.role), m.phone or "-", props, m.slug)
+            table.add_row(str(m.id), esc(m.name), format_enum(m.role), esc(m.phone) or "-", esc(props), m.slug)
         console.print(table)
 
 
@@ -103,8 +103,8 @@ def show_staff(id_or_slug: str = typer.Argument(..., help="Staff ID or slug")):
                 due_display = f"[red]{due}[/red]" if t.due_date and due < today else due
                 pri = t.priority.value if t.priority else "-"
                 table.add_row(
-                    str(t.id), t.title,
-                    t.property.name if t.property else "-",
+                    str(t.id), esc(t.title),
+                    esc(t.property.name) if t.property else "-",
                     f"[{priority_color(pri)}]{pri}[/{priority_color(pri)}]",
                     due_display,
                 )
@@ -219,7 +219,7 @@ def staff_schedule(
                 continue
 
             any_tasks = True
-            table = Table(title=f"{member.name} ({member.role.value.replace('-', ' ').title()})")
+            table = Table(title=f"{esc(member.name)} ({member.role.value.replace('-', ' ').title()})")
             table.add_column("Due", style="dim")
             table.add_column("Task", style="bold")
             table.add_column("Priority")
@@ -233,8 +233,8 @@ def staff_schedule(
                 pri = t.priority.value if t.priority else "-"
                 pri_display = f"[{priority_color(pri)}]{pri}[/{priority_color(pri)}]"
                 status = "⏳ Pending" if t.status == TaskStatus.PENDING else "🔄 In Progress"
-                prop_name = t.property.name if t.property else "-"
-                table.add_row(due, t.title, pri_display, status, prop_name)
+                prop_name = esc(t.property.name) if t.property else "-"
+                table.add_row(due, esc(t.title), pri_display, status, prop_name)
 
             console.print(table)
 
@@ -257,7 +257,7 @@ def pto_balance(
             raise typer.Exit(1)
 
         staff = data["staff"]
-        console.print(f"\n[bold]{staff.name}[/bold] — PTO {data['year']}")
+        console.print(f"\n[bold]{esc(staff.name)}[/bold] — PTO {data['year']}")
         console.print(f"  Approved: [green]{data['approved_days']} day(s)[/green]")
         console.print(f"  Pending:  [yellow]{data['pending_days']} day(s)[/yellow]\n")
 
@@ -306,7 +306,7 @@ def pto_requests(
             status_color = {"approved": "green", "denied": "red", "pending": "yellow"}.get(req.status.value, "white")
             table.add_row(
                 str(req.id),
-                req.staff.name if req.staff else "-",
+                esc(req.staff.name) if req.staff else "-",
                 ", ".join(req.dates) if req.dates else "-",
                 f"[{status_color}]{req.status.value}[/{status_color}]",
                 req.coverage_warning or "-",
@@ -368,5 +368,5 @@ def staff_workload():
             in_prog = session.query(Task).filter(Task.assignee_id == m.id, Task.status == TaskStatus.IN_PROGRESS).count()
             done = session.query(Task).filter(Task.assignee_id == m.id, Task.status == TaskStatus.COMPLETED).count()
             props = ", ".join(p.name for p in m.properties) or "-"
-            table.add_row(m.name, format_enum(m.role), str(pending), str(in_prog), str(done), props)
+            table.add_row(esc(m.name), format_enum(m.role), str(pending), str(in_prog), str(done), esc(props))
         console.print(table)

@@ -7,6 +7,7 @@ from sqlalchemy import Boolean, Date, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mihomes.models import Base, TimestampMixin
+from mihomes.type.money import Money
 
 
 class BillingFrequency(str, Enum):
@@ -39,7 +40,7 @@ class Contract(Base, TimestampMixin):
     auto_renew: Mapped[bool] = mapped_column(Boolean, default=False)
     notice_period_days: Mapped[int] = mapped_column(Integer, default=30)
     billing_frequency: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    cost: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cost: Mapped[float | None] = mapped_column(Money, nullable=True)
     currency: Mapped[str] = mapped_column(String(10), default="USD")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 

@@ -3,7 +3,7 @@
 from sqlalchemy.orm import Session
 
 from mihomes.services.ai.ai_config import get_ai_api_key, get_ai_model, get_ai_provider_name
-from mihomes.services.ai.provider import get_provider
+from mihomes.services.ai.provider import AIProviderError, get_provider
 
 IMPORT_SCHEMAS = {
     "vendor": {
@@ -179,6 +179,16 @@ def parse_room_scan(session: Session, attachments, room_name: str | None = None)
     api_key = get_ai_api_key(session, provider_name)
     model = get_ai_model(session, provider_name)
     provider = get_provider(provider_name, api_key, model=model)
+
+    # H13: only providers that forward real image data can perform a room scan.
+    # If the active provider can't (e.g. OpenAI/Ollama flatten attachments to a
+    # text block), the model would "list assets in these photos" with no photos
+    # and invent items. Fail loudly instead of hallucinating an inventory.
+    if not getattr(provider, "supports_images", False):
+        raise AIProviderError(
+            f"The '{provider_name}' provider cannot analyze images. "
+            "Switch to an image-capable provider (claude or nim) to scan rooms."
+        )
 
     where = f" of the {room_name}" if room_name else ""
     system_prompt = (

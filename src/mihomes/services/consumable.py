@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from mihomes.models.consumable import Consumable, ConsumablePriceEntry, ConsumableStatus
 from mihomes.models.property import Property
+from mihomes.services.query_helpers import exact_ci
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
 from mihomes.services.validators import validate_name
 
@@ -47,11 +48,13 @@ def get_or_create_consumable(
 ) -> Consumable:
     """Find existing consumable by name+property, or create it."""
     prop = resolve_identifier(session, Property, property_id_or_slug)
+    # M10: match the name exactly (case-insensitive). ilike(name) treated any
+    # %/_ in the name as a wildcard and could match the wrong existing row.
     existing = (
         session.query(Consumable)
         .filter(
             Consumable.property_id == prop.id,
-            Consumable.name.ilike(name),
+            exact_ci(Consumable.name, name),
         )
         .first()
     )

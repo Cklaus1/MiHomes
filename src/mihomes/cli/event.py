@@ -5,7 +5,7 @@ from typing import Optional
 import typer
 from rich.table import Table
 
-from mihomes.cli.formatters import console, format_enum, format_error, format_panel, format_success, status_icon
+from mihomes.cli.formatters import console, esc, format_enum, format_error, format_panel, format_success, status_icon
 from mihomes.db import get_session
 from mihomes.models.event import EventStatus
 from mihomes.services import event as event_svc
@@ -70,7 +70,7 @@ def list_events(
         table.add_column("Slug", style="dim")
         for e in events:
             table.add_row(
-                str(e.id), e.title, e.property.name,
+                str(e.id), esc(e.title), esc(e.property.name),
                 str(e.event_date),
                 str(e.expected_guests) if e.expected_guests else "-",
                 f"{status_icon(e.status)} {format_enum(e.status)}",
@@ -142,5 +142,5 @@ def show_event(id_or_slug: str = typer.Argument(...)):
             guest_table.add_column("RSVP")
             guest_table.add_column("Notes")
             for eg in event.guests:
-                guest_table.add_row(eg.guest.name, eg.rsvp_status, eg.notes or "-")
+                guest_table.add_row(esc(eg.guest.name), eg.rsvp_status, esc(eg.notes) or "-")
             console.print(guest_table)

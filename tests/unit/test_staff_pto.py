@@ -104,6 +104,20 @@ class TestApprovePTO:
         with pytest.raises(ValueError, match="not found"):
             approve_pto(session, 9999)
 
+    def test_approve_already_decided_raises_and_no_resync(self, session):
+        # L8: an already-APPROVED request must not be re-approved — re-mutating
+        # it and re-firing calendar sync would double-book the leave.
+        staff = _make_staff(session)
+        req = create_pto_request(session, staff.slug, ["2026-05-01"])
+        with patch("mihomes.services.staff_pto._sync_to_calendar") as sync:
+            approve_pto(session, req.id, decided_by="admin")
+            assert sync.call_count == 1
+            with pytest.raises(ValueError, match="not pending"):
+                approve_pto(session, req.id, decided_by="admin2")
+            # guard must fire before any re-sync
+            assert sync.call_count == 1
+        assert req.decided_by == "admin"
+
 
 class TestDenyPTO:
     def test_deny_sets_status(self, session):
@@ -128,6 +142,14 @@ class TestDenyPTO:
     def test_deny_not_found_raises(self, session):
         with pytest.raises(ValueError, match="not found"):
             deny_pto(session, 9999)
+
+    def test_deny_already_decided_raises(self, session):
+        # L8: symmetric guard — an already-DENIED request must not be re-decided.
+        staff = _make_staff(session)
+        req = create_pto_request(session, staff.slug, ["2026-05-01"])
+        deny_pto(session, req.id, reason="busy week")
+        with pytest.raises(ValueError, match="not pending"):
+            deny_pto(session, req.id, reason="changed mind")
 
 
 class TestListPTORequests:

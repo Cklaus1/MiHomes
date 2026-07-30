@@ -5,7 +5,7 @@ from typing import Optional
 import typer
 from rich.table import Table
 
-from mihomes.cli.formatters import console, format_error, format_success
+from mihomes.cli.formatters import console, esc, format_error, format_success
 from mihomes.db import get_session
 from mihomes.services import event as event_svc
 from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
@@ -48,8 +48,8 @@ def list_guests():
         table.add_column("Slug", style="dim")
         for g in guests:
             table.add_row(
-                str(g.id), g.name, g.email or "-", g.phone or "-",
-                g.dietary_preferences or "-", g.slug,
+                str(g.id), esc(g.name), esc(g.email) or "-", esc(g.phone) or "-",
+                esc(g.dietary_preferences) or "-", g.slug,
             )
         console.print(table)
 

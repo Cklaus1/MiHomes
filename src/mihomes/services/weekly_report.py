@@ -256,7 +256,10 @@ def _assignee_name(session: Session, assignee_id: int | None) -> str | None:
     if not assignee_id:
         return None
     s = session.get(Staff, assignee_id)
-    return s.full_name if s else None
+    # Staff has `name`, not `full_name` — the latter raised AttributeError and
+    # crashed `report weekly --format markdown`/`15-5` whenever a task was
+    # assigned (the terminal renderer never hit this path).
+    return s.name if s else None
 
 
 def _serialize_tasks(tasks: list[Task], session: Session) -> list[dict]:

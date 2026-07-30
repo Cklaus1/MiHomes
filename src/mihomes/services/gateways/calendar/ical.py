@@ -73,5 +73,22 @@ def _parse_ical_date(value: str) -> date | datetime | None:
 
 
 def _unescape(value: str) -> str:
-    """Unescape iCal text values."""
-    return value.replace("\\n", "\n").replace("\\,", ",").replace("\\;", ";").replace("\\\\", "\\")
+    """Unescape iCal text values (RFC 5545 §3.3.11).
+
+    Escaped backslash (`\\\\`) must be resolved FIRST — otherwise `\\\\n`
+    (escaped backslash + literal 'n') is wrongly turned into backslash+newline.
+    Single-pass scan avoids the ordering hazard of chained replaces entirely.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(value)
+    while i < n:
+        ch = value[i]
+        if ch == "\\" and i + 1 < n:
+            nxt = value[i + 1]
+            out.append({"n": "\n", "N": "\n", ",": ",", ";": ";", "\\": "\\"}.get(nxt, nxt))
+            i += 2
+        else:
+            out.append(ch)
+            i += 1
+    return "".join(out)

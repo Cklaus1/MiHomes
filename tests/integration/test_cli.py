@@ -21,12 +21,19 @@ runner = CliRunner()
 
 @pytest.fixture(scope="module", autouse=True)
 def setup_db():
-    """Initialize a real DB for CLI tests."""
+    """Initialize a real DB for CLI tests.
+
+    MIHOMES_DIR / DB_URL freeze at first config import, so every on-disk
+    integration module shares one DB file regardless of the tmpdir each sets.
+    Load demo idempotently so collection order can't trip the "already loaded"
+    guard when more than one such module runs in the same session.
+    """
     init_db()
-    # Load demo data
     with get_session() as session:
         from mihomes.services.demo import load_demo_data
-        load_demo_data(session)
+        from mihomes.models.property import Property
+        if not session.query(Property).filter(Property.slug == "beach-house").first():
+            load_demo_data(session)
     yield
 
 
@@ -127,9 +134,12 @@ class TestTaskCLI:
         assert "completed" in result.output
 
     def test_add_bad_date(self):
+        # M39: bad dates now raise typer.BadParameter → Click usage error (exit 2)
+        # with a friendly "Invalid value for --due" message, not a raw traceback.
         result = runner.invoke(app, ["task", "add", "Bad Date", "--property", "beach-house", "--due", "not-a-date"])
-        assert result.exit_code == 1
-        assert "Invalid" in result.output
+        assert result.exit_code == 2
+        assert "Invalid value" in result.output
+        assert "Traceback" not in result.output
 
     def test_add_seasonal_no_season(self):
         result = runner.invoke(app, ["task", "add", "Bad Season", "--property", "beach-house", "--recurrence", "seasonal"])
@@ -173,6 +183,17 @@ class TestVendorCLI:
         assert result.exit_code == 0
         # Rich wraps long names across lines
         assert "Coastal" in result.output
+
+
+    def test_ratings_render_with_unrated_dimensions(self):
+        # L9: a rating that omits cost/communication is stored NULL; the ratings
+        # view must render it (dash, "not rated") instead of crashing on None.
+        runner.invoke(app, ["vendor", "add", "L9 Vendor"])
+        r = runner.invoke(app, ["vendor", "rate", "l9-vendor", "--quality", "5", "--reliability", "4"])
+        assert r.exit_code == 0
+        r = runner.invoke(app, ["vendor", "ratings", "l9-vendor"])
+        assert r.exit_code == 0
+        assert "Traceback" not in r.output
 
 
 class TestBudgetCLI:
@@ -294,3 +315,33 @@ class TestAutomationCLI:
         result = runner.invoke(app, ["auto", "run-all"])
         assert result.exit_code == 0
         assert "Automation run complete" in result.output
+
+
+class TestFormatEnumValidation:
+    """L4 — `--format` must be a validated choice, not a free string that
+    silently falls back to the default on a typo."""
+
+    def test_report_weekly_valid_format(self):
+        result = runner.invoke(app, ["report", "weekly", "--format", "markdown"])
+        assert result.exit_code == 0
+
+    def test_report_weekly_rejects_bad_format(self):
+        result = runner.invoke(app, ["report", "weekly", "--format", "bogus"])
+        assert result.exit_code == 2
+        assert "bogus" in result.output or "Invalid value" in result.output
+
+    def test_ai_review_rejects_bad_format(self):
+        result = runner.invoke(app, ["ai", "review", "--format", "bogus"])
+        assert result.exit_code == 2
+        assert "bogus" in result.output or "Invalid value" in result.output
+
+
+class TestWeatherAcceptGuard:
+    """L6 — `weather suggest --accept N` with no property is nonsensical
+    (numbering is per-property) and must be rejected before any AI/network
+    call, not silently mis-applied across every property."""
+
+    def test_accept_without_property_rejected(self):
+        result = runner.invoke(app, ["weather", "suggest", "--accept", "1,2"])
+        assert result.exit_code == 1
+        assert "property" in result.output.lower()

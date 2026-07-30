@@ -122,7 +122,11 @@ async function startConnection() {
           const ext = msg.message.imageMessage ? 'jpg'
             : msg.message.videoMessage ? 'mp4'
             : 'bin';
-          const filename = `${Date.now()}-${sender.split('@')[0]}.${ext}`;
+          // L10: albums deliver several images in the same millisecond from the
+          // same sender — a Date.now()+sender name collided and later images
+          // overwrote earlier ones. Add a short random suffix to disambiguate.
+          const rand = Math.random().toString(36).slice(2, 8);
+          const filename = `${Date.now()}-${sender.split('@')[0]}-${rand}.${ext}`;
           mediaPath = path.join(MEDIA_DIR, filename);
           fs.writeFileSync(mediaPath, buffer);
         } catch (e) {

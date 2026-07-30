@@ -262,8 +262,8 @@ def rate_vendor(
         vendor_id=vendor.id,
         quality_score=quality,
         reliability_score=reliability,
-        cost_score=cost if cost is not None else quality,
-        communication_score=communication if communication is not None else reliability,
+        cost_score=cost,
+        communication_score=communication,
         overall_score=overall,
         notes=notes,
         rated_date=date.today(),
@@ -287,11 +287,17 @@ def get_vendor_ratings(session: Session, id_or_slug: str) -> dict:
     if not ratings:
         return {"vendor": vendor, "ratings": [], "averages": None}
 
-    avg_quality = round(sum(r.quality_score for r in ratings) / len(ratings), 1)
-    avg_reliability = round(sum(r.reliability_score for r in ratings) / len(ratings), 1)
-    avg_cost = round(sum(r.cost_score for r in ratings) / len(ratings), 1)
-    avg_communication = round(sum(r.communication_score for r in ratings) / len(ratings), 1)
-    avg_overall = round(sum(r.overall_score for r in ratings) / len(ratings), 1)
+    def _avg(values: list) -> float | None:
+        # L9: average only the ratings that actually supplied this dimension;
+        # NULLs (unrated cost/communication) are excluded, not counted as 0.
+        present = [v for v in values if v is not None]
+        return round(sum(present) / len(present), 1) if present else None
+
+    avg_quality = _avg([r.quality_score for r in ratings])
+    avg_reliability = _avg([r.reliability_score for r in ratings])
+    avg_cost = _avg([r.cost_score for r in ratings])
+    avg_communication = _avg([r.communication_score for r in ratings])
+    avg_overall = _avg([r.overall_score for r in ratings])
 
     return {
         "vendor": vendor,

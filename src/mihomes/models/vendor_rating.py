@@ -17,8 +17,10 @@ class VendorRating(Base, TimestampMixin):
     property_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("properties.id"), nullable=True)
     quality_score: Mapped[int] = mapped_column(Integer, nullable=False)
     reliability_score: Mapped[int] = mapped_column(Integer, nullable=False)
-    cost_score: Mapped[int] = mapped_column(Integer, nullable=False)
-    communication_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    # L9: cost/communication are optional dimensions. An unrated dimension is
+    # stored as NULL rather than fabricated from another score.
+    cost_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    communication_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     overall_score: Mapped[float] = mapped_column(Float, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     rated_date: Mapped[date] = mapped_column(Date, nullable=False)

@@ -58,10 +58,12 @@ def create_property(
         status=PropertyStatus(status),
     )
     properties = prop_svc.list_properties(db)
+    # L11: the form targets hx-target="body", so return the full page (as the
+    # edit route does) — a bare partial swapped into <body> wiped the chrome.
     return templates.TemplateResponse(
         request,
-        "partials/property_list.html",
-        {"properties": properties},
+        "properties.html",
+        {"page": "properties", "properties": properties},
         headers={"HX-Push-Url": "/properties"},
     )
 

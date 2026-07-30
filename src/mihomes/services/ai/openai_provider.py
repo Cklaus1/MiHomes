@@ -56,7 +56,9 @@ class OpenAIProvider:
                     {"role": "user", "content": message_content},
                 ],
             )
-            return response.choices[0].message.content
+            # L10: message.content is Optional per the OpenAI schema (None on a
+            # refusal/tool-only turn); the -> str contract must not leak None.
+            return response.choices[0].message.content or ""
         except openai.AuthenticationError as e:
             raise AIAuthError(f"Invalid API key: {e}")
         except openai.RateLimitError as e:

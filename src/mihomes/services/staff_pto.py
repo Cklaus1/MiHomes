@@ -66,6 +66,8 @@ def approve_pto(session: Session, request_id: int, decided_by: str = "admin") ->
     req = session.get(StaffPTORequest, request_id)
     if not req:
         raise ValueError(f"PTO request #{request_id} not found")
+    if req.status != PTOStatus.PENDING:
+        raise ValueError(f"PTO request #{request_id} is not pending (status: {req.status.value})")
     req.status = PTOStatus.APPROVED
     req.decided_at = datetime.now(timezone.utc)
     req.decided_by = decided_by
@@ -78,6 +80,8 @@ def deny_pto(session: Session, request_id: int, decided_by: str = "admin", reaso
     req = session.get(StaffPTORequest, request_id)
     if not req:
         raise ValueError(f"PTO request #{request_id} not found")
+    if req.status != PTOStatus.PENDING:
+        raise ValueError(f"PTO request #{request_id} is not pending (status: {req.status.value})")
     req.status = PTOStatus.DENIED
     req.decided_at = datetime.now(timezone.utc)
     req.decided_by = decided_by

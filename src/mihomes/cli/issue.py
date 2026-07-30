@@ -5,7 +5,7 @@ from typing import Optional
 import typer
 from rich.table import Table
 
-from mihomes.cli.formatters import console, format_enum, format_error, format_panel, format_success, severity_color, status_icon
+from mihomes.cli.formatters import console, esc, format_enum, format_error, format_panel, format_success, severity_color, status_icon
 from mihomes.db import get_session
 from mihomes.models.issue import IssueSeverity, IssueStatus
 from mihomes.services import issue as issue_svc
@@ -73,7 +73,7 @@ def list_issues(
         for i in issues:
             sev_style = severity_color(i.severity.value)
             table.add_row(
-                str(i.id), i.title, i.property.name,
+                str(i.id), esc(i.title), esc(i.property.name),
                 f"[{sev_style}]{format_enum(i.severity)}[/{sev_style}]",
                 f"{status_icon(i.status)} {format_enum(i.status)}",
             )

@@ -41,6 +41,14 @@ def isolated_logging(tmp_path, monkeypatch):
     for h in root.handlers:
         h.close()
     root.handlers = saved
+    # Reloading config above re-pinned mihomes.config.DB_DIR to this temp dir,
+    # which is about to be deleted; other modules (e.g. web.server) captured the
+    # *original* DB_DIR at their import and would then diverge from config. Undo
+    # the env patch first (LIFO — monkeypatch would otherwise fire after us) and
+    # reload config back to the true environment so the globals realign.
+    monkeypatch.undo()
+    importlib.reload(config_mod)
+    importlib.reload(logging_config_mod)
 
 
 def test_setup_installs_rotating_file_handler(isolated_logging):

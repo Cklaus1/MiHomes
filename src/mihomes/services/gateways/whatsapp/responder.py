@@ -37,6 +37,16 @@ def handle_inventory_scan(
     from mihomes.services.ai.file_processor import Attachment
     from mihomes.services.asset import create_asset
 
+    # L2: with several properties and no label on the message, we can't know
+    # which estate the assets belong to. Ask rather than misfile them.
+    if not property_slug:
+        client.send_group_message(
+            reply_jid,
+            "🏠 Which property is this? Set the inventory group's property with "
+            "`mihomes whatsapp monitor --property <slug>` so scanned items file correctly.",
+        )
+        return {"replied": 1, "logged": 0, "errors": ["No property for inventory scan"]}
+
     # Collect images and room name from captions
     image_attachments: list[Attachment] = []
     room_name: str | None = None
@@ -204,7 +214,8 @@ def process_and_respond(
     for reply_jid, group_msgs in groups.items():
         # Route inventory group messages straight to the room scanner
         if inventory_jid and reply_jid == inventory_jid:
-            inv_property = (group_msgs[0].get("propertySlug") or property_slug or "belle-estate")
+            inv_property = (group_msgs[0].get("propertySlug") or property_slug
+                            or rc.resolve_default_property(session))
             r = handle_inventory_scan(session, group_msgs, inv_property, reply_jid, client)
             totals["replied"] += r.get("replied", 0)
             totals["logged"] += r.get("logged", 0)

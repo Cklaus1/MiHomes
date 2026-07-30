@@ -1,5 +1,6 @@
 """Report CLI commands — financial reporting and analytics."""
 
+import enum
 from datetime import date
 from typing import Optional
 
@@ -11,7 +12,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from mihomes.cli.formatters import console, format_error
+from mihomes.cli.formatters import cli_date, console, format_error
 from mihomes.db import get_session
 from mihomes.services import financial_report as report_svc
 from mihomes.services import weekly_report as weekly_svc
@@ -112,10 +113,10 @@ def property_report(
             f"Occupancy: {occ_str}",
         ]
         if prop.address:
-            header_lines.append(f"Address: {prop.address}")
+            header_lines.append(f"Address: {escape(prop.address)}")
         if prop.climate_zone:
-            header_lines.append(f"Climate zone: {prop.climate_zone}")
-        console.print(Panel("\n".join(header_lines), title=f"[bold]{prop.name}[/bold]", expand=True))
+            header_lines.append(f"Climate zone: {escape(prop.climate_zone)}")
+        console.print(Panel("\n".join(header_lines), title=f"[bold]{escape(prop.name)}[/bold]", expand=True))
 
         # ── Tasks summary ──
         task_table = Table(title=f"Tasks — {len(open_tasks)} open")
@@ -123,9 +124,9 @@ def property_report(
         task_table.add_column("Count", justify="right")
         task_table.add_column("Detail")
         task_table.add_row("[red]Overdue[/red]", str(len(overdue)),
-                           ", ".join(t.title[:40] for t in overdue[:3]) + ("…" if len(overdue) > 3 else ""))
+                           escape(", ".join(t.title[:40] for t in overdue[:3])) + ("…" if len(overdue) > 3 else ""))
         task_table.add_row("[yellow]Due in 14 days[/yellow]", str(len(due_soon)),
-                           ", ".join(t.title[:40] for t in due_soon[:3]) + ("…" if len(due_soon) > 3 else ""))
+                           escape(", ".join(t.title[:40] for t in due_soon[:3])) + ("…" if len(due_soon) > 3 else ""))
         task_table.add_row("[dim]Completed YTD[/dim]", str(len(completed_ytd)), "")
         console.print(task_table)
 
@@ -139,7 +140,7 @@ def property_report(
                 sc = severity_color(iss.severity.value)
                 issue_table.add_row(
                     f"[{sc}]{iss.severity.value}[/{sc}]",
-                    iss.title,
+                    escape(iss.title),
                     iss.status.value,
                 )
             console.print(issue_table)
@@ -158,7 +159,7 @@ def property_report(
                 pct = r["pct_used"]
                 pct_color = "red" if pct > 90 else ("yellow" if pct > 75 else "green")
                 budget_table.add_row(
-                    r["category"],
+                    escape(r["category"]),
                     f"${r['budgeted']:,.0f}",
                     f"${r['spent']:,.0f}",
                     f"${r['remaining']:,.0f}",
@@ -168,7 +169,7 @@ def property_report(
 
         # ── Staff ──
         if staff:
-            staff_str = "  ".join(f"{s.name} ({s.role.value})" for s in staff)
+            staff_str = "  ".join(f"{escape(s.name)} ({s.role.value})" for s in staff)
             console.print(Panel(staff_str, title="Staff", expand=False))
 
         # ── Work Orders ──
@@ -179,22 +180,22 @@ def property_report(
             wo_table.add_column("Vendor")
             wo_table.add_column("Est. Cost", justify="right")
             for wo in open_wo[:8]:
-                vendor = wo.vendor.company_name if wo.vendor else "-"
+                vendor = escape(wo.vendor.company_name) if wo.vendor else "-"
                 cost = f"${wo.estimated_cost:,.0f}" if wo.estimated_cost else "-"
-                wo_table.add_row(wo.title, wo.status.value, vendor, cost)
+                wo_table.add_row(escape(wo.title), wo.status.value, vendor, cost)
             console.print(wo_table)
 
         # ── Expiring soon (contracts + insurance + warranties) ──
         expiry_lines = []
         for c in expiring_contracts:
             days_left = (c.end_date - today).days
-            expiry_lines.append(f"[yellow]Contract[/yellow] {c.vendor.company_name if c.vendor else '?'} — expires {c.end_date} ({days_left}d)")
+            expiry_lines.append(f"[yellow]Contract[/yellow] {escape(c.vendor.company_name) if c.vendor else '?'} — expires {c.end_date} ({days_left}d)")
         for p in expiring_insurance:
             days_left = (p.renewal_date - today).days
-            expiry_lines.append(f"[yellow]Insurance[/yellow] {p.carrier} ({p.insurance_type.value}) — renews {p.renewal_date} ({days_left}d)")
+            expiry_lines.append(f"[yellow]Insurance[/yellow] {escape(p.carrier)} ({p.insurance_type.value}) — renews {p.renewal_date} ({days_left}d)")
         for a in assets_warning:
             days_left = (a.warranty_expires - today).days
-            expiry_lines.append(f"[dim]Warranty[/dim] {a.name} — expires {a.warranty_expires} ({days_left}d)")
+            expiry_lines.append(f"[dim]Warranty[/dim] {escape(a.name)} — expires {a.warranty_expires} ({days_left}d)")
         if expiry_lines:
             console.print(Panel("\n".join(expiry_lines), title="Expiring Within 60 Days", expand=False))
 
@@ -245,7 +246,7 @@ def estate_report(
                     if critical or high else ""
                 ),
             ]
-            console.print(Panel("\n".join(lines), title=f"[bold]{prop.name}[/bold]", expand=False))
+            console.print(Panel("\n".join(lines), title=f"[bold]{escape(prop.name)}[/bold]", expand=False))
 
         # Estate-wide totals
         total_pending = session.query(Task).filter(Task.status == TaskStatus.PENDING).count()
@@ -346,7 +347,7 @@ def upcoming_report(
         table.add_column("Title", style="bold")
         table.add_column("Property")
         for _, date_str, kind, title, prop_name in rows:
-            table.add_row(date_str, kind, title, prop_name)
+            table.add_row(date_str, kind, escape(title), escape(prop_name))
         console.print(table)
 
 
@@ -395,11 +396,11 @@ def vendor_report(
             table.add_column("Actual", justify="right")
             table.add_column("Completed")
             for w in sorted(completed, key=lambda x: x.updated_at or x.created_at, reverse=True)[:10]:
-                prop = w.property.name if hasattr(w, 'property') and w.property else "-"
+                prop = escape(w.property.name) if hasattr(w, 'property') and w.property else "-"
                 est = f"${w.estimated_cost:,.0f}" if w.estimated_cost else "-"
                 act = f"${w.actual_cost:,.0f}" if w.actual_cost else "-"
                 done = str(w.updated_at.date()) if w.updated_at else "-"
-                table.add_row(w.title, prop, est, act, done)
+                table.add_row(escape(w.title), prop, est, act, done)
             console.print(table)
 
 
@@ -411,8 +412,8 @@ def spending_report(
     end: Optional[str] = typer.Option(None, "--end", help="End date YYYY-MM-DD"),
 ):
     """Show spending report grouped by category or vendor."""
-    period_start = date.fromisoformat(start) if start else date(date.today().year, 1, 1)
-    period_end = date.fromisoformat(end) if end else date.today()
+    period_start = cli_date(start, "--start") or date(date.today().year, 1, 1)
+    period_end = cli_date(end, "--end") or date.today()
     with get_session() as session:
         try:
             if by == "vendor":
@@ -422,7 +423,7 @@ def spending_report(
                 table.add_column("Transactions", justify="right")
                 table.add_column("Total", justify="right", style="green")
                 for r in rows:
-                    table.add_row(r["vendor"], str(r["transaction_count"]), f"{r['total']:,.2f}")
+                    table.add_row(escape(r["vendor"]), str(r["transaction_count"]), f"{r['total']:,.2f}")
             else:
                 rows = report_svc.spending_by_category(session, property, period_start, period_end)
                 table = Table(title=f"Spending by Category ({period_start} to {period_end})")
@@ -430,7 +431,7 @@ def spending_report(
                 table.add_column("Transactions", justify="right")
                 table.add_column("Total", justify="right", style="green")
                 for r in rows:
-                    table.add_row(r["category"], str(r["transaction_count"]), f"{r['total']:,.2f}")
+                    table.add_row(escape(r["category"]), str(r["transaction_count"]), f"{r['total']:,.2f}")
             console.print(table)
         except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
@@ -449,8 +450,8 @@ def vendors_report(
         period_start = date(year, 1, 1)
         period_end = date(year, 12, 31)
     else:
-        period_start = date.fromisoformat(start) if start else date(date.today().year, 1, 1)
-        period_end = date.fromisoformat(end) if end else date.today()
+        period_start = cli_date(start, "--start") or date(date.today().year, 1, 1)
+        period_end = cli_date(end, "--end") or date.today()
 
     with get_session() as session:
         try:
@@ -481,7 +482,7 @@ def vendors_report(
             wo_str = str(r["wo_count"]) if r["wo_count"] else "-"
             wo_amt = f"${r['wo_total']:,.0f}" if r["wo_total"] else "-"
             table.add_row(
-                r["vendor"], tx_str, tx_amt, wo_str, wo_amt,
+                escape(r["vendor"]), tx_str, tx_amt, wo_str, wo_amt,
                 f"${r['combined_total']:,.0f}  ({pct:.0f}%)",
             )
 
@@ -495,8 +496,8 @@ def compare_properties(
     end: Optional[str] = typer.Option(None, "--end", help="End date YYYY-MM-DD"),
 ):
     """Compare spending across all properties."""
-    period_start = date.fromisoformat(start) if start else date(date.today().year, 1, 1)
-    period_end = date.fromisoformat(end) if end else date.today()
+    period_start = cli_date(start, "--start") or date(date.today().year, 1, 1)
+    period_end = cli_date(end, "--end") or date.today()
     with get_session() as session:
         rows = report_svc.property_comparison(session, period_start, period_end)
         if not rows:
@@ -509,7 +510,7 @@ def compare_properties(
         table.add_column("Currency")
         for r in rows:
             table.add_row(
-                r["property"], str(r["transaction_count"]),
+                escape(r["property"]), str(r["transaction_count"]),
                 f"{r['total_spending']:,.2f}", r["currency"],
             )
         console.print(table)
@@ -528,7 +529,7 @@ def forecast_spending(
             format_error(str(e))
             raise typer.Exit(1)
 
-        console.print(f"\n[bold]Spending Forecast: {result['property']}[/bold]")
+        console.print(f"\n[bold]Spending Forecast: {escape(result['property'])}[/bold]")
         console.print(f"Historical period: {result['historical_period']}")
         console.print(f"Monthly average: [green]{result['monthly_average']:,.2f}[/green]")
         console.print(f"Forecast ({result['forecast_months']} months): [bold green]{result['forecast_total']:,.2f}[/bold green]")
@@ -541,17 +542,26 @@ def forecast_spending(
             table.add_column(f"{months}-Month Forecast", justify="right", style="green")
             for cat in result["by_category"]:
                 table.add_row(
-                    cat["category"],
+                    escape(cat["category"]),
                     f"{cat['monthly_avg']:,.2f}",
                     f"{cat['forecast_total']:,.2f}",
                 )
             console.print(table)
 
 
+class WeeklyFormat(str, enum.Enum):
+    terminal = "terminal"
+    markdown = "markdown"
+    fifteen_five = "15-5"
+
+
 @app.command("weekly")
 def weekly_report(
     property: Optional[str] = typer.Option(None, "--property", "-p", help="Property slug or 'all' (default: all)"),
-    format: str = typer.Option("terminal", "--format", "-f", help="Output format: terminal, markdown, or 15-5"),
+    format: WeeklyFormat = typer.Option(
+        WeeklyFormat.terminal, "--format", "-f",
+        help="Output format: terminal, markdown, or 15-5",
+    ),
 ):
     """Weekly operational report — tasks, issues, budget, flags. Designed for EA Monday review."""
     with get_session() as session:
@@ -561,9 +571,9 @@ def weekly_report(
             format_error(str(e))
             raise typer.Exit(1)
 
-    if format == "markdown":
+    if format is WeeklyFormat.markdown:
         _print_markdown(data)
-    elif format == "15-5":
+    elif format is WeeklyFormat.fifteen_five:
         _print_15_5(data)
     else:
         _print_terminal(data)

@@ -1,5 +1,6 @@
 """AI advisory CLI commands."""
 
+import enum
 from typing import Optional
 
 import typer
@@ -51,10 +52,17 @@ def ask_cmd(
             raise typer.Exit(1)
 
 
+class ReviewFormat(str, enum.Enum):
+    rich = "rich"
+    brief = "brief"
+
+
 @app.command("review")
 def review_cmd(
     property: Optional[str] = typer.Option(None, "--property", "-p"),
-    format: str = typer.Option("rich", "--format", help="Output format: rich, brief"),
+    format: ReviewFormat = typer.Option(
+        ReviewFormat.rich, "--format", help="Output format: rich, brief",
+    ),
 ):
     """Get proactive AI recommendations for your estate."""
     from mihomes.services.ai.orchestrator import review
@@ -64,7 +72,7 @@ def review_cmd(
             with console.status("[bold blue]Analyzing estate...", spinner="dots"):
                 response = review(session, property_slug=property)
 
-            if format == "brief":
+            if format is ReviewFormat.brief:
                 print(response.text)
                 return
 
@@ -562,7 +570,8 @@ def setup_cmd(
         key = key_arg
     else:
         console.print(f"[dim]Tip: you can also run: mihomes ai setup --key <your-key>[/dim]")
-        key = input(f"{env_var}: ").strip()
+        # L7: an API key is a secret — never echo it to the terminal.
+        key = typer.prompt(env_var, hide_input=True).strip()
         if not key:
             format_error("No key entered.")
             raise typer.Exit(1)

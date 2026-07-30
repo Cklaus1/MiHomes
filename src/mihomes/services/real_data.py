@@ -15,7 +15,25 @@ from mihomes.models.task import TaskPriority, RecurrenceFrequency
 
 
 def load_real_data(session: Session) -> None:
+    # L3: guard against a double-load duplicating the whole estate (mirrors
+    # load_demo_data). The Belle Estate slug is the canonical marker.
+    from mihomes.models.property import Property
+    if session.query(Property).filter(Property.slug == "belle-estate").first():
+        raise ValueError("Real data already loaded. Delete the database and reinitialize to reload.")
+
     today = date.today()
+
+    def create_task(*args, **kwargs):
+        # L3: recurring tasks need a due_date seed, otherwise the schedule's
+        # next_due is never computed (calculate_next_due only runs when a seed
+        # date is present) and the task never surfaces on the calendar. Default
+        # the seed to today for any recurring task that doesn't specify one.
+        if (
+            kwargs.get("recurrence", RecurrenceFrequency.ONCE) != RecurrenceFrequency.ONCE
+            and kwargs.get("due_date") is None
+        ):
+            kwargs["due_date"] = today
+        return task_svc.create_task(*args, **kwargs)
 
     # =========================================================================
     # PROPERTIES
@@ -187,37 +205,37 @@ def load_real_data(session: Session) -> None:
 
     # --- Daily operational tasks (tracked as weekly recurring; performed every day) ---
 
-    task_svc.create_task(session, "Daily: Check all rooms — bedrooms, 2nd floor, closets & lights",
+    create_task(session, "Daily: Check all rooms — bedrooms, 2nd floor, closets & lights",
         str(belle.id), priority=TaskPriority.HIGH,
         recurrence=RecurrenceFrequency.WEEKLY,
         assignee_id_or_slug=str(marcia.id),
         description="Daily: Check all bedrooms/kitchen/family area. Check entire 2nd floor. Clean all areas. Maintain closets — straighten clothes, empty laundry baskets, wipe shelves. Turn off lights, ensure front door is unlocked.")
 
-    task_svc.create_task(session, "Daily: Bathroom care — clean, disinfect & stock",
+    create_task(session, "Daily: Bathroom care — clean, disinfect & stock",
         str(belle.id), priority=TaskPriority.HIGH,
         recurrence=RecurrenceFrequency.WEEKLY,
         assignee_id_or_slug=str(marcia.id),
         description="Daily: Wipe all surfaces/mirrors. Disinfect toilet/face bowl/handles. Empty waste baskets. Stock paper products/cleaners/towels. Sweep floor/mop tile as needed. Check/clean bathroom by Library. Turn lights on/off.")
 
-    task_svc.create_task(session, "Daily: Kitchen & butler pantry maintenance",
+    create_task(session, "Daily: Kitchen & butler pantry maintenance",
         str(belle.id), priority=TaskPriority.HIGH,
         recurrence=RecurrenceFrequency.WEEKLY,
         assignee_id_or_slug=str(marcia.id),
         description="Daily: Wipe surfaces/counters/ledges/molding/lights. Clean appliances. Wash dishes & put away. Empty trash cans x3. Clean out fridge/freezer as needed. Check for spoiled food. Disinfect phones/handles/switches/countertops. Refill water coolers x2. Check dishwashers x2/put away dishes. Check/clean microwaves x2. Fill paper products/cups/plates/utensils. Add water to hot chocolate machine as needed. Check/stock fridges — kitchen & butler pantry. Turn lights on/off.")
 
-    task_svc.create_task(session, "Daily: Family room & back staircase",
+    create_task(session, "Daily: Family room & back staircase",
         str(belle.id), priority=TaskPriority.MEDIUM,
         recurrence=RecurrenceFrequency.WEEKLY,
         assignee_id_or_slug=str(marcia.id),
         description="Daily: Dust surfaces/tables/windows/fans. Disinfect handles/remotes/switches. Clean back hidden staircase windows and stairs. Make sure all doors are locked. Turn lights on/off.")
 
-    task_svc.create_task(session, "Daily: Pet care — dog water & in/out",
+    create_task(session, "Daily: Pet care — dog water & in/out",
         str(belle.id), priority=TaskPriority.MEDIUM,
         recurrence=RecurrenceFrequency.WEEKLY,
         assignee_id_or_slug=str(marcia.id),
         description="Daily: Check and clean dog water bowls. Let dogs in/out as needed.")
 
-    task_svc.create_task(session, "Daily: General checks — packages, lightbulbs, vacuums, deliveries",
+    create_task(session, "Daily: General checks — packages, lightbulbs, vacuums, deliveries",
         str(belle.id), priority=TaskPriority.MEDIUM,
         recurrence=RecurrenceFrequency.WEEKLY,
         assignee_id_or_slug=str(marcia.id),
@@ -225,7 +243,7 @@ def load_real_data(session: Session) -> None:
 
     # --- Laundry days: Mon & Wed ---
 
-    task_svc.create_task(session, "Laundry — all household linens (Mon & Wed)",
+    create_task(session, "Laundry — all household linens (Mon & Wed)",
         str(belle.id), priority=TaskPriority.HIGH,
         recurrence=RecurrenceFrequency.WEEKLY,
         assignee_id_or_slug=str(marcia.id),
@@ -233,37 +251,37 @@ def load_real_data(session: Session) -> None:
 
     # --- Weekly deep-clean by area ---
 
-    task_svc.create_task(session, "Weekly: Upstairs laundry room deep clean",
+    create_task(session, "Weekly: Upstairs laundry room deep clean",
         str(belle.id), priority=TaskPriority.MEDIUM,
         recurrence=RecurrenceFrequency.WEEKLY,
         assignee_id_or_slug=str(marcia.id),
         description="Dust surfaces/baseboards/washer & dryer. Organize supplies. Sweep & mop. Stock. Clean vacuum filters on Friday.")
 
-    task_svc.create_task(session, "Weekly: Bedrooms deep clean",
+    create_task(session, "Weekly: Bedrooms deep clean",
         str(belle.id), priority=TaskPriority.HIGH,
         recurrence=RecurrenceFrequency.WEEKLY,
         assignee_id_or_slug=str(marcia.id),
         description="Disinfect doorknobs and light switches. Wipe electronics down with wipes. Vacuum/mop. Deep dust/wipe down all items. Organize/stock.")
 
-    task_svc.create_task(session, "Weekly: Bathrooms deep clean",
+    create_task(session, "Weekly: Bathrooms deep clean",
         str(belle.id), priority=TaskPriority.HIGH,
         recurrence=RecurrenceFrequency.WEEKLY,
         assignee_id_or_slug=str(marcia.id),
         description="Vacuum/mop all areas. Clean showers (Wednesday). Organize/stock. Dust all areas.")
 
-    task_svc.create_task(session, "Weekly: Kitchen, butler pantry & back stairwell deep clean",
+    create_task(session, "Weekly: Kitchen, butler pantry & back stairwell deep clean",
         str(belle.id), priority=TaskPriority.HIGH,
         recurrence=RecurrenceFrequency.WEEKLY,
         assignee_id_or_slug=str(marcia.id),
         description="Deep dust/wipe down all items. Vacuum/mop all areas 2x weekly. Check all food dates in kitchen/fridge/freezer.")
 
-    task_svc.create_task(session, "Weekly: Family room deep clean",
+    create_task(session, "Weekly: Family room deep clean",
         str(belle.id), priority=TaskPriority.HIGH,
         recurrence=RecurrenceFrequency.WEEKLY,
         assignee_id_or_slug=str(marcia.id),
         description="Deep dust/wipe down all items. Dust baseboards. Vacuum/mop all areas 2x weekly. Mop stone 2x weekly.")
 
-    task_svc.create_task(session, "Weekly: Guest bedroom service",
+    create_task(session, "Weekly: Guest bedroom service",
         str(belle.id), priority=TaskPriority.MEDIUM,
         recurrence=RecurrenceFrequency.WEEKLY,
         assignee_id_or_slug=str(marcia.id),
@@ -271,65 +289,65 @@ def load_real_data(session: Session) -> None:
 
     # --- Biweekly ---
 
-    task_svc.create_task(session, "Change bed sheets",
+    create_task(session, "Change bed sheets",
         str(belle.id), priority=TaskPriority.MEDIUM,
         recurrence=RecurrenceFrequency.BIWEEKLY,
         assignee_id_or_slug=str(marcia.id),
         description="All bedrooms. Wednesday.")
 
-    task_svc.create_task(session, "Sanitize toothbrushes",
+    create_task(session, "Sanitize toothbrushes",
         str(belle.id), priority=TaskPriority.LOW,
         recurrence=RecurrenceFrequency.BIWEEKLY,
         assignee_id_or_slug=str(marcia.id))
 
-    task_svc.create_task(session, "Clean interior windows, sills & shutters",
+    create_task(session, "Clean interior windows, sills & shutters",
         str(belle.id), priority=TaskPriority.LOW,
         recurrence=RecurrenceFrequency.BIWEEKLY,
         assignee_id_or_slug=str(marcia.id))
 
     # --- Monthly ---
 
-    task_svc.create_task(session, "Clean inside of all windows",
+    create_task(session, "Clean inside of all windows",
         str(belle.id), priority=TaskPriority.LOW,
         recurrence=RecurrenceFrequency.MONTHLY,
         assignee_id_or_slug=str(marcia.id))
 
-    task_svc.create_task(session, "Deep clean all fridges & freezers",
+    create_task(session, "Deep clean all fridges & freezers",
         str(belle.id), priority=TaskPriority.MEDIUM,
         recurrence=RecurrenceFrequency.MONTHLY,
         assignee_id_or_slug=str(marcia.id),
         description="Wipe down inside of fridge & freezers x3. Pool house, garage, kitchen, nanny suite, butler pantry, basement fridges and freezers.")
 
-    task_svc.create_task(session, "Clean upstairs washing machine",
+    create_task(session, "Clean upstairs washing machine",
         str(belle.id), priority=TaskPriority.LOW,
         recurrence=RecurrenceFrequency.MONTHLY,
         assignee_id_or_slug=str(marcia.id))
 
-    task_svc.create_task(session, "Run unused dishwashers with soap",
+    create_task(session, "Run unused dishwashers with soap",
         str(belle.id), priority=TaskPriority.LOW,
         recurrence=RecurrenceFrequency.MONTHLY,
         assignee_id_or_slug=str(marcia.id),
         description="Basement dishwasher and pool house kitchen dishwasher")
 
-    task_svc.create_task(session, "Vacuum all upholstered furniture",
+    create_task(session, "Vacuum all upholstered furniture",
         str(belle.id), priority=TaskPriority.LOW,
         recurrence=RecurrenceFrequency.MONTHLY,
         assignee_id_or_slug=str(marcia.id))
 
-    task_svc.create_task(session, "Deep dust shelves, pictures & sconces",
+    create_task(session, "Deep dust shelves, pictures & sconces",
         str(belle.id), priority=TaskPriority.LOW,
         recurrence=RecurrenceFrequency.MONTHLY,
         assignee_id_or_slug=str(marcia.id))
 
     # --- As-needed ---
 
-    task_svc.create_task(session, "Decorate for holidays",
+    create_task(session, "Decorate for holidays",
         str(belle.id), priority=TaskPriority.LOW,
         recurrence=RecurrenceFrequency.ONCE,
         assignee_id_or_slug=str(marcia.id),
         description="Decorate common areas and relevant rooms for upcoming holidays as needed.")
 
-    task_svc.create_task(session, "Prepare common areas for special events",
+    create_task(session, "Prepare common areas for special events",
         str(belle.id), priority=TaskPriority.MEDIUM,
         recurrence=RecurrenceFrequency.ONCE,
         assignee_id_or_slug=str(marcia.id),
@@ -340,65 +358,65 @@ def load_real_data(session: Session) -> None:
     # =========================================================================
 
     # Weekly
-    task_svc.create_task(session, "Pool house & gym cleaning",
+    create_task(session, "Pool house & gym cleaning",
         str(belle.id), priority=TaskPriority.HIGH,
         recurrence=RecurrenceFrequency.WEEKLY,
         assignee_id_or_slug=str(diego.id),
         description="Clean pool house kitchen/bathroom x2 weekly. Clean/disinfect gyms x2 weekly.")
 
-    task_svc.create_task(session, "Grounds & outdoor areas check",
+    create_task(session, "Grounds & outdoor areas check",
         str(belle.id), priority=TaskPriority.HIGH,
         recurrence=RecurrenceFrequency.WEEKLY,
         assignee_id_or_slug=str(diego.id),
         description="Check pool, portico, arbor, steps, porches, grill. Decobb all porches/arbor/portico. Remove leaves/debris.")
 
-    task_svc.create_task(session, "Golf cart clean & gas check",
+    create_task(session, "Golf cart clean & gas check",
         str(belle.id), priority=TaskPriority.LOW,
         recurrence=RecurrenceFrequency.WEEKLY,
         assignee_id_or_slug=str(diego.id))
 
-    task_svc.create_task(session, "Garbage to street",
+    create_task(session, "Garbage to street",
         str(belle.id), priority=TaskPriority.HIGH,
         recurrence=RecurrenceFrequency.WEEKLY,
         assignee_id_or_slug=str(diego.id),
         description="Wednesday and Friday")
 
-    task_svc.create_task(session, "Water plants (seasonal)",
+    create_task(session, "Water plants (seasonal)",
         str(belle.id), priority=TaskPriority.MEDIUM,
         recurrence=RecurrenceFrequency.WEEKLY,
         assignee_id_or_slug=str(diego.id),
         description="All outside plants — frequency adjusts by season")
 
     # Biweekly
-    task_svc.create_task(session, "Clean cobwebs — all outside structures",
+    create_task(session, "Clean cobwebs — all outside structures",
         str(belle.id), priority=TaskPriority.LOW,
         recurrence=RecurrenceFrequency.BIWEEKLY,
         assignee_id_or_slug=str(diego.id))
 
     # Monthly — Diego
-    task_svc.create_task(session, "Deep clean fish house",
+    create_task(session, "Deep clean fish house",
         str(belle.id), priority=TaskPriority.LOW,
         recurrence=RecurrenceFrequency.MONTHLY,
         assignee_id_or_slug=str(diego.id))
 
-    task_svc.create_task(session, "Bug stop — exterior perimeter",
+    create_task(session, "Bug stop — exterior perimeter",
         str(belle.id), priority=TaskPriority.MEDIUM,
         recurrence=RecurrenceFrequency.MONTHLY,
         assignee_id_or_slug=str(diego.id),
         description="March through October only")
 
-    task_svc.create_task(session, "Check attics x3",
+    create_task(session, "Check attics x3",
         str(belle.id), priority=TaskPriority.MEDIUM,
         recurrence=RecurrenceFrequency.MONTHLY,
         assignee_id_or_slug=str(diego.id),
         description="Two attics above 3rd floor, one above garage laundry")
 
-    task_svc.create_task(session, "Clean elevator interior & button panels",
+    create_task(session, "Clean elevator interior & button panels",
         str(belle.id), priority=TaskPriority.LOW,
         recurrence=RecurrenceFrequency.MONTHLY,
         assignee_id_or_slug=str(diego.id))
 
-    task_svc.create_task(session, "Clean theatre leather seating",
+    create_task(session, "Clean theatre leather seating",
         str(belle.id), priority=TaskPriority.LOW,
         recurrence=RecurrenceFrequency.MONTHLY,
         assignee_id_or_slug=str(diego.id))
@@ -407,83 +425,83 @@ def load_real_data(session: Session) -> None:
     # TASKS — Quarterly (Belle Estate)
     # =========================================================================
 
-    task_svc.create_task(session, "Clean appliance vents",
+    create_task(session, "Clean appliance vents",
         str(belle.id), priority=TaskPriority.MEDIUM,
         recurrence=RecurrenceFrequency.QUARTERLY,
         assignee_id_or_slug=str(diego.id),
         description="Ice makers, refrigerators, freezers, cooler drawers")
 
-    task_svc.create_task(session, "Clean wine cellar",
+    create_task(session, "Clean wine cellar",
         str(belle.id), priority=TaskPriority.MEDIUM,
         recurrence=RecurrenceFrequency.QUARTERLY,
         assignee_id_or_slug=str(diego.id),
         description="Vacuum, mop, dust cobwebs, wipe vents")
 
-    task_svc.create_task(session, "Deep clean library",
+    create_task(session, "Deep clean library",
         str(belle.id), priority=TaskPriority.MEDIUM,
         recurrence=RecurrenceFrequency.QUARTERLY,
         assignee_id_or_slug=str(marcia.id),
         description="Dust all shelves, inside closed book shelves")
 
-    task_svc.create_task(session, "Elevator quarterly service — Thyssenkrupp",
+    create_task(session, "Elevator quarterly service — Thyssenkrupp",
         str(belle.id), priority=TaskPriority.HIGH,
         recurrence=RecurrenceFrequency.QUARTERLY,
         description="Schedule tech visit. Contact Arty 678-589-1157 or Samuel 813-260-0820")
 
-    task_svc.create_task(session, "Clean all interior doors (both sides)",
+    create_task(session, "Clean all interior doors (both sides)",
         str(belle.id), priority=TaskPriority.LOW,
         recurrence=RecurrenceFrequency.QUARTERLY,
         assignee_id_or_slug=str(diego.id),
         description="Garage area doors and kitchen/family area/butler pantry doors")
 
-    task_svc.create_task(session, "Clean all ceiling fans",
+    create_task(session, "Clean all ceiling fans",
         str(belle.id), priority=TaskPriority.MEDIUM,
         recurrence=RecurrenceFrequency.QUARTERLY,
         assignee_id_or_slug=str(diego.id),
         description="Dust all fans, cover surfaces beneath. Mark off purple clipboard.")
 
-    task_svc.create_task(session, "Clean chandeliers",
+    create_task(session, "Clean chandeliers",
         str(belle.id), priority=TaskPriority.MEDIUM,
         recurrence=RecurrenceFrequency.QUARTERLY,
         assignee_id_or_slug=str(marcia.id),
         description="Check for dust and streaks. 2-person job.")
 
-    task_svc.create_task(session, "Change water filter — craft room",
+    create_task(session, "Change water filter — craft room",
         str(belle.id), priority=TaskPriority.HIGH,
         recurrence=RecurrenceFrequency.QUARTERLY,
         assignee_id_or_slug=str(diego.id),
         description="Located in craft room behind purple room")
 
-    task_svc.create_task(session, "Change wine cellar filter",
+    create_task(session, "Change wine cellar filter",
         str(belle.id), priority=TaskPriority.MEDIUM,
         recurrence=RecurrenceFrequency.QUARTERLY,
         assignee_id_or_slug=str(diego.id),
         description="Located in wall in billiards room")
 
-    task_svc.create_task(session, "Clean sub pumps",
+    create_task(session, "Clean sub pumps",
         str(belle.id), priority=TaskPriority.MEDIUM,
         recurrence=RecurrenceFrequency.QUARTERLY,
         assignee_id_or_slug=str(diego.id),
         description="Located outside stone hallway and billiards room")
 
-    task_svc.create_task(session, "Vacuum drapes",
+    create_task(session, "Vacuum drapes",
         str(belle.id), priority=TaskPriority.LOW,
         recurrence=RecurrenceFrequency.QUARTERLY,
         assignee_id_or_slug=str(marcia.id),
         description="Family room, kitchen area, bedrooms, theatre")
 
-    task_svc.create_task(session, "Condition leather furniture",
+    create_task(session, "Condition leather furniture",
         str(belle.id), priority=TaskPriority.MEDIUM,
         recurrence=RecurrenceFrequency.QUARTERLY,
         assignee_id_or_slug=str(marcia.id),
         description="Theatre, library, master bedroom, entire estate")
 
-    task_svc.create_task(session, "Pest control — interior",
+    create_task(session, "Pest control — interior",
         str(belle.id), priority=TaskPriority.HIGH,
         recurrence=RecurrenceFrequency.QUARTERLY,
         description="Schedule with Arrow or Orkin. Full interior house.")
 
-    task_svc.create_task(session, "Clean roof drain",
+    create_task(session, "Clean roof drain",
         str(belle.id), priority=TaskPriority.MEDIUM,
         recurrence=RecurrenceFrequency.QUARTERLY,
         assignee_id_or_slug=str(diego.id),
@@ -493,54 +511,54 @@ def load_real_data(session: Session) -> None:
     # TASKS — Seasonal (Diego, Belle Estate)
     # =========================================================================
 
-    task_svc.create_task(session, "Winterize outside bar",
+    create_task(session, "Winterize outside bar",
         str(belle.id), priority=TaskPriority.HIGH,
         recurrence=RecurrenceFrequency.SEASONAL, season_spec="fall",
         assignee_id_or_slug=str(diego.id),
         description="Shut off water valve located in garage. ~December.")
 
-    task_svc.create_task(session, "Winterize irrigation system",
+    create_task(session, "Winterize irrigation system",
         str(belle.id), priority=TaskPriority.HIGH,
         recurrence=RecurrenceFrequency.SEASONAL, season_spec="fall",
         assignee_id_or_slug=str(diego.id),
         description="Shut off irrigation clock. ~December.")
 
-    task_svc.create_task(session, "Winterize lake pump",
+    create_task(session, "Winterize lake pump",
         str(belle.id), priority=TaskPriority.HIGH,
         recurrence=RecurrenceFrequency.SEASONAL, season_spec="fall",
         assignee_id_or_slug=str(diego.id),
         description="Take pump out of water, backwash line and tank. ~December.")
 
-    task_svc.create_task(session, "Cover patio furniture & umbrellas",
+    create_task(session, "Cover patio furniture & umbrellas",
         str(belle.id), priority=TaskPriority.MEDIUM,
         recurrence=RecurrenceFrequency.SEASONAL, season_spec="fall",
         assignee_id_or_slug=str(diego.id),
         description="Clean all furniture and covers before covering. Put wicker chairs/tables in screen porch. ~November.")
 
-    task_svc.create_task(session, "Pressure wash property",
+    create_task(session, "Pressure wash property",
         str(belle.id), priority=TaskPriority.HIGH,
         recurrence=RecurrenceFrequency.SEASONAL, season_spec="spring",
         assignee_id_or_slug=str(diego.id),
         description="Full property per purple clipboard list. Schedule Window Cleaning Experts if needed.")
 
-    task_svc.create_task(session, "Check & restart irrigation system",
+    create_task(session, "Check & restart irrigation system",
         str(belle.id), priority=TaskPriority.HIGH,
         recurrence=RecurrenceFrequency.SEASONAL, season_spec="spring",
         assignee_id_or_slug=str(diego.id),
         description="Check irrigation heads, replace/clean as needed. Check city water is running. Check lake pump and water tank.")
 
-    task_svc.create_task(session, "Uncover & clean patio furniture",
+    create_task(session, "Uncover & clean patio furniture",
         str(belle.id), priority=TaskPriority.MEDIUM,
         recurrence=RecurrenceFrequency.SEASONAL, season_spec="spring",
         assignee_id_or_slug=str(diego.id),
         description="Uncover all furniture, wipe down surfaces. Clean and store covers. Take out wicker furniture. Clean cushions, wipe swing.")
 
-    task_svc.create_task(session, "Clean outside lighting fixtures",
+    create_task(session, "Clean outside lighting fixtures",
         str(belle.id), priority=TaskPriority.LOW,
         recurrence=RecurrenceFrequency.SEASONAL, season_spec="spring",
         assignee_id_or_slug=str(diego.id))
 
-    task_svc.create_task(session, "Knock down bird nests",
+    create_task(session, "Knock down bird nests",
         str(belle.id), priority=TaskPriority.LOW,
         recurrence=RecurrenceFrequency.SEASONAL, season_spec="spring",
         assignee_id_or_slug=str(diego.id),
@@ -550,44 +568,44 @@ def load_real_data(session: Session) -> None:
     # TASKS — Annual
     # =========================================================================
 
-    task_svc.create_task(session, "Replace kitchen water filters x2",
+    create_task(session, "Replace kitchen water filters x2",
         str(belle.id), priority=TaskPriority.HIGH,
         recurrence=RecurrenceFrequency.ANNUAL,
         assignee_id_or_slug=str(diego.id),
         description="Check and change kitchen sink water filters x2. ~April.")
 
-    task_svc.create_task(session, "Outdoor lighting annual inspection",
+    create_task(session, "Outdoor lighting annual inspection",
         str(belle.id), priority=TaskPriority.MEDIUM,
         recurrence=RecurrenceFrequency.ANNUAL,
         description="Schedule Outdoor Lights (770-844-1760) — ensure tech inspects all low/high voltage. ~August.")
 
-    task_svc.create_task(session, "Renew Arrow exterminator contract",
+    create_task(session, "Renew Arrow exterminator contract",
         str(belle.id), priority=TaskPriority.HIGH,
         recurrence=RecurrenceFrequency.ANNUAL,
         description="Termite and exterminator annual contract renewal. ~January.")
 
-    task_svc.create_task(session, "Renew Cool Air Mechanical HVAC contract",
+    create_task(session, "Renew Cool Air Mechanical HVAC contract",
         str(belle.id), priority=TaskPriority.HIGH,
         recurrence=RecurrenceFrequency.ANNUAL,
         description="Annual maintenance contract for all 10 HVAC units. ~April.")
 
-    task_svc.create_task(session, "Check & clean gutters and downspouts",
+    create_task(session, "Check & clean gutters and downspouts",
         str(belle.id), priority=TaskPriority.MEDIUM,
         recurrence=RecurrenceFrequency.ANNUAL,
         assignee_id_or_slug=str(diego.id),
         description="Check all gutters and downspouts for debris. ~January. Schedule Window Cleaning Experts if needed.")
 
-    task_svc.create_task(session, "Tree trimming — all trees above 10 ft",
+    create_task(session, "Tree trimming — all trees above 10 ft",
         str(belle.id), priority=TaskPriority.MEDIUM,
         recurrence=RecurrenceFrequency.ANNUAL,
         description="Schedule tree service. Contact 404-CUT-TREES or Bates Hite (770-378-4701).")
 
-    task_svc.create_task(session, "Clean teak wood — back porch & pool house",
+    create_task(session, "Clean teak wood — back porch & pool house",
         str(belle.id), priority=TaskPriority.LOW,
         recurrence=RecurrenceFrequency.ANNUAL,
         assignee_id_or_slug=str(diego.id))
 
-    task_svc.create_task(session, "Inspect & repair fenceline",
+    create_task(session, "Inspect & repair fenceline",
         str(belle.id), priority=TaskPriority.MEDIUM,
         recurrence=RecurrenceFrequency.ANNUAL,
         assignee_id_or_slug=str(diego.id),
@@ -598,7 +616,7 @@ def load_real_data(session: Session) -> None:
     # =========================================================================
 
     for inv_prop in [founders, creators, builders]:
-        task_svc.create_task(session, "Property check & maintenance walk",
+        create_task(session, "Property check & maintenance walk",
             str(inv_prop.id), priority=TaskPriority.MEDIUM,
             recurrence=RecurrenceFrequency.WEEKLY,
             assignee_id_or_slug=str(diego.id),

@@ -148,11 +148,11 @@ Group headers carry the resume checkbox (§1.3).
 - [x] W.9 · M18 · DOMPurify around `marked.parse`; data-attr + delegated listener in `docs_section.html` · verify: `tests/web/test_html_escape.py`
 - [x] W.10 · M19+M20 · unassigned view filters by `space_id is None` (assets.py; M19); AI upload endpoints count(6)/total(20MiB) caps + stream endpoint now surfaces cap error in-band (M20) · verify: `test_unassigned.py`, `test_ai_upload_caps.py`
 
-### [ ] G-CLI — CLI parsing + tail (R3 CLI half, P2/P3) — *dep: W.4 (parsing module)*
-- [ ] C.1 · M39+M40 · CLI wraps `parse_date` → `typer.BadParameter`; resolver calls moved inside try across budget/report/asset/task/property · verify: `tests/cli/test_bad_input.py`
-- [ ] C.2 · M41 · `import-csv` exit 1 when all rows fail · verify: `test_csv_cmd.py`
-- [ ] C.3 · M42 · dashboard: aggregate in service, fetch after session materialized, surface errors · verify: `test_dashboard.py`
-- [ ] C.4 · L-tier · L2 belle-estate default→None/sole-property; L3 real_data idempotency+due dates; L4 `--format` Enum; L5 Rich `escape()`; L6 `--accept` all-props reject; L7 `hide_input`; L8 PTO state guard; L9 nullable vendor scores; L10 residue; L11 create-property full page+hx-target · verify: targeted tests per item; batch-commit acceptable for pure-hygiene L items with a shared `tests/test_hygiene.py`
+### [x] G-CLI — CLI parsing + tail (R3 CLI half, P2/P3) — *dep: W.4 (parsing module)* — *1076 tests green; C.4 L-tier complete (L2–L11); alembic check clean; new latent bug found+fixed (weekly_report full_name→name, logged)*
+- [x] C.1 · M39+M40 · CLI wraps `parse_date` → `typer.BadParameter`; resolver calls moved inside try across budget/report/asset/task/property · verify: `tests/integration/test_cli.py` TestTaskCLI.test_add_bad_date (exit 2, "Invalid value", no Traceback)
+- [x] C.2 · M41 · `import-csv` exit 1 when all rows fail · verify: `test_csv_cmd.py`
+- [x] C.3 · M42 · dashboard: aggregate in service, fetch after session materialized, surface errors · verify: `test_dashboard.py`
+- [x] C.4 · L-tier · L2 belle-estate default→sole-property/None (`resolve_default_property` + inventory-scan guard, both gateways); L3 real_data idempotency+due dates; L4 `--format` Enum (report/ai); L5 Rich `esc()`/`escape()` across all CLI render sites + shared sinks; L6 `--accept` all-props reject; L7 `hide_input`; L8 PTO state guard; L9 nullable vendor scores (model+migration 4db594964c82+service+render); L10 residue (iCal `_unescape` scan, ensure_dirs logs/wa-auth, openai None-content, bridge album filename, watchdog: persist digest marker/hoist sys.path/drop dead `_bot_reachable`); L11 create-property full page · verify: test_gateway_property_resolution.py, test_real_data.py, test_cli.py TestFormatEnumValidation/TestWeatherAcceptGuard/TestVendorCLI, test_vendor_service.py, test_hygiene.py, test_watchdog.py, test_create_property_full_page.py; `tokens_used` dead field deferred to opportunities.md
 
 ### [ ] G-Final — Compound-stop verification
 - [ ] F.1 · full-suite `pytest -q` green (§1.4)

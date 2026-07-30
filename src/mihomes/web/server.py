@@ -3,7 +3,8 @@
 import os
 import sys
 
-from mihomes.config import DB_DIR, ensure_dirs
+import mihomes.config as config
+from mihomes.config import ensure_dirs
 from mihomes.db import init_db
 
 
@@ -19,7 +20,9 @@ def _seed_demo_db() -> None:
     from mihomes.models import Base
     from mihomes.models.property import Property
 
-    url = f"sqlite:///{DB_DIR / 'demo.db'}"
+    # Resolve DB_DIR live (see mihomes.db._active_url) so a prior config reload
+    # can't leave this pointed at a stale directory.
+    url = f"sqlite:///{config.DB_DIR / 'demo.db'}"
     engine = create_engine(url, connect_args={"check_same_thread": False})
     already_seeded = inspect(engine).has_table("alembic_version")
     Base.metadata.create_all(engine)

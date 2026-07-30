@@ -4,7 +4,6 @@ Runs as a background process, checks every 60s, restarts a monitor if it dies.
 Supervises the Telegram monitor always, and the WhatsApp monitor when
 `whatsapp.autostart` is enabled (both gateways can run side by side).
 """
-import json
 import os
 import subprocess
 import sys
@@ -12,11 +11,19 @@ import time
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parents[1]
+# L10: make `mihomes` importable once, at import time — the loop previously
+# re-ran sys.path.insert(0, …) on every tick, growing sys.path unboundedly.
+_SRC = str(PROJECT_ROOT / "src")
+if _SRC not in sys.path:
+    sys.path.insert(0, _SRC)
 LOG_DIR = Path(os.path.expanduser("~/.mihomes"))
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 PID_FILE = LOG_DIR / "monitor.pid"
 WA_PID_FILE = LOG_DIR / "whatsapp_monitor.pid"
 WATCHDOG_PID_FILE = LOG_DIR / "watchdog.pid"
+# L10: persist the last digest date so a Monday restart doesn't re-send the
+# weekly inventory digest (it was tracked in-memory only, resetting on restart).
+DIGEST_MARKER_FILE = LOG_DIR / "last_inventory_digest"
 CHECK_INTERVAL = 60       # seconds between monitor health checks
 CALENDAR_SYNC_INTERVAL = 900  # 15 minutes between Google Calendar syncs
 INVENTORY_DIGEST_DAY = 0  # Monday (weekday index)
@@ -27,7 +34,6 @@ WA_BACKOFF_MAX = 900               # cap WhatsApp restart backoff at 15 min
 def _pid_running(pid: int) -> bool:
     if sys.platform == "win32":
         try:
-            sys.path.insert(0, str(PROJECT_ROOT / "src"))
             from mihomes.services.gateways.pid import tasklist_has_pid
             result = subprocess.run(
                 ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV"],
@@ -47,23 +53,20 @@ def _pid_running(pid: int) -> bool:
     return True
 
 
-def _bot_reachable() -> bool:
-    """Quick health check — verify the bot token is valid and Telegram API is reachable."""
+def _read_digest_marker():
+    """Last date the inventory digest was sent, or None (L10 persistence)."""
+    from datetime import date as _date
     try:
-        import urllib.request
-        sys.path.insert(0, str(PROJECT_ROOT / "src"))
-        from mihomes.db import get_session
-        from mihomes.services.config_service import get_config
-        with get_session() as session:
-            token = get_config(session, "telegram.bot_token")
-        if not token:
-            return False
-        req = urllib.request.Request(f"https://api.telegram.org/bot{token}/getMe")
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read())
-        return data.get("ok", False)
-    except Exception:
-        return False
+        return _date.fromisoformat(DIGEST_MARKER_FILE.read_text().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def _write_digest_marker(day) -> None:
+    try:
+        DIGEST_MARKER_FILE.write_text(day.isoformat())
+    except OSError:
+        pass
 
 
 def _hidden_popen_kwargs():
@@ -135,7 +138,6 @@ def _wa_monitor_alive() -> bool:
 def _whatsapp_autostart_enabled() -> bool:
     """True only when the operator has opted WhatsApp into supervision."""
     try:
-        sys.path.insert(0, str(PROJECT_ROOT / "src"))
         from mihomes.db import get_session
         from mihomes.services.config_service import get_config
         with get_session() as session:
@@ -186,7 +188,8 @@ def run():
     _log("Watchdog started")
 
     last_calendar_sync = 0
-    last_inventory_digest_date = None
+    # Seed from the persisted marker so a restart on the same Monday is a no-op.
+    last_inventory_digest_date = _read_digest_marker()
     wa_backoff = WA_BACKOFF_BASE   # current WhatsApp restart backoff (seconds)
     wa_retry_at = 0.0              # earliest monotonic time to retry WhatsApp
 
@@ -223,7 +226,6 @@ def run():
             now = time.time()
             if now - last_calendar_sync >= CALENDAR_SYNC_INTERVAL:
                 try:
-                    sys.path.insert(0, str(PROJECT_ROOT / "src"))
                     from mihomes.db import get_session
                     from mihomes.services.calendar_sync import auto_sync
                     with get_session() as session:
@@ -243,7 +245,6 @@ def run():
             if (today.weekday() == INVENTORY_DIGEST_DAY
                     and last_inventory_digest_date != today):
                 try:
-                    sys.path.insert(0, str(PROJECT_ROOT / "src"))
                     from mihomes.db import get_session
                     from mihomes.services.config_service import get_config
                     from mihomes.services.consumable import get_reorder_list
@@ -270,9 +271,11 @@ def run():
                         _log("Inventory digest skipped: telegram.bot_token or telegram.owner_chat_id not configured")
 
                     last_inventory_digest_date = today
+                    _write_digest_marker(today)
                 except Exception as e:
                     _log(f"Inventory digest failed: {e}")
                     last_inventory_digest_date = today
+                    _write_digest_marker(today)
 
         except Exception as e:
             _log(f"Watchdog error: {e}")

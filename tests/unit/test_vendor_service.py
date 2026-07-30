@@ -146,6 +146,15 @@ class TestRateVendor:
         with pytest.raises(ValueError, match="communication"):
             rate_vendor(session, v.slug, quality=3, reliability=3, communication=0)
 
+    def test_omitted_cost_communication_stored_as_null(self, session):
+        # L9: an unrated dimension must be stored as NULL, not fabricated from
+        # another score. Previously cost defaulted to quality and communication
+        # to reliability, silently inventing data the rater never gave.
+        v = create_vendor(session, "Plumber")
+        rating = rate_vendor(session, v.slug, quality=5, reliability=1)
+        assert rating.cost_score is None
+        assert rating.communication_score is None
+
 
 class TestGetVendorRatings:
     def test_no_ratings_returns_empty(self, session):
@@ -162,6 +171,28 @@ class TestGetVendorRatings:
         assert result["averages"]["quality"] == 3.0
         assert result["averages"]["reliability"] == 3.0
         assert result["averages"]["count"] == 2
+
+    def test_averages_exclude_null_dimensions(self, session):
+        # L9: cost/communication averages must only reflect ratings that
+        # actually supplied them. A rating that omitted cost must not drag the
+        # cost average toward a fabricated value.
+        v = create_vendor(session, "Plumber")
+        rate_vendor(session, v.slug, quality=4, reliability=4)  # no cost/comm
+        rate_vendor(session, v.slug, quality=2, reliability=2, cost=5, communication=5)
+        result = get_vendor_ratings(session, v.slug)
+        # cost/comm supplied only once (=5) → avg 5.0, count reflects only that one
+        assert result["averages"]["cost"] == 5.0
+        assert result["averages"]["communication"] == 5.0
+        assert result["averages"]["quality"] == 3.0
+        assert result["averages"]["count"] == 2
+
+    def test_averages_none_when_all_dimensions_null(self, session):
+        # L9: if no rating supplied cost, its average is None, not 0 or an error.
+        v = create_vendor(session, "Plumber")
+        rate_vendor(session, v.slug, quality=4, reliability=4)
+        result = get_vendor_ratings(session, v.slug)
+        assert result["averages"]["cost"] is None
+        assert result["averages"]["communication"] is None
 
     def test_returns_vendor(self, session):
         v = create_vendor(session, "Plumber")

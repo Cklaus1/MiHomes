@@ -5,7 +5,7 @@ from typing import Optional
 import typer
 from rich.table import Table
 
-from mihomes.cli.formatters import console, format_error, format_success
+from mihomes.cli.formatters import console, esc, format_error, format_success
 from mihomes.db import get_session
 from mihomes.models.consumable import ConsumableStatus
 from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
@@ -47,15 +47,15 @@ def list_inventory(
         table.add_column("Updated By", style="dim")
         for item in items:
             table.add_row(
-                item.name,
-                item.property.name,
-                item.category or "-",
+                esc(item.name),
+                esc(item.property.name),
+                esc(item.category) or "-",
                 str(item.quantity_in_stock) if item.quantity_in_stock is not None else "-",
                 str(item.quantity_to_order) if item.quantity_to_order is not None else "-",
                 str(item.par_level) if item.par_level is not None else "-",
-                item.unit or "-",
+                esc(item.unit) or "-",
                 _status_display(item.status),
-                item.last_updated_by or "-",
+                esc(item.last_updated_by) or "-",
             )
     console.print(table)
 
@@ -129,13 +129,13 @@ def reorder_list(
         table.add_column("Reported By", style="dim")
         for item in items:
             table.add_row(
-                item.name,
-                item.property.name,
+                esc(item.name),
+                esc(item.property.name),
                 _status_display(item.status),
                 str(item.quantity_in_stock) if item.quantity_in_stock is not None else "-",
                 str(item.quantity_to_order) if item.quantity_to_order is not None else "-",
-                item.unit or "-",
-                item.last_updated_by or "-",
+                esc(item.unit) or "-",
+                esc(item.last_updated_by) or "-",
             )
     console.print(table)
 

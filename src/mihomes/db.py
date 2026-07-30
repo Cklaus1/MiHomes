@@ -8,7 +8,8 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from mihomes.config import DB_DIR, DB_URL, ensure_dirs
+import mihomes.config as config
+from mihomes.config import ensure_dirs
 
 _engine: Engine | None = None
 _SessionLocal: sessionmaker | None = None
@@ -25,9 +26,12 @@ def _set_sqlite_pragmas(dbapi_conn, connection_record):
 
 
 def _active_url() -> str:
+    # Resolve config paths live rather than binding them at import: a test that
+    # reloads mihomes.config (logging/backup isolation) rebinds config.DB_DIR to
+    # a new object, and a by-value import here would silently keep the stale one.
     if os.environ.get("MIHOMES_DEMO") == "1":
-        return f"sqlite:///{DB_DIR / 'demo.db'}"
-    return DB_URL
+        return f"sqlite:///{config.DB_DIR / 'demo.db'}"
+    return config.DB_URL
 
 
 def get_engine(url: str | None = None) -> Engine:

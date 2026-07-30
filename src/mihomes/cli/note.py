@@ -3,7 +3,7 @@
 import typer
 from rich.table import Table
 
-from mihomes.cli.formatters import console, format_error, format_success
+from mihomes.cli.formatters import console, esc, format_error, format_success
 from mihomes.db import get_session
 from mihomes.services import note as note_svc
 
@@ -41,12 +41,12 @@ def list_notes(
             console.print("[dim]No notes found.[/dim]")
             return
 
-        table = Table(title=f"Notes for {to}")
+        table = Table(title=f"Notes for {esc(to)}")
         table.add_column("ID", style="dim")
         table.add_column("Content")
         table.add_column("Created", style="dim")
         for n in notes:
-            table.add_row(str(n.id), n.content, str(n.created_at)[:19])
+            table.add_row(str(n.id), esc(n.content), str(n.created_at)[:19])
         console.print(table)
 
 

@@ -6,7 +6,7 @@ from typing import Optional
 import typer
 from rich.table import Table
 
-from mihomes.cli.formatters import console, format_error, format_success
+from mihomes.cli.formatters import console, esc, format_error, format_success
 from mihomes.db import get_session
 from mihomes.models.recurring_expense import ExpenseFrequency
 from mihomes.services import recurring as recurring_svc
@@ -83,9 +83,9 @@ def list_recurring():
         table.add_column("Vendor")
         for e in expenses:
             table.add_row(
-                str(e.id), e.name, f"{e.currency} {e.amount:,.2f}",
-                e.frequency.value, e.property.name, e.category,
-                e.vendor.company_name if e.vendor else "-",
+                str(e.id), esc(e.name), f"{e.currency} {e.amount:,.2f}",
+                e.frequency.value, esc(e.property.name), esc(e.category),
+                esc(e.vendor.company_name) if e.vendor else "-",
             )
         console.print(table)
 
@@ -98,6 +98,6 @@ def generate_transactions():
         if txs:
             format_success(f"{len(txs)} transaction(s) generated")
             for tx in txs:
-                console.print(f"  ${tx.amount:,.2f} — {tx.description}")
+                console.print(f"  ${tx.amount:,.2f} — {esc(tx.description)}")
         else:
             console.print("[dim]No transactions due.[/dim]")

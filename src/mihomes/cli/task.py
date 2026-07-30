@@ -7,7 +7,9 @@ import typer
 from rich.table import Table
 
 from mihomes.cli.formatters import (
+    cli_date,
     console,
+    esc,
     format_enum,
     format_error,
     format_panel,
@@ -56,7 +58,7 @@ def add_task(
     from mihomes.services.slug import resolve_identifier
     with get_session() as session:
         try:
-            due_date = date.fromisoformat(due) if due else None
+            due_date = cli_date(due, "--due")
             zone_id = None
             if zone:
                 z = resolve_identifier(session, Zone, zone)
@@ -191,9 +193,9 @@ def list_tasks(
             if t.due_date and t.due_date < date.today() and t.status not in (TaskStatus.COMPLETED, TaskStatus.CANCELLED):
                 due_str = f"[red]{due_str} (overdue)[/red]"
             table.add_row(
-                str(t.id), t.title,
+                str(t.id), esc(t.title),
                 t.category.value if t.category else "-",
-                t.property.name,
+                esc(t.property.name),
                 f"[{prio_style}]{format_enum(t.priority)}[/{prio_style}]",
                 _fmt_hours(t.estimated_hours),
                 f"{status_icon(t.status)} {format_enum(t.status)}",
@@ -278,7 +280,7 @@ def upcoming_tasks(
         for t in tasks:
             prio_style = severity_color(t.priority.value)
             table.add_row(
-                str(t.due_date), t.title, t.property.name,
+                str(t.due_date), esc(t.title), esc(t.property.name),
                 f"[{prio_style}]{format_enum(t.priority)}[/{prio_style}]",
                 _fmt_hours(t.estimated_hours),
             )
@@ -301,7 +303,7 @@ def edit_task(
     kwargs = {}
     if title is not None: kwargs["title"] = title
     if priority is not None: kwargs["priority"] = priority
-    if due is not None: kwargs["due_date"] = date.fromisoformat(due)
+    if due is not None: kwargs["due_date"] = cli_date(due, "--due")
     if status is not None: kwargs["status"] = status
     if estimate is not None: kwargs["estimated_hours"] = estimate
     if category is not None: kwargs["category"] = category
@@ -309,17 +311,17 @@ def edit_task(
         format_error("No fields to update.")
         raise typer.Exit(1)
     with get_session() as session:
-        if assignee is not None:
-            from mihomes.models.staff import Staff
-            from mihomes.services.slug import resolve_identifier as resolve_id
-            staff = resolve_id(session, Staff, assignee)
-            kwargs["assignee_id"] = staff.id
-        if zone is not None:
-            from mihomes.models.zone import Zone
-            from mihomes.services.slug import resolve_identifier as resolve_id
-            z = resolve_id(session, Zone, zone)
-            kwargs["zone_id"] = z.id
         try:
+            if assignee is not None:
+                from mihomes.models.staff import Staff
+                from mihomes.services.slug import resolve_identifier as resolve_id
+                staff = resolve_id(session, Staff, assignee)
+                kwargs["assignee_id"] = staff.id
+            if zone is not None:
+                from mihomes.models.zone import Zone
+                from mihomes.services.slug import resolve_identifier as resolve_id
+                z = resolve_id(session, Zone, zone)
+                kwargs["zone_id"] = z.id
             task = task_svc.update_task(session, id_or_slug, **kwargs)
             format_success(f"Task '{task.title}' updated")
         except (AmbiguousIdentifierError, EntityNotFoundError) as e:
@@ -398,9 +400,9 @@ def tasks_by_frequency(
             table.add_column("Due", style="dim")
 
             for t in sorted(freq_tasks, key=lambda x: (x.property.name, x.title)):
-                assignee_name = t.assignee.name if t.assignee else "[dim]—[/dim]"
+                assignee_name = esc(t.assignee.name) if t.assignee else "[dim]—[/dim]"
                 due = t.due_date.isoformat() if t.due_date else "—"
-                table.add_row(t.title, t.property.name, assignee_name, due)
+                table.add_row(esc(t.title), esc(t.property.name), assignee_name, due)
 
             console.print(table)
             console.print()
@@ -487,7 +489,7 @@ def tasks_by_category(
                 if t.due_date and t.due_date < date.today():
                     due_str = f"[red]{due_str}[/red]"
                 table.add_row(
-                    t.title, t.property.name,
+                    esc(t.title), esc(t.property.name),
                     f"[{prio_style}]{format_enum(t.priority)}[/{prio_style}]",
                     due_str, rec,
                 )

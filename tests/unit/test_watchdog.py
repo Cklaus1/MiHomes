@@ -104,3 +104,35 @@ def _os_alive(pid: int) -> bool:
     except OSError:
         return False
     return True
+
+
+def _load_watchdog(monkeypatch, tmp_path):
+    import importlib.util
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location(
+        "mh_watchdog_marker",
+        str(Path(__file__).parents[2] / "scripts" / "watchdog.py"),
+    )
+    wd = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(wd)
+    monkeypatch.setattr(wd, "DIGEST_MARKER_FILE", tmp_path / "last_inventory_digest")
+    return wd
+
+
+def test_digest_marker_persists_across_restart(monkeypatch, tmp_path):
+    """L10: the weekly inventory digest date must survive a watchdog restart so
+    a restart on the same Monday doesn't re-send it. Previously it lived only in
+    memory (last_inventory_digest_date = None on every start)."""
+    from datetime import date
+    wd = _load_watchdog(monkeypatch, tmp_path)
+
+    assert wd._read_digest_marker() is None  # nothing sent yet
+    monday = date(2026, 7, 27)
+    wd._write_digest_marker(monday)
+    # A "restart" re-reads from disk:
+    assert wd._read_digest_marker() == monday
+
+
+def test_digest_marker_absent_file_is_none(monkeypatch, tmp_path):
+    wd = _load_watchdog(monkeypatch, tmp_path)
+    assert wd._read_digest_marker() is None

@@ -24,7 +24,8 @@ UPLOADS_URL_PREFIX = "/uploads"
 
 def ensure_dirs() -> None:
     """Create all MiHomes directories if they don't exist."""
-    for d in (DB_DIR, MEDIA_DIR, UPLOADS_DIR, BACKUPS_DIR, EXPORTS_DIR):
+    for d in (DB_DIR, MEDIA_DIR, UPLOADS_DIR, BACKUPS_DIR, EXPORTS_DIR,
+              LOGS_DIR, WHATSAPP_AUTH_DIR):
         d.mkdir(parents=True, exist_ok=True)
 
 

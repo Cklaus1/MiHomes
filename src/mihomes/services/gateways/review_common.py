@@ -317,6 +317,18 @@ def resolve_reporter_by_name(session: Session, name: str | None) -> int | None:
     return staff.id if staff else None
 
 
+def resolve_default_property(session: Session) -> str | None:
+    """Best-effort property slug when a message carries none (L2).
+
+    Returns the sole property's slug if exactly one exists, else None. Never a
+    hardcoded slug: on a multi-property estate "belle-estate" silently misfiled
+    every unlabelled message; on a fresh install it pointed at a nonexistent
+    property.
+    """
+    props = session.query(Property).limit(2).all()
+    return props[0].slug if len(props) == 1 else None
+
+
 def resolve_room(session: Session, room_name: str | None, prop_slug: str | None) -> str | None:
     if not room_name or not prop_slug:
         return None

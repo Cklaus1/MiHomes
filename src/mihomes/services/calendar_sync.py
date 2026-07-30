@@ -83,8 +83,10 @@ def push_appointment_to_google(appt, session=None) -> bool:
         minute = appt.start_time.minute if appt.start_time else 0
         start = datetime(appt.date.year, appt.date.month, appt.date.day,
                          hour, minute, tzinfo=timezone.utc)
-        end = datetime(appt.date.year, appt.date.month, appt.date.day,
-                       hour + 1, minute, tzinfo=timezone.utc)
+        # M9: add one hour via timedelta so a 23:00 appointment rolls into the
+        # next day instead of building datetime(hour=24) (ValueError that the
+        # bare except silently swallowed → the appointment never synced).
+        end = start + timedelta(hours=1)
         vendor_note = f" ({appt.vendor.company_name})" if appt.vendor else ""
         result = provider.create_event(
             title=f"[MiHomes] {appt.title}{vendor_note}",

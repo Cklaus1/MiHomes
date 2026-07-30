@@ -36,9 +36,13 @@ def _active_url() -> str:
 
 def get_engine(url: str | None = None) -> Engine:
     """Get or create the SQLAlchemy engine."""
-    global _engine
+    global _engine, _SessionLocal
     if _engine is None or url is not None:
         _engine = create_engine(url or _active_url(), echo=False)
+        # H3: a swapped engine must invalidate the cached session factory, or
+        # get_session() keeps binding new sessions to the previous DB. cli/init.py
+        # used to hand-poke this global as a workaround; the reset belongs here.
+        _SessionLocal = None
     return _engine
 
 

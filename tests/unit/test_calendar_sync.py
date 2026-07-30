@@ -56,6 +56,39 @@ class TestIsTaskEvent:
         assert _is_task_event("IRRIGATION SYSTEM CHECK") is True
 
 
+# ── push_appointment_to_google — late-hour rollover (M9) ─────────────────────
+
+class TestPushAppointmentLateHour:
+    """M9: a 23:00 appointment computed end as hour+1=24 → datetime(hour=24)
+    ValueError, swallowed by the bare except → the appointment silently never
+    synced. End must roll into the next day via timedelta(hours=1)."""
+
+    def _appt(self):
+        from datetime import time as _time
+        appt = MagicMock()
+        appt.gcal_event_id = None
+        appt.date = date(2026, 3, 15)
+        appt.start_time = _time(23, 0)
+        appt.vendor = None
+        appt.title = "Late night check"
+        appt.notes = ""
+        return appt
+
+    def test_2300_appointment_still_syncs(self):
+        from mihomes.services.calendar_sync import push_appointment_to_google
+        provider = MagicMock()
+        provider.create_event.return_value = {"event_id": "evt-1"}
+        with patch("mihomes.services.calendar_sync.is_google_auth_available", return_value=True), \
+             patch("mihomes.services.calendar_sync._get_provider", return_value=provider):
+            result = push_appointment_to_google(self._appt())
+        assert result is True
+        provider.create_event.assert_called_once()
+        kwargs = provider.create_event.call_args.kwargs
+        assert kwargs["start"] == datetime(2026, 3, 15, 23, 0, tzinfo=timezone.utc)
+        # end rolls into the next day, not an invalid hour=24
+        assert kwargs["end"] == datetime(2026, 3, 16, 0, 0, tzinfo=timezone.utc)
+
+
 # ── is_google_auth_available ──────────────────────────────────────────────────
 
 class TestIsGoogleAuthAvailable:

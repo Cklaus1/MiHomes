@@ -17,7 +17,7 @@ Last updated: 2026-07-29
 - [x] **G-R2 — Gateway dedup core**: R2 `review_common.py` · H24–H28 · H35 PTO notifier · H36 vendor name · M21 poison-guard · M22–M31 · L12–L15 — *994 tests green + 5 bridge JS tests; shared `dedup.py`/`pid.py`; per-jid replies + sender allowlist (M25–M27); WA burst-drain (M30); `whatsapp stop` + telegram-stop reaps WA/bridge (M31); bridge reconnect guard + log compaction (M29)*
 - [x] **G-Web — Web hardening**: M43 delete reports · H29 chart · H31+R3 error handlers · M40 ValueError · H30 CSRF/Host · H32 zip · M16 form parse · M17 active toggle · M18 XSS · M19+M20 — *1038 green, ruff-clean*
 - [x] **G-CLI — CLI parsing + tail**: M39+M40 date-parse→BadParameter · M41 import-csv exit code · M42 dashboard aggregation · L2–L11 hygiene (belle-estate default, real_data idempotency, `--format` Enum, Rich escape, `--accept` guard, hide_input, PTO state guard, nullable vendor scores + migration, iCal/config/openai/bridge/watchdog residue, create-property full page) — *1076 tests green; alembic check clean; latent `weekly_report.full_name` bug found+fixed+logged*
-- [ ] **G-Final — Compound stop**: full suite green · smoke green · spec reconciled · empty autogenerate · end-of-run report
+- [x] **G-Final — Compound stop**: full suite green (1080) · smoke green (18) · spec reconciled (P0 7/7, P1 36/36, P2 43+2 deferred, P3 15/15, R1–R5, A1) · empty autogenerate (single head 4db594964c82) · end-of-run report → `tasks/build-loop-report.md` — *F.3 caught 4 DAG-omissions: H3/M8/M9 fixed test-first, M7 + M9-tz deferred*
 
 **Stop condition (all four):** every DAG box `[x]` · every spec finding landed-or-deferred · full suite green · R1 smoke green. No intermediate review stops.
 

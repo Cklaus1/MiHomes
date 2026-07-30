@@ -154,12 +154,12 @@ Group headers carry the resume checkbox (§1.3).
 - [x] C.3 · M42 · dashboard: aggregate in service, fetch after session materialized, surface errors · verify: `test_dashboard.py`
 - [x] C.4 · L-tier · L2 belle-estate default→sole-property/None (`resolve_default_property` + inventory-scan guard, both gateways); L3 real_data idempotency+due dates; L4 `--format` Enum (report/ai); L5 Rich `esc()`/`escape()` across all CLI render sites + shared sinks; L6 `--accept` all-props reject; L7 `hide_input`; L8 PTO state guard; L9 nullable vendor scores (model+migration 4db594964c82+service+render); L10 residue (iCal `_unescape` scan, ensure_dirs logs/wa-auth, openai None-content, bridge album filename, watchdog: persist digest marker/hoist sys.path/drop dead `_bot_reachable`); L11 create-property full page · verify: test_gateway_property_resolution.py, test_real_data.py, test_cli.py TestFormatEnumValidation/TestWeatherAcceptGuard/TestVendorCLI, test_vendor_service.py, test_hygiene.py, test_watchdog.py, test_create_property_full_page.py; `tokens_used` dead field deferred to opportunities.md
 
-### [ ] G-Final — Compound-stop verification
-- [ ] F.1 · full-suite `pytest -q` green (§1.4)
-- [ ] F.2 · R1 smoke test green (§1.5, condition D)
-- [ ] F.3 · every spec finding reconciled: landed-with-test OR in `opportunities.md` (condition B) — walk the spec top to bottom
-- [ ] F.4 · `alembic revision --autogenerate` empty (schema==models)
-- [ ] F.5 · write end-of-run report (§5)
+### [x] G-Final — Compound-stop verification — *1080 tests green; F.3 caught 4 DAG-omissions (H3/M8/M9 fixed+tested, M7 + M9-tz deferred); autogenerate empty; single head 4db594964c82*
+- [x] F.1 · full-suite `pytest -q` green (§1.4) ✓ 1080 passed
+- [x] F.2 · R1 smoke test green (§1.5, condition D) ✓ 18 passed
+- [x] F.3 · every spec finding reconciled: landed-with-test OR in `opportunities.md` (condition B) — walk the spec top to bottom ✓ P0 7/7, P1 36/36, P2 43 landed +2 deferred (M7,M36), P3 15/15, R1–R5 landed, A1 accepted. **Caught H3/M7/M8/M9 absent from DAG: H3+M8+M9-crash landed test-first (test_engine_swap/test_archive/test_calendar_sync); M7 + M9-tz deferred to opportunities.md (schema-scoped, R4 closed)**
+- [x] F.4 · `alembic revision --autogenerate` empty (schema==models) ✓ "No new upgrade operations detected"
+- [x] F.5 · write end-of-run report (§5) ✓ `tasks/build-loop-report.md`
 
 ---
 

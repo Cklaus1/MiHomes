@@ -89,16 +89,21 @@ def run_archival(session: Session, dry_run: bool = False) -> dict:
     old_audit = session.query(AuditLog).filter(AuditLog.timestamp < cutoff).all()
 
     if old_audit and not dry_run:
+        # M8: bind the cutoff as a datetime parameter rather than interpolating
+        # its T-separated isoformat. SQLite stores DateTime space-separated, so a
+        # lexical `timestamp < '...T...'` compare disagreed with the ORM count at
+        # the cutoff boundary (' ' < 'T') and archived rows still within window.
+        params = {"now": datetime.now(timezone.utc), "cutoff": cutoff}
         session.execute(text(
             "INSERT INTO audit_log_archive "
             "(id, timestamp, entity_type, entity_id, action, changes, actor, archived_at) "
             "SELECT id, timestamp, entity_type, entity_id, action, changes, actor, "
-            f"'{datetime.now(timezone.utc).isoformat()}' "
-            f"FROM audit_log WHERE timestamp < '{cutoff.isoformat()}'"
-        ))
+            ":now "
+            "FROM audit_log WHERE timestamp < :cutoff"
+        ), params)
         session.execute(text(
-            f"DELETE FROM audit_log WHERE timestamp < '{cutoff.isoformat()}'"
-        ))
+            "DELETE FROM audit_log WHERE timestamp < :cutoff"
+        ), {"cutoff": cutoff})
     results["audit_log"] = len(old_audit)
 
     # AI conversations archival
@@ -107,18 +112,20 @@ def run_archival(session: Session, dry_run: bool = False) -> dict:
     old_ai = session.query(AIConversation).filter(AIConversation.created_at < cutoff).all()
 
     if old_ai and not dry_run:
+        # M8: bound datetime params (see audit_log branch above).
+        params = {"now": datetime.now(timezone.utc), "cutoff": cutoff}
         session.execute(text(
             "INSERT INTO ai_conversations_archive "
             "(id, session_id, role, user_message, ai_response, context_summary, "
             "tokens_used, provider, model, created_at, updated_at, archived_at) "
             "SELECT id, session_id, role, user_message, ai_response, context_summary, "
             "tokens_used, provider, model, created_at, updated_at, "
-            f"'{datetime.now(timezone.utc).isoformat()}' "
-            f"FROM ai_conversations WHERE created_at < '{cutoff.isoformat()}'"
-        ))
+            ":now "
+            "FROM ai_conversations WHERE created_at < :cutoff"
+        ), params)
         session.execute(text(
-            f"DELETE FROM ai_conversations WHERE created_at < '{cutoff.isoformat()}'"
-        ))
+            "DELETE FROM ai_conversations WHERE created_at < :cutoff"
+        ), {"cutoff": cutoff})
     results["ai_conversations"] = len(old_ai)
 
     return results

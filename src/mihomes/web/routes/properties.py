@@ -1,6 +1,6 @@
 """Property routes."""
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
@@ -69,8 +69,6 @@ def create_property(
 @router.get("/{slug}")
 def property_detail(request: Request, slug: str, db: Session = Depends(get_db)):
     prop = prop_svc.get_property(db, slug)
-    if not prop:
-        raise HTTPException(status_code=404, detail="Property not found")
     health = compute_property_health(db, prop.id)
     open_tasks = task_svc.list_tasks(db, property_id_or_slug=slug, status=TaskStatus.PENDING)
     open_issues = issue_svc.list_issues(db, property_id_or_slug=slug, open_only=True)

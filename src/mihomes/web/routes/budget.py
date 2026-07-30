@@ -1,6 +1,6 @@
 """Budget & finance routes."""
 
-import json
+import logging
 from datetime import date
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -15,8 +15,8 @@ from mihomes.services import note as note_svc
 from mihomes.services import property as prop_svc
 from mihomes.services import recurring as recurring_svc
 from mihomes.services import vendor as vendor_svc
+from mihomes.services.parsing import parse_money
 from mihomes.web.deps import get_db, templates
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +29,11 @@ CHART_COLORS = [
 ]
 
 
-def _make_chart(labels: list, values: list, label: str = "Spending") -> str:
-    return json.dumps({
+def _make_chart(labels: list, values: list, label: str = "Spending") -> dict:
+    # Return a plain dict; the template renders it with `| tojson`, which
+    # escapes `<`, `>`, `&` so hostile entity names can't break out of the
+    # surrounding <script> block (H29).
+    return {
         "labels": labels,
         "datasets": [{
             "label": label,
@@ -38,7 +41,7 @@ def _make_chart(labels: list, values: list, label: str = "Spending") -> str:
             "backgroundColor": CHART_COLORS[: len(values)],
             "borderRadius": 4,
         }],
-    })
+    }
 
 
 def _ctx(
@@ -79,7 +82,7 @@ def _ctx(
         [d["property"] for d in comparison_data],
         [d["total_spending"] for d in comparison_data],
         "Total Spending",
-    ) if comparison_data else "{}"
+    ) if comparison_data else None
 
     analysis_prop = None
     if analysis_property_id:
@@ -87,9 +90,9 @@ def _ctx(
     if analysis_prop is None:
         analysis_prop = properties[0] if properties else None
     category_data: list = []
-    category_chart = "{}"
+    category_chart = None
     vendor_data: list = []
-    vendor_chart = "{}"
+    vendor_chart = None
     if analysis_prop:
         try:
             category_data = report_svc.spending_by_category(db, str(analysis_prop.id), year_start, today)
@@ -156,13 +159,21 @@ def add_transaction(
     request: Request,
     property_id: int = Form(...),
     description: str = Form(...),
-    amount: float = Form(...),
+    amount: str = Form(...),
     category: str = Form("general"),
     db: Session = Depends(get_db),
 ):
+    # M16: parse currency-formatted input tolerantly and surface a friendly
+    # error instead of FastAPI's bare 422 on a non-numeric value.
+    try:
+        amount_val = parse_money(amount, "Amount")
+    except ValueError as e:
+        return HTMLResponse(str(e), status_code=400)
+    if amount_val is None:
+        return HTMLResponse("Amount is required.", status_code=400)
     budget_svc.add_transaction(
         db,
-        amount=amount,
+        amount=amount_val,
         property_id_or_slug=str(property_id),
         category=category or "general",
         tx_date=date.today(),
@@ -178,9 +189,15 @@ def set_budget(
     property_id: int = Form(...),
     category: str = Form(...),
     period: str = Form("monthly"),
-    amount: float = Form(...),
+    amount: str = Form(...),
     db: Session = Depends(get_db),
 ):
+    try:
+        amount_val = parse_money(amount, "Amount")
+    except ValueError as e:
+        return HTMLResponse(str(e), status_code=400)
+    if amount_val is None:
+        return HTMLResponse("Amount is required.", status_code=400)
     today = date.today()
     if period == "annual":
         period_start = date(today.year, 1, 1)
@@ -195,7 +212,7 @@ def set_budget(
         property_id_or_slug=str(property_id),
         category=category,
         period=BudgetPeriod(period),
-        amount=amount,
+        amount=amount_val,
         period_start=period_start,
     )
 

@@ -59,7 +59,10 @@ def client():
 
     app = create_app()
     app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as c:
+    # Bind to a loopback base_url so the H30 Host guard (added in create_app)
+    # accepts these requests; the default `testserver` host is rejected as a
+    # potential DNS-rebinding host.
+    with TestClient(app, base_url="http://localhost") as c:
         c._SessionLocal = TestSessionLocal  # exposed for assertions if needed
         yield c
 

@@ -240,6 +240,19 @@ function closePreview() {
   document.removeEventListener('keydown', _previewEscHandler);
 }
 function _previewEscHandler(e) { if (e.key === 'Escape') closePreview(); }
+
+/* Delegated preview trigger: elements carry data-preview-fp/title/type so a
+   hostile document title can never break out of an inline onclick JS string. */
+document.addEventListener('click', function(e) {
+  const trigger = e.target.closest('[data-preview-fp]');
+  if (!trigger) return;
+  e.preventDefault();
+  previewDoc(
+    trigger.getAttribute('data-preview-fp'),
+    trigger.getAttribute('data-preview-title') || '',
+    trigger.getAttribute('data-preview-type') || 'image'
+  );
+});
 </script>
 </body>
 </html>

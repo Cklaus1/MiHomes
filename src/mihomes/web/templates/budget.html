@@ -613,14 +613,14 @@ function initSpendingCharts() {
       y: { grid: { display: false } },
     },
   };
-  {% if comparison_chart != '{}' %}
-  new Chart(document.getElementById('compChart'), { type: 'bar', data: {{ comparison_chart | safe }}, options: opts });
+  {% if comparison_chart %}
+  new Chart(document.getElementById('compChart'), { type: 'bar', data: {{ comparison_chart | tojson }}, options: opts });
   {% endif %}
-  {% if category_chart != '{}' %}
-  new Chart(document.getElementById('catChart'), { type: 'bar', data: {{ category_chart | safe }}, options: opts });
+  {% if category_chart %}
+  new Chart(document.getElementById('catChart'), { type: 'bar', data: {{ category_chart | tojson }}, options: opts });
   {% endif %}
-  {% if vendor_chart != '{}' %}
-  new Chart(document.getElementById('vendChart'), { type: 'bar', data: {{ vendor_chart | safe }}, options: opts });
+  {% if vendor_chart %}
+  new Chart(document.getElementById('vendChart'), { type: 'bar', data: {{ vendor_chart | tojson }}, options: opts });
   {% endif %}
 }
 

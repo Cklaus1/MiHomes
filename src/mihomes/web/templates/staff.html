@@ -206,6 +206,7 @@
                 </div>
               </div>
               <div class="flex items-center gap-2">
+                <input type="hidden" name="active" value="0" />
                 <input type="checkbox" name="active" id="active-{{ member.id }}" value="1"
                        {% if member.active %}checked{% endif %}
                        class="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />

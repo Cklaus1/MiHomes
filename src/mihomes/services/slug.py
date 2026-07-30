@@ -44,8 +44,13 @@ def ensure_unique_slug(
         suffix += 1
 
 
-class AmbiguousIdentifierError(Exception):
-    """Raised when a partial slug matches multiple entities."""
+class AmbiguousIdentifierError(ValueError):
+    """Raised when a partial slug matches multiple entities.
+
+    Subclasses ``ValueError`` (like ``EntityNotFoundError``) so that an
+    ``except ValueError`` in any route catches an ambiguous prefix uniformly
+    with a not-found id, instead of letting it escape as a 500 (M40).
+    """
 
     def __init__(self, entity_type: str, identifier: str, matches: list):
         self.entity_type = entity_type

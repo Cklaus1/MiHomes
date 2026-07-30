@@ -136,17 +136,17 @@ Group headers carry the resume checkbox (§1.3).
 - [x] R2.14 · M29 · bridge reconnect guard flag; rotate `messages.jsonl` on startup · verify: `bridge/test/lib.test.js` (`node --test`)
 - [x] R2.15 · L12+L13+L15 · `_parse_event_date` via `fromisoformat` (%z); read `"note"` (not `"notes"`); lazy media download after property filter · verify: `test_gateway_misc.py`
 
-### [ ] G-Web — Web hardening — *dep: G-R2 (R3 web half), G0.3*
-- [ ] W.1 · M43/Q3 · **delete** `web/routes/reports.py` + `templates/reports.html` (dead) · verify: no import references; app still boots
-- [ ] W.2 · H29 · budget chart `| tojson` on a dict (now budget.html-only) · verify: `tests/web/test_chart_escape.py`
-- [ ] W.3 · H31+R3(web) · app-level handlers for `EntityNotFoundError`→404 / `AmbiguousIdentifierError`→400; delete dead `if not x` checks · verify: `tests/web/test_error_handlers.py`
-- [ ] W.4 · M40+R3 · `AmbiguousIdentifierError <: ValueError`; add `services/parsing.py` (`parse_date`/`parse_money`); **audit web `except ValueError` sites** for the cross-cutting reach · verify: `tests/test_parsing.py`, `test_ambiguous.py`
-- [ ] W.5 · H30 · Origin/Sec-Fetch-Site + Host middleware (reject cross-site POST, non-localhost Host) · verify: `tests/web/test_csrf_host.py`
-- [ ] W.6 · H32 · `strict=True` zip on vendor contacts + surface ValueError as form error · verify: `tests/web/test_vendor_contacts.py`
-- [ ] W.7 · M16 · route form/query parsing through `parse_money`/`parse_date` incl. the two `budget.py` `Form(float)` POSTs · verify: `tests/web/test_form_validation.py`
-- [ ] W.8 · M17 · add hidden `active` input to **both** `vendors.html:339` and `staff.html:209` · verify: `tests/web/test_active_toggle.py`
-- [ ] W.9 · M18 · DOMPurify around `marked.parse`; data-attr + delegated listener in `docs_section.html` · verify: `tests/web/test_html_escape.py`
-- [ ] W.10 · M19+M20 · unassigned view filters books by `space_id is None`; AI upload endpoints size/count/type caps · verify: `test_unassigned.py`, `test_ai_upload_caps.py`
+### [x] G-Web — Web hardening — *dep: G-R2 (R3 web half), G0.3* — *1038 tests green; smoke + R1 net green; ruff-clean on changeset*
+- [x] W.1 · M43/Q3 · **delete** `web/routes/reports.py` + `templates/reports.html` (dead) · verify: no import references; app still boots
+- [x] W.2 · H29 · budget chart `| tojson` on a dict (now budget.html-only) · verify: `tests/web/test_chart_escape.py`
+- [x] W.3 · H31+R3(web) · app-level handlers for `EntityNotFoundError`→404 / `AmbiguousIdentifierError`→400; delete dead `if not x` checks · verify: `tests/web/test_error_handlers.py`
+- [x] W.4 · M40+R3 · `AmbiguousIdentifierError <: ValueError`; add `services/parsing.py` (`parse_date`/`parse_money`); **audit web `except ValueError` sites** for the cross-cutting reach · verify: `tests/test_parsing.py`, `test_ambiguous.py`
+- [x] W.5 · H30 · Origin/Sec-Fetch-Site + Host middleware (reject cross-site POST, non-localhost Host) · verify: `tests/web/test_csrf_host.py`
+- [x] W.6 · H32 · `strict=True` zip on vendor contacts + surface ValueError as form error · verify: `tests/web/test_vendor_contacts.py`
+- [x] W.7 · M16 · route form/query parsing through `parse_money`/`parse_date` incl. the two `budget.py` `Form(float)` POSTs · verify: `tests/web/test_form_validation.py`
+- [x] W.8 · M17 · add hidden `active` input to **both** `vendors.html:339` and `staff.html:209` · verify: `tests/web/test_active_toggle.py`
+- [x] W.9 · M18 · DOMPurify around `marked.parse`; data-attr + delegated listener in `docs_section.html` · verify: `tests/web/test_html_escape.py`
+- [x] W.10 · M19+M20 · unassigned view filters by `space_id is None` (assets.py; M19); AI upload endpoints count(6)/total(20MiB) caps + stream endpoint now surfaces cap error in-band (M20) · verify: `test_unassigned.py`, `test_ai_upload_caps.py`
 
 ### [ ] G-CLI — CLI parsing + tail (R3 CLI half, P2/P3) — *dep: W.4 (parsing module)*
 - [ ] C.1 · M39+M40 · CLI wraps `parse_date` → `typer.BadParameter`; resolver calls moved inside try across budget/report/asset/task/property · verify: `tests/cli/test_bad_input.py`

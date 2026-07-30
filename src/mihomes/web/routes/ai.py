@@ -1,6 +1,7 @@
 """AI Advisor route."""
 
 import json
+import logging
 import uuid
 from datetime import date, datetime, timedelta
 
@@ -14,7 +15,6 @@ from mihomes.services import property as prop_svc
 from mihomes.services.ai.file_processor import Attachment, process_upload
 from mihomes.web.deps import get_db, templates
 from mihomes.web.forms import save_document_text
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +65,7 @@ def _session_property_slug(context_summary: str | None) -> str:
 def _list_sessions(db: Session) -> list[dict]:
     """Return the most recent 50 sessions, one entry per session_id."""
     from sqlalchemy import func
+
     from mihomes.models.ai_conversation import AIConversation
 
     # Subquery: for each session_id get min(id), max(created_at), count
@@ -134,14 +135,30 @@ def _group_sessions(sessions: list[dict]) -> list[tuple[str, list[dict]]]:
     return [(label, items) for label, items in groups.items() if items]
 
 
+# M20: cap AI uploads so a caller can't attach hundreds of files or a huge
+# aggregate payload. Mirrors read_image_uploads' per-request count/size caps;
+# per-file image/text truncation still happens downstream in process_upload.
+_MAX_ATTACH_FILES = 6
+_MAX_ATTACH_TOTAL_BYTES = 20 * 1024 * 1024  # 20 MiB across all attachments
+
+
 async def _read_attachments(files: list[UploadFile]) -> list[Attachment]:
+    real = [f for f in files if f.filename]
+    if len(real) > _MAX_ATTACH_FILES:
+        raise ValueError(
+            f"Please attach at most {_MAX_ATTACH_FILES} files (got {len(real)})."
+        )
     result = []
-    for f in files:
-        if not f.filename:
-            continue
+    total = 0
+    for f in real:
         data = await f.read()
         if not data:
             continue
+        total += len(data)
+        if total > _MAX_ATTACH_TOTAL_BYTES:
+            raise ValueError(
+                f"Total attachment size exceeds {_MAX_ATTACH_TOTAL_BYTES // (1024 * 1024)} MB."
+            )
         att = process_upload(f.filename, data, f.content_type or "")
         if att:
             result.append(att)
@@ -361,15 +378,15 @@ async def ai_ask_stream(
     files: list[UploadFile] = File(default=[]),
     db: Session = Depends(get_db),
 ):
-    from mihomes.services.ai.ai_config import get_ai_api_key, get_ai_model, get_ai_provider_name
-    from mihomes.services.ai.agent import agent_stream, provider_stream
-    from mihomes.services.ai.roles import route_query
     from mihomes.models.ai_conversation import AIConversation
+    from mihomes.services.ai.agent import agent_stream, provider_stream
+    from mihomes.services.ai.ai_config import get_ai_api_key, get_ai_model, get_ai_provider_name
+    from mihomes.services.ai.roles import route_query
 
-    attachments = await _read_attachments(files)
     session_id = session_id or str(uuid.uuid4())
 
     try:
+        attachments = await _read_attachments(files)
         provider_name = get_ai_provider_name(db)
         api_key = get_ai_api_key(db, provider_name)
         model = get_ai_model(db, provider_name)

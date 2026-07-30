@@ -83,14 +83,15 @@ def edit_staff(
     phone: str = Form(""),
     email: str = Form(""),
     role: str = Form(""),
-    active: str = Form(""),
+    active: list[str] = Form(default=[]),
     property_ids: list[int] = Form(default=[]),
     db: Session = Depends(get_db),
 ):
     kwargs = {"name": name, "phone": phone or None, "email": email or None}
     if role:
         kwargs["role"] = StaffRole(role)
-    kwargs["active"] = active == "1"
+    # M17: hidden active=0 + checkbox active=1 → active iff any "1" submitted.
+    kwargs["active"] = "1" in active
     member = staff_svc.update_staff(db, slug, **kwargs)
     # Sync property assignments to the submitted set.
     selected = set(property_ids)

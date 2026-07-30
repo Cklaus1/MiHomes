@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
+from mihomes.config import UPLOADS_DIR, UPLOADS_URL_PREFIX
 from mihomes.models.asset import AssetCondition, AssetType
 from mihomes.models.book import BookCondition
 from mihomes.models.document import DocumentType
@@ -18,7 +19,6 @@ from mihomes.services import issue as issue_svc
 from mihomes.services import note as note_svc
 from mihomes.services import property as prop_svc
 from mihomes.services import space as space_svc
-from mihomes.config import UPLOADS_DIR, UPLOADS_URL_PREFIX
 from mihomes.services.ai.assessors import parse_room_scan
 from mihomes.web.deps import get_db, templates
 from mihomes.web.forms import parse_money, read_document_upload, read_image_uploads
@@ -74,7 +74,7 @@ def _spaces_ctx(db: Session, property_slug: str) -> dict:
     space_counts: dict[int, int] = {}
     unassigned = 0
     for a in assets:
-        if a.space_id:
+        if a.space_id is not None:
             space_counts[a.space_id] = space_counts.get(a.space_id, 0) + 1
         else:
             unassigned += 1
@@ -94,7 +94,7 @@ def _list_ctx(db: Session, property_slug: str, space_slug: str, asset_type: str 
     all_prop_assets = asset_svc.list_assets(db, property_id_or_slug=property_slug, active_only=False)
     if space_slug == "unassigned":
         space = None
-        assets = [a for a in all_prop_assets if not a.space_id]
+        assets = [a for a in all_prop_assets if a.space_id is None]
     else:
         space = space_svc.get_space(db, space_slug)
         assets = [a for a in all_prop_assets if a.space_id == space.id]

@@ -3,7 +3,7 @@
 Executable specs for the SaaS re-platform. Each spec turns one phase of the PRD set into
 something a developer (or an AI agent) can build **without asking a question**.
 
-**Status:** SPEC-001 written. Later phases deliberately not written yet — see below.
+**Status:** SPEC-001 and SPEC-002 written. Later phases deliberately not written yet — see below.
 
 ---
 
@@ -12,10 +12,15 @@ something a developer (or an AI agent) can build **without asking a question**.
 | Spec | Phase | Status |
 |---|---|---|
 | [SPEC-001](SPEC-001-phase0-landing-waitlist.md) | **0** — Landing + waitlist | Ready to build |
-| *SPEC-002* | **1** — Multitenant foundation | Not written (one decision open — see below) |
+| [SPEC-002](SPEC-002-phase1-multitenant-foundation.md) | **1** — Multitenant foundation | Ready to build (O1 open, does not block) |
 | *SPEC-003* | **2** — Onboarding + team + RBAC | Not written |
 | *SPEC-004* | **3** — Billing / freemium | Not written |
 | *SPEC-005* | **4** — Polish + email lifecycle + GA | Not written |
+
+**Locked across the set:** hosting is Fly.io, single region (`../architecture/MULTITENANCY.md`
+§11). The CLI is an **operator tool, not a user interface** — local SQLite mode is dropped and the
+CLI becomes an admin client against hosted Postgres (SPEC-002 D1). Primary keys are UUIDv7,
+app-side, no DB-side default (SPEC-001 §4.1, reused by SPEC-002).
 
 Phase numbering is canon across the whole doc set — see `../product/SAAS_PRD.md` §10.
 
@@ -98,7 +103,9 @@ Not an oversight, and not blocked on anything. Two reasons:
 1. **Phase 1 will teach us things Phase 2–4 specs would have to absorb.** The tenant-scoping
    layer — the `TenantOwned` mixin, the `with_loader_criteria` hook, RLS behaviour under
    PgBouncer — is the load-bearing part of the whole re-platform. Speccing the phases that sit
-   on top of it before it exists means writing rework.
+   on top of it before it exists means writing rework. SPEC-002 §7 already lists what Phase 2
+   inherits (`require_permission`, the entitlements service, the per-tenant config UI) as
+   `DEFERRED` items with their interface room reserved.
 2. **The Phase 2–4 surface is already well specified in the PRDs.** The entitlements contract
    (`../product/PRICING_AND_PACKAGING.md` §3.2), AI metering (§5), the billing status→behaviour
    mapping (`../architecture/BILLING_AND_EMAIL.md` §5), and the RBAC capability matrix

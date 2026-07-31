@@ -560,30 +560,41 @@ supervision, and DB backups by hand — the hidden cost is founder hours, not
 dollars) and the big clouds (AWS/GCP — right answer at scale, wrong tax at zero
 users).
 
-### 11.1 The Postgres question — do not skip this
+### 11.1 Postgres: managed (CANON)
 
-**Fly's own Postgres offering has historically been *unmanaged*.** Fly has been
-explicit that a Fly Postgres app is a regular Fly app running Postgres — you are
-the DBA, and **automatic backups are not implied**. Fly has since added a managed
-option (built on Supabase). These are different products with different guarantees.
+**Decision: managed Postgres.** Founder call, 2026-07-31. Fly Managed Postgres
+(Supabase-backed) or an external managed provider — the choice of vendor is an
+implementation detail; the guarantee is not.
 
-**Action before Phase 1: pick one, in writing, and confirm what its backup story
-actually is.** Two acceptable paths:
+**Why this needed deciding rather than defaulting.** Fly's *original* Postgres
+offering is **unmanaged**: a regular Fly app running Postgres, where you are the
+DBA and **automatic backups are not implied**. Fly has since added a managed
+option. The two read alike and behave differently, and that mismatch is exactly
+how a startup discovers it has no backups on the day it needs them. §9 calls
+cross-tenant leakage the #1 risk of the re-platform; **an unbacked database is
+the #2 risk**, and the one that ends the company rather than embarrassing it.
 
-| Option | Notes |
+What managed buys, and what it does not:
+
+| Concern | Covered by managed PG? |
 |---|---|
-| **Managed Postgres** (Fly Managed / Supabase, or an external managed PG) | Preferred. PITR and automated backups are the vendor's job. Costs more; worth it |
-| **Unmanaged Postgres app on Fly** | Only with a written backup plan — scheduled `pg_dump` to object storage, restore *rehearsed at least once*, retention stated |
+| Database backups + PITR | **Yes** — vendor responsibility |
+| Restore tooling and testing | Vendor provides it; **we still rehearse a restore once before the first non-founder tenant** |
+| Minor-version patching, failover | **Yes** |
+| **Tenant uploads in object storage** | **No** — see below |
 
-This is not optional polish. §9 calls cross-tenant leakage the #1 risk of the
-re-platform; **an unbacked database is the #2 risk**, and the one that ends the
-company rather than embarrassing it. The hosted DB holds every tenant's data,
-and "Fly Postgres" reads like a managed service while historically not being one
-— that mismatch is exactly how a startup discovers it has no backups on the day
-it needs them.
+**The gap managed Postgres does not close.** Uploads live in S3-compatible object
+storage (§11.3), which no database backup touches. `mihomes backup` today
+(`services/backup.py`) tars the SQLite file *and* the media directory; on hosted,
+the database half becomes the vendor's job and the media half still needs a
+sync job we own. Object-storage versioning or a scheduled media sync is
+**required regardless of this decision** — do not let "we chose managed" read as
+"backups are handled."
 
-**Related open item:** the doc set still has no stated RPO/RTO. Whichever option
-is chosen, record the recovery-point and recovery-time targets alongside it.
+**Recovery targets.** RPO and RTO derive from the chosen provider's SLA; record
+the actual numbers here once the provider is selected, rather than leaving them
+implied. Until then the operative commitment is: **automated daily backups with
+PITR, and a restore rehearsed before the first non-founder tenant's data lands.**
 
 ### 11.2 Connection pooling — already handled, and here is why it matters
 

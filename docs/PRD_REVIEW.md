@@ -304,11 +304,20 @@ Not contradictions — topics no doc covers. The first three block Phase 1.
    rows point to, and local filesystem paths do not work on a multi-tenant host. **No doc
    mentions object storage, S3, or a blob strategy** — this is an entire unspecified storage
    tier, and it compounds gap 2 below (two stores to back up, only one named).
-2. **Backup / disaster recovery / PITR.** Nowhere in the set. A hosted multi-tenant database
-   with no stated RPO/RTO is a Phase-1 decision, not Phase-4 polish.
-3. **Hosting target.** No doc names where Postgres or the app run — provider, region, managed
-   vs. self-hosted. `SAAS_PRD.md:255` lists data residency as an open question; the hosting
-   decision underneath it is never asked. Blocks the §5.1 engine change.
+2. **Backup / disaster recovery / PITR.** ⚠ **Still open, and now sharper.** A hosted
+   multi-tenant database with no stated RPO/RTO is a Phase-1 decision, not Phase-4 polish.
+   The Fly decision (below) raises the stakes: Fly's own Postgres has historically been
+   **unmanaged** — a Postgres app you are the DBA for, with **no implied automatic backups** —
+   while Fly has since added a managed option. Those are different products. `MULTITENANCY`
+   §11.1 now forces the choice in writing, but **it is not yet made.**
+3. ~~**Hosting target.**~~ **Resolved 2026-07-31 — Fly.io, single region**
+   (`MULTITENANCY` §11, founder call). Three consequences now written into the docs rather
+   than latent: transaction-local `set_config` is a **hosting requirement** because Fly
+   fronts Postgres with PgBouncer in transaction-pooling mode (§11.2); Fly volumes are
+   single-machine local NVMe, so S3-compatible object storage behind `StorageProvider` is
+   **mandatory**, not merely clean (§11.3); and scale-to-zero is incompatible with
+   always-on scheduled work, so the trial-expiry scheduler and the daily Stripe
+   reconciliation sweep need a home that doesn't sleep (§11.4).
 4. Monitoring / alerting stack (`SAAS_PRD` §9 names *what* to observe, never *with what*).
 5. Provider-outage behavior for Resend/Stripe beyond the `FailoverEmailProvider` sketch.
 6. ToS + Privacy Policy — required by `SAAS_PRD.md:193` GA-DoD and by GTM before collecting a
@@ -482,7 +491,8 @@ alone). Most do not block spec-writing. Filtered by what actually gates work:
 |---|---|---|
 | **PK strategy: UUID vs integer** | `MULTITENANCY` Q1 | Doc says "decide before the baseline migration". Recommend UUIDv7 app-side — but `pyproject.toml:9` declares `>=3.11` while `uuid.uuid7()` is stdlib only from **3.14** |
 | **Local/self-hosted edition long-term?** | `SAAS_PRD` §14 | **Highest-leverage question in the set** — see below |
-| Data residency / region | `SAAS_PRD` §14 | Plus the hosting target underneath it, which no doc asks (E3) |
+| ~~Data residency / region~~ | `SAAS_PRD` §14 | **Resolved** — Fly.io, single region, US-first (`MULTITENANCY` §11) |
+| **Postgres: managed or unmanaged?** | `MULTITENANCY` §11.1 | **Replaces the above as the blocker.** Fly's own Postgres has historically been unmanaged with no implied backups; a managed option now exists. Different products, different guarantees. Pick one and state RPO/RTO — see E2 |
 | Account-switching carrier: subdomain / path / session? | `MULTITENANCY` Q6 | Affects §4.1 tenant resolution |
 | Founder's live gateways during re-platform | `SAAS_PRD` §14 | The Telegram bot writes continuously to the DB being migrated |
 

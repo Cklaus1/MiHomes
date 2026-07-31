@@ -113,6 +113,7 @@ Primary launch ICP: **multi-home owners and families with household staff** — 
 | **Email** | Resend (default) behind `EmailProvider`; failover to Postmark/SES | Same doc |
 | **Launch strategy** | Landing + waitlist FIRST, then MVP | De-risk the re-platform; [`GTM_LAUNCH_PLAN.md`](GTM_LAUNCH_PLAN.md) |
 | **Domain** | mihomes.ai (registered) | Marketing on apex; app on `app.mihomes.ai`; email on `send.mihomes.ai` |
+| **Hosting** | Fly.io, single region | Scale-to-zero fits launch traffic; TLS/deploys are platform features. Postgres managed-vs-unmanaged still to confirm — [`MULTITENANCY.md`](../architecture/MULTITENANCY.md) §11 |
 
 ---
 
@@ -251,5 +252,7 @@ This PRD is the anchor. Each subsystem has a dedicated doc:
 - Exact price points and trial policy — Pricing doc leans **14-day no-card Pro trial** (§4.2 there); dollar figures remain PLACEHOLDER.
 - What happens to the founder's live chat gateways (WhatsApp/Telegram) during the re-platform — keep running against local mode until the tenant-aware versions ship?
 - Do we keep a first-class **local/self-hosted** edition long-term, or is hosted the only future?
-- Data residency / region for Postgres at launch?
+- ~~Data residency / region for Postgres at launch?~~ **Resolved 2026-07-31:** Fly.io,
+  single region, US-first unless an EU customer appears — [`MULTITENANCY.md`](../architecture/MULTITENANCY.md) §11.5.
+  Still open underneath it: **managed vs. unmanaged Postgres** and the RPO/RTO targets (§11.1).
 - How aggressively to pursue the Vendor Discovery marketplace vs. core SaaS depth?

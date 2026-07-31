@@ -304,12 +304,13 @@ Not contradictions — topics no doc covers. The first three block Phase 1.
    rows point to, and local filesystem paths do not work on a multi-tenant host. **No doc
    mentions object storage, S3, or a blob strategy** — this is an entire unspecified storage
    tier, and it compounds gap 2 below (two stores to back up, only one named).
-2. **Backup / disaster recovery / PITR.** ⚠ **Still open, and now sharper.** A hosted
-   multi-tenant database with no stated RPO/RTO is a Phase-1 decision, not Phase-4 polish.
-   The Fly decision (below) raises the stakes: Fly's own Postgres has historically been
-   **unmanaged** — a Postgres app you are the DBA for, with **no implied automatic backups** —
-   while Fly has since added a managed option. Those are different products. `MULTITENANCY`
-   §11.1 now forces the choice in writing, but **it is not yet made.**
+2. ~~**Backup / disaster recovery / PITR.**~~ **Resolved 2026-07-31 — managed Postgres**
+   (`MULTITENANCY` §11.1, founder call). Backups and PITR become the vendor's responsibility;
+   the operative commitment is automated daily backups plus **a restore rehearsed before the
+   first non-founder tenant**. Two things remain ours, both specced in SPEC-002 Step 14:
+   **media backup** — no database backup touches object storage, so `mihomes backup` becomes a
+   media-only command — and the **restore rehearsal**, which is where the real RTO number comes
+   from. Exact RPO/RTO get recorded in §11.1 once the provider is selected.
 3. ~~**Hosting target.**~~ **Resolved 2026-07-31 — Fly.io, single region**
    (`MULTITENANCY` §11, founder call). Three consequences now written into the docs rather
    than latent: transaction-local `set_config` is a **hosting requirement** because Fly
@@ -489,12 +490,15 @@ alone). Most do not block spec-writing. Filtered by what actually gates work:
 
 | Question | Source | Note |
 |---|---|---|
-| **PK strategy: UUID vs integer** | `MULTITENANCY` Q1 | Doc says "decide before the baseline migration". Recommend UUIDv7 app-side — but `pyproject.toml:9` declares `>=3.11` while `uuid.uuid7()` is stdlib only from **3.14** |
-| **Local/self-hosted edition long-term?** | `SAAS_PRD` §14 | **Highest-leverage question in the set** — see below |
+| ~~PK strategy: UUID vs integer~~ | `MULTITENANCY` Q1 | **Resolved** — UUIDv7, app-side, no DB-side default. `uuid.uuid7()` is stdlib only from 3.14 against a `>=3.11` floor, so it routes through a `mihomes.ids.new_id()` helper (SPEC-001 §4.1) |
+| ~~Local/self-hosted edition long-term?~~ | `SAAS_PRD` §14 | **Resolved** — CLI becomes an operator tool; **local SQLite mode dropped** (SPEC-002 D1) |
 | ~~Data residency / region~~ | `SAAS_PRD` §14 | **Resolved** — Fly.io, single region, US-first (`MULTITENANCY` §11) |
-| **Postgres: managed or unmanaged?** | `MULTITENANCY` §11.1 | **Replaces the above as the blocker.** Fly's own Postgres has historically been unmanaged with no implied backups; a managed option now exists. Different products, different guarantees. Pick one and state RPO/RTO — see E2 |
-| Account-switching carrier: subdomain / path / session? | `MULTITENANCY` Q6 | Affects §4.1 tenant resolution |
-| Founder's live gateways during re-platform | `SAAS_PRD` §14 | The Telegram bot writes continuously to the DB being migrated |
+| ~~Postgres: managed or unmanaged?~~ | `MULTITENANCY` §11.1 | **Resolved 2026-07-31 — managed.** Backups/PITR are the vendor's; media backup and a rehearsed restore stay ours (SPEC-002 D13/D14, Step 14) |
+| ~~Founder's live gateways during re-platform~~ | `SAAS_PRD` §14 | **Resolved** — first hosted tenant is a clean signup; the archive imports later via `mihomes import`, decoupled from launch (SPEC-002 D10) |
+| Account-switching carrier: subdomain / path / session? | `MULTITENANCY` Q6 | Affects §4.1 tenant resolution. Not yet decided — SPEC-002 Step 12 assumes a session field |
+
+**Phase 1 has no remaining blockers.** SPEC-002 §1.2 is empty; the only undecided item above
+(account-switching carrier) has a working default in the spec and can be revisited during build.
 
 **Why the local/self-hosted question dominates:** if the answer is "hosted only", a large part
 of Phase 1 evaporates — the dual-mode `db.py` fork, the dialect-aware Alembic chain (§5.2

@@ -12,15 +12,17 @@ something a developer (or an AI agent) can build **without asking a question**.
 | Spec | Phase | Status |
 |---|---|---|
 | [SPEC-001](SPEC-001-phase0-landing-waitlist.md) | **0** — Landing + waitlist | Ready to build |
-| [SPEC-002](SPEC-002-phase1-multitenant-foundation.md) | **1** — Multitenant foundation | Ready to build (O1 open, does not block) |
+| [SPEC-002](SPEC-002-phase1-multitenant-foundation.md) | **1** — Multitenant foundation | Ready to build — **no open decisions** |
 | *SPEC-003* | **2** — Onboarding + team + RBAC | Not written |
 | *SPEC-004* | **3** — Billing / freemium | Not written |
 | *SPEC-005* | **4** — Polish + email lifecycle + GA | Not written |
 
-**Locked across the set:** hosting is Fly.io, single region (`../architecture/MULTITENANCY.md`
-§11). The CLI is an **operator tool, not a user interface** — local SQLite mode is dropped and the
-CLI becomes an admin client against hosted Postgres (SPEC-002 D1). Primary keys are UUIDv7,
-app-side, no DB-side default (SPEC-001 §4.1, reused by SPEC-002).
+**Locked across the set:** hosting is Fly.io, single region, on **managed Postgres**
+(`../architecture/MULTITENANCY.md` §11, §11.1). The CLI is an **operator tool, not a user
+interface** — local SQLite mode is dropped and the CLI becomes an admin client against hosted
+Postgres (SPEC-002 D1). Primary keys are UUIDv7, app-side, no DB-side default (SPEC-001 §4.1,
+reused by SPEC-002). Uploads go to S3-compatible object storage behind a `StorageProvider`
+Protocol — never a Fly volume, which is single-machine local disk.
 
 Phase numbering is canon across the whole doc set — see `../product/SAAS_PRD.md` §10.
 

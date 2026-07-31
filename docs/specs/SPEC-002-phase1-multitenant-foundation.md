@@ -35,15 +35,15 @@ re-platform**. Every design choice below that looks paranoid is paranoid on purp
 | D10 | Importer | **Keep**, as `mihomes import <sqlite-path>` | Decoupled from launch: the first hosted tenant is a clean signup, the archive imports later into its own account. Reading a SQLite file does not require the *app* to speak SQLite |
 | D11 | Storage | `StorageProvider` Protocol + S3 backend + filesystem dev backend | §11.3 — Fly volumes are single-machine local NVMe, so object storage is mandatory. See §7-N6 |
 | D12 | Local dev | docker-compose Postgres | D1 removes the zero-setup SQLite path; every dev and CI run now needs a real Postgres |
+| D13 | **Postgres: managed** | Fly Managed Postgres (Supabase-backed) or an external managed provider | Founder decision, 2026-07-31. Backups + PITR become the vendor's responsibility. `MULTITENANCY` §11.1 (canon). **Removes `pg_dump` from Step 14 — but not Step 14 itself**, because no database backup covers object storage (§1.3 F1) |
+| D14 | Recovery targets | Automated daily backups + PITR; **a restore rehearsed before the first non-founder tenant** | Exact RPO/RTO come from the selected provider's SLA and get recorded in `MULTITENANCY` §11.1. The rehearsal is ours regardless of vendor — an untested restore is not a backup |
 
 ### 1.2 `OPEN — needs decision: founder`
 
-| # | Question | Blocks | Recommendation |
-|---|---|---|---|
-| O1 | **Managed or unmanaged Postgres?** | *How much* of Step 14, not whether | **Managed.** Unmanaged adds `pg_dump` + a rehearsed restore to this phase, before the first tenant's data lands. **Note:** managed does **not** remove Step 14 — media backup is uncovered either way (§F1 below) |
-| O2 | **RPO / RTO targets** | Sizing whatever O1 chooses | Follows from O1. State it in `MULTITENANCY` §11.1 rather than leaving it implied |
+**None.** O1 (managed vs. unmanaged Postgres) and O2 (RPO/RTO) closed 2026-07-31 → D13, D14.
 
-Neither blocks building. Step 14 is written with both branches.
+Every decision this phase depends on is settled. Items still marked `DEFERRED (Phase N)` in §7
+are future scope with their interfaces already fixed, not gates on this work.
 
 ### 1.3 Survey findings that shaped this spec
 
@@ -61,7 +61,11 @@ if not DB_PATH.exists():
 
 So `mihomes doctor` would report a **false error** on hosted and skip its integrity checks —
 worse than failing loudly. `mihomes backup` is currently the *only* backup mechanism that exists.
-→ Step 14.
+
+D13 (managed Postgres) resolves the database half — the vendor owns backups and PITR, so the
+`pg_dump` branch is dropped. It does **not** resolve the media half: no database backup touches
+object storage, so `mihomes backup` becomes a media-only command and must say so in its
+docstring. → Step 14.
 
 **F2 — `ai/tools.py` interpolates SQL predicates.** Three queries at `tools.py:792,803,814` use
 `text(f"""...WHERE {where}...""")`. Values are properly bound (`:search`); the **predicate
@@ -517,11 +521,24 @@ session cookie is httpOnly + Secure + SameSite=Lax.
 **Step 13 — CLI re-point.** `db.py` → Postgres; ops commands take `--account`. *Verify:*
 `mihomes task list --account <slug>` returns only that account's tasks.
 
-**Step 14 — `backup.py` + `doctor` rewrite (F1).** Media-sync from object storage always;
-`pg_dump` **`OPEN — needs decision: founder (O1)`** — required if unmanaged, redundant if managed.
-`doctor` drops its `DB_PATH`/`MEDIA_DIR`/`BACKUPS_DIR` assumptions and keeps its ORM integrity
-checks (`backup.py:79-100`, orphan detection). *Verify:* `mihomes doctor` on hosted reports no
-false errors and still detects an orphaned task.
+**Step 14 — `backup.py` + `doctor` rewrite (F1).** Scope is now fixed by D13:
+
+- **Drop the `pg_dump` path.** Managed Postgres owns database backups and PITR. Writing our own
+  would be a second, unmonitored backup system competing with the vendor's — worse than none,
+  because it invites false confidence.
+- **Keep and build the media sync.** No database backup covers object storage. Either enable
+  bucket versioning or run a scheduled sync; whichever, `mihomes backup` becomes a **media-only**
+  command and its docstring must say so, or the next reader will assume it covers the database.
+- **`doctor`** drops its `DB_PATH`/`MEDIA_DIR`/`BACKUPS_DIR` assumptions (which produce a false
+  "Database not found" and skip every later check — `backup.py:58-60`) and keeps its ORM
+  integrity checks (`:79-100`, orphan detection). Add a check that the managed provider's most
+  recent backup is within the RPO window (D14) — the one thing that actually verifies the
+  vendor is doing its job.
+- **Rehearse a restore** before the first non-founder tenant (D14). Not optional, not automated —
+  do it once by hand and write down how long it took. That number is the real RTO.
+
+*Verify:* `mihomes doctor` on hosted reports no false errors, still detects an orphaned task, and
+flags a stale backup. `mihomes backup` round-trips media to and from object storage.
 
 **Step 15 — test-suite migration (F6).** Postgres fixture, seeded account, ContextVar set,
 docker-compose (D12), Postgres service in CI. *Verify:* the existing 33 test files pass.

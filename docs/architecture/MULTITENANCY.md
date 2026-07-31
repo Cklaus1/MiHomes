@@ -540,3 +540,111 @@ Cross-tenant data leakage is the **#1 risk** of this entire re-platform. Control
    transfer and prevent removing the sole owner.
 8. **Backfill downtime:** adding non-null `account_id` to large tables — for hosted
    scale, use the nullable→backfill→NOT NULL pattern to avoid long locks.
+
+---
+
+## 11. Hosting & deployment target (CANON)
+
+**Decision: Fly.io**, single region at launch. Founder call, 2026-07-31.
+
+Rationale: launch traffic is a waitlist cohort, not scale. Fly is a
+container-and-machines platform (deploy a Dockerfile, get TLS + a global anycast
+edge) with per-second billing and machines that scale to zero — the cost profile
+matches a product with no users yet. It also removes work Phase 0 would otherwise
+own: TLS, certs for `mihomes.ai` / `app.mihomes.ai`, and rolling deploys are
+platform features, not things to build. Migrating off later is a Dockerfile move,
+because nothing below depends on a Fly-only API.
+
+Rejected for now: a bare VPS (cheaper per GB, but you own TLS, deploys, process
+supervision, and DB backups by hand — the hidden cost is founder hours, not
+dollars) and the big clouds (AWS/GCP — right answer at scale, wrong tax at zero
+users).
+
+### 11.1 The Postgres question — do not skip this
+
+**Fly's own Postgres offering has historically been *unmanaged*.** Fly has been
+explicit that a Fly Postgres app is a regular Fly app running Postgres — you are
+the DBA, and **automatic backups are not implied**. Fly has since added a managed
+option (built on Supabase). These are different products with different guarantees.
+
+**Action before Phase 1: pick one, in writing, and confirm what its backup story
+actually is.** Two acceptable paths:
+
+| Option | Notes |
+|---|---|
+| **Managed Postgres** (Fly Managed / Supabase, or an external managed PG) | Preferred. PITR and automated backups are the vendor's job. Costs more; worth it |
+| **Unmanaged Postgres app on Fly** | Only with a written backup plan — scheduled `pg_dump` to object storage, restore *rehearsed at least once*, retention stated |
+
+This is not optional polish. §9 calls cross-tenant leakage the #1 risk of the
+re-platform; **an unbacked database is the #2 risk**, and the one that ends the
+company rather than embarrassing it. The hosted DB holds every tenant's data,
+and "Fly Postgres" reads like a managed service while historically not being one
+— that mismatch is exactly how a startup discovers it has no backups on the day
+it needs them.
+
+**Related open item:** the doc set still has no stated RPO/RTO. Whichever option
+is chosen, record the recovery-point and recovery-time targets alongside it.
+
+### 11.2 Connection pooling — already handled, and here is why it matters
+
+Fly Postgres deployments commonly front the database with **PgBouncer** in
+transaction-pooling mode.
+
+**§7's PgBouncer caveat is therefore live, not hypothetical.** That section already
+chose the correct primitive: transaction-local `set_config('app.current_account',
+…, true)` issued inside each transaction, never a session-level `SET`. Under
+transaction pooling a session-level `SET` would leak tenant context across clients
+— a cross-tenant data leak, the cardinal sin of §9.
+
+Consequences to honor:
+- Keep transaction-local `set_config` as the **primary** mechanism (§4.2, §7).
+  This is now a hosting requirement, not just a good practice.
+- The §7 pool `checkin`/`RESET` hook still belongs there, but note it runs against
+  the *proxy* under transaction pooling — it is belt-and-braces, not the guarantee.
+- Set SQLAlchemy `pool_pre_ping=True` and modest `pool_size`; the real pooling
+  happens in PgBouncer, so a large app-side pool multiplies connections for nothing.
+- Verify the isolation test (§9) runs against the **pooled** endpoint, not a direct
+  connection. A tenant leak that only appears under pooling is exactly the bug the
+  test exists to catch.
+
+### 11.3 File storage — Fly volumes are not the answer
+
+Fly volumes are **local NVMe attached to a single machine**. They are not shared
+storage: two machines do not see the same volume, and a machine replacement can
+mean a fresh one.
+
+So the `StorageProvider` decision stands, and Fly makes it mandatory rather than
+merely clean. Use **S3-compatible object storage** (Tigris is Fly's integrated
+option; any S3-compatible service works) behind the Protocol. `Document.file_path`
+becomes an opaque tenant-prefixed key, per the storage spec.
+
+Do **not** store uploads on a volume "for now" — it silently prevents running more
+than one machine, and it puts tenant files outside whatever backup covers Postgres.
+
+### 11.4 Always-on work vs. scale-to-zero
+
+`SAAS_PRD.md` §9 already flags that the single-instance watchdog/monitor model must
+be rethought for hosting. Fly sharpens the point: machines can auto-stop when idle,
+which is the cost advantage — and is incompatible with a process that assumes it is
+always running.
+
+- The **web app** may scale to zero and wake on request.
+- **Scheduled work** (the `trial_ending` scheduler the no-card trial requires, the
+  daily Stripe reconciliation sweep in `BILLING_AND_EMAIL.md` §6) must run somewhere
+  that does not sleep — a dedicated always-on machine or a scheduled-task mechanism.
+  Decide when Phase 3 schedules land; it does not block Phase 1.
+- Webhook endpoints (Stripe, later Telegram/Twilio) wake on request and are fine.
+- Note this is *why* the gateway PRDs' webhook-over-polling direction is right for
+  hosting: a polling monitor needs an always-on process per install and does not fit
+  this model.
+
+### 11.5 Region & data residency
+
+Single region at launch, chosen for founder/customer latency. This is the concrete
+answer to the data-residency open question in `SAAS_PRD.md` §14 — **US-first unless
+EU customers appear**, in which case revisit before, not after, signing one.
+
+Fly can run app machines in multiple regions, but **the database stays single-region**:
+read replicas add consistency complexity that a low-traffic launch does not need.
+Keep the app in the same region as Postgres to avoid paying cross-region latency on
+every query.

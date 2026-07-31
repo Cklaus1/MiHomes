@@ -47,6 +47,7 @@ Every doc in this set is written against these. If one changes, update the maste
 | **Upgrade trigger** | 2nd home, 4th seat, or inviting external staff |
 | **Payments** | Stripe Billing behind `BillingProvider` |
 | **Email** | Resend behind `EmailProvider` (failover to Postmark/SES) |
+| **Hosting** | Fly.io, single region; S3-compatible object storage for uploads (not Fly volumes) |
 | **Launch** | Landing + waitlist first, then the multi-tenant MVP |
 
 ---

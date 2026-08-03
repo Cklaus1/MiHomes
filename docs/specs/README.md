@@ -3,7 +3,7 @@
 Executable specs for the SaaS re-platform. Each spec turns one phase of the PRD set into
 something a developer (or an AI agent) can build **without asking a question**.
 
-**Status:** SPEC-001 and SPEC-002 written. Later phases deliberately not written yet — see below.
+**Status:** SPEC-001, SPEC-002, and SPEC-003 written. Phases 3–4 not written yet — see below.
 
 ---
 
@@ -13,7 +13,7 @@ something a developer (or an AI agent) can build **without asking a question**.
 |---|---|---|
 | [SPEC-001](SPEC-001-phase0-landing-waitlist.md) | **0** — Landing + waitlist | Ready to build |
 | [SPEC-002](SPEC-002-phase1-multitenant-foundation.md) | **1** — Multitenant foundation | Ready to build — **no open decisions** |
-| *SPEC-003* | **2** — Onboarding + team + RBAC | Not written |
+| [SPEC-003](SPEC-003-phase2-onboarding-team-rbac.md) | **2** — Onboarding + team + RBAC | Ready to build — **1 open decision** (O1: secret encryption) |
 | *SPEC-004* | **3** — Billing / freemium | Not written |
 | *SPEC-005* | **4** — Polish + email lifecycle + GA | Not written |
 
@@ -98,24 +98,48 @@ fine.
 
 ---
 
-## Phases 2–4: deliberately not written yet
+## Phase 2 was written ahead of Phase 1's outcome — deliberately
 
-Not an oversight, and not blocked on anything. Two reasons:
+This section previously argued that Phases 2–4 should stay unwritten until Phase 1 shipped,
+because "speccing the phases that sit on top of it before it exists means writing rework." The
+override condition it named was to read Phase 1's *outcome* first.
+
+**SPEC-003 was written anyway, by founder decision (2026-08-03), with no Phase 1 outcome to
+read.** Phase 1 is spec-only: `account_id` appears zero times in any `.py` file on any branch,
+the DB is still hardcoded SQLite, and there is no Postgres driver installed. The reasoning is
+recorded here rather than quietly dropped, because it changes how SPEC-003 should be read:
+
+- SPEC-003 §0.1 states the assumption explicitly. Every reference in it to `account_id`,
+  `TenantOwned`, `memberships`, or the scoped session describes **SPEC-002's design, not code**.
+- **If SPEC-002's implementation diverges from its spec, SPEC-003 inherits the divergence.**
+  Re-verify its §4 and §5 against the tree before building.
+- The prediction was half right. Writing SPEC-003 surfaced three PRD conflicts that are exactly
+  the rework this section warned about — `membership_home_scopes` vs `membership_property_scopes`,
+  `accounts.owner_user_id` vs the partial unique index, and entitlements assigned to three
+  different phases. They were fixed in the doc layer (SPEC-003 §2, B1–B12) instead of being
+  discovered mid-implementation, which is cheaper than either alternative.
+- It was also half wrong in a more useful way. Claim 2 below — that the Phase 2 surface was
+  "already well specified" — did not survive contact. The capability matrix turned out to have
+  no machine-readable action keys despite §9.4 instructing implementers to look actions up in it;
+  the vendor rule contradicted itself between §9.2 and §9.3; documents were left `scoped` with
+  nothing to scope by; and money fields sit inside rows staff are permitted to see, which no PRD
+  addresses at all. Six founder decisions (SPEC-003 D12–D17) were needed to close those gaps.
+
+**The original reasoning, preserved:**
 
 1. **Phase 1 will teach us things Phase 2–4 specs would have to absorb.** The tenant-scoping
    layer — the `TenantOwned` mixin, the `with_loader_criteria` hook, RLS behaviour under
-   PgBouncer — is the load-bearing part of the whole re-platform. Speccing the phases that sit
-   on top of it before it exists means writing rework. SPEC-002 §7 already lists what Phase 2
-   inherits (`require_permission`, the entitlements service, the per-tenant config UI) as
-   `DEFERRED` items with their interface room reserved.
+   PgBouncer — is the load-bearing part of the whole re-platform. SPEC-002 §7 already lists what
+   Phase 2 inherits (`require_permission`, the entitlements service, the per-tenant config UI)
+   as `DEFERRED` items with their interface room reserved.
 2. **The Phase 2–4 surface is already well specified in the PRDs.** The entitlements contract
    (`../product/PRICING_AND_PACKAGING.md` §3.2), AI metering (§5), the billing status→behaviour
    mapping (`../architecture/BILLING_AND_EMAIL.md` §5), and the RBAC capability matrix
-   (`../product/ONBOARDING_AUTH_RBAC.md` §9.2) are all decided. There is less spec-shaped work
-   left there than the phase count suggests.
+   (`../product/ONBOARDING_AUTH_RBAC.md` §9.2) are all decided.
 
-To override this, read SPEC-001 and Phase 1's outcome first — the reasoning is here so the
-decision can be made on evidence rather than by asking.
+**For Phases 3–4, the argument still stands** — with claim 2 downgraded. A PRD that reads as
+decided can still be unbuildable: verify the source is a *specification* and not a prose sketch
+before assuming a phase is nearly specced.
 
 ---
 

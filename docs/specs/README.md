@@ -3,7 +3,8 @@
 Executable specs for the SaaS re-platform. Each spec turns one phase of the PRD set into
 something a developer (or an AI agent) can build **without asking a question**.
 
-**Status:** SPEC-001, SPEC-002, and SPEC-003 written. Phases 3–4 not written yet — see below.
+**Status:** SPEC-001 through SPEC-004 written — Phase 3 is the MVP cut line. Phase 4 not written
+yet — see below.
 
 ---
 
@@ -14,7 +15,7 @@ something a developer (or an AI agent) can build **without asking a question**.
 | [SPEC-001](SPEC-001-phase0-landing-waitlist.md) | **0** — Landing + waitlist | Ready to build |
 | [SPEC-002](SPEC-002-phase1-multitenant-foundation.md) | **1** — Multitenant foundation | Ready to build — **no open decisions** |
 | [SPEC-003](SPEC-003-phase2-onboarding-team-rbac.md) | **2** — Onboarding + team + RBAC | Ready to build — **1 open decision** (O1: secret encryption) |
-| *SPEC-004* | **3** — Billing / freemium | Not written |
+| [SPEC-004](SPEC-004-phase3-billing-freemium.md) | **3** — Billing / freemium | Ready to build — **1 open decision** (O1: launch prices/limits, blocks config only) |
 | *SPEC-005* | **4** — Polish + email lifecycle + GA | Not written |
 
 **Locked across the set:** hosting is Fly.io, single region, on **managed Postgres**

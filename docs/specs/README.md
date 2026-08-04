@@ -3,8 +3,8 @@
 Executable specs for the SaaS re-platform. Each spec turns one phase of the PRD set into
 something a developer (or an AI agent) can build **without asking a question**.
 
-**Status:** SPEC-001 through SPEC-004 written — Phase 3 is the MVP cut line. Phase 4 not written
-yet — see below.
+**Status:** The set is **complete** — SPEC-001 through SPEC-005 written. Phase 3 is the MVP cut
+line; Phase 4 is GA.
 
 ---
 
@@ -16,19 +16,28 @@ yet — see below.
 | [SPEC-002](SPEC-002-phase1-multitenant-foundation.md) | **1** — Multitenant foundation | Ready to build — **no open decisions** |
 | [SPEC-003](SPEC-003-phase2-onboarding-team-rbac.md) | **2** — Onboarding + team + RBAC | Ready to build — **1 open decision** (O1: secret encryption) |
 | [SPEC-004](SPEC-004-phase3-billing-freemium.md) | **3** — Billing / freemium | Ready to build — **1 open decision** (O1: launch prices/limits, blocks config only) |
-| *SPEC-005* | **4** — Polish + email lifecycle + GA | Not written |
+| [SPEC-005](SPEC-005-phase4-polish-email-ga.md) | **4** — Polish + email lifecycle + GA | Ready to build — **2 open decisions** (O1: drip content/cadence; O2: deletion grace length) |
 
-**Two different O1s are open, and they are unrelated.** Label namespaces are per-spec-local (see
-*Working on a spec* below), so the numbering restarts in every spec. SPEC-003's O1 is at-rest
-encryption of provider API keys; SPEC-004's O1 is the launch prices and limits. SPEC-002's O1
-**closed** on 2026-07-31 (→ D13). Always resolve an `O`-label inside the spec that raised it.
+**Four unrelated `O1`s are open across the set.** Label namespaces are per-spec-local (see
+*Working on a spec* below), so the numbering restarts in every spec. SPEC-001's O1 is the ToS +
+Privacy Policy; SPEC-003's O1 is at-rest encryption of provider API keys; SPEC-004's O1 is the
+launch prices and limits; SPEC-005's O1 is the drip sequence. SPEC-002's O1 **closed** on
+2026-07-31 (→ D13). Always resolve an `O`-label inside the spec that raised it.
+
+**Three of those gate GA rather than a build** — SPEC-001 O1, SPEC-003 O1 and SPEC-004 O1 are all
+carried in SPEC-005 §1.6 under their original labels, because `SAAS_PRD:189-196` cannot be
+satisfied until their owners decide. SPEC-005 §8's A33 asserts they are visibly tracked, not that
+they are resolved.
 
 **Locked across the set:** hosting is Fly.io, single region, on **managed Postgres**
 (`../architecture/MULTITENANCY.md` §11, §11.1). The CLI is an **operator tool, not a user
 interface** — local SQLite mode is dropped and the CLI becomes an admin client against hosted
 Postgres (SPEC-002 D1). Primary keys are UUIDv7, app-side, no DB-side default (SPEC-001 §4.1,
 reused by SPEC-002). Uploads go to S3-compatible object storage behind a `StorageProvider`
-Protocol — never a Fly volume, which is single-machine local disk.
+Protocol — never a Fly volume, which is single-machine local disk. The `EmailProvider` Protocol is
+**transport-only** — it ships in Phase 0 and is reused, never rebuilt (SPEC-001 §5.1); SPEC-005
+D11 makes the set's only widening of it, one additive `headers` kwarg for RFC 8058 unsubscribe,
+and explains at length why that is not a violation.
 
 **"Locked" means decided, not built.** None of the above exists in the tree: `config.py:14` still
 hardcodes `DB_URL = f"sqlite:///{DB_PATH}"`, and no Postgres driver is installed on any branch
@@ -111,7 +120,7 @@ fine.
 
 ---
 
-## Phase 2 was written ahead of Phase 1's outcome — deliberately
+## Phases 2–4 were written ahead of Phase 1's outcome — deliberately
 
 This section previously argued that Phases 2–4 should stay unwritten until Phase 1 shipped,
 because "speccing the phases that sit on top of it before it exists means writing rework." The
@@ -150,9 +159,24 @@ recorded here rather than quietly dropped, because it changes how SPEC-003 shoul
    mapping (`../architecture/BILLING_AND_EMAIL.md` §5), and the RBAC capability matrix
    (`../product/ONBOARDING_AUTH_RBAC.md` §9.2) are all decided.
 
-**For Phases 3–4, the argument still stands** — with claim 2 downgraded. A PRD that reads as
-decided can still be unbuildable: verify the source is a *specification* and not a prose sketch
-before assuming a phase is nearly specced.
+**All four remaining phases were written anyway, and claim 2 did not survive any of them.** A PRD
+that reads as decided can still be unbuildable: verify the source is a *specification* and not a
+prose sketch before assuming a phase is nearly specced.
+
+**SPEC-005 is the strongest case against claim 2, and it inverts the failure mode.** SPEC-003 and
+SPEC-004 found PRDs that were *contradictory* — two documents each confidently asserting something
+different. Phase 4's central deliverable is not contradictory; it is **absent**. `SAAS_PRD:182`
+makes "full email lifecycle" the phase's headline, and `BILLING` §2.6 — the only email catalogue in
+the doc set — assigns **zero** templates to Phase 4, while the GA definition of done's own email
+list names five that all ship in Phases 2 and 3 (SPEC-005 §0.4, F3). Read literally, the gate is
+satisfied before the phase starts. So SPEC-005 §4 and §5 are original design rather than
+transcription: the outbox, the suppression list, the delivery log, the drip machinery and the
+deletion state machine are specified *here first*, and the two genuinely product-shaped questions
+inside them are raised as O1 and O2 rather than defaulted.
+
+**The lesson for a future doc set:** a phase whose PRD content is thin reads exactly like a phase
+whose PRD content is complete, because absence has no line number to cite. Contradictions announce
+themselves; gaps do not.
 
 ---
 

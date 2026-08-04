@@ -743,7 +743,8 @@ on-request route at `web/routes/ai.py:311` still works for **every** plan (A14b)
 schedule, not the feature.
 
 **Step 14 — `audit_export` end to end.** Wire the gated export to a route and the CLI.
-*Verify:* an Estate owner exports; a Pro owner gets a `Denied` naming the upgrade target.
+*Verify:* an Estate owner exports; a Pro owner gets a `Denied` **naming the upgrade target**
+(A34) — A12 covers the service-level gate, this covers the surfaces a user actually reaches.
 
 **Step 15 — observability and error handling.** One `logging_config.py` with a real `dictConfig`
 (JSON in prod), FastAPI exception handlers, an `error.html`, and `/healthz` confirmed live from
@@ -891,6 +892,13 @@ out first.
 | A31 | An unhandled exception renders the error page and emits one structured log record | `test_errors.py::test_handler_and_log` |
 | A32 | No bare `except Exception` swallow remains in the request path | `test_errors.py::test_no_silent_swallow` |
 | A33 | **All six GA gates are enumerated, with the three inbound ones reported unresolved** | `test_ga_readiness.py::test_all_gates_tracked` |
+| A34 | Every `Denied` from an Estate gate names an `upgrade_target`, at the route and the CLI | `test_estate_gates.py::test_denied_names_target` |
+
+**A14b is a deliberate sub-number, not a precedent.** It is a distinct criterion — the on-request
+digest route must stay ungated while the scheduled send is gated — but it is inseparable from A14:
+either alone passes while the feature is wrong in the other direction. The set's convention
+elsewhere is comma-separated tests in one cell (SPEC-002 A15); this pairing needed two rows and two
+names. Do not read it as licence to sub-number generally.
 
 **A15 is the phase's definition of done.**
 

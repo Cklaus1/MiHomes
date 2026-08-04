@@ -18,12 +18,24 @@ yet — see below.
 | [SPEC-004](SPEC-004-phase3-billing-freemium.md) | **3** — Billing / freemium | Ready to build — **1 open decision** (O1: launch prices/limits, blocks config only) |
 | *SPEC-005* | **4** — Polish + email lifecycle + GA | Not written |
 
+**Two different O1s are open, and they are unrelated.** Label namespaces are per-spec-local (see
+*Working on a spec* below), so the numbering restarts in every spec. SPEC-003's O1 is at-rest
+encryption of provider API keys; SPEC-004's O1 is the launch prices and limits. SPEC-002's O1
+**closed** on 2026-07-31 (→ D13). Always resolve an `O`-label inside the spec that raised it.
+
 **Locked across the set:** hosting is Fly.io, single region, on **managed Postgres**
 (`../architecture/MULTITENANCY.md` §11, §11.1). The CLI is an **operator tool, not a user
 interface** — local SQLite mode is dropped and the CLI becomes an admin client against hosted
 Postgres (SPEC-002 D1). Primary keys are UUIDv7, app-side, no DB-side default (SPEC-001 §4.1,
 reused by SPEC-002). Uploads go to S3-compatible object storage behind a `StorageProvider`
 Protocol — never a Fly volume, which is single-machine local disk.
+
+**"Locked" means decided, not built.** None of the above exists in the tree: `config.py:14` still
+hardcodes `DB_URL = f"sqlite:///{DB_PATH}"`, and no Postgres driver is installed on any branch
+(verified 2026-08-04). Every spec here targets the decided architecture, so a spec that cites
+Postgres, RLS, or `account_id` is describing SPEC-002's design. SPEC-004 §0.1 states the
+consequence: **divergence compounds** — if SPEC-002 is implemented differently than specified,
+every spec above it inherits the difference.
 
 Phase numbering is canon across the whole doc set — see `../product/SAAS_PRD.md` §10.
 

@@ -3,6 +3,7 @@
 **Phase:** 2 (canon — `../product/SAAS_PRD.md` §10)
 **Status:** Ready to build
 **Written:** 2026-08-03
+**Revised:** 2026-08-04 — P3-a closed by founder decision (§1.4, §7-N8, §7's deferred table). Both `vendor_ratings` and `work_order_scheduling` **are** enforced, in Phase 3, per SPEC-004 D12/D13/D14. Phase 2's behaviour is unchanged: nothing is gated here.
 **Source PRDs:** `../product/ONBOARDING_AUTH_RBAC.md` (primary), `../product/PRICING_AND_PACKAGING.md` §3, `../product/SAAS_PRD.md` §8.4–8.5, `../product/TELEGRAM_PRD.md` §4/§6
 **Depends on:** SPEC-002 (Phase 1) — `accounts`, `memberships`, `invites`, `membership_property_scopes`, `sessions`, the `TenantOwned` mixin, and the scoped session. SPEC-001 for `EmailService`.
 
@@ -107,11 +108,14 @@ Given `:180` and `:184`, this spec reads the criterion as:
 - **Staff invites work in Phase 2 precisely because nothing gates them yet.** The gate arrives
   with Stripe in Phase 3.
 
-Three items are **flagged forward to SPEC-004**, not resolved here:
+Three items were **flagged forward to SPEC-004**, not resolved here. **All three are now closed
+there** (SPEC-004 §1.4) — P3-a by founder decision on 2026-08-04, P3-b by Phase 3's meter, P3-c by
+doc-fix. They are kept below because the *Phase 2* behaviour they describe is still correct: nothing
+is gated in this phase, and `usage()` still ships as a declared interface.
 
 | Ref | Conflict | Why it is Phase 3's |
 |---|---|---|
-| **P3-a** | `vendor_ratings: false` and `work_order_scheduling: false` on Free, but both features **ship today** (`services/vendor_rating.py`, `/work-orders` mounted, `routes/vendors.py:56` renders ratings) | Enforcing Free literally would *remove working features from every existing user*, including the founder. It is a pricing decision, and it only bites when a paid tier exists |
+| **P3-a** | `vendor_ratings: false` and `work_order_scheduling: false` on Free, but both features appear to **ship today** (`services/vendor_rating.py`, `/work-orders` mounted, `routes/vendors.py:56` renders ratings) | It is a pricing decision, and it only bites when a paid tier exists. **RESOLVED by founder decision 2026-08-04 — see SPEC-004 D12/D13/D14.** Both keys are enforced as `PRICING` §3.1 writes them. Two corrections to the claim above: `work_order_scheduling` **names no existing feature** (SPEC-004 F5 — zero scheduling functions in `services/work_order.py`; SPEC-004 D13 scopes the key to `WorkOrder.due_date`), and the live ratings path is `services/vendor.py:262`, **not** `services/vendor_rating.py`, whose three functions have zero callers (SPEC-004 F6) |
 | **P3-b** | `ai_calls_per_month: 200` is **unenforceable** — no meter exists anywhere in `src/`. The only token record is `ai_conversations.tokens_used`, a nullable per-row int with no account and no monthly rollup | `usage()` therefore ships as a declared interface returning unlimited, tagged `DEFERRED (Phase 3)`. Building the meter is Phase 3 work per `PRICING` §5 |
 | **P3-c** | `PRICING:250` says "The Free tier, gates, and billing UI ship in **Phase 3**", contradicting `SAAS_PRD:179`'s Phase 2 entitlements | Resolved in favour of the split: *service* in 2 (`SAAS_PRD:144`), *gates* in 3 (`:180`). Recorded as doc-fix B3 |
 
@@ -719,9 +723,20 @@ webhook transport, and per-account bot routing remain Phase 4+ (`SAAS_PRD:186`, 
 §7:615). Step 16 is *intra-account role scoping on the single existing deployment* — it closes a
 live leak and adds no tenant routing.
 
-**N8 — Do not enforce `vendor_ratings: false` or `work_order_scheduling: false`.** Both features
-ship and work today. Enforcing the Free row literally would delete working functionality from
-every user (P3-a). Phase 3's call.
+**N8 — Do not enforce `vendor_ratings: false` or `work_order_scheduling: false` *in Phase 2*.**
+Not because enforcement is wrong — **it is now the decision** (SPEC-004 D12, founder, 2026-08-04) —
+but because Phase 2 makes every account `free` (D7), so enforcing here would gate the features for
+*everyone* with no paid tier to upgrade to. The flags stay declared and wired to nothing until
+Phase 3 supplies billing state.
+
+> **This N-item was originally written as a permanent prohibition** ("both features ship and work
+> today; enforcing the Free row literally would delete working functionality from every user").
+> That reasoning did not survive review: there are no hosted users to protect — no `Account`, no
+> `User`, no auth layer exists (SPEC-004 §0.1) — so it was a pricing question, and `PRICING` §3.1
+> had already answered it. **SPEC-004 D12 supersedes the prohibition; only the Phase-2 timing
+> constraint above remains.** See also SPEC-004 D13 (the scheduling key names no existing feature
+> and is scoped to `WorkOrder.due_date`) and D14 (ratings have no write path, so the gate is a
+> *read* gate — an explicit exception to `PRICING` §3.2 rule 5).
 
 **N9 — Do not build the AI usage meter.** `usage()` is a declared interface returning unlimited
 (P3-b). Metering is `PRICING` §5, Phase 3.
@@ -739,7 +754,7 @@ is answered.** The masking half of Step 15 proceeds; the secret-write half waits
 | Stripe Checkout/Portal, webhooks | 3 | `can()` already takes billing status as an *input* (`PRICING` §3.2 rule 3); Phase 3 supplies it |
 | Plan gates (homes/seats/staff/AI) | 3 | `SAAS_PRD:180`. `can()` exists and is called; the limits config simply says "free, unlimited" |
 | AI usage meter + `usage()` behaviour | 3 | Signature ships now (§5); the events table and rollup are Phase 3 |
-| `vendor_ratings` / `work_order_scheduling` gating | 3 | Flags exist in the limits module, wired to nothing (N8, P3-a) |
+| `vendor_ratings` / `work_order_scheduling` gating | 3 | Flags exist in the limits module, wired to nothing (N8). **Both are enforced in Phase 3** — SPEC-004 D12/D13/D14. `vendor_ratings` gates `services/vendor.py:262` (the live path) as a *read* gate; `work_order_scheduling` gates `WorkOrder.due_date` only |
 | Granular per-capability staff permissions | 4+ | `ONBOARDING` §11 Q2. `MATRIX` is per-role today; per-membership overrides would key on `membership_id` |
 | Chat-gateway tenant-awareness | 4+ | `telegram_links` is per-account from birth (§4.2), so Phase 4 adds routing, not a migration |
 | Non-Google invitees | 4+ | `ONBOARDING` §11 Q3 — the `IdentityProvider` abstraction anticipates it |

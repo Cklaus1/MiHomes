@@ -270,7 +270,7 @@ Marketing on the **apex** (`mihomes.ai`), app on **`app.mihomes.ai`**, transacti
 | 5 | SPF | `send.mihomes.ai` | TXT | `v=spf1 include:<resend-provided> ~all` | exact include from Resend; on the **sending subdomain**, not the apex |
 | 6 | DKIM | Resend selector on `send.mihomes.ai` | CNAME/TXT | Resend keys | per BILLING_AND_EMAIL.md §3 |
 | 7 | MX (bounce) | `send.mihomes.ai` | MX | Resend | return-path/bounce handling, provided by Resend |
-| 8 | DMARC | `_dmarc.mihomes.ai` | TXT | `v=DMARC1; p=none; rua=mailto:dmarc@mihomes.ai; adkim=s; aspf=s` | start `p=none`, tighten to `quarantine` → `reject` after alignment is clean |
+| 8 | DMARC | `_dmarc.mihomes.ai` | TXT | `v=DMARC1; p=none; rua=mailto:dmarc@mihomes.ai` | start `p=none`, tighten to `quarantine` → `reject` after alignment is clean |
 | 9 | CAA (optional) | `mihomes.ai` | CAA | issuer | restrict cert issuance |
 
 **Checklist:**

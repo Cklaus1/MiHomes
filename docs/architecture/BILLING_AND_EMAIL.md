@@ -187,7 +187,17 @@ receipt email must never roll back a billing state change.
 | `trial_ending` | App-scheduled job for the no-card trial (§10); `customer.subscription.trial_will_end` webhook for card-first trials | 3 |
 | `payment_failed` | `invoice.payment_failed` (dunning) | 3 |
 | `subscription_cancelled` | `customer.subscription.deleted` | 3 |
-| `weekly_ai_report` (optional) | Scheduled digest job | later |
+| `weekly_ai_report` | Scheduled digest job — Estate only | **4** |
+| `dunning_2`, `dunning_3`, `dunning_final` | The escalating retry ladder, scheduler-driven. Phase 3 sends the *first* `payment_failed`; the rungs after it are Phase 4 | **4** |
+| drip sequence (`drip_*`) | Onboarding and re-engagement. Count, cadence and copy are an open product decision — `../specs/SPEC-005-phase4-polish-email-ga.md` **O1** | **4** |
+| `deletion_requested`, `deletion_complete` | GDPR deletion state machine (transactional — never suppressed) | **4** |
+| `export_ready` | Data export finished, download link (transactional) | **4** |
+
+> **Phase 4 was previously absent from this table**, while `SAAS_PRD.md` §10 makes "full email
+> lifecycle" the headline of that phase — so the catalogue read as complete and Phase 4 read as
+> empty. Note also that the five templates `SAAS_PRD:191`'s GA gate names (welcome → invite →
+> receipt → dunning → cancellation) all ship in Phases 2–3: the Phase 4 email work is the
+> *lifecycle infrastructure* above, not those five.
 
 ### 2.7 Failover / migration story
 

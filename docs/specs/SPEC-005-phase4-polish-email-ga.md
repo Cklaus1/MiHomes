@@ -114,6 +114,7 @@ two genuinely product-shaped questions inside them are raised as O1 and O2 rathe
 | **D15** | **Deletion is a two-phase state machine — `requested` → (grace) → `purged` — and the purge enumerates tables from `Base.metadata`, not from a hand-written list** | A hand-maintained list is exactly the artifact that rots: correct when written, silently wrong the first time someone adds a model. Same adversarial reasoning as SPEC-004 A11. A28 asserts every `TenantOwned` table is reached |
 | **D16** | **`weekly_ai_report` is enforced as a *send*, not as a gate; the other two Estate keys are gates** | The three keys are not equal work and §6 does not pretend they are. `predictive_maintenance` and `audit_export` are `can()` call sites on functions that exist. `weekly_ai_report` names **no scheduled anything** — `generate_estate_digest` exists (`services/ai/reports.py:206`) but is reachable only from `web/routes/ai.py:311`, on request, when a human clicks (F6). Enforcing it requires building the weekly job first, which is why it is Step 13 and not part of Step 12 |
 | **D17** | **Deliverability is verified by a test over the repo's own DNS documentation, not by a live DNS query** | SPEC-001 A18 set this precedent for the DMARC value. A test that resolves real DNS is a network-dependent flake and cannot run in CI before the domain exists; a test asserting the documented record is internally consistent catches B1's copy-paste defect, which is the failure that actually occurred |
+| **D18** | **The purge has three dispositions — delete, preserve, anonymize — and content the account authored into a shared surface is ANONYMIZED: author columns nulled, content kept** | *Added 2026-08-05, after this spec had shipped.* The original §5.4 had one verb, and an audit found what that costs. `VENDOR_DISCOVERY_PRD:82` gives `VendorReview` an `account_id`, so "delete every `TenantOwned` row" silently deletes **published public reviews** — a vendor's rating average shifts when an unrelated customer closes their account, and a vendor could solicit deletions to scrub bad reviews. `VENDOR:299` flagged that the answer changes the FK semantics and had to be settled before Vendor Discovery is built; it was never routed to this spec. **Founder decision: anonymize.** Note the trap this closes — anonymize is **not** a third exclusion. Both existing exclusions are *skips*, and a skipped row keeps its `account_id`, which retains personal data after an erasure request. Anonymize is an `UPDATE`. The rule is stated generically here and carries `DEFERRED (SPEC-008)` because **no table qualifies yet**: naming `VendorReview` in a spec written before it exists would be the untagged forward reference `README.md:104-110` calls "the shape to avoid" |
 
 ### 1.3 `OPEN — needs decision: founder`
 
@@ -451,9 +452,9 @@ class AccountDeletionRequest(Base, TenantOwned):
     """The two-phase deletion state machine (D15).
 
     requested -> (grace, O2) -> purged. This row OUTLIVES the account's data: after the
-    purge every TenantOwned row is gone, but this record remains as proof the request
-    was honoured, and when. That is the artifact a regulator asks for, so it must not be
-    caught by its own purge (§5.4 excludes it explicitly).
+    purge every TenantOwned row has been deleted or anonymized (D18), but this record
+    remains as proof the request was honoured, and when. That is the artifact a regulator
+    asks for, so it must not be caught by its own purge (§5.4 PRESERVES it explicitly).
     """
 
     __tablename__ = "account_deletion_requests"
@@ -466,8 +467,10 @@ class AccountDeletionRequest(Base, TenantOwned):
     purged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    # Per-table row counts at purge time, as JSON. Not decoration: it is how A28 proves
-    # the purge reached every table, and how support answers "what was deleted".
+    # Per-table DISPOSITION and row count at purge time, as JSON (D18) — deleted /
+    # preserved / anonymized, not a bare count. Not decoration: it is how A28 proves
+    # every table was reached AND dispositioned, and how support answers "what was
+    # deleted" versus "what was kept without your name on it".
     purge_manifest: Mapped[str | None] = mapped_column(Text, nullable=True)
 ```
 
@@ -625,14 +628,40 @@ def request_deletion(session: Session, account: Account, user: User) -> AccountD
 def cancel_deletion(session: Session, account: Account) -> None:
     """Only while purged_at is NULL. Idempotent."""
 
-def purge(session: Session, request: AccountDeletionRequest) -> dict[str, int]:
-    """Hard-delete every TenantOwned row for the account, returning per-table counts.
+def purge(session: Session, request: AccountDeletionRequest) -> dict[str, str]:
+    """Apply the account's deletion across every table, returning per-table disposition.
 
-    Enumerated from Base.metadata (D15). Two deliberate exclusions, both stated so a
-    reader does not read them as bugs:
-      - account_deletion_requests itself — the proof the request was honoured (§4.3)
-      - email_suppressions — not TenantOwned, and a suppressed address must STAY
-        suppressed after the account that surfaced it is gone (§4.1)
+    Enumerated from Base.metadata (D15). THREE dispositions, not one (D18) — a table
+    gets exactly one, and the default is delete:
+
+      DELETE    — every TenantOwned table. The rows are the account's own data.
+
+      PRESERVE  — skipped entirely, rows survive untouched:
+                  - account_deletion_requests, the proof the request was honoured (§4.3)
+                  - email_suppressions, not TenantOwned; a suppressed address must STAY
+                    suppressed after the account that surfaced it is gone (§4.1)
+
+      ANONYMIZE — an UPDATE, never a skip and never a delete: null every author column,
+                  keep the content. Applies to rows the account AUTHORED INTO A SHARED
+                  SURFACE, where deleting would silently rewrite a record other people
+                  rely on and skipping would leave the author attached.
+
+    The distinction between PRESERVE and ANONYMIZE is the one a reader gets wrong: a
+    preserved row keeps its account_id, so using it for authored content would retain
+    personal data after an erasure request. Anonymize is the only disposition that both
+    honours the request and leaves the shared record standing.
+
+    DEFERRED (SPEC-008) — no table is in the ANONYMIZE category yet, because none exists.
+    Vendor Discovery introduces the first: published vendor reviews, which carry an
+    author account_id but appear in a public rating average (D18). Its spec declares the
+    author columns NULLABLE and cites this rule; a NOT NULL column cannot be anonymized,
+    and that is discovered at implementation time if nobody says so first.
+
+    ALSO the caller's job, not this function's: an account-referencing column on a table
+    this purge never sees. Global tables carry no account_id and are invisible to the
+    Base.metadata sweep, so a nullable "claimed_by"/"created_by" pointer on one of them
+    survives the purge pointing at a dead account. Every such column must be nulled by
+    the same transaction (D18). There are none today; SPEC-008 adds the first.
 
     Storage objects are deleted through StorageProvider.delete BEFORE the DB rows, so a
     mid-failure leaves orphaned rows pointing at deleted files rather than orphaned files
@@ -713,9 +742,13 @@ paths exist (GDPR/CCPA baseline from §9)".
 rows appear nowhere in it (A26); documents are presigned references, not inlined bytes.
 
 **Step 8 — deletion.** The `requested → grace → purged` state machine, the cancel route, and the
-purge enumerated from `Base.metadata`. *Verify:* after a purge, **zero** rows remain in every
-`TenantOwned` table for that account (A28); `account_deletion_requests` and `email_suppressions`
-survive (A29); a purge that fails midway leaves no orphaned storage objects.
+purge enumerated from `Base.metadata` with **D18's three dispositions**. *Verify:* every
+`TenantOwned` table is reached and carries exactly one disposition in the manifest (A28); deleted
+tables hold zero rows for that account, `account_deletion_requests` and `email_suppressions`
+survive untouched, and any anonymized row survives with every author column null (A29); no
+account-referencing column on a global table still points at the purged account (A29b); a purge
+that fails midway leaves no orphaned storage objects. **Today the anonymize category is empty** —
+it is exercised by a fixture table until SPEC-008 supplies the first real one.
 
 **Step 9 — unsubscribe.** The one-click route (RFC 8058 `List-Unsubscribe-Post`), the footer
 partial, and header injection for lifecycle mail only. *Verify:* a lifecycle send carries both
@@ -886,8 +919,9 @@ out first.
 | A25 | A drip sends each step once and never twice | `test_campaigns.py::test_no_duplicate_steps` |
 | A26 | A second account's data never appears in the first's export | `test_export.py::test_tenant_isolation` |
 | A27 | **The export enumerates every `TenantOwned` table** — discovered from `Base.metadata` | `test_export.py::test_covers_all_tenant_tables` |
-| A28 | **The purge reaches every `TenantOwned` table** — discovered from `Base.metadata` | `test_deletion.py::test_purge_covers_all_tables` |
-| A29 | The deletion record and the suppression list survive the purge | `test_deletion.py::test_deliberate_survivors` |
+| A28 | **The purge reaches every `TenantOwned` table and applies exactly one disposition to each** — tables discovered from `Base.metadata`, dispositions asserted per category (D18) | `test_deletion.py::test_purge_dispositions_all_tables` |
+| A29 | The deletion record and the suppression list survive **untouched**; anonymized content survives **with every author column null** | `test_deletion.py::test_deliberate_survivors` |
+| A29b | No account-referencing column on a **global** table still points at the purged account | `test_deletion.py::test_no_dangling_global_refs` |
 | A30 | The Phase 4 migration applies and reverts cleanly | `test_migration_phase4.py::test_up_down` |
 | A31 | An unhandled exception renders the error page and emits one structured log record | `test_errors.py::test_handler_and_log` |
 | A32 | No bare `except Exception` swallow remains in the request path | `test_errors.py::test_no_silent_swallow` |
@@ -1020,9 +1054,14 @@ complete rather than forward-looking: **this is what GA ships with.**
   polymorphic with no FK (F8), so SPEC-002's own step allows "application-only enforcement" for it.
   `audit_export` inherits that: a bug in scoping is not caught by the database.
 - **Deletion is proven complete against the schema, not against reality.** A28 asserts every
-  `TenantOwned` table is emptied. It cannot assert that no personal data was copied somewhere the
-  ORM does not know about — provider-side logs, Stripe's records, Resend's delivery history, a
-  support inbox. GDPR erasure covers those too, and nothing here addresses them.
+  `TenantOwned` table is reached and dispositioned. It cannot assert that no personal data was
+  copied somewhere the ORM does not know about — provider-side logs, Stripe's records, Resend's
+  delivery history, a support inbox. GDPR erasure covers those too, and nothing here addresses them.
+- **Anonymization is a judgement about columns, not about content.** D18 nulls the author columns
+  and keeps the body. If a customer wrote their own name, address or phone number *inside* a review
+  they authored, that text survives the purge and nothing here detects it. Free-text
+  self-identification is the known hole in every anonymize-rather-than-delete policy;
+  `VENDOR_DISCOVERY_PRD` §3.4's coarse-region rule reduces the odds but does not close it.
 - **Backups outlive deletion.** A purged account's rows persist in whatever managed-Postgres
   point-in-time backup covers the purge date (SPEC-002 D13). That is standard and defensible, but
   it means "hard delete" has a retention tail nobody has written down.

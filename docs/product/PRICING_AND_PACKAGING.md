@@ -85,6 +85,7 @@ These are the entitlement keys the service resolves per account. All numeric val
 | `ai_priority` | enum | `standard` | `standard` | `priority` |
 | `vendor_ratings` | bool | `false` | `true` | `true` |
 | `work_order_scheduling` | bool | `false` | `true` | `true` |
+| ↳ *scope of that key* | — | Covers **exactly one capability: setting `WorkOrder.due_date`.** Not `assignee_id` (no UI exposes it), and **not** `Appointment`/`/calendar` — that is a different product wearing the same word, and gating it would paywall the whole calendar plus a nightly automated job. | | |
 | `predictive_maintenance` | bool | `false` | `false` | `true` |
 | `weekly_ai_report` | bool | `false` | `false` | `true` |
 | `audit_export` | bool | `false` | `false` | `true` |
@@ -95,7 +96,7 @@ Notes:
 - Every home counts against `max_homes` regardless of who created it. Read-only (frozen) homes still count — the limit gates *having* homes, not writing to them.
 
 **Seat semantics (unambiguous):**
-- A **seat** = one `memberships` row in this account with status `active` **or** `invited` (pending). `revoked` memberships and expired/revoked invites do **not** count.
+- A **seat** = one `active` row in `memberships` **plus** one pending row in `invites` — **two tables, not one status enum.** `memberships.status` is only `active` or `revoked`; there is no `invited` status, because an invitee may have no `users` row yet and a membership requires one. `revoked` memberships and expired/revoked invites do **not** count.
 - The **owner counts** as a seat. Free's 3 seats = owner + 2 others.
 - **Pending invites consume a seat** from the moment the invite is created (so we never email an invite that can't be honored — see `ONBOARDING_AUTH_RBAC.md` §6.4). Revoking or letting an invite expire frees the seat immediately.
 - Seats are counted **per account**. A staff member working in two accounts consumes one seat in *each* account (they are two memberships). Cross-account seat sharing is Open Question #5 in `ONBOARDING_AUTH_RBAC.md`.
@@ -110,10 +111,10 @@ The service exposes two questions to the rest of the app:
 
 Rules of the contract:
 1. **One source of truth.** Plan → entitlements mapping lives in one config module, not scattered across features.
-2. **Fail closed on paid features, fail open on read.** If billing status is indeterminate, deny *new* paid actions but never block a user from reading their own data.
+2. **Fail closed on paid features; fail open on read *when billing status is indeterminate*.** If we cannot tell whether an account is paid — a webhook is late, a reconciliation is mid-flight — deny *new* paid actions but never block a user from reading their own data. **This clause is about uncertainty, not about reads in general:** a plan whose row in §3.1 is `false` may legitimately gate a read (see rule 5).
 3. **Billing status is an input.** `active`, `trialing`, `past_due`, `unpaid`, `canceled` change what the same plan is allowed to do (see §4). Status→behavior mapping is canon in `../architecture/BILLING_AND_EMAIL.md` §5: `trialing`/`active` = full plan entitlements; `past_due` = full entitlements during grace; `unpaid` = restricted (§4.3); `canceled`/`incomplete` = Free entitlements.
 4. **Deny returns an upgrade target.** Every `Denied` names the plan that would allow it, so the UI can render the right upgrade prompt.
-5. **Checks fire on state creation, not just UI.** `can()` is called at invite creation, home creation, seat activation, and AI dispatch — server-side, transactionally — so races (two concurrent invites at the seat cap) cannot exceed a limit. UI gating is a courtesy; the service check is the enforcement.
+5. **Checks fire on state creation — and on a declared read — not just in the UI.** `can()` is called at invite creation, home creation, seat activation, and AI dispatch, server-side and transactionally, so races (two concurrent invites at the seat cap) cannot exceed a limit. **This list is not exhaustive: a `false` row in §3.1 may also gate a *read*.** `vendor_ratings` is the current example — ratings have no write path, so the only thing enforceable is viewing them. A read gate must still let the page load: gate at context assembly, never by 403-ing a route that renders other things too. UI gating is a courtesy; the service check is the enforcement.
 
 ---
 
@@ -140,7 +141,7 @@ Upgrades take effect **immediately** on successful payment/trial start; entitlem
 
 Rationale: MiHomes' value compounds over days of real use (tasks logged, AI advice acted on), so a time-boxed trial showcases it better than a feature demo. No card removes friction for the household audience, who are consumers, not procurement buyers, and maximizes top-of-funnel. Starting on first *gated action* (rather than at signup) means the trial clock runs while the user actually needs Pro — a trial that starts at signup is often burned before the 2nd home or first staff hire appears. We accept higher trial-to-nothing drop-off in exchange for volume and goodwill; the Free tier catches everyone who doesn't convert (they simply revert to Free; §4.3 restricted policy applies to any surplus homes/seats/staff created during trial). Card-required would raise conversion *rate* but shrink the funnel and clash with the "free forever household" brand promise. Revisit if trial abuse or AI cost during trials becomes material.
 
-Mechanics (must match `../architecture/BILLING_AND_EMAIL.md`): with no card there is **no Stripe subscription during the trial** — the trial is app-managed state (`plan=pro`, `billing_status=trialing`, `trial_ends_at`), and the entitlements service treats it as `trialing`. Stripe objects are created only at conversion (Checkout). Consequence: the `trial_ending` email is triggered by **our scheduler**, not Stripe's trial-will-end webhook, until/unless we move to card-required Stripe-native trials. One trial per account, ever (flag `trial_used_at` on the account) to bound abuse.
+Mechanics (must match `../architecture/BILLING_AND_EMAIL.md`): with no card there is **no Stripe subscription during the trial** — the trial is app-managed state (`plan=pro`, `subscription_status=trialing`, `trial_ends_at`), and the entitlements service treats it as `trialing`. Stripe objects are created only at conversion (Checkout). Consequence: the `trial_ending` email is triggered by **our scheduler**, not Stripe's trial-will-end webhook, until/unless we move to card-required Stripe-native trials. One trial per account, ever (flag `trial_used_at` on the account) to bound abuse.
 
 ### 4.3 Downgrade & past-due (over the new limit)
 
@@ -153,6 +154,8 @@ Sequence (past-due path; a **voluntary downgrade skips Grace** — the user chos
 | **Grace** | Days 0–14 *(PLACEHOLDER — align with Stripe Smart Retries dunning window)* while `past_due` | Full access retained. Banner: "Update payment to keep Pro features." Stripe dunning runs. Maps to Stripe `past_due` (see `../architecture/BILLING_AND_EMAIL.md` §5). |
 | **Restricted** | After grace (Stripe `unpaid`), or immediately on voluntary downgrade / cancel-at-period-end | Account moves to **read-only on the over-limit surplus**. Everything within the new plan's limits stays fully usable. |
 | **Reactivation** | Any time | Paying again instantly restores full access — nothing was deleted. |
+| **Trial expiry** | Day 0 | A no-card trial ends by **our scheduler**, not a Stripe webhook (§4.2). The account reverts to Free and lands over-limit exactly as a voluntary downgrade would. Show the home-picker **~3 days before expiry**, alongside the `trial_ending` email, so the choice is made before access changes rather than after. No Grace period — nothing was owed. |
+| **Arrived over-limit (import)** | At import | An account can reach an over-limit state without ever downgrading: `mihomes import` of a multi-property archive into a Free account. The importer **asserts `can()` per home and refuses an over-limit import** rather than creating an account this table would then have to rescue. Named here because "how did this account get over its limit" has three answers, not two. |
 
 Restricted, precisely:
 
@@ -247,4 +250,4 @@ All of the above requires: (1) willingness-to-pay interviews with the three pers
 
 ## Phasing note
 
-The Free tier, gates, and billing UI ship in **Phase 3 (billing + entitlements)**. But the **limits in §3 are defined now** so that the entitlements service — built alongside the multitenant foundation (Phase 1) and RBAC/invites (Phase 2) — can enforce them from the start. Phase 0 (landing + waitlist) should reflect the three-plan structure and the founder-discount decision (Open Question #6). GA is Phase 4.
+The **entitlements service** ships in **Phase 2**, config-only — it exists and is called, but every account is Free and every limit reads "unlimited". The **gates and the billing UI** ship in **Phase 3**, which wires billing status in as an *input* to the same service. The **limits in §3 are defined now** so Phase 2 has real keys to declare and Phase 3 has real numbers to enforce. Phase 0 (landing + waitlist) should reflect the three-plan structure and the founder-discount decision (Open Question #6). GA is Phase 4.

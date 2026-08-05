@@ -29,7 +29,7 @@ account, or tenant anywhere in the codebase. The facts, verified against the cod
   `tag_assignments`). Every one is a subclass of a shared `Base` and every row lives
   in the same physical database.
 - **Surfaces:** Typer CLI (`mihomes <entity> <action>`) and a FastAPI + htmx web app
-  (24 route modules, 140+ endpoints, under `src/mihomes/web/`). Both call
+  (23 route modules, 140+ endpoints, under `src/mihomes/web/`). Both call
   `get_session()` directly.
 
 **Why this is a re-platform, not a bolt-on.** Multitenancy is not a feature you add
@@ -74,11 +74,14 @@ memberships         join: user ↔ account, carries the role
 | id                   | uuid PK       | tenant key; referenced by every scoped table      |
 | slug                 | text unique   | consistent with existing slug convention          |
 | name                 | text not null | display name of the household/estate              |
+| type                 | text not null | `household` \| `estate` — referenced by `ONBOARDING_AUTH_RBAC.md` §3 |
 | plan                 | text not null | `free` \| `pro` \| `estate` (see pricing doc)     |
 | stripe_customer_id   | text null     | Stripe Billing customer; billing state lives here |
 | stripe_subscription_id | text null   | active provider subscription, if any              |
 | subscription_status  | text null     | mirror of Stripe subscription state               |
 | current_period_end   | timestamptz null | end of the paid period (from webhooks)         |
+| trial_ends_at        | timestamptz null | app-managed no-card trial; there is **no** Stripe subscription during it (`PRICING` §4.2) |
+| trial_used_at        | timestamptz null | one trial per account, ever — set on first use  |
 | created_at           | timestamptz   |                                                   |
 | updated_at           | timestamptz   |                                                   |
 
@@ -146,6 +149,11 @@ Composite indexes lead with `account_id` (e.g. `(account_id, status)`,
 | `accounts`, `memberships` | identity    | define the boundary itself; `memberships` carries `account_id`   |
 | `audit_log`               | per-account | security records must be tenant-attributed and tenant-visible    |
 | `configuration`           | **per-account** | see below                                                     |
+| `invites`                 | per-account | pending invitations; an invitee has no `users` row yet          |
+| `membership_property_scopes` | per-account | `(membership_id, property_id)`; staff scoping whitelist       |
+| `sessions`                | **global, no RLS** | read before the account is known — a tenant policy breaks login |
+| `processed_webhook_events` | **global, no RLS** | a provider event arrives before it maps to an account; a policy makes every webhook reprocess |
+| `waitlist`                | **global**  | Phase 0 signup funnel; predates any account                      |
 
 **`configuration` decision — per-account.** Today `configurations` is a global
 key/value table (`key` PK, `value`). Its contents are tenant preferences (units,
@@ -338,12 +346,31 @@ affinities) that are noise on Postgres and a replay risk. Because there are no h
 tenants yet, there is no production history to preserve. Steps:
 
 1. Cut a new baseline migration `0001_pg_baseline` that creates the identity tables
-   (`accounts`, `users`, `memberships` + constraints) **and** all 36 domain tables
-   with Postgres-native types (see §5.4) and non-null `account_id` columns, slug
-   uniqueness as `(account_id, slug)`, and the `configurations` PK as
-   `(account_id, key)`. Since there is no hosted data yet, there is nothing to
-   backfill — the nullable→backfill→NOT NULL dance (§10.8) applies only to future
-   changes against live tenant data, not to this baseline.
+   (`accounts`, `users`, `memberships` + constraints), all 36 domain tables, **and the
+   five tables below that are neither** — with Postgres-native types (see §5.4) and
+   non-null `account_id` columns, slug uniqueness as `(account_id, slug)`, and the
+   `configurations` PK as `(account_id, key)`. Since there is no hosted data yet, there
+   is nothing to backfill — the nullable→backfill→NOT NULL dance (§10.8) applies only to
+   future changes against live tenant data, not to this baseline.
+
+   **The five easily-missed tables.** They are not domain tables and not identity tables,
+   so a list of "identity + the 36" silently omits every one:
+
+   | table | tenancy | note |
+   |---|---|---|
+   | `invites` | per-account | pending invitations; a seat counts against the plan (`PRICING` §3.2) |
+   | `membership_property_scopes` | per-account | `(membership_id, property_id)` — staff scoping |
+   | `sessions` | **global, no RLS** | read *before* an account is known, so a tenant policy makes every login fail |
+   | `processed_webhook_events` | **global, no RLS** | same reason: a Stripe event arrives before it maps to an account. A policy here makes every webhook silently reprocess |
+   | `waitlist` | **global** | created in Phase 0, **must not be dropped** by this baseline — `confirmed_at` is the funnel's only record |
+
+   **The two `no RLS` rows are deliberate carve-outs, not oversights.** Anyone adding a
+   blanket "every table gets a tenant policy" migration later will break login and webhook
+   processing at the same time, and both fail quietly.
+
+   §3.1 and this list must name the **same** set. `../PRD_REVIEW.md` §A5 flags this as the
+   gap that regrows: it was already wrong once, and the fix is to re-run the comparison as
+   a standing check rather than to trust either list.
 2. `0002_rls` — RLS policies + `FORCE ROW LEVEL SECURITY` per tenant table, and the
    non-owner `app` role grants.
 3. Archive the old `alembic/versions/*` under a `legacy_sqlite/` folder for reference;
@@ -388,28 +415,46 @@ one-shot importer:
 
 ---
 
-## 6. The "one local install = one account" bridge
+## 6. The CLI after the re-platform — an operator tool, not a second mode
 
-The CLI and local mode do **not** go away. Two deployment modes coexist off the same
-codebase and the same models:
+> **Rewritten 2026-08-05.** This section previously specified a "one local install = one
+> account" bridge in which SQLite and Postgres coexisted as two supported deployment modes.
+> **That bridge was dropped** — `../specs/SPEC-002-phase1-multitenant-foundation.md` **D1**.
+> The reasoning is recorded because the dual-mode design touched a lot of this document.
 
-| mode                | storage                      | tenant resolution                     | auth              |
-|---------------------|------------------------------|---------------------------------------|-------------------|
-| **Local** (CLI)     | SQLite file (as today)       | implicit single account (id fixed)    | none (local user) |
-| **SaaS** (hosted)   | shared Postgres + RLS        | per-request from OIDC session         | Google OIDC       |
+**There is one storage backend: hosted Postgres.** Local SQLite mode is not a supported
+deployment. What survives is the CLI, re-pointed:
 
-- In **local mode**, the app runs as if there is exactly one account. The
-  `account_id` columns still exist; `current_account` is pinned to a single constant
-  local account row seeded at `init_db`. Application scoping still runs (same code
-  path, one tenant, so it is a cheap no-op in effect); **RLS does not exist on
-  SQLite** — local mode has no database backstop, which is acceptable because the
-  database contains exactly one tenant. The CLI keeps working unchanged for the
-  local single-tenant user.
-- Migrating a local user to SaaS = the §5.3 importer: their SQLite DB is uploaded and
-  becomes one Postgres account, with the local user promoted to `owner`.
-- The engine/session selection (SQLite vs Postgres, tenant pinned vs per-request) is
-  driven by config, so most application code is identical across modes. Keep the mode
-  fork thin and centralized in `src/mihomes/db.py`.
+| surface | storage | tenant resolution | auth |
+|---|---|---|---|
+| **Web app** (customers) | shared Postgres + RLS | per-request from the OIDC session | Google OIDC |
+| **CLI** (operator) | the *same* hosted Postgres | explicit `--account`, never implicit | operator credentials |
+
+Why the dual-mode bridge did not survive contact:
+
+- **It doubled the load-bearing layer.** A SQLite branch means a dialect fork in `db.py`, a
+  dialect-aware Alembic chain, and a local-mode entitlements bypass — all in the tenant-scoping
+  code that isolation depends on. The cheapest way to be confident about that layer is for it
+  to have one shape.
+- **RLS does not exist on SQLite.** Local mode had no database backstop by construction. That
+  is defensible with one tenant and indefensible as a *supported configuration* whose code path
+  is shared with the hosted one.
+- **It described a user who no longer exists.** The bridge existed for the founder's own
+  install. `SPEC-002` **D10** handles that case directly instead: the first hosted tenant is a
+  clean signup, and the existing archive imports later via `mihomes import` (§5.3), decoupled
+  from launch.
+
+**What this means for the CLI.** It keeps working, against hosted Postgres, as an admin client:
+inspection, imports, scheduled jobs, and support tasks. Two consequences worth stating, because
+they are easy to get wrong:
+
+- **The account must be explicit.** There is no pinned single-account constant to fall back on.
+  A CLI command that operates on tenant data takes the account as an argument and fails without
+  it — an implicit default is the same cross-tenant hazard as an unlinked chat sender.
+- **It is not a customer interface.** Nothing in the product's value proposition should require
+  it, and no customer-facing feature may be CLI-only.
+
+Migrating any *future* self-hosted user in remains the §5.3 importer path, unchanged.
 
 ---
 
@@ -462,8 +507,10 @@ primary mechanism.
 - **Phase 0** — landing + waitlist + Google sign-in (validate demand).
 - **Phase 1** — *this doc's core*: Postgres, `accounts`/`users`/`memberships`, tenant
   scoping, auth, RLS.
-- **Phase 2** — onboarding + staff invites + roles/RBAC enforcement.
-- **Phase 3** — billing/freemium (Stripe) + entitlements.
+- **Phase 2** — onboarding + staff invites + roles/RBAC enforcement + the **entitlements
+  service in config-only form** (it exists and is called; every account is Free).
+- **Phase 3** — billing/freemium (Stripe); billing status wired **into** the entitlements
+  service as an input, plus the plan gates that actually deny.
 - **Phase 4** — polish, email lifecycle (Resend), GA launch on **mihomes.ai**.
 
 Entitlement/limit enforcement (Free = 1 home + 3 seats; Pro/Estate expand) is checked
@@ -516,9 +563,12 @@ Cross-tenant data leakage is the **#1 risk** of this entire re-platform. Control
 
 ## 10. Open questions / risks
 
-1. **PK strategy:** UUID everywhere vs. keep integer PKs + `account_id`. UUIDs
-   simplify import and avoid cross-tenant id guessing but are wider indexes. Decide
-   before the baseline migration.
+1. ~~**PK strategy:** UUID everywhere vs. keep integer PKs + `account_id`.~~
+   **RESOLVED — UUIDv7 everywhere, generated app-side, no DB-side default.** v7 keeps the
+   time-ordered index locality that plain v4 destroys; `gen_random_uuid()` emits v4, which
+   is why the default is app-side via a `mihomes.ids.new_id()` helper rather than in the
+   DDL (`uuid.uuid7()` is stdlib only from Python 3.14, against a `>=3.11` floor).
+   See `../specs/SPEC-001-phase0-landing-waitlist.md` §4.1.
 2. **Global filter mechanism:** `with_loader_criteria` event hook vs. a bespoke
    `TenantSession` subclass — validate that the event approach covers relationship
    loads, `selectinload`, and bulk operations without gaps.
@@ -536,6 +586,10 @@ Cross-tenant data leakage is the **#1 risk** of this entire re-platform. Control
    skipping tenant logic. Keep the fork centralized in `db.py` and cover both in tests.
 6. **Account switching UX:** a user in multiple accounts needs an explicit active-account
    selector; how is it carried (subdomain? path prefix? session field?) — affects §4.1.
+   **Defaulted (not closed) to a server-side session field, `sessions.current_account_id`**
+   — `../specs/SPEC-003-phase2-onboarding-team-rbac.md` D11. Deliberately reversible: the
+   revisit trigger is the first real customer who is staff on two accounts and wants two
+   tabs open, which a session field cannot do and a path prefix can.
 7. **Owner transfer & last-owner deletion:** enforce the one-active-owner invariant on
    transfer and prevent removing the sole owner.
 8. **Backfill downtime:** adding non-null `account_id` to large tables — for hosted

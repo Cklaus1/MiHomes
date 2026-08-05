@@ -67,8 +67,8 @@ Every doc in this set is written against these. If one changes, update the maste
 |---|---|---|
 | **0** | Landing + Waitlist | Promo page, waitlist + confirmation email, Google sign-in **stub** (email capture only), DNS/email setup |
 | **1** | Multitenant Foundation | Postgres, accounts/users/memberships, tenant scoping + RLS, auth, sessions |
-| **2** | Onboarding + Team + RBAC | Onboarding flow, staff invites, role enforcement, account switcher |
-| **3** | Billing / Freemium | Stripe Checkout + Portal, webhooks, entitlements service, plan gates |
+| **2** | Onboarding + Team + RBAC | Onboarding flow, staff invites, role enforcement, account switcher, **entitlements service (config-only — all accounts Free)** |
+| **3** | Billing / Freemium | Stripe Checkout + Portal, webhooks, **billing status wired into entitlements**, plan gates |
 | **4** | Polish + Email + GA | Full email lifecycle, dunning, hardening, public launch |
 | **4+** | Growth bets | Vendor Discovery, Twilio gateway, expanded Telegram |
 

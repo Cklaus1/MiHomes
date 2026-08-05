@@ -89,7 +89,7 @@ erDiagram
 - `GlobalVendor` / `ResearchSnapshot` carry **no** `account_id`; they are world-readable to authenticated users. They do **not** get the `TenantOwned` mixin or RLS tenant policies — they are read-only to request handlers and writable only by the research pipeline, moderation, and claim flows (mirroring the tenancy doc's rule that `users`, the other global table, is written only by auth flows).
 - `VendorReview` rows **do** carry `account_id` (the author) and are write-scoped to that account; only their aggregation and published body are public. Author identity is displayed as a coarse label (e.g. "Verified MiHomes customer in <region>"), never raw account identity, plan tier, email, or property address. Region granularity must be coarse enough (metro, not town) that region + review text cannot deanonymize the author to the vendor.
 - Nothing tenant-private (a `Vendor`'s `notes`, `contacts`, `insurance_info`, or a `VendorRating`) ever crosses into the global tables except by an explicit owner "publish" action (§5.3).
-- This exception must be called out explicitly in `MULTITENANCY.md` (which currently states "`users` is the only global business table" — that sentence needs amending) so it is not mistaken for a scoping bug.
+- This exception is called out explicitly in `../architecture/MULTITENANCY.md` §3.3, which names the global tables, so it is not mistaken for a scoping bug.
 - The CI-gated isolation test extends to cover the exception: global tables are readable by any account but writable by none through general request paths; `VendorReview` write access is provably scoped to the authoring account.
 
 ---
@@ -297,4 +297,8 @@ Discovery is **Phase 4+** (post-GA). Internal staging:
 - **Freshness:** vendors change phone numbers, go out of business — the 90-day refresh cadence and claim-driven updates need validation.
 - **Cannibalization vs. subscription:** does free directory access weaken the Pro upgrade case, or strengthen the funnel into it?
 - **Match quality:** private `Vendor` → `GlobalVendor` dedupe/matching on name+phone+geo will have false merges; needs a manual override.
-- **Account deletion vs. public reviews:** when an author's account is deleted (GDPR erasure), do their published reviews delete, anonymize, or persist? Decide before D2; the answer changes the `VendorReview.account_id` FK semantics (nullable-on-delete vs. cascade).
+- ~~**Account deletion vs. public reviews:**~~ **RESOLVED — founder decision, 2026-08-05: anonymize.** When an author's account is deleted under GDPR erasure, the purge **nulls `account_id` and `author_membership_id` and keeps `stars`, `body`, `global_vendor_id`, `work_order_id` and `verified_hire`**. The community average stays honest — a vendor's rating must not shift because an unrelated customer closed their account, and a vendor must not be able to solicit deletions to scrub bad reviews — while the author is genuinely un-identified.
+
+  Two consequences for whoever builds this: **`VendorReview.account_id` and `author_membership_id` must be NULLABLE** (a `NOT NULL` column cannot be anonymized, and the problem surfaces only at implementation time), and the same rule covers **`GlobalVendor.claimed_by_account_id`** — a global table the deletion sweep never sees, whose pointer would otherwise survive aimed at a dead account.
+
+  This was found during an audit, not during design: `SPEC-005` §5.4 had already specified a purge that hard-deletes *every* `TenantOwned` row, so published reviews were being deleted as an undecided side effect. The rule now lives in **`../specs/SPEC-005-phase4-polish-email-ga.md` D18** as one of three dispositions (delete / preserve / anonymize), tagged `DEFERRED (SPEC-008)` there because no table qualifies until this one exists.

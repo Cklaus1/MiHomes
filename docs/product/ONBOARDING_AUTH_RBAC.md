@@ -31,25 +31,25 @@ Three global tables form the backbone. All domain data (homes, tasks, issues, st
 
 | Table | Represents | Key fields |
 |---|---|---|
-| `users` | One human, globally unique | `id`, `google_sub` (unique), `email`, `name`, `avatar_url`, `created_at`, `last_login` |
-| `accounts` | A tenant — one household or one estate portfolio | `id`, `name`, `type` (`household` \| `estate`), `owner_user_id`, `plan`, `created_at` |
+| `users` | One human, globally unique | `id`, `google_sub` (unique), `email`, `name`, `avatar_url`, `created_at`, `last_login_at` |
+| `accounts` | A tenant — one household or one estate portfolio | `id`, `name`, `type` (`household` \| `estate`), `plan`, `created_at` |
 | `memberships` | A user's role within an account | `id`, `user_id`, `account_id`, `role` (`owner`\|`admin`\|`staff`), `status` (`active`\|`revoked`), `created_at` |
 
-Pending invitations live in a separate `invites` table (Section 6), **not** as `memberships` rows — an invitee may have no `users` row yet, so a membership (which requires `user_id`) cannot exist until acceptance. (Cross-doc note: `MULTITENANCY.md` §3.1 currently lists an `invited` membership status; it should drop that in favor of the `invites` table.)
+Pending invitations live in a separate `invites` table (Section 6), **not** as `memberships` rows — an invitee may have no `users` row yet, so a membership (which requires `user_id`) cannot exist until acceptance.
 
 Key facts:
 - **Identity is keyed on Google `sub`**, not email. Email is display/contact metadata and can change on Google's side without breaking identity.
 - A user can belong to **multiple accounts** (e.g. an estate manager working for two families) via multiple `memberships` rows. They pick a **current account** via an account switcher (Section 7).
-- **Exactly one owner per account** (`accounts.owner_user_id`), transferable (Section 8).
-- Staff scoping (which homes a staff member sees) lives in a `membership_home_scopes` table: `(membership_id, home_id)`. Scope rows are only meaningful for `staff` memberships: owner/admin always see all homes (their scope set is ignored/empty by convention). For **staff, the scope set is the whitelist — a staff membership with zero scope rows sees zero homes** (fail closed, never "all"). Homes added to the account later are invisible to staff until explicitly added to their scope.
+- **Exactly one owner per account**, enforced by a partial unique index on `memberships` (`WHERE role='owner' AND status='active'`) rather than a column on `accounts` — the constraint lives where the invariant lives. Transferable (Section 8).
+- Staff scoping (which homes a staff member sees) lives in a `membership_property_scopes` table: `(membership_id, property_id)`, FK → `properties(id)`. Scope rows are only meaningful for `staff` memberships: owner/admin always see all properties (their scope set is ignored/empty by convention). For **staff, the scope set is the whitelist — a staff membership with zero scope rows sees zero properties** (fail closed, never "all"). Properties added to the account later are invisible to staff until explicitly added to their scope.
 
 ```mermaid
 erDiagram
     users ||--o{ memberships : has
     accounts ||--o{ memberships : has
-    accounts ||--o{ homes : contains
-    memberships ||--o{ membership_home_scopes : "scoped to"
-    homes ||--o{ membership_home_scopes : "assigned in"
+    accounts ||--o{ properties : contains
+    memberships ||--o{ membership_property_scopes : "scoped to"
+    properties ||--o{ membership_property_scopes : "assigned in"
 ```
 
 ---
@@ -63,7 +63,7 @@ erDiagram
 On successful sign-in we upsert a `users` row keyed on `google_sub`:
 - `google_sub` — stable subject id (the identity key; never changes for a Google account).
 - `email`, `name`, `avatar_url` — copied from the ID token / userinfo on each login (kept fresh).
-- `created_at` (first sign-in), `last_login` (updated every sign-in).
+- `created_at` (first sign-in), `last_login_at` (updated every sign-in).
 
 We do **not** store Google refresh tokens unless a later feature needs Google API access; launch only needs identity, so we discard tokens after verifying the ID token.
 
@@ -106,7 +106,7 @@ sequenceDiagram
     API->>G: POST /token
     G-->>API: id_token (+ access_token)
     API->>API: Verify id_token sig/claims, read google_sub
-    API->>API: Upsert users row, update last_login
+    API->>API: Upsert users row, update last_login_at
     API->>API: Resolve memberships → account or onboarding
     API-->>B: Set session cookie; 302 → dashboard or /onboarding
 ```
@@ -131,7 +131,7 @@ Goal: fastest possible time-to-value. A brand-new user (no memberships) becomes 
 |---|---|---|---|---|
 | 1 | Welcome | — | — | — |
 | 2 | Create account | **Yes** | Account name, type (household/estate) | `accounts` row + `owner` membership |
-| 3 | Add first home | **Yes** | Home name, address, type (house/apt/estate/land) | first `homes` row |
+| 3 | Add first home | **Yes** | Home name, address, type (house/apt/estate/land) | first `properties` row |
 | 4 | Quick-add spaces | Skippable | Room/space names (chips: Kitchen, Primary Bedroom, Garage…) | `spaces` rows |
 | 5 | Invite teammates | Skippable | Emails + role | pending invites (Free: gated — see §6.4) |
 | 6 | Land on dashboard | — | — | — |
@@ -164,7 +164,7 @@ Owners and admins can invite people to their account. Invites are email-based an
 1. Inviter enters an **email**, chooses a **role** (`admin` or `staff` — the `owner` role can never be invited; ownership moves only via transfer, §8.1), and — for staff — selects **one or more homes** to scope to (a staff invite with zero homes is rejected; empty staff scope means no access, §2).
 2. System checks the inviter's own permission (`invite users`, §9.2) and seat/plan limits (§6.4). If blocked, no invite is created; an upgrade prompt is shown.
 3. An `invites` record is created: `{id, account_id, email, role, home_scopes, token_hash, expires_at, created_by, status}`. **No `memberships` row exists yet** — the invitee may not have a `users` row (they've never signed in), and `memberships` requires a `user_id`. The pending `invites` row is what consumes a seat (see `PRICING_AND_PACKAGING.md` §3.1 seat semantics).
-4. Resend emails a **tokenized, single-use, expiring link** (`/invite/accept?token=…`, default 7-day expiry *(PLACEHOLDER)*). The raw token exists only in the email; we store its hash.
+4. Resend emails a **tokenized, single-use, expiring link** (`/invite/accept?token=…`, 7-day expiry). The raw token exists only in the email; we store its hash.
 5. Invitee clicks → signs in with Google (users row upserted) → we validate the token (hash match, unexpired, status `pending`) → **transactionally**: mark the invite `accepted` (single-use enforced here — a second acceptance attempt finds status ≠ `pending` and fails), create the `active` membership with the invite's role, apply home scopes, re-check the seat limit. If the invitee already has a membership in the account, acceptance fails with "already a member" — an invite can never change an existing member's role or scope.
 
 ### 6.2 Pending / resend / revoke
@@ -217,7 +217,7 @@ A user with multiple memberships has one **current account** at a time.
 
 ### 8.1 Transfer ownership
 - Only the current owner can transfer. Target must be an `active` member of the account (typically promoted to `admin` first).
-- On transfer: `accounts.owner_user_id` → new user; old owner's membership is downgraded to `admin` (or removed, at their choice). Billing control follows ownership.
+- On transfer: the `owner` membership moves to the new user — enforced by the partial unique index on `memberships` (`WHERE role='owner' AND status='active'`), so two owners cannot exist even momentarily. Old owner's membership is downgraded to `admin` (or removed, at their choice). Billing control follows ownership.
 - **Last-owner invariant:** an account must always have exactly one owner. Ownership can be transferred but never left vacant.
 
 ### 8.2 Removing a member
@@ -241,6 +241,8 @@ A user with multiple memberships has one **current account** at a time.
 
 ### 9.2 Capability matrix
 
+> **This table is prose, and §9.4 tells implementers to look actions up in it.** That only works if each row has a machine-readable action key — which it does not. The canonical keyed matrix lives in **`../specs/SPEC-003-phase2-onboarding-team-rbac.md` §4.1**; treat this table as the human-readable statement of intent and that one as the source a route actually calls.
+
 | Action | owner | admin | staff |
 |---|:---:|:---:|:---:|
 | View home | ✓ | ✓ | scoped |
@@ -249,8 +251,9 @@ A user with multiple memberships has one **current account** at a time.
 | Delete home | ✓ | ✓ | ✗ |
 | Manage tasks | ✓ | ✓ | scoped |
 | Manage issues / work orders | ✓ | ✓ | scoped |
-| Manage inventory & documents | ✓ | ✓ | scoped |
-| Manage vendors | ✓ | ✓ | scoped |
+| Manage inventory | ✓ | ✓ | scoped |
+| View documents | ✓ | ✓ | scoped, **and only where `staff_visible = true`** |
+| View vendor contact info | ✓ | ✓ | scoped, **read-only** |
 | View finances (budgets, expenses, contracts) | ✓ | ✓ | ✗ |
 | Manage staff (invite/remove/re-scope) | ✓ | ✓ | ✗ |
 | Invite users (admin/staff) | ✓ | ✓ | ✗ |
@@ -269,20 +272,25 @@ A user with multiple memberships has one **current account** at a time.
 ### 9.3 Default staff permission set
 By default a staff member can, **within their assigned home(s) only**: view the home, view and manage tasks assigned to or created within that home, log issues, view/contact vendors for that home, and use the AI advisor limited to that home's context. They cannot edit core home settings, see finances, see other homes, invite anyone, or touch billing. This default is intentionally conservative and **refinable later** via per-home, per-capability assignment (e.g. a property manager granted vendor-management but not a handyman).
 
-Staff scoping is enforceable because **every scoped domain object resolves to exactly one home** (task → home, issue → home, vendor link → home, etc.); the scope check is "is this object's home in my scope set." Objects that do *not* belong to a home (account-level vendors, budgets, account settings) are account-level and therefore ✗ for staff by the matrix above. **AI scoping is a retrieval constraint, not a prompt nicety:** the advisor's context assembly for a staff request may only query data the same `require_permission` checks would allow — cross-home data must be excluded at the query layer, so a staff member cannot exfiltrate another home's data by asking the AI about it.
+Staff scoping is enforceable because **every scoped domain object resolves to exactly one property** (task → property, issue → property, vendor link → property, etc.); the scope check is "is this object's property in my scope set." Objects that do *not* belong to a property (account-level vendors, budgets, account settings) are account-level and therefore ✗ for staff by the matrix above. **AI scoping is a retrieval constraint, not a prompt nicety:** the advisor's context assembly for a staff request may only query data the same `require_permission` checks would allow — cross-property data must be excluded at the query layer, so a staff member cannot exfiltrate another property's data by asking the AI about it.
+
+**Two exceptions the matrix alone does not express, both decided in `../specs/SPEC-003-phase2-onboarding-team-rbac.md`:**
+
+- **Documents are not uniformly scoped.** A document is visible to staff only when an owner or admin has ticked **`staff_visible`**, which **defaults to `false`** — fail closed. A new invoice is never exposed by accident; a boiler manual is shared deliberately. Without this flag "scoped documents" has nothing to scope by, since documents attach polymorphically and many have no property at all.
+- **Vendors are contact-only and read-only for staff.** Staff see `company_name`, `contact_name`, `phone`, `email` and `contacts` — enough to call the plumber. They never see `insurance_info`, `license_number`, `notes` or ratings, and they cannot write. The row a staff member is allowed to read still carries commercial terms they are not.
 
 ### 9.4 Enforcement
 
 Authorization is a single check at the **service/route layer**, before any business logic runs:
 
 ```
-require_permission(user, current_account, action, target_home=None)
+require_permission(user, current_account, action, target_property=None)
 ```
 
 1. **Tenant scope first** — confirm `target.account_id == session.current_account_id` (delegated to multitenancy layer). Cross-account access is impossible by construction; a mismatched target is a 404, not a 403 (don't reveal existence).
 2. **Load membership** — fetch the user's `active` membership for the current account, **fresh from the DB on every request** (role is never cached in the session — §3.3). None → deny and clear `current_account_id` (the membership was revoked mid-session).
 3. **Role capability** — look up `(role, action)` in the capability matrix. `✗` → deny.
-4. **Home scope** — if the capability is `scoped` (staff), confirm `target_home` is in the membership's `membership_home_scopes`. Not in scope → deny (404). Staff list/index queries are filtered to scoped homes at the query layer, not post-hoc.
+4. **Property scope** — if the capability is `scoped` (staff), confirm `target_property` is in the membership's `membership_property_scopes`. Not in scope → deny (404). **Two route classes, and they check differently:** an *item* route resolves a target property and checks it; a *collection* route has no single target and instead filters to the scoped set at the query layer, never post-hoc. Denying a collection route because `target_property` is `None` would 403 every list page a staff member can legitimately open.
 5. **Entitlements are a separate gate.** RBAC answers "may this *role* do this"; the entitlements service (`PRICING_AND_PACKAGING.md` §3) answers "may this *account* do this on its plan." Actions that create limited resources (add home, invite, AI call) pass **both** checks; a permission grant never bypasses a plan limit or vice versa.
 
 This composes cleanly with tenant scoping: a user **only ever acts within one current account**, so every check reduces to "role + home scope within this account." The matrix is the single source of truth — routes declare the `action` they require; the check is centralized (FastAPI dependency), not scattered per-handler. Every deny and every privileged action (invites, role changes, ownership transfer, deletion) writes to the audit log.

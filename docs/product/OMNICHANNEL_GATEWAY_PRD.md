@@ -118,7 +118,7 @@ def resolve_identity(from_id: str, channel: str) -> IdentityResult | None:
 - `telegram_chat_links` — group_id → account_id, home_id
 - Unified view: `omnichannel_chat_links` — (channel, group_id) → account_id, home_id
 
-**Staff scoping & RBAC:** A linked phone/chat resolves to its membership, whose role and `membership_home_scopes` gate every action through `require_permission(user, current_account, action, target_home)`. No channel is a side door.
+**Staff scoping & RBAC:** A linked phone/chat resolves to its membership, whose role and `membership_property_scopes` gate every action through `require_permission(user, current_account, action, target_property)`. No channel is a side door.
 
 **Account-switch:** One phone/chat → one active account. For users in multiple accounts, a unified prefix (`@estate2 log ...`) works across all channels. Per-account numbers (Twilio Option B) is an Estate-tier upsell.
 

@@ -142,7 +142,7 @@ Same as Telegram (§4.2): a user in two accounts has two `whatsapp_links` rows. 
 
 ### 4.3 Staff scoping
 
-Staff links carry `membership_home_scopes`. A staff user's actions are restricted to their assigned home(s). A group chat linked to a home they aren't scoped to yields a clean "not found" message.
+Staff links carry `membership_property_scopes`. A staff user's actions are restricted to their assigned home(s). A group chat linked to a home they aren't scoped to yields a clean "not found" message.
 
 ---
 
@@ -344,7 +344,7 @@ Statuses: `sent` (accepted by WhatsApp), `delivered` (reached device), `read` (o
 ## 6. Security & Abuse
 
 - **Deny by default.** Only linked, non-revoked phone numbers can command the bot. Messages from unknown numbers/groups are dropped silently.
-- **Per-role capability gating.** Reuse `require_permission(user, current_account, action, target_home)` from `ONBOARDING_AUTH_RBAC.md` §9.4. Each responder category declares the action it needs. Staff attempting owner/admin actions get a clean "not permitted."
+- **Per-role capability gating.** Reuse `require_permission(user, current_account, action, target_property)` from `ONBOARDING_AUTH_RBAC.md` §9.4. Each responder category declares the action it needs. Staff attempting owner/admin actions get a clean "not permitted."
 - **Phone number privacy.** Phone numbers are stored hashed in `whatsapp_links` (same as Telegram user IDs). Never logged or displayed in replies.
 - **Link code security.** Short-lived (5 min), single-use, hashed storage. Brute-force resistant (rate-limited to 3 attempts per code).
 - **Human-in-the-loop.** The `whatsapp review` queue remains the safety net for passive auto-creation.

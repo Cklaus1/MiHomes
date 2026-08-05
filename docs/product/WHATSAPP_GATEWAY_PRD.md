@@ -41,7 +41,9 @@ The WhatsApp gateway sits on a **two-process architecture**:
 - **AI replies**: Questions are answered by the estate-manager advisor. Replies are plain text, constrained in length. `NO_RESPONSE` suppression exists.
 - **Issue logging**: When a message is classified as an issue, a MiHomes issue record is created with severity, room, and reporter fields.
 
-**Divergence from Telegram**: No PTO approval flow, no inventory chat routing, no photo-to-Document linking on issue creation, no maintenance-expert assessment appended to issue confirmations, no structured commands (APPROVE/DENY). The Telegram responder is significantly more feature-rich.
+**Parity with Telegram** *(corrected 2026-08-05, verified against `origin/main` @ `be8d398` — SPEC-006 §2 B1)*: this section previously claimed five divergences from Telegram — no PTO approval flow, no inventory chat routing, no photo-to-Document linking, no maintenance-expert assessment, no structured APPROVE/DENY commands. **All five were false**, and `PRD_REVIEW.md` §G1 verified each against the code. Since `c4954a0` both gateways share a single dispatcher (`services/gateways/review_common.py`), so parity is now structural rather than coincidental: `handle_approval_messages`, `dispatch_items` and `is_trusted_sender` are the same functions for both channels, and the only per-channel code is the `GatewayAdapter` that delivers the reply.
+
+> The deleted claim was load-bearing: it was the stated premise for §2 gap #6, three §3 P1 rows, and §8.2. **Treat those four sections as withdrawn** pending a rewrite against the shared-core reality.
 
 ### 1.4 Passive review queue
 
@@ -160,6 +162,21 @@ The Cloud API is a REST service at `https://graph.facebook.com/vX.X/{phone-numbe
 | **Business API** (paid) | Per-conversation pricing | WABA + business verification + app review | Full production: groups, template messages, higher rate limits. Pricing varies by conversation category (utility, marketing, authentication, service). |
 
 **Migration path**: Start with Developer API for development and testing. When ready for production, migrate to Business API by updating the access token and phone number ID in configuration. The Python client code changes minimally — mostly token and phone-number-id values.
+
+> ⚠️ **Group support is an unresolved blocker, not a detail** *(added 2026-08-05 — SPEC-006 §2, B6;
+> `PRD_REVIEW.md` §G5)*. The table above states the Developer tier supports "verified numbers only.
+> **No group support**", yet §16's migration promises "no behavior change for existing users" — and
+> **the live product is group-based**: `whatsapp.inventory_group_jid` routes an inventory *group*,
+> and the CLI ships `groups`, `link-group`, `unlink-group` and `send-group`. Migrating to a tier
+> without group support is a **total loss of function**, not a transport swap. This document
+> asserts group messaging works (§ later), contradicts itself here, and re-asks the same question
+> in §17 Q8 — answering, denying and re-opening it in three places.
+>
+> **Resolution:** the founder has decided (2026-08-05) that WhatsApp stays in the product and
+> migrates off Baileys to the official Cloud API. **Which tier, and whether groups survive it, is
+> tracked as `O1` in `docs/specs/SPEC-006-gateways-tenancy-webhook-cloud-api.md` §1.3** — openly
+> open, rather than contradicted across three sections. The tier-independent work (the
+> `WhatsAppBridge` Protocol implementation, the adapter, the webhook) proceeds regardless.
 
 ### 5.2 Authentication
 

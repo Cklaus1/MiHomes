@@ -3,8 +3,9 @@
 Executable specs for the SaaS re-platform. Each spec turns one phase of the PRD set into
 something a developer (or an AI agent) can build **without asking a question**.
 
-**Status:** The set is **complete** — SPEC-001 through SPEC-005 written. Phase 3 is the MVP cut
-line; Phase 4 is GA.
+**Status:** The **launch path is complete** — SPEC-001 through SPEC-005 cover Phases 0–4. Phase 3
+is the MVP cut line; Phase 4 is GA. SPEC-006 begins the **Phase 4+ growth bets**, which are
+post-GA and gate nothing above them.
 
 ---
 
@@ -17,12 +18,14 @@ line; Phase 4 is GA.
 | [SPEC-003](SPEC-003-phase2-onboarding-team-rbac.md) | **2** — Onboarding + team + RBAC | Ready to build — **1 open decision** (O1: secret encryption) |
 | [SPEC-004](SPEC-004-phase3-billing-freemium.md) | **3** — Billing / freemium | Ready to build — **1 open decision** (O1: launch prices/limits, blocks config only) |
 | [SPEC-005](SPEC-005-phase4-polish-email-ga.md) | **4** — Polish + email lifecycle + GA | Ready to build — **2 open decisions** (O1: drip content/cadence; O2: deletion grace length) |
+| [SPEC-006](SPEC-006-gateways-tenancy-webhook-cloud-api.md) | **4+** — Gateways: tenancy, webhook, Cloud API | Ready to build — **2 open decisions** (O1: Cloud API tier/groups; O2: webhook host locally). **Verified against `origin/main`, not `telegram-bot`** — see its §0.1 |
 
-**Four unrelated `O1`s are open across the set.** Label namespaces are per-spec-local (see
+**Five unrelated `O1`s are open across the set.** Label namespaces are per-spec-local (see
 *Working on a spec* below), so the numbering restarts in every spec. SPEC-001's O1 is the ToS +
 Privacy Policy; SPEC-003's O1 is at-rest encryption of provider API keys; SPEC-004's O1 is the
-launch prices and limits; SPEC-005's O1 is the drip sequence. SPEC-002's O1 **closed** on
-2026-07-31 (→ D13). Always resolve an `O`-label inside the spec that raised it.
+launch prices and limits; SPEC-005's O1 is the drip sequence; SPEC-006's O1 is the WhatsApp Cloud
+API tier. SPEC-002's O1 **closed** on 2026-07-31 (→ D13). Always resolve an `O`-label inside the
+spec that raised it.
 
 **Three of those gate GA rather than a build** — SPEC-001 O1, SPEC-003 O1 and SPEC-004 O1 are all
 carried in SPEC-005 §1.6 under their original labels, because `SAAS_PRD:189-196` cannot be
@@ -191,3 +194,11 @@ themselves; gaps do not.
 - **Code claims must be verified against the tree, not remembered.** `docs/PRD_REVIEW.md` §G
   documents what happens when they are not: two gateway PRDs whose central factual claims about
   the existing code turned out to be false.
+- **Name the ref you verified against.** SPEC-001 through SPEC-005 were written against
+  `telegram-bot`; SPEC-006 is written against `origin/main`, because the two differ in ways that
+  change the answer. `telegram-bot` is **13 commits behind main**, and the shared gateway core
+  (`gateways/review_common.py`, 1,175 lines) exists only on main — so "does the shared core exist"
+  has two correct answers depending on where you look. This cost real rework while SPEC-006 was
+  being researched: the core was reported missing, twice, before anyone checked a second ref. A
+  claim about "the code" without a ref is not a verified claim. SPEC-006 carries a
+  **Verified against:** line in its front matter for this reason; later specs should too.

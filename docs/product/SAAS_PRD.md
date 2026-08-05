@@ -241,6 +241,8 @@ This PRD is the anchor. Each subsystem has a dedicated doc:
 | Telegram PRD | [`docs/product/TELEGRAM_PRD.md`](TELEGRAM_PRD.md) | Current gateway + roadmap (growth bet) |
 | Twilio PRD | [`docs/product/TWILIO_PRD.md`](TWILIO_PRD.md) | SMS/MMS/Voice + official WhatsApp (growth bet) |
 | Vendor Discovery PRD | [`docs/product/VENDOR_DISCOVERY_PRD.md`](VENDOR_DISCOVERY_PRD.md) | AI vendor research + public ratings marketplace (growth bet) |
+| Omnichannel Gateway PRD | [`docs/product/OMNICHANNEL_GATEWAY_PRD.md`](OMNICHANNEL_GATEWAY_PRD.md) | One core behind WhatsApp/Telegram/Twilio (growth bet). Partially repaired 2026-08-05 — see `../PRD_REVIEW.md` §G |
+| WhatsApp Gateway PRD | [`docs/product/WHATSAPP_GATEWAY_PRD.md`](WHATSAPP_GATEWAY_PRD.md) | WhatsApp Business Cloud API gateway (growth bet). Partially repaired 2026-08-05 — see `../PRD_REVIEW.md` §G |
 
 > Note: the existing single-user product PRD remains at repo-root `PRD.md`. This SaaS PRD supersedes it for the hosted product; the root PRD stays authoritative for the local/CLI domain model.
 

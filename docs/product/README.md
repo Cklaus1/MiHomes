@@ -23,6 +23,15 @@
 | **[TELEGRAM_PRD.md](TELEGRAM_PRD.md)** | Current Telegram gateway analysis + capability roadmap (growth bet) |
 | **[TWILIO_PRD.md](TWILIO_PRD.md)** | New Twilio gateway: SMS/MMS/Voice + official WhatsApp Business (growth bet) |
 | **[VENDOR_DISCOVERY_PRD.md](VENDOR_DISCOVERY_PRD.md)** | AI vendor research + public star ratings marketplace (growth bet) |
+| **[OMNICHANNEL_GATEWAY_PRD.md](OMNICHANNEL_GATEWAY_PRD.md)** | Unifying WhatsApp/Telegram/Twilio behind one core (growth bet). **Partially repaired 2026-08-05** — see below |
+| **[WHATSAPP_GATEWAY_PRD.md](WHATSAPP_GATEWAY_PRD.md)** | WhatsApp Business Cloud API gateway (growth bet). **Partially repaired 2026-08-05** — see below |
+
+> **Read the two gateway PRDs with care.** They were added after the other ten and, unlike them,
+> made factual claims about the existing code that did not hold — catalogued in
+> [`../PRD_REVIEW.md`](../PRD_REVIEW.md) §G. The load-bearing errors were corrected on 2026-08-05
+> (`docs/specs/SPEC-006-gateways-tenancy-webhook-cloud-api.md` §2), and each correction is marked
+> inline in the document it fixes. Sections not explicitly corrected have **not** been re-verified.
+> The buildable statement of this work is SPEC-006, not these two documents.
 
 ### Architecture (`docs/architecture/`)
 | Doc | What it answers |

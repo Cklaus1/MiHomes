@@ -6,11 +6,16 @@ MiHomes has **two independent gateway implementations**, each a self-contained c
 
 | Component | WhatsApp | Telegram |
 |---|---|---|
-| **Protocol** | `WhatsAppBridge` (Cloud API) — `send_message`, `send_template`, `get_message_status`, `register_webhook` | `TelegramBot` (Bot API) — `send_message`, `get_updates`, `register_webhook` |
-| **Client** | `whatsapp/client.py` — HTTP client wrapping bridge endpoints via `urllib` | `telegram/client.py` — direct Bot API via `urllib` |
-| **Responder** | `whatsapp/responder.py` (529 lines) — `process_and_respond`, `handle_inventory_scan` | `telegram/responder.py` (529 lines) — `process_and_respond`, `handle_inventory_scan` |
-| **Review** | `whatsapp/review.py` (249 lines) — batch AI analysis, REVIEW_SCHEMA, 8 categories | `telegram/review.py` — same pattern |
+| **Protocol** | `WhatsAppBridge` — `send_message`, `send_template`, `get_message_status`, `register_webhook`. **Declared in `whatsapp/protocol.py`, with zero implementers** — a seam awaiting the Cloud API, not current behaviour | **None.** There is no `TelegramBot` Protocol; the class is `TelegramClient`, so Telegram currently *violates* the behind-a-Protocol rule this doc set states elsewhere |
+| **Client** | `whatsapp/client.py` — HTTP client wrapping the Baileys bridge via `urllib`. **Retired by SPEC-006 Step 10** | `telegram/client.py` — direct Bot API via `urllib` |
+| **Responder** | `whatsapp/responder.py` (**285 lines**) — delegates to `review_common` | `telegram/responder.py` (**271 lines**) — delegates to `review_common` |
+| **Shared core** | `gateways/review_common.py` (**1,175 lines**) — `GatewayAdapter`, `REVIEW_SCHEMA`, `analyze_messages`, `dispatch_items`, `handle_approval_messages`, `is_trusted_sender`. Plus `gateways/dedup.py` and `gateways/pid.py` | Same module — this is the point |
+| **Review** | `whatsapp/review.py` (**16 lines**) — thin re-export of the shared superset schema | `telegram/review.py` (**16 lines**) — same re-export |
 | **Extractor** | `whatsapp/extractor.py` (159 lines) — auto-create issues/tasks with dedup | `telegram/extractor.py` — same pattern |
+
+> **Corrected 2026-08-05** *(verified against `origin/main` @ `be8d398` — SPEC-006 §2, B2/B3/B5/B8)*. This table previously claimed both responders were **529 lines** — the size-parity claim that framed this document's entire divergence argument — and that WhatsApp handled **8** categories against Telegram's 15. Both were true of the pre-refactor code and are now wrong in a more important way: commit `c4954a0` extracted the shared core, so the responders are 285/271 and the category split **no longer exists**. There is one superset schema of **15 categories** serving both channels; the per-gateway `review.py` files are 16-line re-exports whose own docstring records that "this WhatsApp schema had lost 8 categories the dispatcher still handled".
+>
+> Consequence for this document: **the shared-core extraction it proposes as future work has already shipped.** See `docs/specs/SPEC-006-gateways-tenancy-webhook-cloud-api.md` §0.3. What remains genuinely unbuilt is tenancy, webhook transport, and the Cloud API migration.
 | **CLI** | `cli/whatsapp.py` (674 lines) — setup, webhook, template, monitor, review | `cli/telegram.py` — setup, monitor, review |
 | **State** | `whatsapp_links` (phone_number → account_id, membership_id, role), `whatsapp_chat_links` (group_id → account_id, home_id) | `telegram_links` (chat_id → account_id, membership_id, role), `telegram_chat_links` (group_id → account_id, home_id) |
 
@@ -61,7 +66,11 @@ Both gateways share the **same SPACE framework** for prioritization (Safety, Pre
 
 ## 3. Proposed Capabilities
 
-Priorities: **P0** = launch-blocking, **P1** = fast follow, **P2** = later.
+Priorities: **P0** = first to build *within this growth bet*, **P1** = fast follow, **P2** = later.
+
+> **Corrected 2026-08-05** *(SPEC-006 §2, B4)*. P0 previously read "**launch-blocking**", which contradicts canon: `SAAS_PRD.md` §10 classifies chat gateways as a **Phase 4+ growth bet**, and `SAAS_PRD:186` states they "remain single-tenant/founder-only until made tenant-aware … they are **not part of the hosted MVP**." Nothing in this document blocks GA. These priorities order work *inside* the growth bet only — the same hedge `TELEGRAM_PRD.md` already carries for its own phase mapping ("a dependency floor, not committed scope").
+>
+> Note also that the first row below — **shared responder core** — **has already shipped** (`gateways/review_common.py`, commit `c4954a0`). See §2's corrected comparison table.
 
 | Capability | Priority | Notes |
 |---|---|---|
@@ -579,14 +588,26 @@ Single Python process. No bridge. Telegram long-poll + FastAPI webhook endpoint 
 
 ## 16. Phasing
 
-| Phase | Work | Dependencies |
+> **These are STAGE numbers internal to this growth bet, not product phases** *(corrected
+> 2026-08-05 — SPEC-006 §2, B4)*. Product phase numbering is **canon across the whole doc set**
+> (`SAAS_PRD.md` §10, `docs/specs/README.md`) and runs 0–4, ending at GA. This table previously
+> presented its own "Phase 0–4" using the same numerals for entirely different work — so its
+> "Phase 0" collided with canon Phase 0 (landing + waitlist, which contains **zero** gateway code).
+> Read every row below as *Stage N of the Phase 4+ gateway growth bet*.
+>
+> **Stage 0 has already shipped** as `gateways/review_common.py` (commit `c4954a0`) — with the seam
+> named `GatewayAdapter`, not `ChannelAdapter`, and living at `gateways/review_common.py`, not
+> `core/responder.py`. Stages 1 and part of 2 are specced in
+> `docs/specs/SPEC-006-gateways-tenancy-webhook-cloud-api.md`; the Twilio stages are SPEC-007.
+
+| Stage | Work | Dependencies |
 |---|---|---|
-| **0: Responder core** | Extract shared `core/responder.py` from WhatsApp + Telegram. Add `ChannelAdapter` Protocol. Implement WhatsApp + Telegram adapters. Add unit tests. | Current WhatsApp + Telegram responders |
-| **1: Identity + routing** | Centralized `resolve_identity()`. Unified webhook router. Cross-channel dedup. Unified linking flow (`omnichannel_link_codes`). | Phase 0 |
-| **2: Compliance + preferences** | STOP/HELP/opt-out manager. Channel preferences table + alert dispatcher. Rate limiter. | Phase 1 |
-| **3: Twilio adapter** | Implement Twilio adapter (SMS/MMS). Add Twilio to shared responder. STOP/HELP for Twilio. | Phases 0-2, billing/entitlements |
-| **3-4: Twilio advanced** | WhatsApp Business channel via Twilio. Voice escalation. Per-account numbers. Media pipeline unification. | Phase 3, A2P 10DLC registration |
-| **4: GA** | Multi-language support. Location sharing. Voice transcription. Unified `/help`. Delivery status API. | Phases 0-3 |
+| **0: Responder core** — ✅ **SHIPPED** (`c4954a0`) | Extract shared core from WhatsApp + Telegram. Add the adapter seam. Implement WhatsApp + Telegram adapters. Add unit tests. | Current WhatsApp + Telegram responders |
+| **1: Identity + routing** — specced as SPEC-006 | Centralized sender→account resolution. Webhook router. Cross-channel dedup. Unified linking flow. | Stage 0; product Phases 1–2 (tenancy, memberships) |
+| **2: Compliance + preferences** | STOP/HELP/opt-out manager. Channel preferences table + alert dispatcher. Rate limiter. | Stage 1 |
+| **3: Twilio adapter** — SPEC-007 | Implement Twilio adapter (SMS/MMS). Add Twilio to the shared core. STOP/HELP for Twilio. | Stages 0–2; product Phase 3 (billing/entitlements) |
+| **3-4: Twilio advanced** | WhatsApp Business channel via Twilio. Voice escalation. Per-account numbers. Media pipeline unification. | Stage 3, A2P 10DLC registration |
+| **4: Channel maturity** *(renamed from "GA" — see the note above; product GA is Phase 4 and does not wait on any of this)* | Multi-language support. Location sharing. Voice transcription. Unified `/help`. Delivery status API. | Stages 0–3 |
 
 ## 17. Open Questions & Risks
 

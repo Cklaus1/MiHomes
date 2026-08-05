@@ -479,68 +479,72 @@ class CloudAPIClient:
 
 ## 6. Sequenced steps
 
-Each step ends in a green test or an observable behaviour. Four ordering constraints are
-load-bearing: **Step 1 before everything** (the branch reconciliation — without it the tree lacks
-the core this spec builds on), **Step 3 before Step 4** (identity resolves before anything is
-scoped by it), **Step 5 before Step 6** (tenancy works on the existing transport before the
-transport changes underneath it), and **Step 7 before Step 8** (the webhook is proven on Telegram
-before WhatsApp's migration depends on it).
+Each step ends in a green test or an observable behaviour. Three ordering constraints are
+load-bearing: **Step 2 before Step 3** (identity resolves before anything is scoped by it),
+**Step 4 before Step 5** (tenancy works on the existing transport before the transport changes
+underneath it), and **Step 7 before Step 9** (the Cloud API is proven in production before Baileys
+— the only working WhatsApp transport today — is deleted).
 
-**Step 0 — land the §2 doc repairs.** Ten fixes to `OMNICHANNEL_GATEWAY_PRD.md` and
-`WHATSAPP_GATEWAY_PRD.md`, plus indexing both. *Verify:* re-grep each stale string and confirm it
-is gone (A1). Numbered zero because it is documentation, not code — but it is first, because every
-later step reads those docs.
+### Prerequisites — not steps
 
-**Step 1 — reconcile `telegram-bot` with `origin/main`.** **A prerequisite, not part of this
-spec's design** (§0.1, §10). Nothing below compiles on a tree without `review_common.py`.
-*Verify:* `review_common.py`, `dedup.py` and `pid.py` are present on the working branch, and the
-six gateway test files pass (A2).
+Two things must be true before Step 1. Neither is code this spec designs, so neither is numbered
+among the steps:
 
-**Step 2 — the link-token table.** §4.1 and §4.2, RLS included. *Verify:* the migration applies
+- **P1 — the §2 doc repairs. ✅ DONE — landed in the same commit as this spec.** Ten fixes to
+  `OMNICHANNEL_GATEWAY_PRD.md` and `WHATSAPP_GATEWAY_PRD.md`, plus indexing both. Do **not**
+  re-apply them; the stale strings are already gone, which A1 asserts. Listed here because every
+  step below reads those docs and a builder needs to know they were repaired rather than trusting
+  them as originally written.
+- **P2 — reconcile `telegram-bot` with `origin/main`.** **Nobody owns this** (§0.1, §10), and
+  nothing below compiles on a tree without `review_common.py`. Confirm `review_common.py`,
+  `dedup.py` and `pid.py` are present on the working branch and the six existing gateway test files
+  pass (A2) before writing a line of Step 1.
+
+**Step 1 — the link-token table.** §4.1 and §4.2, RLS included. *Verify:* the migration applies
 and reverts (A3); a raw token never appears in the table or in logs (A4).
 
-**Step 3 — sender identity.** `resolve_sender`, `UnlinkedSender`, and the unscoped-lookup
+**Step 2 — sender identity.** `resolve_sender`, `UnlinkedSender`, and the unscoped-lookup
 carve-out. *Verify:* a linked sender resolves to exactly one account (A5); **an unlinked sender
 raises rather than defaulting** (A6); a sender linked in two accounts resolves by chat, and a DM
 from them is refused as ambiguous rather than guessed (A7).
 
-**Step 4 — the linking flow.** `/link <code>`, issue and redeem, owner/admin-gated. *Verify:*
+**Step 3 — the linking flow.** `/link <code>`, issue and redeem, owner/admin-gated. *Verify:*
 expired, replayed, wrong-gateway and cross-account codes are each refused with a distinct message
 (A8); redemption is single-use (A9); revoking the membership removes the link with no extra code,
 via `ondelete=CASCADE` (A10).
 
-**Step 5 — thread `account` through the core.** `dispatch_items` and `is_trusted_sender` take
-`account`; both responders pass it. **Before Step 6** — prove tenancy on the transport that
+**Step 4 — thread `account` through the core.** `dispatch_items` and `is_trusted_sender` take
+`account`; both responders pass it. **Before Step 5** — prove tenancy on the transport that
 already works, so a failure here is not confused with a webhook bug. *Verify:* a message from
 account A creates rows in A only, and B sees nothing (A11); `is_trusted_sender` does not match
 staff from another account (A12); `property_slug` behaviour is unchanged (A13).
 
-**Step 6 — the webhook route.** `POST /webhooks/telegram`, raw-body verification, envelope
+**Step 5 — the webhook route.** `POST /webhooks/telegram`, raw-body verification, envelope
 normalization, excluded from session auth and tenant scoping. *Verify:* a forged signature is
 rejected with no DB write (A14); a valid update reaches `process_and_respond` under the right
 account (A15); redelivery of the same update creates nothing twice (A16).
 
-**Step 7 — the polling cutover.** Register the webhook, mark `cli/telegram.py monitor` deprecated,
+**Step 6 — the polling cutover.** Register the webhook, mark `cli/telegram.py monitor` deprecated,
 keep it runnable per D14 and O2. *Verify:* **the webhook and a running poller cannot both process
 one update** (A17) — `poll_lease` (`dedup.py:145`) exists because concurrent pollers were already a
 hazard; a webhook plus a live poller is that hazard wearing a new hat.
 
-**Step 8 — WhatsApp Cloud API.** `CloudAPIClient` implementing the existing Protocol, its
+**Step 7 — WhatsApp Cloud API.** `CloudAPIClient` implementing the existing Protocol, its
 `GatewayAdapter`, and `POST /webhooks/whatsapp`. **The group question is O1** — build the
 tier-independent parts regardless. *Verify:* it satisfies `WhatsAppBridge` structurally with no
 subclassing (A18); an inbound Cloud API message produces the same normalized dict Baileys produced
 (A19); the responder is unchanged by the swap (A20).
 
-**Step 9 — `notify_staff`'s fallback.** Give it `notify_approver`'s ladder (F9). *Verify:* on a
+**Step 8 — `notify_staff`'s fallback.** Give it `notify_approver`'s ladder (F9). *Verify:* on a
 Telegram-only install a staff member is told their PTO was decided (A21). Small, and it fixes a
 live silent failure.
 
-**Step 10 — retire Baileys.** Delete `bridge/`, remove the Baileys client, re-register the
-WhatsApp CLI in `cli/__init__.py`, shrink the watchdog to health checks (D15). **Only after Step 8
+**Step 9 — retire Baileys.** Delete `bridge/`, remove the Baileys client, re-register the
+WhatsApp CLI in `cli/__init__.py`, shrink the watchdog to health checks (D15). **Only after Step 7
 is green in production**, since this is the irreversible half. *Verify:* no import of the Baileys
 client survives (A22); the watchdog supervises nothing that no longer exists (A23).
 
-**Step 11 — close the coverage gap.** Narrow `pyproject.toml`'s `omit` so the adapters are
+**Step 10 — close the coverage gap.** Narrow `pyproject.toml`'s `omit` so the adapters are
 measured, keeping only genuinely network-bound modules excluded (F10). *Verify:* `identity.py`,
 `linking.py`, `webhook.py` and both adapters report coverage (A24).
 
@@ -573,7 +577,7 @@ different vendor. Raw bytes first.
 **N5 — Do not collapse `property_slug` into `account_id`.** D13 — different axes. Collapsing
 breaks multi-property estates or leaks across accounts, depending which way it is done.
 
-**N6 — Do not run the webhook and the poller against one bot simultaneously.** Step 7. Telegram
+**N6 — Do not run the webhook and the poller against one bot simultaneously.** Step 6. Telegram
 refuses `getUpdates` while a webhook is registered, but the WhatsApp path has no such interlock,
 and `poll_lease` exists because this class of hazard already bit once (F7).
 
@@ -588,8 +592,8 @@ estate; SPEC-001 N7 and SPEC-003's invite tokens set the precedent.
 the composite unique constraint. Needing one here means SPEC-003 diverged — stop and reconcile
 (§0.1), as SPEC-004 N13 and SPEC-005 N12 both require.
 
-**N10 — Do not delete the Baileys bridge before the Cloud API is proven in production.** Step 10
-after Step 8. `bridge/` is the only working WhatsApp transport today; deleting it early makes
+**N10 — Do not delete the Baileys bridge before the Cloud API is proven in production.** Step 9
+after Step 7. `bridge/` is the only working WhatsApp transport today; deleting it early makes
 rollback impossible while O1 is still open.
 
 **N11 — Do not treat this as GA scope.** D1, §0.2. Chat gateways are a 4+ growth bet
@@ -630,7 +634,7 @@ One superset schema, both channels (§2's B5).
 | A9 | A link code is single-use | `test_linking.py::test_single_use` |
 | A10 | Revoking a membership removes its gateway link | `test_linking.py::test_cascade_revocation` |
 | A11 | **A message from account A creates rows in A only; B sees nothing** | `test_gateway_tenancy.py::test_cross_account_isolation` |
-| A12 | `is_trusted_sender` never matches staff from another account | `test_gateway_tenancy.py::test_trust_is_account_scoped` |
+| A12 | `is_trusted_sender` never matches staff from another account | `test_gateway_safety.py::test_trust_is_account_scoped` (existing file, extended — it already covers the pre-tenancy behaviour) |
 | A13 | `property_slug` routing is unchanged by tenancy | `test_gateway_property_resolution.py::test_unchanged_under_tenancy` (existing file, extended) |
 | A14 | A forged webhook signature is rejected with no DB write | `test_gateway_webhook.py::test_bad_signature_no_write` |
 | A15 | A valid update reaches the responder under the correct account | `test_gateway_webhook.py::test_routes_to_account` |
@@ -687,7 +691,7 @@ tests/integration/test_gateway_safety.py    + is_trusted_sender is account-scope
 
 **Extend, do not replace.** Six gateway test files already exist on `be8d398` (F11); the four
 above are extended, and `test_gateway_stop.py` / `test_telegram_client.py` / `test_whatsapp_drain.py`
-are touched only if Step 10's cleanup breaks them. `test_gateway_safety.py` already covers
+are touched only if Step 9's cleanup breaks them. `test_gateway_safety.py` already covers
 `is_trusted_sender`'s pre-tenancy behaviour, so A12 extends that file rather than opening a new
 one — the two trust dimensions belong side by side.
 
@@ -701,7 +705,7 @@ one — the two trust dimensions belong side by side.
   signature verification is exercised on the real thing (A14), following SPEC-004 §9's Stripe
   fixture precedent.
 
-**Coverage.** Step 11 narrows `pyproject.toml`'s `omit`. Keep excluded only what genuinely needs a
+**Coverage.** Step 10 narrows `pyproject.toml`'s `omit`. Keep excluded only what genuinely needs a
 network — the Baileys client is gone, so what remains is `cloud_client.py`'s HTTP surface, on the
 same reasoning that omits `stripe_provider.py` and the AI providers. `identity.py`, `linking.py`,
 `webhook.py` and both adapters are pure logic and must be measured (A24).
@@ -718,7 +722,7 @@ across every table. The test must fail when someone adds a fifteenth category wi
 - **The branch divergence, which no spec can fix.** `telegram-bot` is 13 behind / 30 ahead of
   `origin/main` (§0.1). Main holds the gateway core and its tests; `telegram-bot` holds 30 commits
   of other work. **Nobody owns reconciling them**, and until someone does, "what does the gateway
-  code do" has two different answers. Step 1 makes it a prerequisite; it does not make it someone's
+  code do" has two different answers. P2 makes it a prerequisite; it does not make it someone's
   job.
 - **The spec set itself is unmerged.** SPEC-001–006 live on `worktree-prd-review-v2`, which
   descends from `telegram-bot`. The merge target has never been decided.
@@ -728,7 +732,7 @@ across every table. The test must fail when someone adds a fifteenth category wi
 - **The Cloud API's group behaviour is unknown until O1.** If the chosen tier drops group support,
   the migration is a loss of function for an estate that routes an inventory group today. The
   spec's structure survives; the product experience may not.
-- **Per-channel adapter code stays thin but untested until Step 11.** And `cloud_client.py` stays
+- **Per-channel adapter code stays thin but untested until Step 10.** And `cloud_client.py` stays
   omitted after it, on the same network-bound reasoning as every other HTTP client in the tree —
   so the Cloud API's own error handling is exercised by nothing in CI.
 - **One bot token serves every account.** Per-account tokens are deferred (§7). A compromised token

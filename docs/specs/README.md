@@ -19,13 +19,15 @@ post-GA and gate nothing above them.
 | [SPEC-004](SPEC-004-phase3-billing-freemium.md) | **3** — Billing / freemium | Ready to build — **1 open decision** (O1: launch prices/limits, blocks config only) |
 | [SPEC-005](SPEC-005-phase4-polish-email-ga.md) | **4** — Polish + email lifecycle + GA | Ready to build — **2 open decisions** (O1: drip content/cadence; O2: deletion grace length) |
 | [SPEC-006](SPEC-006-gateways-tenancy-webhook-cloud-api.md) | **4+** — Gateways: tenancy, webhook, Cloud API | Ready to build — **2 open decisions** (O1: Cloud API tier/groups; O2: webhook host locally). **Verified against `origin/main`, not `telegram-bot`** — see its §0.1 |
+| *SPEC-007* | **4+** — Twilio gateway (SMS/MMS/Voice) | Not written. Inherits SPEC-006's `GatewayAdapter` seam; **A2P 10DLC registration has a regulatory lead time and no owner** |
+| [SPEC-008](SPEC-008-vendor-discovery-d0.md) | **4+** — Vendor Discovery **D0** (private-shortlist research) | Ready to build — **2 open decisions** (O1: counsel sign-off, blocks shipping not building; O2: per-run cost ceiling). D1–D3 are SPEC-009+ |
 
-**Five unrelated `O1`s are open across the set.** Label namespaces are per-spec-local (see
+**Six unrelated `O1`s are open across the set.** Label namespaces are per-spec-local (see
 *Working on a spec* below), so the numbering restarts in every spec. SPEC-001's O1 is the ToS +
 Privacy Policy; SPEC-003's O1 is at-rest encryption of provider API keys; SPEC-004's O1 is the
 launch prices and limits; SPEC-005's O1 is the drip sequence; SPEC-006's O1 is the WhatsApp Cloud
-API tier. SPEC-002's O1 **closed** on 2026-07-31 (→ D13). Always resolve an `O`-label inside the
-spec that raised it.
+API tier; SPEC-008's O1 is counsel sign-off on vendor research. SPEC-002's O1 **closed** on
+2026-07-31 (→ D13). Always resolve an `O`-label inside the spec that raised it.
 
 **Three of those gate GA rather than a build** — SPEC-001 O1, SPEC-003 O1 and SPEC-004 O1 are all
 carried in SPEC-005 §1.6 under their original labels, because `SAAS_PRD:189-196` cannot be

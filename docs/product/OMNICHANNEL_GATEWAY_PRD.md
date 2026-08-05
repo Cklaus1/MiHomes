@@ -37,7 +37,7 @@ Both gateways share the **same internal message dict format**:
 ```
 
 Both gateways share the **same AI services** (all gateway-agnostic):
-- `services/ai/orchestrator.py` — `AIOrchestrator.ask()`, `structured_output()`, `stream()`
+- `services/ai/orchestrator.py` — **module-level functions**, not a class. There is no `AIOrchestrator` and no `.ask()` method (corrected 2026-08-05, SPEC-006 §2 B8)
 - `services/ai/context.py` — `assemble_context()` from 13+ data sources
 - `services/ai/file_processor.py` — image, PDF, document processing
 - `services/ai/roles.py` — role-based system prompts
@@ -173,7 +173,7 @@ class ChannelAdapter(Protocol):
 
 **WhatsApp adapter:** Wraps `WhatsAppBridge` Protocol. Handles Cloud API message format, 24h window checks, template selection, media ID resolution.
 
-**Telegram adapter:** Wraps existing `TelegramBot` Protocol. Handles Bot API update format, inline keyboard responses, file downloads.
+**Telegram adapter:** Wraps `TelegramClient` — **there is no `TelegramBot` Protocol** (corrected 2026-08-05, SPEC-006 §2 B8; see the note at §2). Handles Bot API update format, inline keyboard responses, file downloads. The seam that exists today is `GatewayAdapter` in `gateways/review_common.py`.
 
 **Twilio adapter:** New implementation. Handles Twilio webhook format (POST params with `From`, `Body`, `MediaUrl0..9`), SMS/MMS/WhatsApp/Voice dispatch, STOP/HELP keyword pre-check, Twilio signature validation.
 
@@ -364,7 +364,7 @@ The `channel` field enables channel-aware behavior in the shared responder (e.g.
 
 All gateway-agnostic — no changes needed:
 
-- **`AIOrchestrator.ask()`** — role-based queries with system prompts from `roles.py`
+- **`orchestrator.ask()`** — a module-level function, not a method on an `AIOrchestrator` class (corrected 2026-08-05, SPEC-006 §2 B8). Role-based queries with system prompts from `roles.py`
 - **`structured_output()`** — typed responses (REVIEW_SCHEMA, etc.)
 - **`stream()`** — real-time response streaming
 - **`assemble_context()`** — 13+ data sources with token budgeting

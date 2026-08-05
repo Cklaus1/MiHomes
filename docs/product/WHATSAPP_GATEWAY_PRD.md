@@ -31,11 +31,11 @@ The WhatsApp gateway sits on a **two-process architecture**:
 
 `review.py` (`analyze_messages()`) sends formatted conversation history to the configured AI provider with a JSON schema (`REVIEW_SCHEMA`, 8 categories). It injects an estate context block — open issues, tracked assets, staff for the linked property. Output is `{items, skipped}`.
 
-**Divergence from Telegram**: The WhatsApp `REVIEW_SCHEMA` has 8 categories vs Telegram's 15. Telegram handles `issue_resolution`, `work_order_request`, `appointment_request`, `expense_log`, `book_addition`, `asset_addition`, `note_addition`, `task_completion` — none of which exist in the WhatsApp schema. Both share `issue`, `task`, `question`, and `informational`.
+> **Corrected 2026-08-05** *(verified against `origin/main` @ `be8d398` — SPEC-006 §2, B5)*. This paragraph claimed the WhatsApp `REVIEW_SCHEMA` had **8 categories vs Telegram's 15**, listing eight that "do not exist in the WhatsApp schema". **That split no longer exists.** Commit `c4954a0` unified both gateways on a single superset schema of **15 categories** in `services/gateways/review_common.py`; the per-gateway `review.py` files are now 16-line re-exports. Their own docstring records what happened: *"this WhatsApp schema had lost 8 categories the dispatcher still handled"* — the drift was real, and it has been repaired. The sentence above (`REVIEW_SCHEMA`, 8 categories) is stale for the same reason.
 
 ### 1.3 Action — the responder
 
-`responder.py` (529 lines) handles real-time messages. It classifies inbound messages via the AI review pipeline and dispatches to MiHomes service calls. Notable behaviors:
+`responder.py` (**285 lines** as of `c4954a0` — was 529 before the shared core landed) handles real-time messages. It classifies inbound messages via the AI review pipeline and dispatches to MiHomes service calls. Dispatch itself now lives in `services/gateways/review_common.py`; what remains here is the WhatsApp `GatewayAdapter` and its client wiring. Notable behaviors:
 
 - **AI routing**: Messages are sent to the AI orchestrator for classification. Based on the category, the responder creates issues, tasks, or sends confirmation replies.
 - **AI replies**: Questions are answered by the estate-manager advisor. Replies are plain text, constrained in length. `NO_RESPONSE` suppression exists.
@@ -375,7 +375,7 @@ Both gateways MUST use the same internal message dict format. The WhatsApp gatew
 }
 ```
 
-**Action**: Extract this dict definition and the `normalize_message()` function into a shared module `src/mihomes/services/gateways/shared/normalizer.py` so both gateways import the same type and validation logic. This is the foundation for the shared responder core called out in `TWILIO_PRD.md` §2.3.
+> **Corrected 2026-08-05** *(SPEC-006 §2, B3/B8)*. **This action is already done, and two of its details were wrong.** The shared module exists as **`src/mihomes/services/gateways/review_common.py`** — not `shared/normalizer.py`; no `shared/` directory was ever created. And there is no `normalize_message()` function to extract: Telegram has `normalize_update()`, while WhatsApp normalizes in **Node**, so there was no Python WhatsApp normalizer in the first place. `TWILIO_PRD.md` §2.3's "extract the channel-agnostic core before a third responder lands" was satisfied by commit `c4954a0`.
 
 ---
 
@@ -383,7 +383,7 @@ Both gateways MUST use the same internal message dict format. The WhatsApp gatew
 
 ### 8.1 Category alignment
 
-The WhatsApp `REVIEW_SCHEMA` (8 categories) should be extended to match Telegram's 15 categories. The shared schema lives in `src/mihomes/services/gateways/shared/schema.py`:
+> **Corrected 2026-08-05** *(SPEC-006 §2, B3/B5)*. **Done.** The WhatsApp schema was extended to Telegram's 15 categories by commit `c4954a0` — as a single superset `REVIEW_SCHEMA` living at **`src/mihomes/services/gateways/review_common.py`**, not at `shared/schema.py`. The block below describes the intended end state, which now exists; read it as a record of what shipped, not as work to do.
 
 ```python
 REVIEW_SCHEMA = {
@@ -414,7 +414,7 @@ REVIEW_SCHEMA = {
 
 ### 8.2 Shared responder core
 
-Extract the common dispatch logic from both `responder.py` files into `src/mihomes/services/gateways/shared/responder.py`:
+> **Corrected 2026-08-05** *(SPEC-006 §2, B3)*. **Done.** The common dispatch logic was extracted by commit `c4954a0` into **`src/mihomes/services/gateways/review_common.py`** (1,175 lines — `dispatch_items`, `analyze_messages`, `handle_approval_messages`, `is_trusted_sender`, and the `GatewayAdapter` seam), not `shared/responder.py`. Both responders shrank to ~285 lines. Do **not** re-extract it (SPEC-006 N1).
 
 - `dispatch(item, message)` — takes a classified item and normalized message, resolves the user's role/home, checks permissions, calls the appropriate service.
 - `_ai_response(role, category, context)` — role-based AI reply generation (estate manager for questions, maintenance expert for issues, etc.).

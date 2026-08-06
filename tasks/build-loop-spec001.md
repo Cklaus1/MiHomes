@@ -61,6 +61,19 @@ Per conventions §0, all five conditions. Restated concretely here:
 (conventions §3.1) must record this before G1 starts. The number matters because condition C is
 "nothing regressed," and the wrong baseline makes that unfalsifiable.
 
+**Measured baseline at authoring time (2026-08-06, branch base `be8d398`):**
+
+```
+py -m pytest -q --co   →  1080 tests collected in 11.07s
+```
+
+Condition C means **≥ 1080 passing**, plus this spec's new tests. A run that ends with 1079 has
+regressed something regardless of what else is green.
+
+> **Invoke pytest as `py -m pytest`, not `python -m pytest`.** On this machine `python` resolves
+> to the Microsoft Store shim and fails with *"Python was not found"*. Recorded here so the loop
+> does not burn its 3-attempt poison ceiling on a launcher error rather than a real failure.
+
 ---
 
 ## 1. Task DAG

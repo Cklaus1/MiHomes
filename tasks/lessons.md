@@ -62,6 +62,35 @@ Review this at the start of each session.
 - **M9 — `datetime(hour=h+1)` is a latent ValueError bomb; use `start + timedelta(hours=1)`.** Adding an hour by incrementing the hour field crashes at 23:00 (`hour=24`). Any "end = one hour after start" must go through `timedelta`, which rolls the date. Doubly dangerous here because a bare `except: return False` swallowed it into a silent never-syncs.
 - **Splitting a two-part finding: fix the part that fits, defer the part that needs closed infra.** M9 had a crash half (pure logic → fixed test-first) and a timezone half (needs a `Property.timezone` column, but the R4 migration group was already closed/committed). Landing the crash fix + deferring the schema half to opportunities.md satisfies condition B without reopening a committed migration group or violating minimal-impact. Don't reopen a sealed group to force a whole finding in — split it.
 
+## Spec Build-Harness Authoring (2026-08-06)
+- **A corrective harness's stop condition does not transfer to constructive work.** Chris's
+  hardening loop gated on "full suite green + smoke green" — sound when *fixing* code the suite
+  already covers. For greenfield specs a **stub satisfies every one of those conditions**: the
+  suite never touched the new code, and the smoke path never reaches it. Any harness for new
+  construction needs a condition bound to the spec's own acceptance criteria, plus test-first
+  enforced as a gate (test must fail before the change) rather than as a principle.
+- **A completeness condition needs a walk that proves it, and one walk is not enough.** Chris's
+  F.3 (walk the spec top-to-bottom, confirm every finding is accounted for) caught four findings
+  never assigned to any group. But "every criterion passes its test" is vacuously true for a
+  criterion bound to no gate at all — so the walk splits in two: one over the *steps*, one over
+  the *criteria*. Whenever a condition says "everything is covered," ask what proves nothing was
+  dropped before the covering began.
+- **Verify a claim's ref before trusting the claim.** SPEC-001..005 assert "33 test files" and
+  "780+ tests" — both true against `telegram-bot`, both false against `origin/main` (82 files,
+  1080 tests). A gate reading "the existing 33 test files pass" is satisfiable with 49 other
+  files broken. `docs/specs/README.md` already says it: *"A claim about 'the code' without a ref
+  is not a verified claim."* Re-verify counts and paths against the target ref before executing,
+  and halt on mismatch instead of silently adopting the new number.
+- **`merge-tree` conflict-free does not imply `cherry-pick` conflict-free.** `merge-tree` merges
+  two tips; cherry-pick *replays each commit in order*. A commit that modifies a file the target
+  branch never had is a modify/delete conflict on replay even though the three-way merge is
+  clean. Predicting "no conflicts" from `merge-tree` and then cherry-picking is how you get
+  surprised — check which files the *earliest* commit touches against the target.
+- **Record the working interpreter/tool invocation in the harness itself.** On this machine
+  `python` hits the Microsoft Store shim and fails; `py -m pytest` works. An autonomous loop that
+  meets that would spend its whole 3-attempt poison ceiling on a launcher error and mark a good
+  task `[!]`. Environment quirks belong in the harness, not in the operator's head.
+
 ## Fifth Review Lessons (2026-03-27)
 - **SIGPIPE data loss**: When CLI output is piped through `head`/`tail`/etc, SIGPIPE can kill the process before `get_session()` commits. Fix: collect data inside `with get_session()`, print AFTER the session context exits (so commit happens before any output). Critical for commands with long output that modify data.
 - Always test CLI commands with `| head -1` to catch SIGPIPE issues.

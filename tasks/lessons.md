@@ -86,6 +86,18 @@ Review this at the start of each session.
   branch never had is a modify/delete conflict on replay even though the three-way merge is
   clean. Predicting "no conflicts" from `merge-tree` and then cherry-picking is how you get
   surprised — check which files the *earliest* commit touches against the target.
+- **Collection is not a pass. Measure the baseline by running it.** I recorded `pytest --co` →
+  1080 collected and wrote *"condition C means ≥1080 passing"* into the harness. The real result
+  is **1078 passed / 1 failed / 1 skipped** — one Windows-only failure (`os.kill(pid, 0)`,
+  `WinError 87`) that exists on the untouched baseline. A gate calibrated to the collected count
+  would have failed on its first run and tripped the circuit breaker over a platform quirk
+  unrelated to the work. Note this is the *same defect class* the harness's own pre-flight gate
+  exists to catch — an unverified number about the tree — and I committed it anyway. Verify the
+  number by producing it, not by inferring it from a cheaper command.
+- **A known-failing baseline must be recorded as known-failing, not rounded to clean.** The
+  honest gate is "1078 passing, the same one failure, no new red." Writing the aspirational
+  number in would have forced whoever ran it to either fix an out-of-scope platform bug or
+  quietly weaken the gate.
 - **Record the working interpreter/tool invocation in the harness itself.** On this machine
   `python` hits the Microsoft Store shim and fails; `py -m pytest` works. An autonomous loop that
   meets that would spend its whole 3-attempt poison ceiling on a launcher error and mark a good

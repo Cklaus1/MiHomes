@@ -3,8 +3,8 @@
 > **Input spec:** `docs/specs/SPEC-001-phase0-landing-waitlist.md` (680 lines, *Ready to build*)
 > **Conventions:** `tasks/build-loop-conventions.md` — all mechanisms (stop condition, poison
 > ceiling, circuit breaker, artifact routing) are defined there and inherited here.
-> **Branch:** `spec-build` (from `origin/main` @ `be8d398`). **Target ref for all code claims:**
-> `origin/main`.
+> **Branch:** `worktree-spec-build-harness`, pushed as `origin/spec-build` (from `origin/main`
+> @ `be8d398`). **Target ref for all code claims:** `origin/main`.
 > **Invocation:** `/loop tasks/build-loop-spec001.md`
 
 **This is the pilot.** SPEC-001 is the root of the dependency chain — the only spec with no
@@ -61,14 +61,32 @@ Per conventions §0, all five conditions. Restated concretely here:
 (conventions §3.1) must record this before G1 starts. The number matters because condition C is
 "nothing regressed," and the wrong baseline makes that unfalsifiable.
 
-**Measured baseline at authoring time (2026-08-06, branch base `be8d398`):**
+**Measured baseline at authoring time (2026-08-06, branch base `be8d398`, Windows):**
 
 ```
-py -m pytest -q --co   →  1080 tests collected in 11.07s
+py -m pytest -q   →  1 failed, 1078 passed, 1 skipped in 169.58s
 ```
 
-Condition C means **≥ 1080 passing**, plus this spec's new tests. A run that ends with 1079 has
-regressed something regardless of what else is green.
+**Condition C means: 1078 passing, the same one known failure, and no new red** — plus this
+spec's own tests. Not "1080 passing": the hardening report's 1080 was measured on a different
+platform, and collection (`--co`) reports 1080 because collection only proves the files import.
+
+**The one known failure is pre-existing, environmental, and not in scope:**
+
+```
+tests/integration/test_backup.py::test_stale_pid_file_does_not_block_restore
+  OSError: [WinError 87] The parameter is incorrect
+  → os.kill(pid, 0)   # signal-0 liveness probe: a POSIX idiom Windows rejects
+```
+
+**Do not fix it, and do not let it trip the circuit breaker.** It is unrelated to SPEC-001,
+it fails identically on the untouched baseline, and "fix the platform bug you tripped over"
+is exactly the scope creep conventions §6 prohibits. Logged in `opportunities.md`. If a run
+sees *two* failures here, the second one is real.
+
+> Recording the honest baseline matters more than recording a clean one: a gate calibrated to
+> 1080-passing would fail on its very first full-suite run, and the circuit breaker would halt
+> the pilot over a Windows `os.kill` incompatibility that has nothing to do with the work.
 
 > **Invoke pytest as `py -m pytest`, not `python -m pytest`.** On this machine `python` resolves
 > to the Microsoft Store shim and fails with *"Python was not found"*. Recorded here so the loop

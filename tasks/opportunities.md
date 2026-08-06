@@ -63,6 +63,19 @@
   `telegram-bot` is rebased onto main or retired. SPEC-006 stays unharnessed until then.
   (surfaced while authoring build-loop-conventions §3.3)
 
+## Pre-existing test failure — baseline, not regression
+
+- [BUG][P3 — WINDOWS-ONLY, DEFERRED] `tests/integration/test_backup.py::test_stale_pid_file_does_not_block_restore`
+  — `os.kill(pid, 0)` is a POSIX signal-0 liveness probe; Windows raises
+  `OSError: [WinError 87] The parameter is incorrect` instead of the expected `ProcessLookupError`.
+  Fails identically on the untouched `be8d398` baseline, so **the Windows baseline is 1078
+  passed / 1 failed / 1 skipped**, not the 1080-passing the hardening report recorded on another
+  platform. **Deferred:** out of scope for every spec in the set, and fixing a platform quirk
+  mid-spec-build violates minimal-impact. **Fix when convenient:** guard the probe with
+  `psutil.pid_exists()` or catch `OSError` alongside `ProcessLookupError`. Recorded in
+  `build-loop-spec001.md` §0.1 so the circuit breaker does not halt the pilot over it.
+  (surfaced while measuring the baseline for condition C)
+
 ## Spec defects found while authoring the harnesses
 
 - [BUG][SPEC-002 §9 — STALE REF] `docs/specs/SPEC-002-phase1-multitenant-foundation.md` §9 and

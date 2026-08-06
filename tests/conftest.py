@@ -10,6 +10,12 @@ from mihomes.models import Base
 
 @event.listens_for(Engine, "connect")
 def _set_sqlite_pragmas(dbapi_conn, connection_record):
+    # Bound to the Engine *class*, so this fires for every engine in the test
+    # session — including the Postgres one SPEC-001 introduces, where PRAGMA is
+    # a syntax error. Check the driver on the raw connection: there is no engine
+    # in scope to ask for a dialect.
+    if type(dbapi_conn).__module__.split(".")[0] != "sqlite3":
+        return
     cursor = dbapi_conn.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
     cursor.close()

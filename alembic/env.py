@@ -1,10 +1,11 @@
 """Alembic environment configuration — dynamic DB URL from mihomes config."""
 
+import os
 from logging.config import fileConfig
 
-from alembic import context
-from sqlalchemy import event, pool, create_engine
+from sqlalchemy import create_engine, event, pool
 
+from alembic import context
 from mihomes.config import DB_URL
 from mihomes.models import Base
 
@@ -32,7 +33,18 @@ def include_object(obj, name, type_, reflected, compare_to):
 
 
 def get_url():
-    return config.get_main_option("sqlalchemy.url") or DB_URL
+    # Precedence: an explicit owner-role URL for migrations, then the app URL,
+    # then the hardcoded SQLite default. alembic.ini carries no `sqlalchemy.url`
+    # key, so get_main_option always returns None — before the env vars were
+    # honored here there was no path by which a Postgres URL could reach Alembic
+    # at all (SPEC-001 §10, SPEC-002's MIGRATION_DATABASE_URL split: the app must
+    # not connect as the owner, but migrations legitimately must).
+    return (
+        config.get_main_option("sqlalchemy.url")
+        or os.environ.get("MIGRATION_DATABASE_URL")
+        or os.environ.get("DATABASE_URL")
+        or DB_URL
+    )
 
 
 def run_migrations_offline() -> None:
@@ -42,7 +54,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
-        render_as_batch=True,
+        render_as_batch=url.startswith("sqlite"),
         include_object=include_object,
     )
     with context.begin_transaction():
@@ -60,17 +72,23 @@ def run_migrations_online() -> None:
     # connection before Alembic opens any transaction. Existing-row integrity is
     # preserved separately by explicit orphan-cleanup inside each migration
     # (SQLite does not re-validate rows when FK is re-enabled later).
-    @event.listens_for(connectable, "connect")
-    def _disable_fk_for_migration(dbapi_conn, _record):
-        cur = dbapi_conn.cursor()
-        cur.execute("PRAGMA foreign_keys=OFF")
-        cur.close()
+    # All of the above is SQLite-only. Against Postgres the PRAGMA is a syntax
+    # error that fires before the first migration runs, and batch mode is a
+    # SQLite affordance with nothing to do there.
+    is_sqlite = connectable.dialect.name == "sqlite"
+
+    if is_sqlite:
+        @event.listens_for(connectable, "connect")
+        def _disable_fk_for_migration(dbapi_conn, _record):
+            cur = dbapi_conn.cursor()
+            cur.execute("PRAGMA foreign_keys=OFF")
+            cur.close()
 
     with connectable.connect() as connection:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
-            render_as_batch=True,
+            render_as_batch=is_sqlite,
             include_object=include_object,
         )
         with context.begin_transaction():

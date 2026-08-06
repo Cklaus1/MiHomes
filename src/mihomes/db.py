@@ -15,9 +15,22 @@ _engine: Engine | None = None
 _SessionLocal: sessionmaker | None = None
 
 
+def _is_sqlite_connection(dbapi_conn) -> bool:
+    """True when the raw DBAPI connection belongs to the stdlib sqlite3 driver.
+
+    The listener below binds to the Engine *class*, so it fires for every engine
+    in the process — including a Postgres one (SPEC-001 onward). PRAGMA is a
+    syntax error outside SQLite, so the dialect has to be checked on the
+    connection itself; there is no engine in scope to ask.
+    """
+    return type(dbapi_conn).__module__.split(".")[0] == "sqlite3"
+
+
 @event.listens_for(Engine, "connect")
 def _set_sqlite_pragmas(dbapi_conn, connection_record):
-    """Enable WAL mode and foreign key enforcement on every connection."""
+    """Enable WAL mode and foreign key enforcement on every SQLite connection."""
+    if not _is_sqlite_connection(dbapi_conn):
+        return
     cursor = dbapi_conn.cursor()
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.execute("PRAGMA foreign_keys=ON")

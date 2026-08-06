@@ -1,10 +1,40 @@
 # MiHomes — Project State & Next Actions
 
-Last updated: 2026-07-29
+Last updated: 2026-08-06
 
 ---
 
-## ACTIVE: Hardening Build Loop (branch `hardening-build`)
+## ACTIVE: SPEC-001 Build Loop (branch `spec-build`)
+
+> Harness: `tasks/build-loop-spec001.md` · Conventions: `tasks/build-loop-conventions.md` ·
+> Spec: `docs/specs/SPEC-001-phase0-landing-waitlist.md` · run via `/loop tasks/build-loop-spec001.md`.
+> Mirror of the §1 DAG — authoritative checkboxes live in `build-loop-spec001.md`; this is the
+> at-a-glance view. Group `[x]` = committed + full suite green.
+>
+> **Not yet run.** Harness authored 2026-08-06, pending review.
+
+- [ ] **G1 — `mihomes.ids`**: UUIDv7 app-side `new_id()` + the 3.11 fallback path — A1, A2
+- [ ] **G2 — `Waitlist` model + migration**: global table (no `account_id`, no RLS) + first Postgres migration — A3 + round-trip gate
+- [ ] **G3 — email package**: Protocol, Console/Resend providers, factory, render, EmailService — A8, A9 · *reused verbatim in Phases 2–4*
+- [ ] **G4 — waitlist service**: signup/confirm/position, idempotent, hash-only token — A4, A5, A6, A7
+- [ ] **G5 — landing app skeleton**: `create_landing_app()`, `/healthz`, rate limit, **single-user app not mounted** — A11, A13, A17
+- [ ] **G6 — templates + `GET /`**: nine sections, no prices, Telegram-only chat card — A16
+- [ ] **G7 — `POST /waitlist` + confirm**: double opt-in loop, send-failure isolation, no enumeration — A10, A12
+- [ ] **G8 — Google OAuth stub**: waitlist row only, no users row, no cookie; forged token rejected — A14, A15
+- [ ] **G9 — deploy artifacts**: Dockerfile, fly.toml, PHASE0-DEPLOY.md with the relaxed-alignment DMARC — A18
+- [ ] **G-Final — compound stop**: F.1 suite · F.2 all 18 criteria · F.3a steps walk · F.3b criteria walk · F.4 report
+
+**Stop condition (all five):** every DAG box `[x]` · every §6 step tasked **and** every §8
+criterion gated · full suite green · smoke *(N/A this phase — declared, not dropped)* · all 18
+§8 criteria green by their own named tests. No intermediate review stops.
+
+**Remaining specs** (`docs/specs/`): SPEC-002 … SPEC-008 are unharnessed. Author each one's
+harness after the preceding run's lessons land. SPEC-007 does not exist by design. SPEC-006 is
+blocked on an unowned human decision (reconcile `telegram-bot` with `origin/main`).
+
+---
+
+## DONE: Hardening Build Loop (branch `hardening-build`)
 
 > Harness: `tasks/build-loop.md` · Spec: `tasks/hardening-spec.md` (v2, adversarially verified) · run via `/loop tasks/build-loop.md`.
 > Mirror of the §4 DAG — authoritative checkboxes live in `build-loop.md`; this is the at-a-glance view. Group `[x]` = committed + full suite green.

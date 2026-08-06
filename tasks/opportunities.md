@@ -38,3 +38,62 @@
 
 ## Deferred/blocked from this run
 <!-- format: `- [BLOCKED] <task-id> — why blocked, what would unblock it` -->
+
+---
+
+# Spec build loops (SPEC-001 … SPEC-008)
+
+> Seeded 2026-08-06 while authoring `tasks/build-loop-conventions.md` and
+> `tasks/build-loop-spec001.md`. Nothing below was surfaced by a run — these are prerequisites
+> and hazards found while reading the specs against `origin/main`.
+
+## Blocking prerequisites
+
+- [BLOCKED] SPEC-002 A23 + Step 17 — **no CI exists in this repo.** No `.github/`, no `Makefile`;
+  `pytest -q` is run by hand. A23 requires "full suite green in CI" and Step 17's isolation test
+  must "run against Postgres with RLS, **on every PR**". A harness can prove neither — it can
+  only prove local green. **Unblocked by:** adding a workflow with a Postgres service container.
+  Until then, any criterion whose wording requires CI must be reported as locally-green-only,
+  never marked met. (surfaced while authoring build-loop-conventions §7)
+
+- [BLOCKED] SPEC-006 P2 — **reconcile `telegram-bot` with `origin/main`; nobody owns it.**
+  SPEC-006 §0.1: *"if this spec is built from `telegram-bot`, everything in §3–§5 is wrong"* —
+  the shared gateway core `gateways/review_common.py` (1,175 lines) exists only on main. No
+  autonomous loop resolves branch topology. **Unblocked by:** a human deciding whether
+  `telegram-bot` is rebased onto main or retired. SPEC-006 stays unharnessed until then.
+  (surfaced while authoring build-loop-conventions §3.3)
+
+## Spec defects found while authoring the harnesses
+
+- [BUG][SPEC-002 §9 — STALE REF] `docs/specs/SPEC-002-phase1-multitenant-foundation.md` §9 and
+  Step 15 assert *"the existing **33** test files pass"* and *"**28 of 33** existing files use
+  the `session` fixture"*. True on `telegram-bot` (33 files), **false on `origin/main` (82
+  files)** — understated 2.5×. A harness targeting main could mark Step 15 done with 49 other
+  test files broken. Not fixed in the spec (that is the author's call); **guarded** by
+  conventions §3.1's pre-flight re-verification gate, which halts on the mismatch.
+  (surfaced while authoring build-loop-conventions §3.1)
+
+- [BUG][SPEC-001 §9 — STALE REF] Same class: *"the **780+** existing tests depend on it"*.
+  `origin/main` collects **1080**. Same guard applies. (surfaced while authoring build-loop-spec001)
+
+- [BUG][SPEC-003 §1.3 — WRONG POINTER] O1 is described as blocking *"Step 13's write path only"*,
+  but §6 Step 13 is the account switcher; the config UI carrying O1 is **Step 15**. Trust §6.
+  Corrected in conventions §4.3 rather than edited into the spec.
+
+- [BUG][SPEC-006 §1.3 — WRONG POINTER] O1 is described as *"the WhatsApp half of Step 8"*, but
+  Step 8 is `notify_staff`'s fallback; the Cloud API work is **Step 7**. Additionally its exit
+  check says *"Steps 0–11"* while §6 defines Steps 1–10 plus two lettered prerequisites — an
+  off-by-two in both directions. Corrected in conventions §4.3.
+
+## Deferred — not this work
+
+- [DEFER][ui-frontend] Branch `ui-frontend` has **51 unpushed commits** and no configured
+  upstream (local `4c4dd39` vs `origin/ui-frontend` at `968bda0`). Unrelated to the spec build,
+  but it is the only unpushed work in the repo and will drift further. Decide: push, merge, or
+  retire. (surfaced while surveying branch divergence)
+
+- [DEFER][telegram-bot] `telegram-bot` is diverged from main (30 ahead / 13 behind) and is
+  **behind main on gateway code** — main's G-R2a/G-R2b hardened the gateways further. Its unique
+  content is UI/frontend polish that main's G-Web pass rewrote in the same files (3 conflicts:
+  `scripts/watchdog.py`, `web/routes/vendors.py`, `web/templates/dashboard.html`). Resolving this
+  is also what unblocks SPEC-006 P2 above.

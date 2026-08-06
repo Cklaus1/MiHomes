@@ -26,6 +26,16 @@ Work the per-spec DAG until the **compound stop condition** holds. Five conditio
 | **D** | Smoke green (*per-spec definition — see §0.1*) | the named smoke file |
 | **E** | Every §8 criterion green **by the test named in its own row** | that test |
 
+**A skipped test is a red gate.** Not pedantry — it is the most likely way this harness reports
+a false success. SPEC-001 §9 and SPEC-002 §9 both specify their Postgres fixture as *"skipping
+when unset"*, and a skip does not fail a run: `pytest -q` exits 0, and the baseline already
+carries one (`test_watchdog.py:20`, POSIX-only). So if `TEST_DATABASE_URL` is missing from the
+**loop's own** environment, every Postgres-dependent criterion silently skips, the suite reads
+green, and C passes while the criteria that prove the database works never executed. A gate
+that cannot fail is not a gate. Where a criterion depends on an environment-gated fixture, gate
+on that test **reporting `passed`** — run it by node id with `-rs` and require `1 passed` —
+never on the suite merely being green.
+
 **All five. No subset terminates the loop.** A green suite with unchecked tasks is not done. A
 full DAG with a red suite is not done.
 

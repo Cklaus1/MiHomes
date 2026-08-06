@@ -26,9 +26,24 @@ missing list named. It does not poison tasks one at a time.
 
 | # | Prerequisite | Needed by | Check |
 |---|---|---|---|
-| P1 | A reachable Postgres, `TEST_DATABASE_URL` set | Step 2 (A3), all integration tests | `psql "$TEST_DATABASE_URL" -c 'select 1'` |
-| P2 | `psycopg[binary]` installed | same | `python -c "import psycopg"` |
+| P1 | A reachable Postgres, `TEST_DATABASE_URL` set | Step 2 (A3), all integration tests | see below — **not** bare `psql` |
+| P2 | `psycopg[binary]` installed | same | `py -c "import psycopg"` |
 | P3 | Fly app provisioned, DNS delegated, Resend domain verified | **Step 9 only** | manual |
+
+**Check P1 through Python, not `psql`.** `psql` is **not on PATH** on this machine — it lives in
+`C:\Program Files\PostgreSQL\18\bin`, so a bare `psql` check fails as *command not found* even
+when Postgres is running perfectly, which would halt the run for the wrong reason. What matters
+is that the *application's* driver can connect anyway:
+
+```
+py -c "import os,psycopg; psycopg.connect(os.environ['TEST_DATABASE_URL'].replace('+psycopg','')).execute('select 1'); print('P1 ok')"
+```
+
+**Environment status at authoring time (2026-08-06):** PostgreSQL **18.3** is installed and
+running as service `postgresql-x64-18`, accepting connections on port 5432; `pg_hba.conf` is
+`scram-sha-256` for local and host, so a password is required. `psycopg 3.3.4`, `resend 2.35.0`,
+`authlib 1.7.2`, `itsdangerous 2.2.0` are **installed** (P2 satisfied). Docker is installed but
+its daemon is down — irrelevant, since local Postgres already satisfies D3.
 
 **P1/P2 halt the run.** D3 makes Phase 0 Postgres-only — *"Phase 0 does not use SQLite —
 starting on the target engine avoids a pointless migration two weeks later."* No SQLite
@@ -117,6 +132,17 @@ separately committable"*, so each step is its own commit and its own resume poin
 `upgrade`, clean, against real Postgres. Damage here is to *state*, and Phase 1 rides on this
 table. Note the existing 40 revisions are SQLite-batch-mode; this is the first Postgres
 migration in the tree.
+
+**A3 must run, not skip.** The `pg_session` fixture skips when `TEST_DATABASE_URL` is unset
+(spec §9), and a skip does not fail a run. Gate on the node id reporting `passed`:
+
+```
+py -m pytest -q tests/integration/test_migration_waitlist.py::test_upgrade_downgrade -rs
+  →  must read "1 passed".  "1 skipped" is a RED gate, not a pass.
+```
+
+Without this, G2 can be marked `[x]` on a machine where Postgres was never reached — and
+A3 is the only criterion that proves the database works at all.
 
 ### [ ] G3 — email package — *dep: G1*
 

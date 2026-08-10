@@ -242,7 +242,7 @@ A3 is the only criterion that proves the database works at all.
 >    Now clears the cache before and after inside `try/finally`, so an assertion failure cannot
 >    poison the rest of the suite.
 
-### [ ] G4 — waitlist service — *dep: G2, G3* — *code + 29 tests green; GROUP NOT COMMITTED-AS-DONE: full-suite gate (§1.3) never completed before the run was paused. Re-run `py -m pytest -q` and confirm 1078+new / same one known failure before ticking this header.*
+### [x] G4 — waitlist service — *dep: G2, G3* — *`9f557fd`; 29 tests; 1174 suite green (1078 baseline + 96), same one known failure*
 
 > **The `position()` bug is the most instructive failure of the run so far.** Three attempts —
 > the harness allows three before poisoning — and each one moved the diagnosis rather than

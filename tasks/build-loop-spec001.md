@@ -156,6 +156,21 @@ shared `Base`, and `Base.metadata` carries **37 tables** (verified). A landing `
 at `Base.metadata` would autogenerate all 37 and silently violate D3. Point it at
 `Waitlist.__table__` only. The spec's §4.2 model definition needs no change.
 
+**Both directions must be scoped — this is symmetric and easy to half-fix.** `Waitlist` lands on
+the shared `Base`, so the *main* tree's autogenerate will also start seeing it and proposing
+`create_table('waitlist')` on every future diff — dirtying the single-user product's migrations
+forever and breaking the empty-autogenerate gate that G-R4 established.
+
+There is already a mechanism for exactly this: add `"waitlist"` to `_UNMANAGED_TABLES` in
+`alembic/env.py:22`, whose `include_object` hook (`:25-32`) exists to keep tables *"created/managed
+outside the ORM metadata"* out of autogenerate diffs. Its docstring names the failure being
+avoided: *"every future diff would be dirtied by phantom drop_table ops."*
+
+- [ ] G2.4 · §6 Step 2 · — · add `"waitlist"` to `_UNMANAGED_TABLES` in `alembic/env.py` so the main tree ignores a table the landing tree owns · verify: `py -m alembic revision --autogenerate` on the main tree proposes **no** `waitlist` operation (empty diff preserved)
+
+> This is the only permitted edit to `alembic/env.py` in this phase — a one-entry set addition,
+> not a change to the 40 revisions. It is what keeps the two trees from fighting.
+
 **Extra gate (conventions §2) — migration round-trip.** `upgrade` → `downgrade` → `upgrade`,
 clean, against real Postgres — **one revision, not 41**. Damage here is to *state*, and Phase 1
 rides on this table.

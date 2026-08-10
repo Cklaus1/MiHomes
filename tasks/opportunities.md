@@ -96,6 +96,48 @@
   Postgres-viable to begin with, so "reference only, never run" is the correct disposition.
   (surfaced while pre-flight-testing the chain for SPEC-001 G2)
 
+  **Full audit (rendered with `alembic upgrade --sql` against a `postgresql+psycopg` URL, so the
+  SQL below is what Postgres actually receives, not inference):**
+
+  *Root cause* — no `native_enum=False` and no `values_callable` anywhere, so every `sa.Enum(...)`
+  becomes a real `CREATE TYPE`: **21 enum types**. Models are `class X(str, Enum)` with lowercase
+  *values*, but SQLAlchemy persists member *NAMES*. `7514b34eed7b:176-181` documents this.
+
+  *Three empty-DB blockers, all failing at parse/analyze time — data-independence is not a
+  mitigation:*
+  - `e5f6a7b8c9d0:21-29` — `frequency = 'weekly'`/`'daily'`: wrong case **and** `DAILY` is not a
+    label of `recurrencefrequency` at all (created 7-label at `97b6fac21ea9:46`).
+  - `ce1a992f291e:35-42` — three independent SQLite-isms in one statement: `INSERT OR IGNORE`
+    (PG: `ON CONFLICT DO NOTHING`), `JOIN json_each(...)` with **no `ON` clause**, and `json_each`
+    on a JSON array (PG: `json_array_elements`). Downgrade adds `json_group_array` + `sqlite.JSON()`.
+  - `7514b34eed7b` — five distinct PG-fatal defects: `UPPER(status)` on an enum column
+    (`:182-184`, → `function upper(ptostatus) does not exist`); `SET DEFAULT 'PENDING'`/`'GOOD'`/`'OK'`
+    against types created with **lowercase** labels (`:197-205`); `SET frequency = 'DAILY'` (`:191-196`);
+    and `ALTER COLUMN category TYPE taskcategory` where **`taskcategory` is never created anywhere
+    in the chain** and a varchar→enum cast needs a `USING` clause Alembic does not emit (`:152-156`).
+
+  *Two silent gaps — these would make a green `upgrade head` a **false pass**:*
+  - `expensefrequency` (`7514b34eed7b:133-137`) renders as a bare `ALTER COLUMN ... TYPE` with **no
+    `CREATE TYPE`** — a no-op against the existing 5-label type, so the migration reports success
+    while `CUSTOM_WEEKS`/`CUSTOM_MONTHS` fail at runtime.
+  - `consumablestatus` / `ptostatus` / `bookcondition` are created with lowercase labels while the
+    ORM persists uppercase names — unusable by the app as created.
+
+  *Notable clean results:* `b3f5c1d9a72e` (money int-cents) is **fine** — `CAST(ROUND(amount*100)
+  AS INTEGER)` is valid PG and float8→int4 is an assignment cast needing no `USING`. 24 of 40
+  revisions use `batch_alter_table`; none rely on SQLite rebuild semantics, and `env.py:91` already
+  gates `render_as_batch=is_sqlite`. No `PRAGMA`/`julianday`/`strftime`/`AUTOINCREMENT` anywhere.
+
+  *Beyond "exit 0", a correct schema also needs* `ALTER TYPE ... RENAME VALUE` ×3, `ADD VALUE` ×3,
+  and `CREATE TYPE taskcategory` — **and `ALTER TYPE ... ADD VALUE` cannot run in the same
+  transaction that adds it**, while `alembic.ini` sets no `transaction_per_migration`, so the whole
+  chain is one transaction. That is a structural blocker for the patch approach, not a tweak.
+
+  *Independent reason patching is wrong:* `tests/integration/test_migration_reconciliation.py` is
+  SQLite-hardcoded (`import sqlite3` at :16, `sqlite:///` at :93, `pytest.raises(sqlite3.IntegrityError)`)
+  and round-trips the full chain. Any patch to historical revisions would have to dialect-branch to
+  stay green there *and* work on PG — for a database the single-user product does not yet use.
+
 - [BUG][SPEC-001 §3 — MANIFEST CONTRADICTS D1/D3] The file manifest places the waitlist migration
   at `alembic/versions/xxxx_waitlist.py`, i.e. the single-user product's tree. That contradicts the
   spec's own decisions: **D1** says the landing app *"shares the stack and nothing else"* and

@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}{% if confirmed %}You're on the list{% else %}Link expired{% endif %} — MiHomes{% endblock %}
+
+{% block content %}
+  {% if confirmed %}
+    <h1>You're on the list</h1>
+    <p class="lede">
+      Your email is confirmed. We'll be in touch as we open up access, and early
+      members get a founding-member offer.
+    </p>
+    {# O4 default: position() is computed and callable, but NOT displayed. The
+       founder decides whether to show it (§1.3 O4). #}
+  {% else %}
+    <h1>That link didn't work</h1>
+    <p class="lede">
+      It may have expired or already been used. Submit your email again and we'll
+      send a fresh confirmation link.
+    </p>
+    <p><a href="/">Back to the waitlist</a></p>
+  {% endif %}
+{% endblock %}

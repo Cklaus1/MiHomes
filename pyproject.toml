@@ -44,6 +44,9 @@ dev = [
 mihomes = "mihomes.cli:app"
 mihomes-web = "mihomes.web.server:main"
 mihomes-dev = "mihomes.web.server:dev"
+# Phase 0 landing app — a separate entry point on purpose (D1). Never serve this
+# and mihomes-web from the same process: that app has no auth (§7-N1).
+mihomes-landing = "mihomes.landing.app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

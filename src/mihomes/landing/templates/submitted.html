@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Check your email — MiHomes{% endblock %}
+
+{% block content %}
+  {# N3: this page is rendered IDENTICALLY for a new address, an existing
+     unconfirmed one, an already-confirmed one, and one past the resend ceiling.
+     Any wording that distinguishes them turns POST /waitlist into an
+     email-enumeration oracle. Do not add "you're already on the list". #}
+  <h1>Check your email</h1>
+  <p class="lede">
+    If that address can receive mail, a confirmation link is on its way. Click it
+    to save your place on the waitlist.
+  </p>
+  <p class="muted">
+    Nothing arrived after a few minutes? Check spam, then try again with the same
+    address.
+  </p>
+{% endblock %}

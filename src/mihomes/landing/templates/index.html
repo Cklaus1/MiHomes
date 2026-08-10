@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}MiHomes — one place for every home you look after{% endblock %}
+
+{% block content %}
+  {# G5 skeleton: enough page to boot and prove the route table. G6 (Step 6)
+     builds out the nine GTM §2.1-2.9 sections. Constraints already honoured here
+     so G6 inherits them rather than retrofitting: no dollar figures (D14/N6), and
+     the chat card names Telegram only (D15). #}
+  <section class="hero">
+    <h1>One place for every home you look after</h1>
+    <p class="lede">
+      Properties, staff, vendors, work orders and spend — across every home on the
+      estate, in one system that keeps track so you don't have to.
+    </p>
+    <img src="/static/hero.svg" alt="Three homes on an estate" width="800" height="480">
+  </section>
+
+  <section>
+    <h2>Join the waitlist</h2>
+    <form method="post" action="/waitlist" class="card">
+      {% for key, value in (utm or {}).items() %}
+      <input type="hidden" name="{{ key }}" value="{{ value }}">
+      {% endfor %}
+
+      <div class="row row-2">
+        <div>
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" required autocomplete="email">
+        </div>
+        <div>
+          <label for="name">Name <span class="muted">(optional)</span></label>
+          <input id="name" name="name" type="text" autocomplete="name">
+        </div>
+      </div>
+
+      <div class="row row-2" style="margin-top:12px">
+        <div>
+          <label for="num_homes">How many homes?</label>
+          <select id="num_homes" name="num_homes">
+            <option value="">Prefer not to say</option>
+            <option value="1">1</option>
+            <option value="2-3">2–3</option>
+            <option value="4+">4+</option>
+          </select>
+        </div>
+        <div>
+          <label for="has_staff">Do you employ household staff?</label>
+          <select id="has_staff" name="has_staff">
+            <option value="">Prefer not to say</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        </div>
+      </div>
+
+      <p style="margin:20px 0 0"><button type="submit">Request an invitation</button></p>
+      <p class="muted" style="margin:12px 0 0">
+        Early members get a founding-member offer when we open up.
+      </p>
+    </form>
+  </section>
+
+  <section>
+    <h2>Plans</h2>
+    {# N6/D14: plan SHAPES only. Every figure in PRICING_AND_PACKAGING.md is
+       still PLACEHOLDER, so no numbers appear anywhere on this page. #}
+    <div class="grid grid-3">
+      <div class="card"><strong>Free</strong><p class="muted">One home, the basics.</p></div>
+      <div class="card"><strong>Pro</strong><p class="muted">Several homes, staff and vendors.</p></div>
+      <div class="card"><strong>Estate</strong><p class="muted">Full portfolio, everything on.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Report by chat</h2>
+    <div class="card">
+      {# D15: Telegram only. WhatsApp pairing is broken and Twilio is post-GA —
+         advertising either would be vaporware. #}
+      <p style="margin:0">
+        Staff report issues straight from <strong>Telegram</strong>; MiHomes files
+        them against the right home and follows up.
+      </p>
+    </div>
+  </section>
+{% endblock %}

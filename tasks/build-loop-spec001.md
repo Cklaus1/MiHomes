@@ -268,17 +268,38 @@ A3 is the only criterion that proves the database works at all.
 - [x] G4.3 · §6 Step 4 · A6,A7 · `confirm` — sets `confirmed_at`, second confirm is a no-op, expired/unknown token does not confirm · verify: `tests/unit/test_waitlist_service.py::test_confirm_idempotent`, `::test_confirm_rejects_bad_token`
 - [x] G4.4 · §6 Step 4 · — · `position`, `confirmed_count`. **O4 default: compute it, do not display it** · verify: `tests/unit/test_waitlist_service.py`
 
-### [ ] G5 — landing app skeleton — *dep: G1*
+### [x] G5 — landing app skeleton — *dep: G1* — *14 tests; A11+A13+A17 green; route table verified by hand: only 5 routes mounted, every single-user route 404*
 
-- [ ] G5.1 · §6 Step 5 · A17 · `create_landing_app()`, `/healthz`, `mihomes-landing` entry point in `pyproject.toml` · verify: `tests/integration/test_landing_app.py::test_healthz` (200 with DB reachable)
-- [ ] G5.2 · §6 Step 5 · A11 · **prove the single-user app is not mounted** — `GET /properties` returns 404 (§7-N1, D1) · verify: `tests/integration/test_landing_app.py::test_existing_routes_are_404`
-- [ ] G5.3 · §6 Step 5 · A13 · `ratelimit.py` — in-process per-IP token bucket on `POST /waitlist` and the OAuth callback (D10) · verify: `tests/unit/test_ratelimit.py::test_burst_is_limited` (429 past threshold, per-IP isolation)
+- [x] G5.1 · §6 Step 5 · A17 · `create_landing_app()`, `/healthz`, `mihomes-landing` entry point in `pyproject.toml` · verify: `tests/integration/test_landing_app.py::test_healthz` (200 with DB reachable)
+- [x] G5.2 · §6 Step 5 · A11 · **prove the single-user app is not mounted** — `GET /properties` returns 404 (§7-N1, D1) · verify: `tests/integration/test_landing_app.py::test_existing_routes_are_404`
+- [x] G5.3 · §6 Step 5 · A13 · `ratelimit.py` — in-process per-IP token bucket on `POST /waitlist` and the OAuth callback (D10) · verify: `tests/unit/test_ratelimit.py::test_burst_is_limited` (429 past threshold, per-IP isolation)
 
 > **A11 is the structural invariant of this phase.** D1 chose a standalone app over a route in
 > the existing one precisely because the existing app is *"the single-user product with 23 route
 > modules and **no authentication**."* If a single existing route is reachable from the landing
 > app, Phase 0 has published an unauthenticated estate-management system to the public internet.
 > Treat a red A11 as a stop-the-run defect, not an ordinary failure.
+>
+> **Verified by hand as well as by test** (§7-N1 says do not delete that test, so it is also
+> asserted two ways):
+>
+> ```
+> MOUNTED ROUTES:  /  /healthz  /static  /waitlist  /waitlist/confirm
+> GET /properties -> 404   GET /staff -> 404   GET /budget -> 404
+> GET /ai         -> 404   GET /documents -> 404
+> ```
+>
+> `test_existing_routes_are_404` samples known paths; `test_no_single_user_router_is_mounted`
+> asserts the allowlist **positively** against the live route table, so a router added later
+> fails the gate even if nobody adds its path to the sample list. Sampling alone would rot.
+>
+> Two implementation notes that matter for A11/A13 holding in production:
+> - `docs_url`, `redoc_url` and `openapi_url` are all `None`. An OpenAPI schema on a public
+>   marketing host would enumerate the surface for free.
+> - The rate-limit key honours `fly-client-ip` / `x-forwarded-for`. Behind Fly every connection
+>   appears to come from the proxy, so keying on `request.client.host` would collapse per-IP
+>   buckets into one global bucket — the exact failure the per-IP design exists to prevent.
+>   Verified live: 5 requests pass, then 429, while `GET /` stays 200.
 
 ### [ ] G6 — templates + `GET /` — *dep: G5*
 

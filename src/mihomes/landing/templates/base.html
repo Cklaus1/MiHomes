@@ -1,0 +1,59 @@
+{# Landing layout. Inlined critical CSS, no bundler, no CDN, no web fonts (N5:
+   GTM:55 requires <1.5s LCP on 4G). The system font stack is deliberate. #}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}MiHomes{% endblock %}</title>
+  <link rel="icon" href="/static/hero.svg" type="image/svg+xml">
+  <style>
+    :root{--ink:#1c1c1a;--muted:#6b6b66;--line:#e4e4df;--bg:#f6f6f4;--card:#fff}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--ink);
+         font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+         font-size:17px;line-height:1.6}
+    .wrap{max-width:880px;margin:0 auto;padding:32px 24px 72px}
+    header{display:flex;align-items:center;justify-content:space-between;margin-bottom:56px}
+    .brand{font-weight:600;font-size:19px;letter-spacing:-0.01em}
+    h1{font-size:clamp(30px,5vw,46px);line-height:1.12;letter-spacing:-0.02em;margin:0 0 16px}
+    h2{font-size:22px;letter-spacing:-0.01em;margin:48px 0 12px}
+    p{margin:0 0 16px}
+    .lede{font-size:19px;color:var(--muted);max-width:60ch}
+    .hero img{width:100%;height:auto;border-radius:10px;border:1px solid var(--line);margin:28px 0 8px}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:20px;margin:12px 0}
+    .grid{display:grid;gap:12px}
+    @media(min-width:680px){.grid-3{grid-template-columns:repeat(3,1fr)}}
+    label{display:block;font-size:14px;font-weight:500;margin:0 0 6px}
+    input,select{width:100%;padding:11px 12px;font-size:16px;border:1px solid #cfcdc4;
+                 border-radius:7px;background:#fff;color:inherit}
+    button{background:var(--ink);color:#fff;border:0;border-radius:7px;padding:12px 22px;
+           font-size:16px;font-weight:500;cursor:pointer}
+    .row{display:grid;gap:12px}
+    @media(min-width:680px){.row-2{grid-template-columns:1fr 1fr}}
+    .muted{color:var(--muted);font-size:14px}
+    footer{border-top:1px solid var(--line);margin-top:64px;padding-top:20px;
+           color:var(--muted);font-size:14px}
+    footer a{color:var(--muted)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <span class="brand">MiHomes</span>
+      <span class="muted">Private beta</span>
+    </header>
+
+    {% block content %}{% endblock %}
+
+    <footer>
+      {# O1 is open: ToS and Privacy are not published yet, so these links 404 by
+         design (§1.3). Do NOT stub placeholder pages to make them resolve — the
+         pre-launch checklist tracks it. #}
+      <a href="/legal/terms">Terms</a> ·
+      <a href="/legal/privacy">Privacy</a>
+      <span> · © MiHomes</span>
+    </footer>
+  </div>
+</body>
+</html>

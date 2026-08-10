@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 480" role="img" aria-label="Three homes on an estate">
+  <rect width="800" height="480" fill="#f6f6f4"/>
+  <path d="M120 300h180v120H120z" fill="#e0ded6"/>
+  <path d="M110 300l100-70 100 70z" fill="#cfccc0"/>
+  <path d="M360 250h200v170H360z" fill="#e6e4dc"/>
+  <path d="M350 250l110-80 110 80z" fill="#d4d1c5"/>
+  <path d="M600 330h100v90H600z" fill="#dedbd2"/>
+  <path d="M592 330l58-42 58 42z" fill="#c9c6ba"/>
+  <rect y="418" width="800" height="4" fill="#c2bfb2"/>
+</svg>

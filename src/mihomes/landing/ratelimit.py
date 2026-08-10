@@ -19,7 +19,26 @@ import time
 from collections import OrderedDict
 from dataclasses import dataclass
 
-__all__ = ["TokenBucket"]
+__all__ = ["TokenBucket", "client_ip"]
+
+
+def client_ip(request) -> str:
+    """Client IP, honouring Fly's proxy headers.
+
+    Lives here rather than in app.py so both the rate-limit middleware and the
+    signup handler (which records `signup_ip`) use the same definition — and so
+    importing it from routes.py does not create a cycle through the app factory.
+
+    Behind Fly every connection appears to come from the proxy, so keying a bucket
+    on `request.client.host` would collapse every visitor into ONE shared bucket:
+    a single script could then deny the launch page to everyone.
+    """
+    forwarded = request.headers.get("fly-client-ip") or request.headers.get(
+        "x-forwarded-for"
+    )
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
 # Defaults for POST /waitlist: a handful of attempts, then a slow drip. Generous
 # enough for a person who mistypes their address twice, tight enough that

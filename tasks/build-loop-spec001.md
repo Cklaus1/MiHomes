@@ -310,11 +310,11 @@ A3 is the only criterion that proves the database works at all.
 > Footer links to ToS and Privacy **will 404 until O1 lands**. That is expected and documented
 > (§1.3 O1) — do not stub fake pages to make them resolve.
 
-### [ ] G7 — `POST /waitlist` + confirm route — *dep: G4, G6*
+### [x] G7 — `POST /waitlist` + confirm route — *dep: G4, G6* — *10 tests; A10+A12 green; full loop verified by hand on PG 18.4*
 
-- [ ] G7.1 · §6 Step 7 · — · wire the form to `signup()`, send via `EmailService`, implement `GET /waitlist/confirm`. Full loop against `ConsoleProvider`: submit → token in console → GET confirm → `confirmed_at` set (D7 double opt-in) · verify: `tests/integration/test_waitlist_routes.py`
-- [ ] G7.2 · §6 Step 7 · A10 · **a send failure must not roll back the signup** · verify: `tests/integration/test_waitlist_routes.py::test_signup_survives_email_failure`
-- [ ] G7.3 · §6 Step 7 · A12 · **no email enumeration** — the response is byte-identical for a new and an existing address · verify: `tests/integration/test_waitlist_routes.py::test_no_email_enumeration`
+- [x] G7.1 · §6 Step 7 · — · wire the form to `signup()`, send via `EmailService`, implement `GET /waitlist/confirm`. Full loop against `ConsoleProvider`: submit → token in console → GET confirm → `confirmed_at` set (D7 double opt-in) · verify: `tests/integration/test_waitlist_routes.py`
+- [x] G7.2 · §6 Step 7 · A10 · **a send failure must not roll back the signup** · verify: `tests/integration/test_waitlist_routes.py::test_signup_survives_email_failure`
+- [x] G7.3 · §6 Step 7 · A12 · **no email enumeration** — the response is byte-identical for a new and an existing address · verify: `tests/integration/test_waitlist_routes.py::test_no_email_enumeration`
 
 ### [ ] G8 — Google OAuth stub — *dep: G7*
 

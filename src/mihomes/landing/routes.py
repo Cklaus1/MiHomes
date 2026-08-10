@@ -23,7 +23,8 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import text
 
-from mihomes.landing.db import get_landing_engine
+from mihomes.landing.db import get_landing_engine, landing_session
+from mihomes.landing.ratelimit import client_ip as _client_ip
 
 logger = logging.getLogger(__name__)
 
@@ -72,22 +73,95 @@ async def landing(request: Request) -> HTMLResponse:
 
 @router.post("/waitlist", response_class=HTMLResponse)
 async def join_waitlist(request: Request) -> HTMLResponse:
-    """Form submit. Wired in G7 (Step 7).
+    """Form submit. Rate-limited. Always renders the same success partial,
+    whether the email is new or already known — see §7-N3.
 
-    Placeholder that already returns the *same* shape N3 requires, so the
-    enumeration guarantee is not something G7 has to retrofit.
+    **Every exit path returns the identical page.** A new address, a repeat, an
+    already-confirmed one, one past the resend ceiling, and a malformed one all
+    render `submitted.html`. Any branch that renders something else — even a
+    friendly "you're already on the list" — turns this endpoint into an
+    email-enumeration oracle.
     """
     from mihomes.landing.templates_env import render_page
+    from mihomes.services import waitlist as waitlist_service
+    from mihomes.services.email import EmailService, get_email_provider
 
-    return HTMLResponse(render_page("submitted.html", {}))
+    form = await request.form()
+    same_response = HTMLResponse(render_page("submitted.html", {}))
+
+    raw_email = (form.get("email") or "").strip()
+    tri_state = {"yes": True, "no": False}
+
+    session = landing_session()
+    try:
+        try:
+            row, raw_token = waitlist_service.signup(
+                session,
+                email=raw_email,
+                name=(form.get("name") or None),
+                num_homes=(form.get("num_homes") or None),
+                has_staff=tri_state.get((form.get("has_staff") or "").lower()),
+                source="form",
+                utm={
+                    key: form[key]
+                    for key in ("utm_campaign", "utm_source", "utm_medium")
+                    if form.get(key)
+                },
+                signup_ip=_client_ip(request),
+                user_agent=request.headers.get("user-agent"),
+            )
+        except ValueError:
+            # Malformed address. Same page, no row — telling the user their address
+            # is invalid is fine UX but would also confirm which addresses exist,
+            # so keep the response uniform and let the missing email speak for it.
+            logger.info("waitlist: rejected an implausible address")
+            return same_response
+
+        # Commit BEFORE sending. A10: the row must survive a dead provider, so the
+        # transaction must not still be open when the send is attempted.
+        session.commit()
+        email_address = row.email
+    except Exception:
+        session.rollback()
+        logger.exception("waitlist signup failed")
+        raise
+    finally:
+        session.close()
+
+    if raw_token:
+        confirm_url = f"{base_url()}/waitlist/confirm?token={raw_token}"
+        # EmailService swallows EmailSendError by design (§5.3) — this call cannot
+        # fail the request, which is what makes A10 hold.
+        EmailService(get_email_provider()).send_waitlist_confirmation(
+            email_address, confirm_url=confirm_url
+        )
+
+    return same_response
 
 
 @router.get("/waitlist/confirm", response_class=HTMLResponse)
 async def confirm_waitlist(request: Request, token: str = "") -> HTMLResponse:
-    """Double opt-in landing. Sets confirmed_at. Wired in G7 (Step 7)."""
-    from mihomes.landing.templates_env import render_page
+    """Double opt-in landing. Sets confirmed_at.
 
-    return HTMLResponse(render_page("confirmed.html", {"confirmed": False}))
+    Idempotent and never 500s: users click twice, mail scanners pre-fetch links,
+    and corporate link-rewriters mangle them.
+    """
+    from mihomes.landing.templates_env import render_page
+    from mihomes.services import waitlist as waitlist_service
+
+    session = landing_session()
+    try:
+        row = waitlist_service.confirm(session, raw_token=token)
+        if row is not None:
+            session.commit()
+    except Exception:
+        session.rollback()
+        logger.exception("waitlist confirm failed")
+        row = None
+    finally:
+        session.close()
+
+    return HTMLResponse(render_page("confirmed.html", {"confirmed": row is not None}))
 
 
 def base_url() -> str:

@@ -86,6 +86,17 @@ Review this at the start of each session.
   branch never had is a modify/delete conflict on replay even though the three-way merge is
   clean. Predicting "no conflicts" from `merge-tree` and then cherry-picking is how you get
   surprised — check which files the *earliest* commit touches against the target.
+- **"Do not leak whether a record exists" constrains the *error* paths, not just the happy one.**
+  `POST /waitlist` has five distinct outcomes — new address, repeat unconfirmed, already
+  confirmed, past the resend ceiling, and malformed input — and N3 requires all five to render a
+  byte-identical page. The already-confirmed case is the one that catches you out: the service
+  correctly returns no token, so the obvious handler branches there and renders something
+  friendlier, which is exactly the oracle. Write the uniform response *once* and return the same
+  object from every path, including the `except`.
+- **Commit before the side effect when the side effect is allowed to fail.** A10 requires a
+  signup to survive a dead mail provider, which means the transaction must already be committed
+  when the send is attempted — not merely that the send error is caught. Ordering, not exception
+  handling, is what makes the guarantee real.
 - **SQLite stores a `postgresql.UUID` column as UNDASHED hex, so SQL ordering on it is silently
   wrong.** Raw dump: `019fed54a792774084d2dd63dec8bdfc`, while the ORM binds
   `UUID('019fed54-a792-…')`. Any `WHERE id < :id` or `tuple_((created_at, id)) < …` therefore

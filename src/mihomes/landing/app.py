@@ -20,7 +20,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from mihomes.landing.ratelimit import TokenBucket
+from mihomes.landing.ratelimit import TokenBucket, client_ip
 from mihomes.landing.routes import router as landing_router
 
 logger = logging.getLogger(__name__)
@@ -29,21 +29,6 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 # Public, unauthenticated, writes rows and sends email (D10).
 RATE_LIMITED_PATHS = ("/waitlist", "/auth/google/callback")
-
-
-def _client_ip(request: Request) -> str:
-    """Client IP, honouring Fly's proxy header.
-
-    Behind Fly every connection appears to come from the proxy, so keying the
-    bucket on `request.client.host` would make one shared bucket for the whole
-    internet — the global-counter failure the per-IP design exists to avoid.
-    """
-    forwarded = request.headers.get("fly-client-ip") or request.headers.get(
-        "x-forwarded-for"
-    )
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
 
 
 def create_landing_app() -> FastAPI:
@@ -60,7 +45,7 @@ def create_landing_app() -> FastAPI:
     @app.middleware("http")
     async def rate_limit(request: Request, call_next):
         if request.url.path in RATE_LIMITED_PATHS and not bucket.allow(
-            _client_ip(request)
+            client_ip(request)
         ):
             logger.warning("rate limited: path=%s", request.url.path)
             return JSONResponse(

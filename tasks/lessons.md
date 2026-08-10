@@ -86,6 +86,14 @@ Review this at the start of each session.
   branch never had is a modify/delete conflict on replay even though the three-way merge is
   clean. Predicting "no conflicts" from `merge-tree` and then cherry-picking is how you get
   surprised — check which files the *earliest* commit touches against the target.
+- **A duplicated exclusion list is a fix that does not propagate — grep for the other copies.**
+  Adding `waitlist` to `_UNMANAGED_TABLES` in `alembic/env.py` fixed the main tree's autogenerate
+  but broke two integration tests three modules away, because
+  `test_migration_reconciliation.py` and `test_money_migration.py` each define their **own local**
+  `_unmanaged` set instead of importing env.py's. Both already carried `dummy` for the identical
+  reason (a model on the shared `Base` that the tree never migrates), which is the tell that the
+  duplication had bitten before. When editing a filter list that exists to keep autogenerate
+  quiet, grep the whole tree for other copies before assuming one edit suffices.
 - **A tight loop does not advance the clock — time-ordering assertions over one need care.**
   The obvious UUIDv7 test, `sorted(ids, key=lambda u: u.bytes) == ids` over 1000 generated ids,
   **passes by luck**. Measured: all 1000 calls complete inside 1 millisecond (2 distinct

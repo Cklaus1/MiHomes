@@ -129,11 +129,11 @@ separately committable"*, so each step is its own commit and its own resume poin
 > A2 is not redundant with A1. `uuid.uuid7()` is 3.14+; the project floor is 3.11. The fallback
 > is the code path that will actually run, so it needs its own test.
 
-### [ ] G2 — `Waitlist` model + migration — *dep: G1*
+### [x] G2 — `Waitlist` model + migration — *dep: G1* — *`9561c95`; 36 tests; 1122 suite green; A3 passed (not skipped) on PG 18.4*
 
-- [ ] G2.1 · §6 Step 2 · — · `src/mihomes/models/waitlist.py` (§4.2) + register in `models/__init__.py`. **Global table: no `account_id`, no RLS** (D4) — it ships before `accounts` exists · verify: `tests/unit/test_waitlist_model.py` (column types, nullability, unique constraint on email)
-- [ ] G2.2 · §6 Step 2 · — · **`alembic_landing/` — a separate migration tree** (see below). `alembic_landing/env.py` with `target_metadata` scoped to **`Waitlist.__table__` alone**, plus a `[landing]` section in `alembic.ini` · verify: `py -m alembic -n landing heads` reports one head; `alembic/` is untouched
-- [ ] G2.3 · §6 Step 2 · A3 · `alembic_landing/versions/0001_waitlist.py` (§4.3) — the **only** revision in the landing tree · verify: `tests/integration/test_migration_waitlist.py::test_upgrade_downgrade`
+- [x] G2.1 · §6 Step 2 · — · `src/mihomes/models/waitlist.py` (§4.2) + register in `models/__init__.py`. **Global table: no `account_id`, no RLS** (D4) — it ships before `accounts` exists · verify: `tests/unit/test_waitlist_model.py` (column types, nullability, unique constraint on email)
+- [x] G2.2 · §6 Step 2 · — · **`alembic_landing/` — a separate migration tree** (see below). `alembic_landing/env.py` with `target_metadata` scoped to **`Waitlist.__table__` alone**, plus a `[landing]` section in `alembic.ini` · verify: `py -m alembic -n landing heads` reports one head; `alembic/` is untouched
+- [x] G2.3 · §6 Step 2 · A3 · `alembic_landing/versions/0001_waitlist.py` (§4.3) — the **only** revision in the landing tree · verify: `tests/integration/test_migration_waitlist.py::test_upgrade_downgrade`
 
 > ### Why a separate tree — this replaces the spec's file manifest
 >
@@ -172,7 +172,17 @@ There is already a mechanism for exactly this: add `"waitlist"` to `_UNMANAGED_T
 outside the ORM metadata"* out of autogenerate diffs. Its docstring names the failure being
 avoided: *"every future diff would be dirtied by phantom drop_table ops."*
 
-- [ ] G2.4 · §6 Step 2 · — · add `"waitlist"` to `_UNMANAGED_TABLES` in `alembic/env.py` so the main tree ignores a table the landing tree owns · verify: `py -m alembic revision --autogenerate` on the main tree proposes **no** `waitlist` operation (empty diff preserved)
+- [x] G2.4 · §6 Step 2 · — · add `"waitlist"` to `_UNMANAGED_TABLES` in `alembic/env.py` so the main tree ignores a table the landing tree owns · verify: `py -m alembic revision --autogenerate` on the main tree proposes **no** `waitlist` operation (empty diff preserved)
+
+> **G2.4 broke two tests three modules away — the outer loop (§1.2) caught it.**
+> `tests/integration/test_migration_reconciliation.py` and `test_money_migration.py` each define
+> their **own local** `_unmanaged` set rather than importing `env.py`'s, so the `_UNMANAGED_TABLES`
+> entry never reached them and both autogenerate oracles saw phantom `add_table('waitlist')`
+> drift. Both sets already carried `dummy` for exactly this reason — a model on the shared `Base`
+> that the tree never migrates. Added `waitlist` to both with the rationale.
+>
+> **Lesson:** an exclusion list duplicated across test modules is a fix that does not propagate.
+> When adding to `_UNMANAGED_TABLES`, grep for other copies of the set.
 
 > This is the only permitted edit to `alembic/env.py` in this phase — a one-entry set addition,
 > not a change to the 40 revisions. It is what keeps the two trees from fighting.

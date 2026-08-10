@@ -1,0 +1,42 @@
+# Keep the landing image small and keep secrets out of the build context.
+#
+# .env* matters most here: anything in the build context can end up in an image
+# layer even if the Dockerfile never COPYs it explicitly.
+
+.git/
+.github/
+.claude/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage*
+
+# Secrets — come from `fly secrets`, never the image (§10, BILLING §9)
+.env
+.env.*
+*.pem
+*secret*.json
+
+# Not needed to serve the landing app
+tests/
+docs/
+tasks/
+knowledge/
+addon/
+bridge/
+custom_components/
+ha-config/
+scripts/
+PRD.md
+CLAUDE.md
+docker-compose.yml
+Dockerfile
+
+# The single-user product's migration tree must not reach the landing image —
+# it must never run against the landing database (D1/D3).
+alembic/

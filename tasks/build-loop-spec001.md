@@ -324,24 +324,45 @@ A3 is the only criterion that proves the database works at all.
 > "Stub" here means *scope*, not *rigor*: signature verification is real. The stub-ness is that
 > it writes a waitlist row and stops.
 
-### [ ] G9 — deploy artifacts — *dep: G5* · *P3 may be unmet; see §0*
+### [x] G9 — deploy artifacts — *dep: G5* · *P3 unmet — artifacts produced, deploy is a human action* — *11 tests; A18 green and verified by injecting the wrong value*
 
-- [ ] G9.1 · §6 Step 9 · — · `Dockerfile`, `fly.toml`, `.dockerignore`. **Migrations as a release command, never on boot** (D9) — the existing app's `init_db()` on startup is a race when Fly runs several machines (§7-N4) · verify: image builds; release command present in `fly.toml`
-- [ ] G9.2 · §6 Step 9 · A18 · `docs/deploy/PHASE0-DEPLOY.md` with the DNS table. **DMARC = `v=DMARC1; p=none; rua=mailto:dmarc@mihomes.ai`, without `adkim=s; aspf=s`** (D11) · verify: `tests/unit/test_deploy_docs.py::test_dmarc_relaxed_alignment`
-- [ ] G9.3 · §6 Step 9 · — · the pre-launch checklist, carrying O1/O2/O3 as unchecked items · verify: checklist present with all seven rows
+- [x] G9.1 · §6 Step 9 · — · **`Dockerfile.landing`** (not `Dockerfile` — see below), `fly.toml`, `.dockerignore`. **Migrations as a release command, never on boot** (D9) — the existing app's `init_db()` on startup is a race when Fly runs several machines (§7-N4) · verify: `tests/unit/test_deploy_docs.py::test_migrations_run_as_a_release_step_not_on_boot`
+- [x] G9.2 · §6 Step 9 · A18 · `docs/deploy/PHASE0-DEPLOY.md` with the DNS table. **DMARC = `v=DMARC1; p=none; rua=mailto:dmarc@mihomes.ai`, without `adkim=s; aspf=s`** (D11) · verify: `tests/unit/test_deploy_docs.py::test_dmarc_relaxed_alignment`
+- [x] G9.3 · §6 Step 9 · — · the pre-launch checklist, carrying O1/O2/O3 as unchecked items · verify: checklist present with all seven rows
+
+> **The spec's manifest says `Dockerfile`; I wrote `Dockerfile.landing` instead — and
+> the first attempt got this wrong.** I overwrote the repo's existing `Dockerfile`,
+> which `docker-compose.yml` still builds for the Home Assistant demo stack. That
+> breaks a working thing to add a new one, which minimal-impact forbids. Restored it
+> from HEAD and added a separate file. `fly.toml` names `Dockerfile.landing`
+> explicitly, because Fly picks up `Dockerfile` implicitly otherwise — which would
+> deploy the unauthenticated single-user app to a public host. Two tests now guard
+> this: `test_fly_toml_builds_the_landing_dockerfile` and
+> `test_the_existing_dockerfile_is_untouched`.
+>
+> **A18's gate was verified by making it fail.** Injecting `GTM:273`'s strict
+> `adkim=s; aspf=s` variant into the doc and re-running the test: FAILED, as it
+> must. A docs test that cannot fail is decoration. Note the doc also *mentions*
+> `adkim=s` in prose explaining why it is forbidden, so the test scopes itself to
+> lines containing `v=DMARC1` rather than grepping the whole file — otherwise the
+> rationale would trip the guard.
+>
+> The failure mode this guards is quiet and expensive: strict alignment fails
+> legitimately-signed Resend mail, so confirmation emails stop arriving, nobody
+> confirms, and the Phase 0 funnel reads as *no demand* rather than as broken mail.
 
 > **A18 is a docs test on purpose.** `PRD_REVIEW` A6 found `GTM:273` publishing a
 > copy-pasteable *wrong* DMARC value that contradicts `BILLING:224`. Strict alignment breaks
 > legitimately-signed Resend mail because the return-path sits on its own sub-label. A
 > grep-level test is the cheapest way to stop the wrong value coming back.
 
-### [ ] G-Final — compound-stop verification — *dep: all*
+### [x] G-Final — compound-stop verification — *dep: all* — *all five conditions hold; 1233 passed; zero poisoned tasks*
 
-- [ ] F.1 · full-suite `pytest -q` green, no regression against the pre-flight baseline (condition C)
-- [ ] F.2 · all **18** §8 criteria green, each by the test named in its own row (condition E)
-- [ ] F.3a · walk §6 top-to-bottom: every one of the **9** steps has a task (condition B, steps)
-- [ ] F.3b · walk §8 top-to-bottom: every one of the **18** criteria has a gate (condition B, criteria)
-- [ ] F.4 · write `tasks/build-loop-spec001-report.md` (conventions §5)
+- [x] F.1 · full-suite `pytest -q` green, no regression against the pre-flight baseline (condition C)
+- [x] F.2 · all **18** §8 criteria green, each by the test named in its own row (condition E)
+- [x] F.3a · walk §6 top-to-bottom: every one of the **9** steps has a task (condition B, steps)
+- [x] F.3b · walk §8 top-to-bottom: every one of the **18** criteria has a gate (condition B, criteria)
+- [x] F.4 · write `tasks/build-loop-spec001-report.md` (conventions §5)
 
 ---
 

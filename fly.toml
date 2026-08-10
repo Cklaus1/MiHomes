@@ -1,0 +1,54 @@
+# Fly config for the Phase 0 landing app (D2: Fly.io, single region).
+#
+# Migrations are a release_command, never a boot step (D9/N4). Fly runs the release
+# command once, in its own machine, before the new version takes traffic — which is
+# exactly the "one process, before serving" property that `alembic upgrade` on boot
+# does not have when several machines start at once.
+#
+# The release command targets `-n landing`, the landing tree. Running the main tree
+# here would try to replay 40 SQLite-era revisions against the landing database:
+# that fails outright, and would create 37 unrelated tables if it did not (D1/D3).
+
+app = "mihomes-landing"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile.landing"
+
+[deploy]
+  release_command = "alembic -n landing upgrade head"
+  strategy = "rolling"
+
+[env]
+  PORT = "8080"
+  EMAIL_PROVIDER = "resend"
+  LANDING_BASE_URL = "https://mihomes.ai"
+
+# Secrets come from `fly secrets set`, never from this file or the repo (§10):
+#   DATABASE_URL  RESEND_API_KEY  EMAIL_FROM
+#   GOOGLE_CLIENT_ID  GOOGLE_CLIENT_SECRET  SECRET_KEY
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  # At least one machine stays up: a cold start on the marketing page would blow
+  # the <1.5s LCP target in GTM:55.
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 200
+    hard_limit = 250
+
+[[http_service.checks]]
+  grace_period = "10s"
+  interval = "30s"
+  method = "GET"
+  timeout = "5s"
+  path = "/healthz"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

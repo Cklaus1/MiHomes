@@ -23,7 +23,16 @@
     .hero img{width:100%;height:auto;border-radius:10px;border:1px solid var(--line);margin:28px 0 8px}
     .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:20px;margin:12px 0}
     .grid{display:grid;gap:12px}
-    @media(min-width:680px){.grid-3{grid-template-columns:repeat(3,1fr)}}
+    @media(min-width:680px){
+      .grid-2{grid-template-columns:repeat(2,1fr)}
+      .grid-3{grid-template-columns:repeat(3,1fr)}
+    }
+    ul{margin:0 0 16px;padding-left:22px}
+    li{margin:0 0 6px}
+    details{padding:14px 20px}
+    details summary{cursor:pointer;font-weight:500}
+    details p{margin:10px 0 0}
+    a{color:var(--ink)}
     label{display:block;font-size:14px;font-weight:500;margin:0 0 6px}
     input,select{width:100%;padding:11px 12px;font-size:16px;border:1px solid #cfcdc4;
                  border-radius:7px;background:#fff;color:inherit}

@@ -301,11 +301,11 @@ A3 is the only criterion that proves the database works at all.
 >   buckets into one global bucket — the exact failure the per-IP design exists to prevent.
 >   Verified live: 5 requests pass, then 429, while `GET /` stays 200.
 
-### [ ] G6 — templates + `GET /` — *dep: G5*
+### [x] G6 — templates + `GET /` — *dep: G5* — *12 tests; A16 green; 9.6KB page, zero script tags*
 
-- [ ] G6.1 · §6 Step 6 · — · `base.html` + `index.html` — the nine sections (`GTM` §2.1–2.9), inlined critical CSS, one static `hero.svg`, **no JS framework** · verify: `tests/integration/test_landing_page.py` (sections present)
-- [ ] G6.2 · §6 Step 6 · A16 · **no dollar figures anywhere** — plan *shapes* only (Free/Pro/Estate), because every price in `PRICING_AND_PACKAGING.md` is still `PLACEHOLDER` (D14) · verify: `tests/integration/test_landing_page.py::test_no_prices_rendered`
-- [ ] G6.3 · §6 Step 6 · — · chat-intake card shows **Telegram only, or is omitted** — WhatsApp Baileys pairing is broken and Twilio is post-GA; advertising either is vaporware (D15) · verify: `tests/integration/test_landing_page.py` (no WhatsApp mention)
+- [x] G6.1 · §6 Step 6 · — · `base.html` + `index.html` — the nine sections (`GTM` §2.1–2.9), inlined critical CSS, one static `hero.svg`, **no JS framework** · verify: `tests/integration/test_landing_page.py` (sections present)
+- [x] G6.2 · §6 Step 6 · A16 · **no dollar figures anywhere** — plan *shapes* only (Free/Pro/Estate), because every price in `PRICING_AND_PACKAGING.md` is still `PLACEHOLDER` (D14) · verify: `tests/integration/test_landing_page.py::test_no_prices_rendered`
+- [x] G6.3 · §6 Step 6 · — · chat-intake card shows **Telegram only, or is omitted** — WhatsApp Baileys pairing is broken and Twilio is post-GA; advertising either is vaporware (D15) · verify: `tests/integration/test_landing_page.py` (no WhatsApp mention)
 
 > Footer links to ToS and Privacy **will 404 until O1 lands**. That is expected and documented
 > (§1.3 O1) — do not stub fake pages to make them resolve.

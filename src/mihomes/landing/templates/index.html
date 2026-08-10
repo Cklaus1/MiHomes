@@ -1,22 +1,170 @@
 {% extends "base.html" %}
-{% block title %}MiHomes — one place for every home you look after{% endblock %}
+{% block title %}MiHomes — every home, under control{% endblock %}
+
+{#
+  The nine GTM §2.1-2.9 sections. Constraints that shape the copy, all load-bearing:
+
+  D14/N6 — NO dollar figures. Every price in PRICING_AND_PACKAGING.md is still
+           PLACEHOLDER, so any number here is a commitment nobody has made.
+  D15    — the chat card names TELEGRAM ONLY. Baileys WhatsApp pairing is broken
+           and Twilio is post-GA (SAAS_PRD §6.2); either would be vaporware.
+  GTM §2.2 — "Never fabricate testimonials." Pre-launch there are no customers, so
+           §2.2 carries a credibility line and no quotes, logos or star ratings.
+  N5     — no JS, no CDN, no web fonts. GTM:55 wants <1.5s LCP on 4G.
+  O2     — the founding-member offer's TERMS are undecided (§1.3), so the copy
+           promises that one exists and says nothing more.
+#}
 
 {% block content %}
-  {# G5 skeleton: enough page to boot and prove the route table. G6 (Step 6)
-     builds out the nine GTM §2.1-2.9 sections. Constraints already honoured here
-     so G6 inherits them rather than retrofitting: no dollar figures (D14/N6), and
-     the chat card names Telegram only (D15). #}
+  {# ---- 2.1 Hero ---- #}
   <section class="hero">
-    <h1>One place for every home you look after</h1>
+    <h1>Every home, under control.</h1>
     <p class="lede">
-      Properties, staff, vendors, work orders and spend — across every home on the
-      estate, in one system that keeps track so you don't have to.
+      The AI-first command center for multi-home owners. Your properties, staff,
+      vendors and money — in one place, prioritized by an AI estate manager.
     </p>
-    <img src="/static/hero.svg" alt="Three homes on an estate" width="800" height="480">
+    <p style="margin:24px 0 0">
+      <a href="/auth/google/start"><button type="button">Continue with Google</button></a>
+      <a href="#how-it-works" class="muted" style="margin-left:14px">See how it works ↓</a>
+    </p>
+    <img src="/static/hero.svg" alt="Three homes on an estate, managed together"
+         width="800" height="480">
   </section>
 
+  {# ---- 2.2 Credibility (NOT social proof — see the note above) ---- #}
   <section>
-    <h2>Join the waitlist</h2>
+    <p class="muted" style="margin:0">
+      Built by people who have managed estates.
+    </p>
+  </section>
+
+  {# ---- 2.3 The problem ---- #}
+  <section>
+    <h2>Running multiple homes is chaos.</h2>
+    <ul>
+      <li>Maintenance lives in text threads.</li>
+      <li>The schedule is in someone's head.</li>
+      <li>Invoices pile up in email.</li>
+      <li>Your "system" is three spreadsheets.</li>
+    </ul>
+    <p>Something always falls through the cracks.</p>
+  </section>
+
+  {# ---- 2.4 How it works ---- #}
+  <section id="how-it-works">
+    <h2>How it works</h2>
+    <div class="grid grid-3">
+      <div class="card">
+        <strong>1. Add your homes</strong>
+        <p class="muted" style="margin:8px 0 0">Properties, rooms and inventory, in minutes.</p>
+      </div>
+      <div class="card">
+        <strong>2. Invite your team</strong>
+        <p class="muted" style="margin:8px 0 0">Staff and vendors, with role-scoped access.</p>
+      </div>
+      <div class="card">
+        <strong>3. Let AI run point</strong>
+        <p class="muted" style="margin:8px 0 0">Your AI estate manager ranks what matters.</p>
+      </div>
+    </div>
+  </section>
+
+  {# ---- 2.5 Feature highlights ---- #}
+  <section>
+    <h2>What you get</h2>
+    <div class="grid grid-2">
+      <div class="card">
+        <strong>Properties</strong>
+        <p class="muted" style="margin:8px 0 0">One profile per home — rooms, systems, documents.</p>
+      </div>
+      <div class="card">
+        <strong>Tasks &amp; issues</strong>
+        <p class="muted" style="margin:8px 0 0">Track work and problems to resolution, per home.</p>
+      </div>
+      <div class="card">
+        <strong>Staff coordination</strong>
+        <p class="muted" style="margin:8px 0 0">Assign, schedule, and keep work accountable.</p>
+      </div>
+      <div class="card">
+        <strong>Vendors</strong>
+        <p class="muted" style="margin:8px 0 0">Contacts, jobs and history in one rolodex.</p>
+      </div>
+      <div class="card">
+        <strong>Finances</strong>
+        <p class="muted" style="margin:8px 0 0">Costs and vendor spend, per home.</p>
+      </div>
+      <div class="card" style="border-color:#bdbab0">
+        <strong>AI estate manager</strong>
+        <p class="muted" style="margin:8px 0 0">
+          SPACE-ranked priorities and plain-language advice. The difference between
+          a database and a manager.
+        </p>
+      </div>
+    </div>
+
+    {# D15: Telegram only. #}
+    <div class="card" style="margin-top:12px">
+      <strong>Message intake</strong>
+      <p class="muted" style="margin:8px 0 0">
+        Staff report from <strong>Telegram</strong> — forward a message and MiHomes
+        turns it into a task or an issue against the right home.
+      </p>
+    </div>
+  </section>
+
+  {# ---- 2.6 Pricing teaser — SHAPES ONLY (D14/N6) ---- #}
+  <section>
+    <h2>Plans</h2>
+    <div class="grid grid-3">
+      <div class="card">
+        <strong>Free</strong>
+        <p class="muted" style="margin:8px 0 0">One home, three seats. Free forever.</p>
+      </div>
+      <div class="card" style="border-color:#bdbab0">
+        <strong>Pro</strong> <span class="muted">— most popular</span>
+        <p class="muted" style="margin:8px 0 0">Multiple homes, plus staff and team seats.</p>
+      </div>
+      <div class="card">
+        <strong>Estate</strong>
+        <p class="muted" style="margin:8px 0 0">Everything in Pro, at family-office scale.</p>
+      </div>
+    </div>
+    <p class="muted">
+      {# Phase 0 has no product to "get started" with — all three CTAs resolve to
+         the waitlist (GTM §2.6 note). #}
+      All three start with the waitlist below.
+    </p>
+  </section>
+
+  {# ---- 2.7 FAQ ---- #}
+  <section>
+    <h2>FAQ</h2>
+    <details class="card"><summary>Do I need technical skills?</summary>
+      <p class="muted">No. If you can use email, you can use MiHomes.</p></details>
+    <details class="card"><summary>Can I invite my cleaner or handyman?</summary>
+      <p class="muted">Yes — access is role-based, so they see only what they need.</p></details>
+    <details class="card"><summary>Is my data private?</summary>
+      <p class="muted">Yes. Each account's data is isolated from every other account.</p></details>
+    <details class="card"><summary>What does the AI actually do?</summary>
+      <p class="muted">
+        It ranks what needs attention using the SPACE framework — safety, presence,
+        asset protection, compliance, economy — and explains why in plain language.
+      </p></details>
+    <details class="card"><summary>How do I sign in?</summary>
+      <p class="muted">With your Google account.</p></details>
+    <details class="card"><summary>When does it launch?</summary>
+      <p class="muted">We're opening access in stages. The waitlist is how you get in.</p></details>
+    <details class="card"><summary>Is there a free plan?</summary>
+      <p class="muted">Yes — one home, free forever.</p></details>
+  </section>
+
+  {# ---- 2.8 Closing CTA ---- #}
+  <section id="waitlist">
+    <h2>Get early access</h2>
+    <p class="lede">
+      Join the waitlist and lock in a founding-member offer.
+    </p>
+
     <form method="post" action="/waitlist" class="card">
       {% for key, value in (utm or {}).items() %}
       <input type="hidden" name="{{ key }}" value="{{ value }}">
@@ -35,7 +183,7 @@
 
       <div class="row row-2" style="margin-top:12px">
         <div>
-          <label for="num_homes">How many homes?</label>
+          <label for="num_homes">How many homes? <span class="muted">(optional)</span></label>
           <select id="num_homes" name="num_homes">
             <option value="">Prefer not to say</option>
             <option value="1">1</option>
@@ -44,7 +192,7 @@
           </select>
         </div>
         <div>
-          <label for="has_staff">Do you employ household staff?</label>
+          <label for="has_staff">Household staff? <span class="muted">(optional)</span></label>
           <select id="has_staff" name="has_staff">
             <option value="">Prefer not to say</option>
             <option value="yes">Yes</option>
@@ -53,33 +201,13 @@
         </div>
       </div>
 
-      <p style="margin:20px 0 0"><button type="submit">Request an invitation</button></p>
+      <p style="margin:20px 0 0"><button type="submit">Join the waitlist</button></p>
       <p class="muted" style="margin:12px 0 0">
-        Early members get a founding-member offer when we open up.
+        We'll email you when your spot opens. No spam, and you can leave any time.
+      </p>
+      <p class="muted" style="margin:8px 0 0">
+        Prefer one click? <a href="/auth/google/start">Continue with Google</a>.
       </p>
     </form>
-  </section>
-
-  <section>
-    <h2>Plans</h2>
-    {# N6/D14: plan SHAPES only. Every figure in PRICING_AND_PACKAGING.md is
-       still PLACEHOLDER, so no numbers appear anywhere on this page. #}
-    <div class="grid grid-3">
-      <div class="card"><strong>Free</strong><p class="muted">One home, the basics.</p></div>
-      <div class="card"><strong>Pro</strong><p class="muted">Several homes, staff and vendors.</p></div>
-      <div class="card"><strong>Estate</strong><p class="muted">Full portfolio, everything on.</p></div>
-    </div>
-  </section>
-
-  <section>
-    <h2>Report by chat</h2>
-    <div class="card">
-      {# D15: Telegram only. WhatsApp pairing is broken and Twilio is post-GA —
-         advertising either would be vaporware. #}
-      <p style="margin:0">
-        Staff report issues straight from <strong>Telegram</strong>; MiHomes files
-        them against the right home and follows up.
-      </p>
-    </div>
   </section>
 {% endblock %}

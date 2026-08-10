@@ -86,6 +86,23 @@ Review this at the start of each session.
   branch never had is a modify/delete conflict on replay even though the three-way merge is
   clean. Predicting "no conflicts" from `merge-tree` and then cherry-picking is how you get
   surprised — check which files the *earliest* commit touches against the target.
+- **A verified signature is not a verified token — check `aud`, `iss` and `exp` separately.**
+  Google signs every relying party's ID tokens with the same keys, so a token minted for *any
+  other* Google app carries a perfectly valid signature. Without an audience check that token
+  authenticates against your app. Keep claim validation in its own function so it is unit-testable
+  without a live JWKS fetch — these are the checks people skip precisely because a good signature
+  feels like proof.
+- **A clock-skew allowance needs `<=`, not `<`, and a test on both sides.** `exp + SKEW < now`
+  leaves a one-second hole exactly at the boundary — which is where a test written at that offset
+  lands, and nowhere else. Pair the "clearly expired is rejected" test with a "just-inside-skew is
+  accepted" one: tightening the comparison without the second test can silently turn into "reject
+  everything slightly old", which breaks real sign-ins rather than fake ones.
+- **A `secure` cookie makes `TestClient` look broken.** Cookies set `secure=True` are never sent
+  back over `http://testserver`, so every request that depends on one fails with "missing cookie" —
+  a test artifact that looks exactly like a bug in the flow. Point the base URL at `http://` for
+  those tests and assert the production flags (`Secure`, `HttpOnly`, `SameSite=Lax`) in a separate
+  test that inspects the `Set-Cookie` header directly. Note `SameSite` must be `Lax`, not `Strict`,
+  for an OAuth state cookie: `Strict` drops it on the cross-site redirect back from the provider.
 - **"Do not leak whether a record exists" constrains the *error* paths, not just the happy one.**
   `POST /waitlist` has five distinct outcomes — new address, repeat unconfirmed, already
   confirmed, past the resend ceiling, and malformed input — and N3 requires all five to render a

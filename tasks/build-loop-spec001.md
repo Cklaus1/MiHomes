@@ -316,10 +316,10 @@ A3 is the only criterion that proves the database works at all.
 - [x] G7.2 · §6 Step 7 · A10 · **a send failure must not roll back the signup** · verify: `tests/integration/test_waitlist_routes.py::test_signup_survives_email_failure`
 - [x] G7.3 · §6 Step 7 · A12 · **no email enumeration** — the response is byte-identical for a new and an existing address · verify: `tests/integration/test_waitlist_routes.py::test_no_email_enumeration`
 
-### [ ] G8 — Google OAuth stub — *dep: G7*
+### [x] G8 — Google OAuth stub — *dep: G7* — *12 tests; A14+A15 green; route table still exactly the §7-N1 allowlist*
 
-- [ ] G8.1 · §6 Step 8 · A14 · `/auth/google/start` + `/auth/google/callback` — a valid ID token creates a `waitlist` row with `source='google'` and **nothing else: no `users` row, no session cookie** (D8) · verify: `tests/integration/test_oauth_stub.py::test_callback_creates_waitlist_row_only`
-- [ ] G8.2 · §6 Step 8 · A15 · a token with a bad signature is rejected · verify: `tests/integration/test_oauth_stub.py::test_callback_rejects_forged_token`
+- [x] G8.1 · §6 Step 8 · A14 · `/auth/google/start` + `/auth/google/callback` — a valid ID token creates a `waitlist` row with `source='google'` and **nothing else: no `users` row, no session cookie** (D8) · verify: `tests/integration/test_oauth_stub.py::test_callback_creates_waitlist_row_only`
+- [x] G8.2 · §6 Step 8 · A15 · a token with a bad signature is rejected · verify: `tests/integration/test_oauth_stub.py::test_callback_rejects_forged_token`
 
 > "Stub" here means *scope*, not *rigor*: signature verification is real. The stub-ness is that
 > it writes a waitlist row and stops.

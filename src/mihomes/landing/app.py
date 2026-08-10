@@ -20,6 +20,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from mihomes.landing.oauth import router as oauth_router
 from mihomes.landing.ratelimit import TokenBucket, client_ip
 from mihomes.landing.routes import router as landing_router
 
@@ -55,6 +56,9 @@ def create_landing_app() -> FastAPI:
         return await call_next(request)
 
     app.include_router(landing_router)
+    # The OAuth stub's two routes are part of the §7-N1 allowlist. Nothing else
+    # gets mounted here — test_no_single_user_router_is_mounted enforces that.
+    app.include_router(oauth_router)
 
     # One SVG plus inlined critical CSS — no bundler, no CDN, no web fonts (N5).
     STATIC_DIR.mkdir(parents=True, exist_ok=True)

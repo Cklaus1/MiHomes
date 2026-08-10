@@ -86,6 +86,19 @@ Review this at the start of each session.
   branch never had is a modify/delete conflict on replay even though the three-way merge is
   clean. Predicting "no conflicts" from `merge-tree` and then cherry-picking is how you get
   surprised — check which files the *earliest* commit touches against the target.
+- **On Postgres, "the first error was at revision 28" does not mean 27 revisions passed.**
+  Postgres has transactional DDL, so a failed `alembic upgrade head` rolls back the *entire*
+  chain — verified: 0 tables created, no `alembic_version` table, after a failure 28 revisions
+  deep. Every earlier revision executed inside a transaction that vanished, so none of them is
+  validated. This inverts the SQLite intuition, where a mid-chain failure leaves partial schema
+  you can inspect to see how far you got. Consequence for a loop: the first error masks all later
+  ones, so the only way to enumerate migration defects is fix-and-retry, and any static count
+  under-reports. Never scope migration work from where the first error surfaced.
+- **A migration's docstring is a statement of its assumptions — read it as a portability
+  warning.** `e5f6a7b8c9d0` opens with *"SQLite stores enums as VARCHAR, so no ALTER needed"*.
+  That sentence is precisely why it fails on Postgres, where the enum type is real. When
+  evaluating whether a migration chain survives a backend change, grep the docstrings for the
+  current backend's name before running anything — the authors already documented the coupling.
 - **Collection is not a pass. Measure the baseline by running it.** I recorded `pytest --co` →
   1080 collected and wrote *"condition C means ≥1080 passing"* into the harness. The real result
   is **1078 passed / 1 failed / 1 skipped** — one Windows-only failure (`os.kill(pid, 0)`,

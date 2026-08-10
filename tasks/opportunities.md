@@ -76,6 +76,40 @@
   `build-loop-spec001.md` §0.1 so the circuit breaker does not halt the pilot over it.
   (surfaced while measuring the baseline for condition C)
 
+## Measured: the 40 SQLite-era migrations do not replay on Postgres
+
+- [BUG][SPEC-002 Step 6 — SIZING, NOT OPTIONAL] `alembic/versions/` (all 40 revisions) — measured
+  2026-08-06 against **PostgreSQL 18.4**: `alembic upgrade head` on an empty database fails at
+  `e5f6a7b8c9d0_add_daily_recurrence.py` with
+  `DataError: invalid input value for enum recurrencefrequency: "weekly"`. That revision's own
+  docstring states the assumption — *"SQLite stores enums as VARCHAR, so no ALTER needed"* — which
+  is true on SQLite and false on Postgres, where the enum type is real and stores member **names**
+  (`WEEKLY`) after G-R4's server-default normalization.
+
+  **Critically: revisions 1–27 are unvalidated, not passing.** Postgres has transactional DDL, so
+  all 40 ran inside one transaction that rolled back entirely — verified `0` tables created and no
+  `alembic_version` table afterwards. The first error masks every later one, so the true defect
+  count can only be found by fix-and-retry and exceeds any static audit.
+
+  **What this sizes:** SPEC-002 Step 6's squash to `0001_pg_baseline` is **required, not an
+  optimization** — and the revisions it archives to `alembic/legacy_sqlite/` were never
+  Postgres-viable to begin with, so "reference only, never run" is the correct disposition.
+  (surfaced while pre-flight-testing the chain for SPEC-001 G2)
+
+- [BUG][SPEC-001 §3 — MANIFEST CONTRADICTS D1/D3] The file manifest places the waitlist migration
+  at `alembic/versions/xxxx_waitlist.py`, i.e. the single-user product's tree. That contradicts the
+  spec's own decisions: **D1** says the landing app *"shares the stack and nothing else"* and
+  **D3** says its database holds the **`waitlist` table only**. Following the manifest would
+  replay 40 revisions and create all 37 single-user tables in the landing database — and would
+  fail anyway, per the finding above.
+
+  **Resolved in the harness, not the spec:** `tasks/build-loop-spec001.md` G2 now targets a
+  separate `alembic_landing/` tree with `target_metadata` scoped to `Waitlist.__table__` alone
+  (`Base.metadata` carries 37 tables — verified). No spec anywhere in the set mentions
+  `version_locations` or a second tree, so this is a genuine gap rather than a documented
+  alternative. **Worth folding back into SPEC-001 §3 by its author.**
+  (surfaced 2026-08-06, decided with the founder)
+
 ## Spec defects found while authoring the harnesses
 
 - [BUG][SPEC-002 §9 — STALE REF] `docs/specs/SPEC-002-phase1-multitenant-foundation.md` §9 and

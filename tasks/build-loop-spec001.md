@@ -126,12 +126,47 @@ separately committable"*, so each step is its own commit and its own resume poin
 ### [ ] G2 — `Waitlist` model + migration — *dep: G1*
 
 - [ ] G2.1 · §6 Step 2 · — · `src/mihomes/models/waitlist.py` (§4.2) + register in `models/__init__.py`. **Global table: no `account_id`, no RLS** (D4) — it ships before `accounts` exists · verify: `tests/unit/test_waitlist_model.py` (column types, nullability, unique constraint on email)
-- [ ] G2.2 · §6 Step 2 · A3 · `alembic/versions/xxxx_waitlist.py` (§4.3) · verify: `tests/integration/test_migration_waitlist.py::test_upgrade_downgrade`
+- [ ] G2.2 · §6 Step 2 · — · **`alembic_landing/` — a separate migration tree** (see below). `alembic_landing/env.py` with `target_metadata` scoped to **`Waitlist.__table__` alone**, plus a `[landing]` section in `alembic.ini` · verify: `py -m alembic -n landing heads` reports one head; `alembic/` is untouched
+- [ ] G2.3 · §6 Step 2 · A3 · `alembic_landing/versions/0001_waitlist.py` (§4.3) — the **only** revision in the landing tree · verify: `tests/integration/test_migration_waitlist.py::test_upgrade_downgrade`
 
-**Extra gate (conventions §2) — migration round-trip.** `alembic upgrade head` → `downgrade` →
-`upgrade`, clean, against real Postgres. Damage here is to *state*, and Phase 1 rides on this
-table. Note the existing 40 revisions are SQLite-batch-mode; this is the first Postgres
-migration in the tree.
+> ### Why a separate tree — this replaces the spec's file manifest
+>
+> SPEC-001 §3 places this migration at `alembic/versions/xxxx_waitlist.py`, the single-user
+> product's tree. **That contradicts the spec's own decisions** and must not be followed:
+>
+> - **D1** — the landing app *"shares the stack and nothing else."*
+> - **D3** — the landing database holds the **`waitlist` table only**.
+>
+> Joining the existing tree would mean `alembic upgrade head` replays 40 revisions and creates
+> all 37 single-user tables in the landing database. It also does not work: measured 2026-08-06
+> against PostgreSQL 18.4, the chain dies at `e5f6a7b8c9d0_add_daily_recurrence.py` with
+> `invalid input value for enum recurrencefrequency: "weekly"` — that revision's docstring says
+> *"SQLite stores enums as VARCHAR, so no ALTER needed"*, which is true on SQLite and false on
+> Postgres, where the enum stores member **names** after G-R4's normalization.
+>
+> And patching it would be discarded work: **SPEC-002 Step 6 squashes all 40 revisions into
+> `0001_pg_baseline` and archives them to `alembic/legacy_sqlite/` — "reference only, never
+> run."**
+>
+> **The existing `alembic/` tree must not be modified by this run.** The single-user product
+> keeps running on SQLite. This group *adds* a tree; it does not migrate one.
+
+**Scope `target_metadata` — the one detail that decides this works.** `Waitlist` inherits the
+shared `Base`, and `Base.metadata` carries **37 tables** (verified). A landing `env.py` pointed
+at `Base.metadata` would autogenerate all 37 and silently violate D3. Point it at
+`Waitlist.__table__` only. The spec's §4.2 model definition needs no change.
+
+**Extra gate (conventions §2) — migration round-trip.** `upgrade` → `downgrade` → `upgrade`,
+clean, against real Postgres — **one revision, not 41**. Damage here is to *state*, and Phase 1
+rides on this table.
+
+**Extra gate — exactly one table.** After G2, a fresh landing database must contain `waitlist`
+and `alembic_version` and **nothing else**:
+
+```
+select tablename from pg_tables where schemaname='public';
+  →  waitlist, alembic_version.   37 tables means target_metadata was not scoped (D3 violated).
+```
 
 **A3 must run, not skip.** The `pg_session` fixture skips when `TEST_DATABASE_URL` is unset
 (spec §9), and a skip does not fail a run. Gate on the node id reporting `passed`:
@@ -225,7 +260,7 @@ Condition B's F.3b reconciles against this. Every `A`-label from §8 must appear
 |---|---|---|---|
 | A1 | G1.1 | A10 | G7.2 |
 | A2 | G1.2 | A11 | G5.2 |
-| A3 | G2.2 | A12 | G7.3 |
+| A3 | G2.3 | A12 | G7.3 |
 | A4 | G4.1 | A13 | G5.3 |
 | A5 | G4.2 | A14 | G8.1 |
 | A6 | G4.3 | A15 | G8.2 |
@@ -245,6 +280,11 @@ Beyond conventions §6:
 - **Do not touch the single-user app.** The spec's §3 is explicit: *"Not modified:
   `src/mihomes/web/app.py`, `src/mihomes/web/server.py`, and every existing route module."*
   Phase 0 shares the stack and nothing else (D1, §7-N1).
+- **Do not touch `alembic/` or its 40 revisions.** They stay SQLite-only and keep serving the
+  single-user product. All Phase 0 migration work happens in `alembic_landing/`. Check with
+  `git diff --stat origin/main -- alembic/versions/` — it must stay empty for the whole run.
+  Patching those revisions for Postgres is explicitly **not** this phase's job; SPEC-002 Step 6
+  archives them.
 - **Do not change the existing `session` fixture.** Add a `pg_session` fixture alongside it.
   SPEC-001 §9 is explicit. Note this rule is **SPEC-001-scoped** — SPEC-002 Step 15 deliberately
   rewrites what `session` yields (conventions §6.1). Do not generalize it.

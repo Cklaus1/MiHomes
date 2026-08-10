@@ -1,0 +1,32 @@
+{# Shared layout for transactional mail.
+
+   Inline styles only, table-free where possible: email clients strip <style>
+   blocks unpredictably. Kept deliberately plain — this ships in Phase 0 and is
+   reused verbatim through Phase 4, so it should not carry any Phase-0-specific
+   branding decision that a later phase would have to undo. #}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block subject %}{% endblock %}</title>
+</head>
+<body style="margin:0;padding:0;background:#f6f6f4;">
+  <div style="max-width:560px;margin:0 auto;padding:32px 24px;
+              font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+              font-size:16px;line-height:1.55;color:#1c1c1a;">
+
+    <div style="font-weight:600;letter-spacing:-0.01em;font-size:18px;margin-bottom:24px;">
+      MiHomes
+    </div>
+
+    {% block content %}{% endblock %}
+
+    <hr style="border:none;border-top:1px solid #e4e4df;margin:32px 0 16px;">
+    <p style="font-size:13px;color:#6b6b66;margin:0;">
+      You received this because you asked to join the MiHomes waitlist.
+      {% block footer_extra %}{% endblock %}
+    </p>
+  </div>
+</body>
+</html>

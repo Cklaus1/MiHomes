@@ -1,0 +1,12 @@
+{% if name %}Hi {{ name }},{% else %}Hi,{% endif %}
+
+Thanks for your interest in MiHomes. Confirm your email address and we'll save
+your place on the waitlist:
+
+{{ confirm_url }}
+
+Early members get a founding-member offer when we open up.
+
+--
+You received this because you asked to join the MiHomes waitlist.
+If it wasn't you, you can ignore this email and nothing will happen.

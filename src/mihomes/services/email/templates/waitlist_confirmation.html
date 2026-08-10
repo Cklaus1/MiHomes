@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block subject %}Confirm your MiHomes waitlist spot{% endblock %}
+
+{% block content %}
+  <p style="margin:0 0 16px;">
+    {% if name %}Hi {{ name }},{% else %}Hi,{% endif %}
+  </p>
+
+  <p style="margin:0 0 24px;">
+    Thanks for your interest in MiHomes. Confirm your email address and we'll
+    save your place on the waitlist.
+  </p>
+
+  <p style="margin:0 0 28px;">
+    <a href="{{ confirm_url }}"
+       style="display:inline-block;background:#1c1c1a;color:#ffffff;
+              text-decoration:none;padding:12px 22px;border-radius:6px;
+              font-weight:500;">
+      Confirm my email
+    </a>
+  </p>
+
+  {# O2 is open (§1.3): the founding-member offer terms are undecided, so this
+     says only that one exists. Do NOT invent terms here — the page makes the
+     same promise in the same words. #}
+  <p style="margin:0 0 24px;">
+    Early members get a founding-member offer when we open up.
+  </p>
+
+  <p style="margin:0;font-size:14px;color:#6b6b66;">
+    If the button doesn't work, paste this into your browser:<br>
+    <span style="word-break:break-all;">{{ confirm_url }}</span>
+  </p>
+{% endblock %}
+
+{% block footer_extra %}
+  If it wasn't you, you can ignore this email and nothing will happen.
+{% endblock %}

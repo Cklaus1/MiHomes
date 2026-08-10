@@ -210,15 +210,37 @@ py -m pytest -q tests/integration/test_migration_waitlist.py::test_upgrade_downg
 Without this, G2 can be marked `[x]` on a machine where Postgres was never reached — and
 A3 is the only criterion that proves the database works at all.
 
-### [ ] G3 — email package — *dep: G1*
+### [x] G3 — email package — *dep: G1* — *23 tests; A8+A9 green*
 
-- [ ] G3.1 · §6 Step 3 · A9 · Protocol + exceptions + `EmailResult` + factory (`provider.py`), `ConsoleProvider`, `ResendProvider` · verify: `tests/unit/test_email_provider.py::test_unknown_provider_raises`
-- [ ] G3.2 · §6 Step 3 · A8 · `render.py` → `(subject, html, text)`, `service.py`, and the three templates · verify: `tests/unit/test_email_render.py::test_waitlist_confirmation_has_both_parts`
+- [x] G3.1 · §6 Step 3 · A9 · Protocol + exceptions + `EmailResult` + factory (`provider.py`), `ConsoleProvider`, `ResendProvider` · verify: `tests/unit/test_email_provider.py::test_unknown_provider_raises`
+- [x] G3.2 · §6 Step 3 · A8 · `render.py` → `(subject, html, text)`, `service.py`, and the three templates · verify: `tests/unit/test_email_render.py::test_waitlist_confirmation_has_both_parts`
 
 > **Build this to final quality now.** The spec is emphatic: this is the one Phase-0 artifact
 > reused **verbatim** in Phases 2–4 — welcome, invites, receipts and dunning all ride on it
 > (`BILLING` §1). SPEC-005 D11 makes the set's only widening of it, one additive `headers`
 > kwarg. Under-building here is paid for four times.
+>
+> **Built beyond the two named criteria, deliberately, for that reason:**
+> - `EmailAuthError` is **not** a subclass of `EmailSendError`, and `EmailService` swallows only
+>   the latter. Collapsing them would give a launch where every signup succeeds and no mail
+>   arrives — visible only as a mysteriously flat confirmation rate. Pinned by
+>   `test_email_service.py::test_auth_error_is_not_swallowed`.
+> - A missing `.txt` sibling **raises**. HTML-only mail is a deliverability and accessibility
+>   problem, and the rule breaks on the day someone adds a template and forgets the sibling —
+>   so it is enforced, not documented.
+> - Autoescape is on and tested: Phase 0 collects a free-text `name` on a public form, which
+>   lands in the confirmation email's HTML.
+> - The subject is the block's **first line only** — a wrapped block would inject a newline into
+>   a header, which some MTAs treat as header injection.
+>
+> **Two bugs of mine that the tests caught, both in test/impl rather than the spec:**
+> 1. `make_module()` does not expose `{% block subject %}` as an attribute, and for a child
+>    template overriding a base block the override is what `template.blocks` resolves to. Used
+>    `.blocks` with an explicit `new_context`.
+> 2. `_get_env()` is `lru_cache`d, so the HTML-only test's `monkeypatch` of `TEMPLATE_DIR` was
+>    both ignored (stale env) *and* leaking the temp loader into every later test in the module.
+>    Now clears the cache before and after inside `try/finally`, so an assertion failure cannot
+>    poison the rest of the suite.
 
 ### [ ] G4 — waitlist service — *dep: G2, G3*
 

@@ -86,6 +86,18 @@ Review this at the start of each session.
   branch never had is a modify/delete conflict on replay even though the three-way merge is
   clean. Predicting "no conflicts" from `merge-tree` and then cherry-picking is how you get
   surprised — check which files the *earliest* commit touches against the target.
+- **An `lru_cache`d factory makes `monkeypatch` both ineffective and contagious.**
+  `render._get_env()` is cached, so a test that repointed `TEMPLATE_DIR` got the *stale*
+  environment (patch ignored) and then leaked its temp-directory loader into every later test in
+  the module — three unrelated tests failed with "no HTML template". Clearing the cache after the
+  fact is not enough: clear it *before and after*, inside `try/finally`, so an assertion failure
+  cannot leave the cache poisoned. Generally: patching a value that a cached factory already
+  closed over is a no-op with side effects.
+- **Jinja blocks are not module attributes.** `template.make_module(data)` exposes top-level
+  names but not `{% block x %}`; blocks live in `template.blocks` and must be called with an
+  explicit `template.new_context(data)`. This matters specifically for a *child* template
+  overriding a block declared in its parent — `.blocks` resolves to the override, which is what
+  an email subject line needs.
 - **A duplicated exclusion list is a fix that does not propagate — grep for the other copies.**
   Adding `waitlist` to `_UNMANAGED_TABLES` in `alembic/env.py` fixed the main tree's autogenerate
   but broke two integration tests three modules away, because

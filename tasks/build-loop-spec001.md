@@ -242,12 +242,31 @@ A3 is the only criterion that proves the database works at all.
 >    Now clears the cache before and after inside `try/finally`, so an assertion failure cannot
 >    poison the rest of the suite.
 
-### [ ] G4 — waitlist service — *dep: G2, G3*
+### [ ] G4 — waitlist service — *dep: G2, G3* — *code + 29 tests green; GROUP NOT COMMITTED-AS-DONE: full-suite gate (§1.3) never completed before the run was paused. Re-run `py -m pytest -q` and confirm 1078+new / same one known failure before ticking this header.*
 
-- [ ] G4.1 · §6 Step 4 · A4 · `normalize_email` + `signup` — idempotent per email; a duplicate **updates** the existing row, never creates a second · verify: `tests/unit/test_waitlist_service.py::test_signup_is_idempotent`
-- [ ] G4.2 · §6 Step 4 · A5 · token generation — **only the hash is persisted**; assert the raw token appears nowhere in the row · verify: `tests/unit/test_waitlist_service.py::test_token_stored_hashed_only`
-- [ ] G4.3 · §6 Step 4 · A6,A7 · `confirm` — sets `confirmed_at`, second confirm is a no-op, expired/unknown token does not confirm · verify: `tests/unit/test_waitlist_service.py::test_confirm_idempotent`, `::test_confirm_rejects_bad_token`
-- [ ] G4.4 · §6 Step 4 · — · `position`, `confirmed_count`. **O4 default: compute it, do not display it** · verify: `tests/unit/test_waitlist_service.py`
+> **The `position()` bug is the most instructive failure of the run so far.** Three attempts —
+> the harness allows three before poisoning — and each one moved the diagnosis rather than
+> guessing:
+>
+> 1. `created_at < row.created_at` returned **position 2 for the only confirmed row.**
+>    `created_at` comes from a server default, so a tight signup loop gives rows an *identical*
+>    timestamp and the comparison counted a peer, and even the row itself, as "ahead".
+> 2. Adding `id != row.id` plus a `tuple_((created_at, id)) < tuple_(...)` row-value comparison
+>    gave **`[4, 4, 4, 4]`** for four tied rows. The SQL compiled and was valid; it matched
+>    nothing.
+> 3. Root cause, found by dumping the raw rows: **SQLite persists the `PGUUID` column as an
+>    UNDASHED hex string** (`019fed54a792…`) while the ORM binds a dashed `uuid.UUID`. Any SQL
+>    `<` on that column is meaningless on SQLite.
+>
+> Resolved by ranking in Python on `(created_at, str(id))`. UUIDv7 sorts in creation order by
+> construction — which is exactly why D5 chose v7 — so it is a sound tie-break. Phase 0 is
+> Postgres-only (D3), but the unit suite runs on SQLite, and a ranking that is right on one
+> engine and silently wrong on the other is worse than one that is right on both.
+
+- [x] G4.1 · §6 Step 4 · A4 · `normalize_email` + `signup` — idempotent per email; a duplicate **updates** the existing row, never creates a second · verify: `tests/unit/test_waitlist_service.py::test_signup_is_idempotent`
+- [x] G4.2 · §6 Step 4 · A5 · token generation — **only the hash is persisted**; assert the raw token appears nowhere in the row · verify: `tests/unit/test_waitlist_service.py::test_token_stored_hashed_only`
+- [x] G4.3 · §6 Step 4 · A6,A7 · `confirm` — sets `confirmed_at`, second confirm is a no-op, expired/unknown token does not confirm · verify: `tests/unit/test_waitlist_service.py::test_confirm_idempotent`, `::test_confirm_rejects_bad_token`
+- [x] G4.4 · §6 Step 4 · — · `position`, `confirmed_count`. **O4 default: compute it, do not display it** · verify: `tests/unit/test_waitlist_service.py`
 
 ### [ ] G5 — landing app skeleton — *dep: G1*
 

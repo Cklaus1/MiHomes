@@ -86,6 +86,18 @@ Review this at the start of each session.
   branch never had is a modify/delete conflict on replay even though the three-way merge is
   clean. Predicting "no conflicts" from `merge-tree` and then cherry-picking is how you get
   surprised — check which files the *earliest* commit touches against the target.
+- **SQLite stores a `postgresql.UUID` column as UNDASHED hex, so SQL ordering on it is silently
+  wrong.** Raw dump: `019fed54a792774084d2dd63dec8bdfc`, while the ORM binds
+  `UUID('019fed54-a792-…')`. Any `WHERE id < :id` or `tuple_((created_at, id)) < …` therefore
+  compiles to valid SQL, runs without error, and matches nothing — the ranking came back
+  `[4, 4, 4, 4]` for four rows. This is the dangerous shape: not a crash, a *wrong answer*. When a
+  Postgres-typed column has to be ordered and the test suite runs on SQLite, either rank in Python
+  or assert the ordering against the real engine; do not trust a green SQLite test.
+- **A `server_default` timestamp is not a unique sort key.** Rows created in the same second share
+  an identical `created_at`, so `WHERE created_at < :ts` counts peers — and, if the row's own
+  timestamp is included, the row itself — as "ahead". A 1-based position query returned 2 for the
+  only confirmed row. Always pair a timestamp sort with a unique tie-break and exclude the subject
+  row explicitly.
 - **An `lru_cache`d factory makes `monkeypatch` both ineffective and contagious.**
   `render._get_env()` is cached, so a test that repointed `TEMPLATE_DIR` got the *stale*
   environment (patch ignored) and then leaked its temp-directory loader into every later test in

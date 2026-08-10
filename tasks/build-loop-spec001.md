@@ -115,10 +115,16 @@ Nine groups, one per §6 step — the spec states *"Each step is independently v
 separately committable"*, so each step is its own commit and its own resume point
 (conventions §1.3). Dependencies are top-to-bottom.
 
-### [ ] G1 — `mihomes.ids` — *no deps*
+### [x] G1 — `mihomes.ids` — *no deps* — *`08ef75b`; 8 tests; 1086 suite green*
 
-- [ ] G1.1 · §6 Step 1 · A1 · write `src/mihomes/ids.py` — `new_id() -> uuid.UUID` (UUIDv7, app-side; §4.1). **No DB-side default** — `gen_random_uuid()` emits v4 and would destroy v7 index locality (D5) · verify: `tests/unit/test_ids.py::test_uuid7_properties` (1,000 ids unique, byte-sort == creation order, `.version == 7`)
-- [ ] G1.2 · §6 Step 1 · A2 · the 3.11 fallback path — `new_id()` must work on the declared floor, not only 3.14 · verify: `tests/unit/test_ids.py::test_fallback_generates_valid_v7`
+- [x] G1.1 · §6 Step 1 · A1 · write `src/mihomes/ids.py` — `new_id() -> uuid.UUID` (UUIDv7, app-side; §4.1). **No DB-side default** — `gen_random_uuid()` emits v4 and would destroy v7 index locality (D5) · verify: `tests/unit/test_ids.py::test_uuid7_properties` (1,000 ids unique, byte-sort == creation order, `.version == 7`)
+- [x] G1.2 · §6 Step 1 · A2 · the 3.11 fallback path — `new_id()` must work on the declared floor, not only 3.14 · verify: `tests/unit/test_ids.py::test_fallback_generates_valid_v7`
+
+> **Lesson from G1 (also in `lessons.md`):** the naive A1 assertion
+> `sorted(ids, key=bytes) == ids` over 1000 tight-loop calls **passes by luck**. All 1000 land
+> within 1 ms (measured: 2 distinct timestamps, 998 adjacent pairs sharing one), and RFC 9562
+> orders v7 only by its 48-bit ms prefix — intra-millisecond order is random with no monotonic
+> counter. Assert one id per distinct millisecond, plus an explicit sleep-separated pair.
 
 > A2 is not redundant with A1. `uuid.uuid7()` is 3.14+; the project floor is 3.11. The fallback
 > is the code path that will actually run, so it needs its own test.

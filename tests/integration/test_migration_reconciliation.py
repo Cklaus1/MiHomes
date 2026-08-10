@@ -14,18 +14,17 @@ never shows up on an empty in-memory DB.
 """
 
 import sqlite3
-from pathlib import Path
 
 import pytest
-from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.config import Config
 from alembic.migration import MigrationContext
 from sqlalchemy import create_engine
 
+import mihomes.models  # noqa: F401  (ensure every model is registered on Base)
+from alembic import command
 from mihomes.db import _get_alembic_dir
 from mihomes.models import Base
-import mihomes.models  # noqa: F401  (ensure every model is registered on Base)
 
 PARENT = "424437e5c0ef"
 RECONCILE = "7514b34eed7b"
@@ -176,7 +175,9 @@ def test_g_r4d_autogenerate_empty(seeded_db):
     # Also exclude `dummy`, a throwaway model that tests/unit/test_slug.py
     # registers on the shared Base.metadata — it is never migrated and would show
     # as phantom drift when the full suite runs before this test.
-    _unmanaged = {"audit_log_archive", "ai_conversations_archive", "dummy"}
+    # And `waitlist`, which IS on Base.metadata but is owned by the separate
+    # alembic_landing/ tree (SPEC-001 D1/D3) — this tree never migrates it.
+    _unmanaged = {"audit_log_archive", "ai_conversations_archive", "dummy", "waitlist"}
 
     def include_object(obj, name, type_, reflected, compare_to):
         if type_ == "table" and name in _unmanaged:

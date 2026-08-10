@@ -19,7 +19,15 @@ target_metadata = Base.metadata
 # Tables created/managed outside the ORM metadata (raw-SQL migrations only, not
 # registered on Base.metadata). Autogenerate must not propose dropping them, or
 # every future diff would be dirtied by phantom drop_table ops.
-_UNMANAGED_TABLES = {"audit_log_archive", "ai_conversations_archive"}
+#
+# `waitlist` is here for a different reason than the two archives: it IS on
+# Base.metadata, but it is owned by the separate `alembic_landing/` tree (SPEC-001
+# D1/D3 — the landing app is standalone with a one-table database). Without this
+# entry, autogenerate on THIS tree would propose create_table('waitlist') on every
+# future diff, dirtying the single-user product's migrations and breaking the
+# empty-autogenerate gate. The exclusion is symmetric: alembic_landing/env.py
+# likewise scopes its metadata to `waitlist` alone.
+_UNMANAGED_TABLES = {"audit_log_archive", "ai_conversations_archive", "waitlist"}
 
 
 def include_object(obj, name, type_, reflected, compare_to):

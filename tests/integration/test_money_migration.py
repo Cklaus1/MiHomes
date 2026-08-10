@@ -9,13 +9,13 @@ round-trip is proven, and re-checks the autogenerate oracle stays empty.
 import sqlite3
 
 import pytest
-from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from sqlalchemy import create_engine
 
-from mihomes.models import Base
 import mihomes.models  # noqa: F401
+from alembic import command
+from mihomes.models import Base
 from tests.integration.test_migration_reconciliation import _cfg
 
 MONEY_REV = "b3f5c1d9a72e"
@@ -88,7 +88,9 @@ def test_autogenerate_empty_after_money(db_before_money):
     """G-R4d oracle: models and schema agree after the money migration."""
     command.upgrade(db_before_money["cfg"], "head")
     engine = create_engine(db_before_money["url"])
-    _unmanaged = {"audit_log_archive", "ai_conversations_archive", "dummy"}
+    # `waitlist` is on Base.metadata but owned by the separate alembic_landing/
+    # tree (SPEC-001 D1/D3); this tree never migrates it. Same rationale as `dummy`.
+    _unmanaged = {"audit_log_archive", "ai_conversations_archive", "dummy", "waitlist"}
 
     def include_object(obj, name, type_, reflected, compare_to):
         if type_ == "table" and name in _unmanaged:

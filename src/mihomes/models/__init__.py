@@ -60,5 +60,10 @@ from mihomes.models.task import Task, TaskSchedule  # noqa: E402, F401
 from mihomes.models.template import Template, TemplateItem  # noqa: E402, F401
 from mihomes.models.vendor import Vendor  # noqa: E402, F401
 from mihomes.models.vendor_rating import VendorRating  # noqa: E402, F401
+
+# GLOBAL table, Phase 0 only (SPEC-001 D4) — owned by the alembic_landing/ tree, not
+# alembic/. It is listed in alembic/env.py's _UNMANAGED_TABLES so the single-user
+# product's autogenerate ignores a table it does not own.
+from mihomes.models.waitlist import Waitlist  # noqa: E402, F401
 from mihomes.models.work_order import WorkOrder  # noqa: E402, F401
 from mihomes.models.zone import Zone  # noqa: E402, F401

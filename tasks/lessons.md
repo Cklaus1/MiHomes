@@ -86,6 +86,16 @@ Review this at the start of each session.
   branch never had is a modify/delete conflict on replay even though the three-way merge is
   clean. Predicting "no conflicts" from `merge-tree` and then cherry-picking is how you get
   surprised — check which files the *earliest* commit touches against the target.
+- **A tight loop does not advance the clock — time-ordering assertions over one need care.**
+  The obvious UUIDv7 test, `sorted(ids, key=lambda u: u.bytes) == ids` over 1000 generated ids,
+  **passes by luck**. Measured: all 1000 calls complete inside 1 millisecond (2 distinct
+  timestamps, 998 adjacent pairs sharing one), and RFC 9562 orders v7 solely by its 48-bit
+  unix_ts_ms prefix — with no monotonic counter the remaining 74 bits are random, so
+  intra-millisecond order is *unspecified*. The assertion is a coin flip that would flake in CI
+  indefinitely. Assert the guarantee that exists: one id per distinct millisecond sorts in
+  creation order, plus an explicitly sleep-separated pair to prove the ordering comes from the
+  clock. Generalizes past UUIDs — any test asserting time-ordering over rapidly-generated values
+  must force a real time gap rather than assume iteration takes time.
 - **On Postgres, "the first error was at revision 28" does not mean 27 revisions passed.**
   Postgres has transactional DDL, so a failed `alembic upgrade head` rolls back the *entire*
   chain — verified: 0 tables created, no `alembic_version` table, after a failure 28 revisions

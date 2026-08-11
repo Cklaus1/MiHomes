@@ -152,6 +152,87 @@
   alternative. **Worth folding back into SPEC-001 §3 by its author.**
   (surfaced 2026-08-06, decided with the founder)
 
+## SPEC-002 pre-flight findings (2026-08-10) — five defects, two blocking
+
+> Found by the conventions §3.1 re-verification gate before authoring
+> `build-loop-spec002.md`. All verified against HEAD `714fa1a`, not inferred. Same class as
+> SPEC-001 §3's manifest defect: **for the spec author to fold back into SPEC-002.**
+
+- [BUG][SPEC-002 A22 + Steps 10, 17 — BLOCKING, NO TARGET] `services/ai/tools.py` contains
+  **zero** `text(` calls (`grep -c "text(" src/mihomes/services/ai/tools.py` → 0). The hardening
+  pass `9d6e02c` rewrote all three onto the ORM. Consequences: **A22**
+  (`test_isolation.py::test_ai_tools_raw_sql_scoped`) cannot be written as specified; **Step 17**'s
+  *"Must exercise the three `ai/tools.py` call sites by name"* is unsatisfiable; **Step 10**'s
+  *"rewrite the three in `ai/tools.py`"* is already done. The tenancy concern **moved, it did not
+  vanish** — `services/archive.py:45,61` still interpolates table names into `text()`, and
+  `backup.py:203` runs `PRAGMA foreign_key_check`. **Fix:** retarget A22 and Step 10 at
+  `archive.py`. A harness reading the spec literally would fabricate a test or stall.
+
+- [BUG][SPEC-002 §4.3 + A1/A21 — BLOCKING, SILENT TENANCY HOLE] `staff_properties` and
+  `vendor_properties` are Core `Table(...)` objects (`models/staff.py:10`, `models/vendor.py:11`),
+  not declarative classes. Measured: **38 metadata tables but only 36 mapped classes.** Therefore
+  (a) `TenantOwned` is a `@declared_attr` mixin and **cannot** apply to them, so no `account_id`;
+  (b) §4.3 derives `TENANT_TABLES` from `TenantOwned.__subclasses__()`, so **no RLS policy is
+  generated**; (c) A1 and A21 iterate that same registry, so **neither ever tests them**. That is a
+  cross-tenant read/write surface with no application filter and no RLS backstop **while A21 — "the
+  phase's definition of done" — reports green.** Precisely the failure A21 exists to prevent.
+  **Fix:** the registry must enumerate Core association tables explicitly, not rely on
+  `__subclasses__()`.
+
+- [BUG][SPEC-002 Step 10 / A13 — VERIFY CLAUSE UNSATISFIABLE] Step 10's *"`grep -rn 'text(f"'
+  src/` returns nothing"* can never go green: two of the four current hits are substring collisions
+  on `*_text(f"` — `ai/orchestrator.py:290` (`SESSION_FILE.write_text(f"…")`) and
+  `web/routes/ai.py:505` (`save_document_text(f"…")`). **Fix:** A13 needs a word-boundary or AST
+  check, not this grep.
+
+- [BUG][SPEC-002 §6 — UNNAMED WORK] **37 tables have integer PKs; only `waitlist` has UUID.** D2
+  locks UUIDv7 app-side via `mihomes.ids.new_id()`. There is no in-place conversion step because
+  there is no in-place conversion — Step 6 creates fresh UUID-native tables and Step 16 imports
+  across with an int→UUIDv7 remap. Coherent, **but the 37 models' PK columns still have to change
+  and no §6 step says so.** Also: Step 6 defers to "§5.4" and D9 to "§5.2", **neither of which
+  exists in SPEC-002** (they are `MULTITENANCY.md` refs). **Fix:** name the model-side PK change in
+  Step 6, and correct the two dangling section refs.
+
+- [BUG][SPEC-002 — STALE COUNTS, ALL UNDERSTATING] Every count is low, so every estimate built on
+  them is optimistic:
+
+  | Spec claim | Reality at `714fa1a` | Effect |
+  |---|---|---|
+  | "the existing **33** test files pass" (Step 15, A23) | **95** | ~2.9× |
+  | "**28 of 33** use the `session` fixture" (§9, F6) | **43 of 95** | the keep-the-name argument gets *stronger* |
+  | "**36** domain tables" | **37** tenant-owned (38 − `waitlist`) | Steps 2–5, 7, A1, A21 |
+  | "**36** revisions" archived (D9, §3) | **40** | `legacy_sqlite/` |
+  | "only **one** model declares `__table_args__` … nearly greenfield" (Step 3) | **four** — `budget.py:21`, `event.py:54`, `note.py:11`, `tag.py:18` | three must be *merged with*, not replaced |
+  | F3 "`SlugMixin` … **15** models" | **16** classes (`event.py` has two) | Step 5 is 16 constraints |
+  | F4 cites `ha_entity.py:21` | **no `ha_entity` model exists** | that sub-task is a no-op |
+
+  Single head confirmed `4db594964c82`. A naive regex reports two heads because `f1e2d3c4b5a6`
+  has a tuple `down_revision` — artifact, not a branch; do not re-derive it.
+
+## Resolved during SPEC-002 pre-flight (not defects — decisions)
+
+- [DEFER][waitlist ownership] SPEC-002 mentions `alembic_landing`, `version_locations` and
+  `_UNMANAGED_TABLES` **zero times**; `waitlist` appears once, in D3's global-table list. Decided
+  with the founder 2026-08-10: **`0001_pg_baseline` covers the 37 tenant/identity tables and omits
+  `waitlist`; `alembic_landing/` keeps owning it.** Preserves D1 (*"shares the stack and nothing
+  else"*) and D3 (*"`waitlist` table only"*). Worth folding into SPEC-002 §3 by its author.
+
+- [OPT] `alembic_landing/env.py` + `src/mihomes/landing_migrations.py` — the landing tree now sets
+  an explicit `version_table = "alembic_version_landing"`. Both trees previously defaulted to
+  `alembic_version`: harmless while the landing app has its own database, a hard collision if they
+  ever share one. Ours, not the spec's. (surfaced during SPEC-002 pre-flight)
+
+- [OPT] **`ruff check .` reports 565 findings across the pre-existing tree** — 175
+  unsorted-imports, 168 raise-without-from, 149 unused-import, and the rest. **None are in
+  SPEC-001/002 code** (verified: the 37 spec-introduced files pass clean). The
+  `.pre-commit-config.yaml` hook only ever linted *staged* files, so the older tree was never
+  checked whole. Two findings are false alarms rather than debt: `custom_components/` is a Home
+  Assistant component running on HA's interpreter, so its `type` alias is flagged against the wrong
+  target version; and the two `F821`s are string forward-references whose import lives inside the
+  function. **CI therefore lints only spec-introduced files** (`git diff` against the merge-base,
+  self-maintaining). Cleaning the 565 is a real task, worth doing on its own branch where the diff
+  is legible. (surfaced while adding CI during SPEC-002 pre-flight)
+
 ## Spec defects found while authoring the harnesses
 
 - [BUG][SPEC-002 §9 — STALE REF] `docs/specs/SPEC-002-phase1-multitenant-foundation.md` §9 and

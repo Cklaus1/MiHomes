@@ -179,13 +179,20 @@ partial account.
 through SPEC-005 were written against `telegram-bot`; only SPEC-006 and SPEC-008 carry
 `**Verified against:** origin/main @ be8d398`. Measured:
 
-| Claim | Source | On `telegram-bot` | On `origin/main` |
-|---|---|---|---|
-| "the existing 33 test files pass" | SPEC-002 §9, Step 15 | 33 ✓ | **82** |
-| "the 780+ existing tests depend on it" | SPEC-001 §9 | ~780 ✓ | **1080** |
+| Claim | Source | On `telegram-bot` | On `origin/main` | After SPEC-001 |
+|---|---|---|---|---|
+| "the existing 33 test files pass" | SPEC-002 §9, Step 15 | 33 ✓ | 82 | **95** |
+| "28 of 33 use the `session` fixture" | SPEC-002 §9 | 28 ✓ | — | **43 of 95** |
+| "the 780+ existing tests depend on it" | SPEC-001 §9 | ~780 ✓ | **1080** | 1233 |
+| "36 domain tables" | SPEC-002 Steps 2–5 | 36 ✓ | 36 | **37** tenant-owned |
+| "36 revisions" archived | SPEC-002 D9, §3 | — | **40** | 40 |
 
-A harness targeting main could mark SPEC-002 Step 15 done **with 49 other test files broken**.
+A harness targeting main could mark SPEC-002 Step 15 done **with 62 other test files broken**.
 That is the stub-passes-the-gate failure mode, introduced by the spec itself.
+
+**The gate compounds across specs.** These counts drift every time a spec lands, so each run
+re-measures rather than trusting the previous run's numbers: SPEC-001 added 13 test files, which
+alone moved Step 15's scope from 82 to 95. Re-verify against **HEAD**, not against `origin/main`.
 
 **So before any step of a spec runs:** re-check that spec's counts, file paths, and line-number
 citations against the target ref. On mismatch, **halt** and record the corrected value — do not
@@ -356,14 +363,39 @@ is not generalized into a rule that blocks SPEC-002.
 
 ---
 
-## 7. Environment gaps this harness cannot close
+## 7. Environment
 
-**There is no CI.** No `.github/`, no `Makefile`; `pytest -q` is run by hand. Several criteria
-assume a runner exists — SPEC-002 A23 (*"full suite green in CI"*) and Step 17 (*"Runs against
-Postgres with RLS, on every PR"*).
+### CI exists as of the SPEC-002 pre-flight (2026-08-10)
 
-**How the harness handles it:** gates run **locally**, and the loop records honestly that
-per-PR enforcement is unproven. Any criterion whose wording requires CI is logged in
-`opportunities.md` as a blocking prerequisite rather than marked green off a local run. Local
-green is a real result; per-PR enforcement is a different claim, and the report must not conflate
-them.
+**Previously there was none**, and the SPEC-001 pilot ran every gate locally while recording that
+per-PR enforcement was unproven — acceptable there because no SPEC-001 criterion depended on a
+runner.
+
+SPEC-002 changed that. **A21 is "the phase's definition of done"**, Step 17 requires it *"on every
+PR"*, and A23's gate is literally *"full suite green in CI"*. Six later specs inherit the
+tenant-isolation invariant those describe, so proving it once on one machine is not enough.
+`.github/workflows/test.yml` now runs on push and pull_request with:
+
+- a **`postgres:18` service** with a `pg_isready` health gate — matching the dev machine's 18.4, so
+  a green local run and a green CI run mean the same thing. SPEC-002 §9: *"the isolation test
+  cannot run on SQLite: the raw-SQL cases are defended by RLS alone."*
+- **Python 3.11 and 3.12.** 3.11 is not redundant — it is the declared floor, and
+  `mihomes.ids.new_id()` takes a *different code path* below 3.14. SPEC-001 A2 exists for that.
+- `DATABASE_URL`, `MIGRATION_DATABASE_URL` and `TEST_DATABASE_URL` set separately, per SPEC-002
+  §10's deliberate split: the app must not connect as the owner (N5), but Alembic must.
+- **A skip-detection step.** `TEST_DATABASE_URL` is set, so the Postgres-dependent tests must
+  *run*. A skipped test still exits 0 (§0), which would let CI report green while the criteria that
+  prove tenant isolation never executed — the exact false success the workflow was added to
+  prevent.
+
+**Lint is scoped to spec-introduced files**, selected by `git diff` against the merge-base so it
+stays self-maintaining. `ruff check .` reports **565 findings across the pre-existing tree** and
+**none in SPEC-001/002 code** — the pre-commit hook only ever linted *staged* files, so the older
+tree was never checked whole. Cleaning that is a real task on its own branch, logged in
+`opportunities.md`; burying it in the tenancy diff would make both unreviewable.
+
+### What the harness still cannot close
+
+Nothing in the runner proves *production* behaviour. Deploy-time prerequisites (Fly, DNS, a
+verified Resend domain) remain human actions, reported as unmet launch gates rather than silently
+assumed — see §3.2 and §3.3.

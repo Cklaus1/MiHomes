@@ -16,6 +16,7 @@ from logging.config import fileConfig
 from sqlalchemy import MetaData, create_engine, pool
 
 from alembic import context
+from mihomes.landing_migrations import VERSION_TABLE
 from mihomes.models.waitlist import Waitlist
 
 config = context.config
@@ -60,12 +61,18 @@ def get_url() -> str:
     return url
 
 
+# VERSION_TABLE is imported above and defined in mihomes.landing_migrations: an
+# EXPLICIT name, distinct from the main tree's default `alembic_version`, so the two
+# independent trees can never contend over one version row. See that module for why.
+
+
 def run_migrations_offline() -> None:
     context.configure(
         url=get_url(),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        version_table=VERSION_TABLE,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -74,7 +81,11 @@ def run_migrations_offline() -> None:
 def run_migrations_online() -> None:
     connectable = create_engine(get_url(), poolclass=pool.NullPool)
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            version_table=VERSION_TABLE,
+        )
         with context.begin_transaction():
             context.run_migrations()
 

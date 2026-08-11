@@ -1,0 +1,133 @@
+# CI for MiHomes — pre-flight for SPEC-002, not a SPEC-002 step.
+#
+# **Why this exists.** SPEC-002's A21 is "the phase's definition of done" and Step 17
+# says the isolation test "runs against Postgres with RLS, on every PR". A23's gate
+# is literally "full suite green in CI". There was no CI, so those three were
+# satisfiable only as "proven once on one developer's machine" — and six later specs
+# inherit the tenant-isolation invariant they describe.
+#
+# A Postgres service container is required, not optional: SPEC-002 §9 states "the
+# isolation test cannot run on SQLite: the raw-SQL cases are defended by RLS alone."
+
+name: tests
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+concurrency:
+  # A newer push supersedes an in-flight run on the same ref.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.11 is the declared floor (pyproject requires-python) and is NOT
+        # redundant: mihomes.ids.new_id() falls back to a hand-rolled UUIDv7 below
+        # 3.14, so the floor exercises a different code path than the ceiling.
+        # SPEC-001 A2 exists for exactly this.
+        python-version: ["3.11", "3.12"]
+
+    services:
+      postgres:
+        # Match the developer environment (PostgreSQL 18.4) so a green local run
+        # and a green CI run mean the same thing.
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mihomes_test
+        ports:
+          - 5432:5432
+        # Without a health gate the first test can beat the server to readiness and
+        # fail as a connection error rather than a real failure.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # SPEC-002 §10 keeps these distinct on purpose: the app must NOT connect as
+      # the owner (N5), but Alembic must, because migrations legitimately bypass
+      # RLS. In CI both point at the superuser; the SPLIT is what production needs,
+      # and the isolation tests create the non-owner `app` role themselves.
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/mihomes_test
+      MIGRATION_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/mihomes_test
+      TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/mihomes_test
+      # ConsoleProvider sends nothing. A real key here would mail strangers from CI.
+      EMAIL_PROVIDER: console
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: the lint step needs `git merge-base origin/main HEAD` to
+          # find the spec-introduced files. The default depth-1 clone has no
+          # merge-base, so the step would silently fall back to a narrower file set
+          # and report green while linting almost nothing.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      # Scoped deliberately, and this is NOT a way of hiding failures.
+      #
+      # `ruff check .` reports 565 findings across the pre-existing tree (175
+      # unsorted-imports, 168 raise-without-from, 149 unused-import, …). None are in
+      # SPEC-001/002 code — the .pre-commit-config hook only ever linted *staged*
+      # files, so the older tree was never checked as a whole. Two of the findings
+      # are false alarms rather than debt: `custom_components/` is a Home Assistant
+      # component that runs on HA's interpreter, not this project's 3.11 floor, so
+      # its `type` alias is flagged against the wrong target version; and the F821s
+      # are string forward-references whose import lives inside the function.
+      #
+      # Cleaning 565 findings is a large change no spec asked for, and doing it here
+      # would bury the tenancy work in unrelated diff. So CI lints what the specs
+      # own and the backlog is logged in opportunities.md as its own task.
+      # Lints only files the specs introduced. `git diff --name-only` against the
+      # merge-base keeps it self-maintaining: SPEC-002's new files are covered the
+      # moment they land, without editing this workflow.
+      - name: Lint (spec-introduced files only)
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          # Fail loudly rather than falling back to a narrower set: a lint step that
+          # quietly checks fewer files than intended reports green for the wrong
+          # reason, which is worse than a red build.
+          base=$(git merge-base origin/main HEAD)
+          echo "merge-base: $base"
+          files=$(git diff --name-only --diff-filter=ACMR "$base" HEAD -- '*.py')
+          if [ -z "$files" ]; then echo "no spec-introduced .py files changed"; exit 0; fi
+          echo "$files"
+          echo "$files" | xargs ruff check
+
+      - name: Test
+        # -q matches how the gates are run locally, so the numbers are comparable.
+        # No -x: a single failure should not hide the rest of the suite.
+        run: pytest -q
+
+      # TEST_DATABASE_URL is set above, so the Postgres-only tests must RUN, not
+      # skip. A skipped test still exits 0 (build-loop-conventions §0), which would
+      # let CI report green while the criteria that prove tenant isolation never
+      # executed — the exact false success this workflow was added to prevent.
+      - name: Assert the Postgres-dependent tests actually ran
+        run: |
+          set -euo pipefail
+          pytest -q -rs tests/integration/ 2>&1 | tee /tmp/pg.txt
+          if grep -qE "^SKIPPED .*TEST_DATABASE_URL" /tmp/pg.txt; then
+            echo "::error::Postgres tests skipped despite TEST_DATABASE_URL being set."
+            exit 1
+          fi

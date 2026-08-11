@@ -17,6 +17,11 @@ from pathlib import Path
 import pytest
 from sqlalchemy import create_engine, inspect, text
 
+# Imported rather than hardcoded: the landing tree names its version table
+# explicitly so it can never contend with the main tree's, and a test repeating the
+# literal would drift silently if that name changed.
+from mihomes.landing_migrations import VERSION_TABLE
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
@@ -46,10 +51,12 @@ def _alembic(*args: str) -> subprocess.CompletedProcess:
 
 @pytest.fixture
 def clean_db():
-    """A schema with no waitlist table and no landing alembic_version row."""
+    """A schema with no waitlist table and no landing version row."""
     engine = create_engine(TEST_DATABASE_URL, future=True)
     with engine.begin() as conn:
         conn.execute(text("DROP TABLE IF EXISTS waitlist CASCADE"))
+        conn.execute(text(f"DROP TABLE IF EXISTS {VERSION_TABLE} CASCADE"))
+        # The main tree's table too, in case a previous run pointed it here.
         conn.execute(text("DROP TABLE IF EXISTS alembic_version CASCADE"))
     yield engine
     engine.dispose()
@@ -89,8 +96,8 @@ def test_landing_database_holds_only_the_waitlist_table(clean_db):
     assert _alembic("upgrade", "head").returncode == 0
 
     tables = set(inspect(engine).get_table_names())
-    assert tables == {"waitlist", "alembic_version"}, (
-        f"landing DB must hold exactly waitlist + alembic_version, got {sorted(tables)}"
+    assert tables == {"waitlist", VERSION_TABLE}, (
+        f"landing DB must hold exactly waitlist + {VERSION_TABLE}, got {sorted(tables)}"
     )
 
 

@@ -20,6 +20,8 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 
+from mihomes.landing_migrations import VERSION_TABLE
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 
@@ -37,6 +39,7 @@ def _schema():
     engine = create_engine(TEST_DATABASE_URL, future=True)
     with engine.begin() as conn:
         conn.execute(text("DROP TABLE IF EXISTS waitlist CASCADE"))
+        conn.execute(text(f"DROP TABLE IF EXISTS {VERSION_TABLE} CASCADE"))
         conn.execute(text("DROP TABLE IF EXISTS alembic_version CASCADE"))
     result = subprocess.run(
         [sys.executable, "-m", "alembic", "-n", "landing", "upgrade", "head"],

@@ -1,17 +1,22 @@
 """Audit log model — immutable record of all changes."""
 
+import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import JSON, DateTime, Integer, String, func
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
+from mihomes.ids import new_id
 from mihomes.models import Base, TenantOwned
 
 
 class AuditLog(Base, TenantOwned):
     __tablename__ = "audit_log"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=new_id
+    )
     timestamp: Mapped[datetime] = mapped_column(
         DateTime,
         default=lambda: datetime.now(timezone.utc),

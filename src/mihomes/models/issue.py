@@ -1,11 +1,14 @@
 """Issue model — problems discovered at properties."""
 
 import enum
+import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, DateTime, Enum, ForeignKey, String, Text
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from mihomes.ids import new_id
 from mihomes.models import Base, SlugMixin, TenantOwned, TimestampMixin
 
 
@@ -28,18 +31,24 @@ class IssueStatus(str, enum.Enum):
 class Issue(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "issues"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=new_id
+    )
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    property_id: Mapped[int] = mapped_column(Integer, ForeignKey("properties.id"), nullable=False)
-    space_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("spaces.id"), nullable=True)
+    property_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("properties.id"), nullable=False)
+    space_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("spaces.id"), nullable=True)
     severity: Mapped[IssueSeverity] = mapped_column(Enum(IssueSeverity), default=IssueSeverity.MEDIUM)
     status: Mapped[IssueStatus] = mapped_column(Enum(IssueStatus), default=IssueStatus.REPORTED)
     photos: Mapped[list | None] = mapped_column(JSON, nullable=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     resolution_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    reported_by_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("staff.id"), index=True, nullable=True)
-    resolved_by_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("staff.id"), index=True, nullable=True)
+    reported_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("staff.id"), index=True, nullable=True)
+    resolved_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("staff.id"), index=True, nullable=True)
 
     property = relationship("Property")
     space = relationship("Space")

@@ -1,11 +1,14 @@
 """Budget and Transaction models."""
 
 import enum
+import uuid
 from datetime import date
 
-from sqlalchemy import Date, Enum, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Date, Enum, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from mihomes.ids import new_id
 from mihomes.models import Base, TenantOwned, TimestampMixin
 from mihomes.type.money import Money
 
@@ -25,8 +28,11 @@ class Budget(Base, TimestampMixin, TenantOwned):
         ),
     )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    property_id: Mapped[int] = mapped_column(Integer, ForeignKey("properties.id"), index=True, nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=new_id
+    )
+    property_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("properties.id"), index=True, nullable=False)
     category: Mapped[str] = mapped_column(String(100), nullable=False)
     period: Mapped[BudgetPeriod] = mapped_column(Enum(BudgetPeriod), nullable=False)
     period_start: Mapped[date] = mapped_column(Date, nullable=False)
@@ -64,22 +70,26 @@ class Budget(Base, TimestampMixin, TenantOwned):
 class Transaction(Base, TimestampMixin, TenantOwned):
     __tablename__ = "transactions"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=new_id
+    )
     amount: Mapped[float] = mapped_column(Money, nullable=False)
     currency: Mapped[str] = mapped_column(String(10), default="USD")
-    property_id: Mapped[int] = mapped_column(Integer, ForeignKey("properties.id"), index=True, nullable=False)
-    vendor_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("vendors.id"), index=True, nullable=True)
+    property_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("properties.id"), index=True, nullable=False)
+    vendor_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("vendors.id"), index=True, nullable=True)
     category: Mapped[str] = mapped_column(String(100), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     date: Mapped[date] = mapped_column(Date, nullable=False)
     source: Mapped[str] = mapped_column(String(50), default="manual")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     vendor_name: Mapped[str | None] = mapped_column(String(300), nullable=True)
-    work_order_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("work_orders.id", ondelete="SET NULL"), index=True, nullable=True
+    work_order_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("work_orders.id", ondelete="SET NULL"), index=True, nullable=True
     )
-    appointment_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("appointments.id", ondelete="SET NULL"), index=True, nullable=True
+    appointment_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("appointments.id", ondelete="SET NULL"), index=True, nullable=True
     )
 
     property = relationship("Property")

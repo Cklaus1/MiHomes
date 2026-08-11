@@ -1,11 +1,14 @@
 """Property and Space models."""
 
 import enum
+import uuid
 from datetime import date
 
 from sqlalchemy import Boolean, Date, Enum, Float, Integer, String, Text
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from mihomes.ids import new_id
 from mihomes.models import Base, SlugMixin, TenantOwned, TimestampMixin
 
 
@@ -29,7 +32,9 @@ class PropertyStatus(str, enum.Enum):
 class Property(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "properties"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=new_id
+    )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
     property_type: Mapped[PropertyType] = mapped_column(

@@ -1,11 +1,14 @@
 """Consumable inventory model — tracks stock levels and reorder needs."""
 
 import enum
+import uuid
 from datetime import date, datetime, timezone
 
-from sqlalchemy import Date, DateTime, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Date, DateTime, Enum, Float, ForeignKey, String, Text
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from mihomes.ids import new_id
 from mihomes.models import Base, SlugMixin, TenantOwned, TimestampMixin
 from mihomes.type.money import Money
 
@@ -20,9 +23,12 @@ class ConsumableStatus(str, enum.Enum):
 class Consumable(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "consumables"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=new_id
+    )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
-    property_id: Mapped[int] = mapped_column(Integer, ForeignKey("properties.id"), nullable=False)
+    property_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("properties.id"), nullable=False)
     category: Mapped[str | None] = mapped_column(String(100), nullable=True)
     unit: Mapped[str | None] = mapped_column(String(50), nullable=True)
     quantity_in_stock: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -46,8 +52,11 @@ class Consumable(Base, TimestampMixin, SlugMixin, TenantOwned):
 class ConsumablePriceEntry(Base, TenantOwned):
     __tablename__ = "consumable_price_entries"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    consumable_id: Mapped[int] = mapped_column(Integer, ForeignKey("consumables.id"), nullable=False, index=True)
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=new_id
+    )
+    consumable_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("consumables.id"), nullable=False, index=True)
     date: Mapped[date] = mapped_column(Date, nullable=False)
     price: Mapped[float] = mapped_column(Money, nullable=False)
     quantity: Mapped[float] = mapped_column(Float, default=1.0)

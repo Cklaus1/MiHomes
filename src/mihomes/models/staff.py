@@ -1,11 +1,13 @@
 """Staff model — household employees."""
 
 import enum
+import uuid
 
-from sqlalchemy import Boolean, Column, Enum, ForeignKey, Integer, String, Table, Text
+from sqlalchemy import Boolean, Column, Enum, ForeignKey, String, Table, Text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from mihomes.ids import new_id
 from mihomes.models import Base, SlugMixin, TenantOwned, TimestampMixin
 
 # A Core Table, so `account_id` is declared BY HAND: TenantOwned is a
@@ -19,8 +21,8 @@ from mihomes.models import Base, SlugMixin, TenantOwned, TimestampMixin
 staff_property_association = Table(
     "staff_properties",
     Base.metadata,
-    Column("staff_id", Integer, ForeignKey("staff.id"), primary_key=True),
-    Column("property_id", Integer, ForeignKey("properties.id"), primary_key=True),
+    Column("staff_id", PGUUID(as_uuid=True), ForeignKey("staff.id"), primary_key=True),
+    Column("property_id", PGUUID(as_uuid=True), ForeignKey("properties.id"), primary_key=True),
     Column(
         "account_id",
         PGUUID(as_uuid=True),
@@ -73,7 +75,9 @@ def is_staff_role(role: StaffRole) -> bool:
 class Staff(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "staff"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=new_id
+    )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     role: Mapped[StaffRole] = mapped_column(Enum(StaffRole), default=StaffRole.OTHER)
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)

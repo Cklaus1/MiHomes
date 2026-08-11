@@ -1,11 +1,14 @@
 """Event, Guest, and EventGuest models — event and hospitality management."""
 
 import enum
+import uuid
 from datetime import date
 
 from sqlalchemy import Date, Enum, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from mihomes.ids import new_id
 from mihomes.models import Base, SlugMixin, TenantOwned, TimestampMixin
 from mihomes.type.money import Money
 
@@ -21,9 +24,12 @@ class EventStatus(str, enum.Enum):
 class Event(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "events"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=new_id
+    )
     title: Mapped[str] = mapped_column(String(300), nullable=False)
-    property_id: Mapped[int] = mapped_column(Integer, ForeignKey("properties.id"), nullable=False)
+    property_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("properties.id"), nullable=False)
     event_date: Mapped[date] = mapped_column(Date, nullable=False)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     expected_guests: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -40,7 +46,9 @@ class Event(Base, TimestampMixin, SlugMixin, TenantOwned):
 class Guest(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "guests"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=new_id
+    )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     email: Mapped[str | None] = mapped_column(String(200), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
@@ -55,9 +63,13 @@ class EventGuest(Base, TimestampMixin, TenantOwned):
         UniqueConstraint("event_id", "guest_id", name="uq_event_guest"),
     )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    event_id: Mapped[int] = mapped_column(Integer, ForeignKey("events.id"), nullable=False)
-    guest_id: Mapped[int] = mapped_column(Integer, ForeignKey("guests.id"), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=new_id
+    )
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("events.id"), nullable=False)
+    guest_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("guests.id"), nullable=False)
     rsvp_status: Mapped[str] = mapped_column(String(50), default="invited")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 

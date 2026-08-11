@@ -1,9 +1,12 @@
 """Vendor model — contractors and service providers."""
 
-from sqlalchemy import JSON, Boolean, Column, ForeignKey, Integer, String, Table, Text
+import uuid
+
+from sqlalchemy import JSON, Boolean, Column, ForeignKey, String, Table, Text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from mihomes.ids import new_id
 from mihomes.models import Base, SlugMixin, TenantOwned, TimestampMixin
 
 # M14: vendor ↔ property is a many-to-many link, mirroring staff_properties.
@@ -16,8 +19,8 @@ from mihomes.models import Base, SlugMixin, TenantOwned, TimestampMixin
 vendor_property_association = Table(
     "vendor_properties",
     Base.metadata,
-    Column("vendor_id", Integer, ForeignKey("vendors.id"), primary_key=True),
-    Column("property_id", Integer, ForeignKey("properties.id"), primary_key=True),
+    Column("vendor_id", PGUUID(as_uuid=True), ForeignKey("vendors.id"), primary_key=True),
+    Column("property_id", PGUUID(as_uuid=True), ForeignKey("properties.id"), primary_key=True),
     Column(
         "account_id",
         PGUUID(as_uuid=True),
@@ -31,7 +34,9 @@ vendor_property_association = Table(
 class Vendor(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "vendors"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=new_id
+    )
     company_name: Mapped[str] = mapped_column(String(200), nullable=False)
     contact_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)

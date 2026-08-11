@@ -165,6 +165,15 @@ def test_g_r4a_round_trip(seeded_db):
     command.upgrade(seeded_db["cfg"], RECONCILE)  # forward again, must not raise
 
 
+@pytest.mark.skip(
+    reason="SPEC-002 Step 6 replaces this tree. This oracle asserts the SQLite schema "
+    "matches Base.metadata, which G2-G6 deliberately break across 37 tables "
+    "(TenantOwned's account_id, per-account UNIQUE constraints, composite indexes and "
+    "FKs, UUID PKs). Maintaining an exclusion list for a tree that 0001_pg_baseline "
+    "archives to alembic/legacy_sqlite/ would grow with every group. G6.3 deletes this "
+    "test with the revisions it checks. Expected-skip, declared in "
+    "build-loop-spec002.md §0.1."
+)
 def test_g_r4d_autogenerate_empty(seeded_db):
     """G-R4d: after head, autogenerate produces an EMPTY diff (models==schema)."""
     command.upgrade(seeded_db["cfg"], "head")

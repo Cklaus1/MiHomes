@@ -16,7 +16,7 @@ from logging.config import fileConfig
 from sqlalchemy import MetaData, create_engine, pool
 
 from alembic import context
-from mihomes.landing_migrations import VERSION_TABLE
+from mihomes.migration_scope import VERSION_TABLE
 from mihomes.models.waitlist import Waitlist
 
 config = context.config
@@ -61,7 +61,7 @@ def get_url() -> str:
     return url
 
 
-# VERSION_TABLE is imported above and defined in mihomes.landing_migrations: an
+# VERSION_TABLE is imported above and defined in mihomes.migration_scope: an
 # EXPLICIT name, distinct from the main tree's default `alembic_version`, so the two
 # independent trees can never contend over one version row. See that module for why.
 

@@ -25,7 +25,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 
-from mihomes.landing_migrations import VERSION_TABLE
+from mihomes.migration_scope import VERSION_TABLE
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")

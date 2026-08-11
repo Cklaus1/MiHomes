@@ -25,7 +25,7 @@ of what else works."*
 | P1 | Reachable Postgres, `TEST_DATABASE_URL` set | ✅ PostgreSQL **18.4**, trust auth on localhost |
 | P2 | `psycopg[binary]` installed | ✅ 3.3.4 |
 | P3 | CI with a Postgres service | ✅ **added in pre-flight `502d97a`** — A21/A23/Step 17 are now satisfiable as written |
-| P4 | `boto3` for the S3 storage backend (Step 11) | ❌ **install before G11** (§3 lists it) |
+| P4 | `boto3` for the S3 storage backend (Step 11) | ✅ **1.43.69** installed at run start (§3 lists it) |
 
 Check P1 through Python, not `psql` — `psql` is not on PATH here (see conventions §3.2).
 
@@ -85,6 +85,36 @@ failures, or CI sees any, it is real.**
 **Invoke pytest as `py -m pytest`**, never `python` (Store shim). Pass DB env inline — the worktree
 guard rejects `export` chains.
 
+### Two expected skips, declared by name
+
+Conventions §0 says **a skipped test is a red gate**, so any skip has to be declared here or the
+F.2 walk should flag it. Exactly two are expected for the duration of this spec:
+
+```
+tests/integration/test_migration_reconciliation.py::test_g_r4d_autogenerate_empty
+tests/integration/test_money_migration.py::test_autogenerate_empty_after_money
+```
+
+Both assert *"the SQLite schema matches `Base.metadata`"* — a premise **G2–G6 deliberately break**
+across 37 tables: `TenantOwned`'s `account_id`, per-account `UNIQUE` constraints replacing global
+ones, composite indexes, composite FKs, UUID PKs. Every group from here would trip them, so
+maintaining an exclusion list for a tree that `0001_pg_baseline` archives to
+`alembic/legacy_sqlite/` means growing that list for eleven groups and then deleting it.
+
+**G6.3 owns deleting both tests** along with the revisions they check. Until then they are skipped
+with a reason naming Step 6.
+
+**This is a carve-out for two named nodes, not a relaxation.** No other skip is acceptable — in
+particular a Postgres fixture skipping because `TEST_DATABASE_URL` is unset is still red, which is
+the case the rule exists for. The behaviour these two files cover is not lost:
+`test_money_cast_preserves_values` and `test_money_round_trip` assert the money cast's *values*
+rather than its schema shape and stay green, as do the four G-R4 gate tests either side of them.
+
+> **Note the `alembic/env.py` exclusion is different and stays.** `IDENTITY_TABLES` is excluded
+> there so `alembic revision --autogenerate` does not propose creating six tables in the SQLite
+> tree — and G6 needs autogenerate *working* to build the baseline. That exclusion retires with the
+> tree too, but it is load-bearing until then.
+
 ---
 
 ## 0.2 Pre-flight re-verification — five spec claims are stale, two blocking
@@ -133,10 +163,10 @@ Single head is `4db594964c82`. A naive regex reports two because `f1e2d3c4b5a6` 
 Seventeen groups, one per §6 step (the spec: *"Each step is independently verifiable and
 separately committable"*), plus G-Final.
 
-### [ ] G1 — identity models — *no deps*
+### [x] G1 — identity models — *no deps* — *16 tests; A2 green; metadata 38 -> 44 tables*
 
-- [ ] G1.1 · §6 Step 1 · — · `models/account.py`, `user.py` (**GLOBAL**), `membership.py`, `invite.py`, `session.py` (**GLOBAL**), `membership_property_scope` per §4.2 · verify: models import
-- [ ] G1.2 · §6 Step 1 · A2 · the **one-active-owner partial index** — `Index(..., unique=True, postgresql_where=text("role = 'owner' AND status = 'active'"))` (D4) · verify: `tests/unit/test_membership.py::test_one_owner_partial_index`
+- [x] G1.1 · §6 Step 1 · — · `models/account.py`, `user.py` (**GLOBAL**), `membership.py`, `invite.py`, `session.py` (**GLOBAL**), `membership_property_scope` per §4.2 · verify: models import
+- [x] G1.2 · §6 Step 1 · A2 · the **one-active-owner partial index** — `Index(..., unique=True, postgresql_where=text("role = 'owner' AND status = 'active'"))` (D4) · verify: `tests/unit/test_membership.py::test_one_owner_partial_index`
 
 > `User` and `Session` are **global** — no `account_id`, no RLS. Both are read *before* account
 > context exists; a tenant policy on `sessions` returns zero rows and **locks every user out**.
@@ -188,6 +218,14 @@ separately committable"*), plus G-Final.
 ### [ ] G6 — `0001_pg_baseline` — *dep: G3, G4, G5*
 
 - [ ] G6.1 · §6 Step 6 · — · **convert the 37 models' PKs to UUID** — D2 locks UUIDv7 app-side via `mihomes.ids.new_id()` (shipped by SPEC-001, reused verbatim, **no DB-side default**). Measured: 37 tables still have `Integer` autoincrement PKs and **no §6 step names this** · verify: every tenant model's pk is PGUUID with an app-side default
+
+> **G6.1 is a hard prerequisite for creating any of the new tables, not just tidiness.** G1 already
+> introduced the mismatch: `membership_property_scopes.property_id` is `PGUUID` with a
+> `ForeignKey("properties.id")`, while `properties.id` is still `Integer`. Metadata tolerates that
+> — measured — but `CREATE TABLE` does not. So the identity tables cannot be created against a
+> real database until this conversion lands, which is why G6 depends on G3/G4/G5 rather than
+> running early. The mismatch is intentional and recorded rather than worked around: writing the
+> new models with integer FKs would mean converting them again in G6.
 - [ ] G6.2 · §6 Step 6 · — · the squashed baseline: identity + 37 domain + the 5 new, Postgres-native · verify: `upgrade` then `downgrade` clean on an empty Postgres
 - [ ] G6.3 · §6 Step 6 · — · archive the **40** old revisions (not 36) to `alembic/legacy_sqlite/` — reference only, never run · verify: `alembic/versions/` contains only the new baseline; `alembic heads` reports one head
 - [ ] G6.4 · §6 Step 6 · — · **`waitlist` is NOT in the baseline** · verify: a fresh main-tree upgrade creates **37 + identity + 5** tables and no `waitlist`

@@ -84,6 +84,13 @@ def test_money_round_trip(db_before_money):
     assert _raw(path, "SELECT budget FROM events WHERE slug='gala'") is None
 
 
+@pytest.mark.skip(
+    reason="SPEC-002 Step 6 replaces this tree — see the twin skip in "
+    "test_migration_reconciliation.py. The money cast itself is still verified by "
+    "test_money_cast_preserves_values and test_money_round_trip, which assert "
+    "behaviour rather than schema shape and remain green. Expected-skip, declared in "
+    "build-loop-spec002.md §0.1; G6.3 deletes it."
+)
 def test_autogenerate_empty_after_money(db_before_money):
     """G-R4d oracle: models and schema agree after the money migration."""
     command.upgrade(db_before_money["cfg"], "head")

@@ -20,7 +20,7 @@ from sqlalchemy import create_engine, inspect, text
 # Imported rather than hardcoded: the landing tree names its version table
 # explicitly so it can never contend with the main tree's, and a test repeating the
 # literal would drift silently if that name changed.
-from mihomes.landing_migrations import VERSION_TABLE
+from mihomes.migration_scope import VERSION_TABLE
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 

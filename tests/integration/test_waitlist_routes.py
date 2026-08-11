@@ -28,7 +28,14 @@ from sqlalchemy import create_engine, text
 from mihomes.migration_scope import VERSION_TABLE
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
+# The landing app has its OWN database (SPEC-001 D1/D3: "shares the stack and
+# nothing else", one table). SPEC-002's conftest also reads TEST_DATABASE_URL and
+# runs create_all() over 44 tenant tables — pointed at one database, that breaks
+# this module's "exactly {waitlist, alembic_version_landing}" assertion. Prefer a
+# dedicated URL; fall back so a single-database setup still works.
+TEST_DATABASE_URL = os.environ.get("LANDING_TEST_DATABASE_URL") or os.environ.get(
+    "TEST_DATABASE_URL"
+)
 
 pytestmark = pytest.mark.skipif(
     not TEST_DATABASE_URL,

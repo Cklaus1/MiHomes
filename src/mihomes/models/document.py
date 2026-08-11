@@ -6,7 +6,7 @@ from datetime import date
 from sqlalchemy import Date, Enum, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from mihomes.models import Base, SlugMixin, TimestampMixin
+from mihomes.models import Base, SlugMixin, TenantOwned, TimestampMixin
 
 
 class DocumentType(str, enum.Enum):
@@ -23,7 +23,7 @@ class DocumentType(str, enum.Enum):
     OTHER = "other"
 
 
-class Document(Base, TimestampMixin, SlugMixin):
+class Document(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "documents"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

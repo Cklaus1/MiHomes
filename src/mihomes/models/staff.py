@@ -3,15 +3,31 @@
 import enum
 
 from sqlalchemy import Boolean, Column, Enum, ForeignKey, Integer, String, Table, Text
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from mihomes.models import Base, SlugMixin, TimestampMixin
+from mihomes.models import Base, SlugMixin, TenantOwned, TimestampMixin
 
+# A Core Table, so `account_id` is declared BY HAND: TenantOwned is a
+# @declared_attr mixin and cannot reach a table with no declarative class. Without
+# this column the table would get no RLS policy (§4.3 derives its list from the
+# mixin's subclasses) and no coverage from A1 or A21 — a readable and writable
+# cross-tenant surface while A21, "the phase's definition of done", reported green.
+#
+# It is registered explicitly in mihomes.tenancy.registry.TENANT_TABLES for the same
+# reason. See that module's docstring.
 staff_property_association = Table(
     "staff_properties",
     Base.metadata,
     Column("staff_id", Integer, ForeignKey("staff.id"), primary_key=True),
     Column("property_id", Integer, ForeignKey("properties.id"), primary_key=True),
+    Column(
+        "account_id",
+        PGUUID(as_uuid=True),
+        ForeignKey("accounts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    ),
 )
 
 
@@ -54,7 +70,7 @@ def is_staff_role(role: StaffRole) -> bool:
     return category_for_role(role) == "Staff"
 
 
-class Staff(Base, TimestampMixin, SlugMixin):
+class Staff(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "staff"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

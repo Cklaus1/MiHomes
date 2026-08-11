@@ -6,7 +6,7 @@ from enum import Enum
 from sqlalchemy import Boolean, Date, ForeignKey, Integer, String, Text, Time
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from mihomes.models import Base, TimestampMixin
+from mihomes.models import Base, TenantOwned, TimestampMixin
 
 
 class AppointmentType(str, Enum):
@@ -17,7 +17,7 @@ class AppointmentType(str, Enum):
     OTHER = "other"
 
 
-class Appointment(Base, TimestampMixin):
+class Appointment(Base, TimestampMixin, TenantOwned):
     __tablename__ = "appointments"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

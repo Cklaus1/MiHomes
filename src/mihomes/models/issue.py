@@ -3,10 +3,10 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from mihomes.models import Base, SlugMixin, TimestampMixin
+from mihomes.models import Base, SlugMixin, TenantOwned, TimestampMixin
 
 
 class IssueSeverity(str, enum.Enum):
@@ -25,7 +25,7 @@ class IssueStatus(str, enum.Enum):
     VERIFIED = "verified"
 
 
-class Issue(Base, TimestampMixin, SlugMixin):
+class Issue(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "issues"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

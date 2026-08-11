@@ -3,10 +3,10 @@
 import enum
 from datetime import date
 
-from sqlalchemy import Date, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Date, Enum, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from mihomes.models import Base, TimestampMixin
+from mihomes.models import Base, TenantOwned, TimestampMixin
 from mihomes.type.money import Money
 
 
@@ -16,7 +16,7 @@ class BudgetPeriod(str, enum.Enum):
     ANNUAL = "annual"
 
 
-class Budget(Base, TimestampMixin):
+class Budget(Base, TimestampMixin, TenantOwned):
     __tablename__ = "budgets"
     __table_args__ = (
         UniqueConstraint(
@@ -61,7 +61,7 @@ class Budget(Base, TimestampMixin):
     property = relationship("Property")
 
 
-class Transaction(Base, TimestampMixin):
+class Transaction(Base, TimestampMixin, TenantOwned):
     __tablename__ = "transactions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

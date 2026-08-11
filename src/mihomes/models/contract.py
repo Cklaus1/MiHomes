@@ -3,10 +3,10 @@
 from datetime import date
 from enum import Enum
 
-from sqlalchemy import Boolean, Date, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Date, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from mihomes.models import Base, TimestampMixin
+from mihomes.models import Base, TenantOwned, TimestampMixin
 from mihomes.type.money import Money
 
 
@@ -28,7 +28,7 @@ _PERIODS_PER_YEAR: dict[str, float] = {
 }
 
 
-class Contract(Base, TimestampMixin):
+class Contract(Base, TimestampMixin, TenantOwned):
     __tablename__ = "contracts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

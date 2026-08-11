@@ -3,10 +3,10 @@
 import enum
 from datetime import date, datetime, timezone
 
-from sqlalchemy import Boolean, Date, DateTime, Enum, Float, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import JSON, Boolean, Date, DateTime, Enum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from mihomes.models import Base, SlugMixin, TimestampMixin
+from mihomes.models import Base, SlugMixin, TenantOwned, TimestampMixin
 from mihomes.type.money import Money
 
 
@@ -31,7 +31,7 @@ class PriceEntryType(str, enum.Enum):
     ESTIMATE = "estimate"
 
 
-class Asset(Base, TimestampMixin, SlugMixin):
+class Asset(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "assets"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -64,7 +64,7 @@ class Asset(Base, TimestampMixin, SlugMixin):
     )
 
 
-class PriceEntry(Base):
+class PriceEntry(Base, TenantOwned):
     __tablename__ = "asset_price_entries"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

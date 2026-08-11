@@ -209,6 +209,32 @@
   Single head confirmed `4db594964c82`. A naive regex reports two heads because `f1e2d3c4b5a6`
   has a tuple `down_revision` — artifact, not a branch; do not re-derive it.
 
+## Found while RUNNING SPEC-002 (2026-08-11)
+
+- [BUG][SPEC-002 §6 — STEP ORDER IS NOT EXECUTABLE AS LISTED] **Step 2 breaks every test in the
+  suite and Step 15 is what fixes them, thirteen steps later.** Measured at G2: applying
+  `TenantOwned` makes `account_id` NOT NULL across **40** tables, and the affected-area suite went
+  **187 failed / 156 errors**, every one `NOT NULL constraint failed: <table>.account_id` — nothing
+  supplies an account until Step 15's `conftest.py` fixture seeds one and binds the ContextVar.
+
+  Following §6's numbering literally means twelve groups (Steps 3–14) run against a red suite,
+  which makes the per-group regression gate meaningless for all of them. **Fix:** §6 should either
+  order Step 15 immediately after Step 2, or state explicitly that the suite is expected red in
+  between and that the regression gate is suspended until Step 15 lands.
+
+  Resolved in the harness by running G15 straight after G2 — legitimate, because G15's declared
+  dependency is `G9`, not "all previous", and none of its sub-tasks' verify clauses need RLS or the
+  scoped session. Recorded in `build-loop-spec002.md` §1 so a restart can explain the ordering.
+
+  Worth noting N1 does *not* cover this. N1 warns that Steps 2–5 are four passes over the same
+  tables — a sizing warning. This is a different and larger finding about executability.
+
+- [BUG][SPEC-002 §6 Step 2 / §4.3 — TABLE COUNT IS 40, NOT 37] Measured at G2 against HEAD: 40
+  tenant-owned tables, 4 global (`users`, `sessions`, `waitlist`, plus `accounts` as the tenant
+  root). The spec's 36/37 predates Phase 0 and counts only the domain tables, omitting `invites`,
+  `memberships` and `membership_property_scopes` — which its own **Step 1** adds. Every per-table
+  estimate in Steps 2–5 and §4.3 is low by three.
+
 ## Resolved during SPEC-002 pre-flight (not defects — decisions)
 
 - [DEFER][waitlist ownership] SPEC-002 mentions `alembic_landing`, `version_locations` and

@@ -5,10 +5,10 @@ from datetime import date
 from sqlalchemy import Date, Float, ForeignKey, Integer, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from mihomes.models import Base, TimestampMixin
+from mihomes.models import Base, TenantOwned, TimestampMixin
 
 
-class VendorRating(Base, TimestampMixin):
+class VendorRating(Base, TimestampMixin, TenantOwned):
     __tablename__ = "vendor_ratings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

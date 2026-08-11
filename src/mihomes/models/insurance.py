@@ -3,10 +3,10 @@
 import enum
 from datetime import date
 
-from sqlalchemy import Date, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Date, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from mihomes.models import Base, TimestampMixin
+from mihomes.models import Base, TenantOwned, TimestampMixin
 from mihomes.type.money import Money
 
 
@@ -21,7 +21,7 @@ class InsuranceType(str, enum.Enum):
     OTHER = "other"
 
 
-class InsurancePolicy(Base, TimestampMixin):
+class InsurancePolicy(Base, TimestampMixin, TenantOwned):
     __tablename__ = "insurance_policies"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

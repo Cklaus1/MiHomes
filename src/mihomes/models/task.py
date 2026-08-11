@@ -3,10 +3,10 @@
 import enum
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Integer, String, Text, Float
+from sqlalchemy import Date, DateTime, Enum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from mihomes.models import Base, SlugMixin, TimestampMixin
+from mihomes.models import Base, SlugMixin, TenantOwned, TimestampMixin
 
 
 class TaskPriority(str, enum.Enum):
@@ -59,7 +59,7 @@ class TaskCategory(str, enum.Enum):
     GENERAL = "general"
 
 
-class Task(Base, TimestampMixin, SlugMixin):
+class Task(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "tasks"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -83,7 +83,7 @@ class Task(Base, TimestampMixin, SlugMixin):
     schedule = relationship("TaskSchedule", back_populates="task", uselist=False, cascade="all, delete-orphan")
 
 
-class TaskSchedule(Base, TimestampMixin):
+class TaskSchedule(Base, TimestampMixin, TenantOwned):
     __tablename__ = "task_schedules"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

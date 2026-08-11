@@ -3,10 +3,10 @@
 import enum
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Date, DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from mihomes.models import Base, SlugMixin, TimestampMixin
+from mihomes.models import Base, SlugMixin, TenantOwned, TimestampMixin
 from mihomes.type.money import Money
 
 
@@ -21,7 +21,7 @@ class WorkOrderStatus(str, enum.Enum):
     CANCELLED = "cancelled"
 
 
-class WorkOrder(Base, TimestampMixin, SlugMixin):
+class WorkOrder(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "work_orders"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

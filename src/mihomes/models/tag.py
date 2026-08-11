@@ -3,17 +3,17 @@
 from sqlalchemy import ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from mihomes.models import Base, TimestampMixin
+from mihomes.models import Base, TenantOwned, TimestampMixin
 
 
-class Tag(Base, TimestampMixin):
+class Tag(Base, TimestampMixin, TenantOwned):
     __tablename__ = "tags"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
 
 
-class TagAssignment(Base, TimestampMixin):
+class TagAssignment(Base, TimestampMixin, TenantOwned):
     __tablename__ = "tag_assignments"
     __table_args__ = (
         UniqueConstraint("tag_id", "entity_type", "entity_id", name="uq_tag_assignment"),

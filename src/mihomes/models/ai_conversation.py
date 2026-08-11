@@ -3,10 +3,10 @@
 from sqlalchemy import Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from mihomes.models import Base, TimestampMixin
+from mihomes.models import Base, TenantOwned, TimestampMixin
 
 
-class AIConversation(Base, TimestampMixin):
+class AIConversation(Base, TimestampMixin, TenantOwned):
     __tablename__ = "ai_conversations"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

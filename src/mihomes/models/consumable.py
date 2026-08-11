@@ -6,7 +6,7 @@ from datetime import date, datetime, timezone
 from sqlalchemy import Date, DateTime, Enum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from mihomes.models import Base, SlugMixin, TimestampMixin
+from mihomes.models import Base, SlugMixin, TenantOwned, TimestampMixin
 from mihomes.type.money import Money
 
 
@@ -17,7 +17,7 @@ class ConsumableStatus(str, enum.Enum):
     ORDERED = "ordered"
 
 
-class Consumable(Base, TimestampMixin, SlugMixin):
+class Consumable(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "consumables"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -43,7 +43,7 @@ class Consumable(Base, TimestampMixin, SlugMixin):
     )
 
 
-class ConsumablePriceEntry(Base):
+class ConsumablePriceEntry(Base, TenantOwned):
     __tablename__ = "consumable_price_entries"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

@@ -3,10 +3,10 @@
 import enum
 from datetime import date
 
-from sqlalchemy import Boolean, Date, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Date, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from mihomes.models import Base, TimestampMixin
+from mihomes.models import Base, TenantOwned, TimestampMixin
 from mihomes.type.money import Money
 
 
@@ -20,7 +20,7 @@ class ExpenseFrequency(str, enum.Enum):
     CUSTOM_MONTHS = "custom_months"
 
 
-class RecurringExpense(Base, TimestampMixin):
+class RecurringExpense(Base, TimestampMixin, TenantOwned):
     __tablename__ = "recurring_expenses"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

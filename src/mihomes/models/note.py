@@ -3,10 +3,10 @@
 from sqlalchemy import Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from mihomes.models import Base, TimestampMixin
+from mihomes.models import Base, TenantOwned, TimestampMixin
 
 
-class Note(Base, TimestampMixin):
+class Note(Base, TimestampMixin, TenantOwned):
     __tablename__ = "notes"
     __table_args__ = (Index("ix_note_entity", "entity_type", "entity_id"),)
 

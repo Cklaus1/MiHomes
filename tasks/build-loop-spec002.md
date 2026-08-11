@@ -163,6 +163,37 @@ Single head is `4db594964c82`. A naive regex reports two because `f1e2d3c4b5a6` 
 Seventeen groups, one per §6 step (the spec: *"Each step is independently verifiable and
 separately committable"*), plus G-Final.
 
+### Execution order deviates from §6's numbering — G15 runs immediately after G2
+
+**Measured, not predicted.** Applying `TenantOwned` in G2 makes `account_id` **NOT NULL on 40
+tables**, and every existing test creates rows without one. The affected-area suite went
+**187 failed / 156 errors**, all `NOT NULL constraint failed: <table>.account_id`. G15's
+`conftest.py` fixture — a seeded account with the ContextVar bound — is what makes those inserts
+valid again.
+
+**This is not a re-plan; it is the DAG this file already declares.** G15's dep string is
+`*dep: G9*`, not "all previous", and none of G15.1–G15.4's `*Verify:*` clauses need RLS (G7) or
+the scoped session (G8) — verified. §6's numbering is a *listing* order, not a topological one.
+
+**Actual order: G1 → G2 → G15 → G3 … G14 → G16 → G17 → G-Final.**
+
+Why this rather than the alternatives:
+
+- **Every group from G3 on keeps a meaningful outer-loop gate.** Leaving the suite red until §6's
+  Step 15 would mean twelve groups where §1.2's collateral-damage check reports nothing — the
+  mechanism that caught the `_UNMANAGED_TABLES` propagation bug in the pilot.
+- **No third exclusion mechanism.** Making `account_id` nullable "for now" is precisely the
+  failure `require_account()` and N2 warn about — a nullable tenant column invites `if account:`
+  checks that silently skip scoping — and a stub default account would need unwinding in G6.
+
+**A restart reads checkboxes, so this note is load-bearing:** a green G15 sitting between G2 and
+G3 is intentional, and its G9 dependency was satisfied for the fixture portion. Any G15 sub-task
+that turns out to need G9's GUC behaviour defers to after G9 and is marked here.
+
+> Logged in `opportunities.md` as a spec defect: SPEC-002 §6 should either order Step 15 before
+> Step 2, or state that the suite is expected red in between. As listed, the step order is not
+> executable.
+
 ### [x] G1 — identity models — *no deps* — *16 tests; A2 green; metadata 38 -> 44 tables*
 
 - [x] G1.1 · §6 Step 1 · — · `models/account.py`, `user.py` (**GLOBAL**), `membership.py`, `invite.py`, `session.py` (**GLOBAL**), `membership_property_scope` per §4.2 · verify: models import

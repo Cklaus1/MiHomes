@@ -2,13 +2,13 @@
 
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, DateTime, Integer, String, Text, func
+from sqlalchemy import JSON, DateTime, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from mihomes.models import Base
+from mihomes.models import Base, TenantOwned
 
 
-class AuditLog(Base):
+class AuditLog(Base, TenantOwned):
     __tablename__ = "audit_log"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

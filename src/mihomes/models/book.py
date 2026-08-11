@@ -5,7 +5,7 @@ import enum
 from sqlalchemy import Boolean, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from mihomes.models import Base, SlugMixin, TimestampMixin
+from mihomes.models import Base, SlugMixin, TenantOwned, TimestampMixin
 
 
 class BookCondition(str, enum.Enum):
@@ -16,7 +16,7 @@ class BookCondition(str, enum.Enum):
     DAMAGED = "damaged"
 
 
-class Book(Base, TimestampMixin, SlugMixin):
+class Book(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "books"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

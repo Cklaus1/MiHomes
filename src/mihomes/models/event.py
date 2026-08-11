@@ -3,10 +3,10 @@
 import enum
 from datetime import date
 
-from sqlalchemy import Date, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Date, Enum, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from mihomes.models import Base, SlugMixin, TimestampMixin
+from mihomes.models import Base, SlugMixin, TenantOwned, TimestampMixin
 from mihomes.type.money import Money
 
 
@@ -18,7 +18,7 @@ class EventStatus(str, enum.Enum):
     CANCELLED = "cancelled"
 
 
-class Event(Base, TimestampMixin, SlugMixin):
+class Event(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "events"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -37,7 +37,7 @@ class Event(Base, TimestampMixin, SlugMixin):
     guests = relationship("EventGuest", back_populates="event", cascade="all, delete-orphan")
 
 
-class Guest(Base, TimestampMixin, SlugMixin):
+class Guest(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "guests"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -49,7 +49,7 @@ class Guest(Base, TimestampMixin, SlugMixin):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
-class EventGuest(Base, TimestampMixin):
+class EventGuest(Base, TimestampMixin, TenantOwned):
     __tablename__ = "event_guests"
     __table_args__ = (
         UniqueConstraint("event_id", "guest_id", name="uq_event_guest"),

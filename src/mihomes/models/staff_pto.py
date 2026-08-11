@@ -3,10 +3,10 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from mihomes.models import Base, TimestampMixin
+from mihomes.models import Base, TenantOwned, TimestampMixin
 
 
 class PTOStatus(str, enum.Enum):
@@ -15,7 +15,7 @@ class PTOStatus(str, enum.Enum):
     DENIED = "denied"
 
 
-class StaffPTORequest(Base, TimestampMixin):
+class StaffPTORequest(Base, TimestampMixin, TenantOwned):
     __tablename__ = "staff_pto_requests"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

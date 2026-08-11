@@ -34,13 +34,13 @@ from mihomes.ids import new_id
 from mihomes.models import Base, TenantOwned
 
 
-class Membership(Base):
+class Membership(Base, TenantOwned):
     __tablename__ = "memberships"
 
+    # account_id comes from TenantOwned — identical to what §4.2 spells out inline
+    # (PGUUID, FK to accounts.id ON DELETE CASCADE, NOT NULL, indexed). Declared
+    # once, via the mixin, so there is one definition to change.
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=new_id)
-    account_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False, index=True
-    )
     user_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )

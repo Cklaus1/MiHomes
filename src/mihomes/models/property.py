@@ -1,12 +1,12 @@
 """Property and Space models."""
 
 import enum
-from datetime import date, datetime
+from datetime import date
 
-from sqlalchemy import Boolean, Date, DateTime, Enum, Float, Integer, String, Text
+from sqlalchemy import Boolean, Date, Enum, Float, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from mihomes.models import Base, SlugMixin, TimestampMixin
+from mihomes.models import Base, SlugMixin, TenantOwned, TimestampMixin
 
 
 class PropertyType(str, enum.Enum):
@@ -26,7 +26,7 @@ class PropertyStatus(str, enum.Enum):
     UNDER_RENOVATION = "under-renovation"
 
 
-class Property(Base, TimestampMixin, SlugMixin):
+class Property(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "properties"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

@@ -6,7 +6,7 @@ from datetime import datetime
 from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from mihomes.models import Base, TimestampMixin
+from mihomes.models import Base, TenantOwned, TimestampMixin
 
 
 class AlertSeverity(str, enum.Enum):
@@ -23,7 +23,7 @@ class AlertStatus(str, enum.Enum):
     RESOLVED = "resolved"
 
 
-class Alert(Base, TimestampMixin):
+class Alert(Base, TimestampMixin, TenantOwned):
     __tablename__ = "alerts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

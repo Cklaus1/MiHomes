@@ -3,10 +3,10 @@
 from sqlalchemy import String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from mihomes.models import Base
+from mihomes.models import Base, TenantOwned
 
 
-class Configuration(Base):
+class Configuration(Base, TenantOwned):
     __tablename__ = "configurations"
 
     key: Mapped[str] = mapped_column(String(200), primary_key=True)

@@ -3,10 +3,10 @@
 from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from mihomes.models import Base, SlugMixin, TimestampMixin
+from mihomes.models import Base, SlugMixin, TenantOwned, TimestampMixin
 
 
-class Template(Base, TimestampMixin, SlugMixin):
+class Template(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "templates"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -17,7 +17,7 @@ class Template(Base, TimestampMixin, SlugMixin):
                          order_by="TemplateItem.order")
 
 
-class TemplateItem(Base, TimestampMixin):
+class TemplateItem(Base, TimestampMixin, TenantOwned):
     __tablename__ = "template_items"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

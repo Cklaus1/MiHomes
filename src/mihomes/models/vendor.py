@@ -1,22 +1,34 @@
 """Vendor model — contractors and service providers."""
 
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, JSON, String, Table, Text
+from sqlalchemy import JSON, Boolean, Column, ForeignKey, Integer, String, Table, Text
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from mihomes.models import Base, SlugMixin, TimestampMixin
+from mihomes.models import Base, SlugMixin, TenantOwned, TimestampMixin
 
 # M14: vendor ↔ property is a many-to-many link, mirroring staff_properties.
 # Replaces the former vendors.property_ids JSON blob (normalized in migration
 # 9c1f2a7b4d8e). A vendor tagged to a property is reachable from both sides.
+# `account_id` is declared BY HAND here, as in staff_properties: TenantOwned is a
+# @declared_attr mixin and cannot reach a Core Table. Omitting it would leave this
+# join table with no RLS policy and no A1/A21 coverage — see
+# mihomes.tenancy.registry, which lists it explicitly for that reason.
 vendor_property_association = Table(
     "vendor_properties",
     Base.metadata,
     Column("vendor_id", Integer, ForeignKey("vendors.id"), primary_key=True),
     Column("property_id", Integer, ForeignKey("properties.id"), primary_key=True),
+    Column(
+        "account_id",
+        PGUUID(as_uuid=True),
+        ForeignKey("accounts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    ),
 )
 
 
-class Vendor(Base, TimestampMixin, SlugMixin):
+class Vendor(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "vendors"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

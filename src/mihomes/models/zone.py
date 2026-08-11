@@ -3,10 +3,10 @@
 from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from mihomes.models import Base, SlugMixin, TimestampMixin
+from mihomes.models import Base, SlugMixin, TenantOwned, TimestampMixin
 
 
-class Zone(Base, TimestampMixin, SlugMixin):
+class Zone(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "zones"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

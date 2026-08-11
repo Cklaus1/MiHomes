@@ -1,13 +1,19 @@
 """Tests for archive service."""
 
-from datetime import datetime, timezone, timedelta
+import uuid
+from datetime import datetime, timedelta, timezone
 
-import pytest
 from sqlalchemy import text
 
-from mihomes.models.audit_log import AuditLog
 from mihomes.models.ai_conversation import AIConversation
+from mihomes.models.audit_log import AuditLog
 from mihomes.services.archive import _retention_cutoff, get_stats, run_archival
+
+# Placeholder ids for polymorphic entity_type/entity_id pairs. Distinct
+# constants because several tests rely on two ids being DIFFERENT (filter by
+# one, assert the other is excluded) — a single shared UUID would make those
+# tests pass for the wrong reason. Were integers before SPEC-002 D2.
+_ENTITY_1 = uuid.uuid4()
 
 
 def _old_dt(years=3):
@@ -21,7 +27,7 @@ def _recent_dt():
 
 def _make_audit(session, timestamp=None):
     entry = AuditLog(
-        entity_type="task", entity_id=1, action="create",
+        entity_type="task", entity_id=_ENTITY_1, action="create",
         timestamp=timestamp or _old_dt(),
     )
     session.add(entry)
@@ -64,12 +70,12 @@ class TestGetStats:
         # Create archive tables for the test
         session.execute(text(
             "CREATE TABLE IF NOT EXISTS audit_log_archive "
-            "(id INTEGER, timestamp TEXT, entity_type TEXT, entity_id INTEGER, "
-            "action TEXT, changes TEXT, actor TEXT, archived_at TEXT)"
+            "(id UUID, timestamp TIMESTAMPTZ, entity_type TEXT, entity_id UUID, "
+            "action TEXT, changes TEXT, actor TEXT, archived_at TIMESTAMPTZ)"
         ))
         session.execute(text(
             "CREATE TABLE IF NOT EXISTS ai_conversations_archive "
-            "(id INTEGER, session_id TEXT, role TEXT, user_message TEXT, "
+            "(id UUID, session_id TEXT, role TEXT, user_message TEXT, "
             "ai_response TEXT, context_summary TEXT, tokens_used INTEGER, "
             "provider TEXT, model TEXT, created_at TEXT, updated_at TEXT, archived_at TEXT)"
         ))
@@ -82,12 +88,12 @@ class TestGetStats:
     def test_counts_eligible_rows(self, session):
         session.execute(text(
             "CREATE TABLE IF NOT EXISTS audit_log_archive "
-            "(id INTEGER, timestamp TEXT, entity_type TEXT, entity_id INTEGER, "
-            "action TEXT, changes TEXT, actor TEXT, archived_at TEXT)"
+            "(id UUID, timestamp TIMESTAMPTZ, entity_type TEXT, entity_id UUID, "
+            "action TEXT, changes TEXT, actor TEXT, archived_at TIMESTAMPTZ)"
         ))
         session.execute(text(
             "CREATE TABLE IF NOT EXISTS ai_conversations_archive "
-            "(id INTEGER, session_id TEXT, role TEXT, user_message TEXT, "
+            "(id UUID, session_id TEXT, role TEXT, user_message TEXT, "
             "ai_response TEXT, context_summary TEXT, tokens_used INTEGER, "
             "provider TEXT, model TEXT, created_at TEXT, updated_at TEXT, archived_at TEXT)"
         ))
@@ -103,12 +109,12 @@ class TestRunArchival:
     def _setup_archive_tables(self, session):
         session.execute(text(
             "CREATE TABLE IF NOT EXISTS audit_log_archive "
-            "(id INTEGER, timestamp TEXT, entity_type TEXT, entity_id INTEGER, "
-            "action TEXT, changes TEXT, actor TEXT, archived_at TEXT)"
+            "(id UUID, timestamp TIMESTAMPTZ, entity_type TEXT, entity_id UUID, "
+            "action TEXT, changes TEXT, actor TEXT, archived_at TIMESTAMPTZ)"
         ))
         session.execute(text(
             "CREATE TABLE IF NOT EXISTS ai_conversations_archive "
-            "(id INTEGER, session_id TEXT, role TEXT, user_message TEXT, "
+            "(id UUID, session_id TEXT, role TEXT, user_message TEXT, "
             "ai_response TEXT, context_summary TEXT, tokens_used INTEGER, "
             "provider TEXT, model TEXT, created_at TEXT, updated_at TEXT, archived_at TEXT)"
         ))

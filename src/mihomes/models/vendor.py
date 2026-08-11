@@ -27,8 +27,17 @@ vendor_property_association = Table(
         ForeignKey("accounts.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
+        # See staff_properties: before_flush cannot reach a Core INSERT, but a
+        # Python-side column default can. Lazy import breaks the models<->tenancy cycle.
+        default=lambda: _association_account_default(),
     ),
 )
+
+
+def _association_account_default():
+    from mihomes.tenancy.session import association_account_default
+
+    return association_account_default()
 
 
 class Vendor(Base, TimestampMixin, SlugMixin, TenantOwned):

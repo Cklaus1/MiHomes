@@ -29,8 +29,19 @@ staff_property_association = Table(
         ForeignKey("accounts.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
+        # A Python-side default, because the ORM's before_flush listener cannot see
+        # these rows: appending to `staff.properties` emits a Core INSERT with no
+        # instance in session.new. A column default DOES fire for Core inserts.
+        # Lazy import — mihomes.tenancy imports the models.
+        default=lambda: _association_account_default(),
     ),
 )
+
+
+def _association_account_default():
+    from mihomes.tenancy.session import association_account_default
+
+    return association_account_default()
 
 
 class StaffRole(str, enum.Enum):

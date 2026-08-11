@@ -1,5 +1,6 @@
 """Tests for staff PTO service."""
 
+import uuid
 from datetime import date
 from unittest.mock import MagicMock, patch
 
@@ -7,7 +8,7 @@ import pytest
 
 from mihomes.models.property import Property, PropertyType
 from mihomes.models.staff import Staff, StaffRole
-from mihomes.models.staff_pto import PTOStatus, StaffPTORequest
+from mihomes.models.staff_pto import PTOStatus
 from mihomes.models.task import Task, TaskPriority, TaskStatus
 from mihomes.services.staff_pto import (
     approve_pto,
@@ -28,7 +29,9 @@ def _make_property(session):
 
 
 def _make_staff(session, name="Diego Regalado", slug="diego-regalado", whatsapp=None):
-    prop = _make_property(session) if not session.query(Property).first() else session.query(Property).first()
+    # A property must exist before staff can be attached to one.
+    if not session.query(Property).first():
+        _make_property(session)
     member = Staff(
         name=name, slug=slug, role=StaffRole.GROUNDSKEEPER,
         whatsapp_phone=whatsapp,
@@ -102,7 +105,7 @@ class TestApprovePTO:
 
     def test_approve_not_found_raises(self, session):
         with pytest.raises(ValueError, match="not found"):
-            approve_pto(session, 9999)
+            approve_pto(session, uuid.uuid4())
 
     def test_approve_already_decided_raises_and_no_resync(self, session):
         # L8: an already-APPROVED request must not be re-approved — re-mutating
@@ -141,7 +144,7 @@ class TestDenyPTO:
 
     def test_deny_not_found_raises(self, session):
         with pytest.raises(ValueError, match="not found"):
-            deny_pto(session, 9999)
+            deny_pto(session, uuid.uuid4())
 
     def test_deny_already_decided_raises(self, session):
         # L8: symmetric guard — an already-DENIED request must not be re-decided.
@@ -161,7 +164,8 @@ class TestListPTORequests:
         assert len(requests) == 2
 
     def test_filter_by_staff(self, session):
-        prop = session.query(Property).first() or _make_property(session)
+        if not session.query(Property).first():
+            _make_property(session)
         s1 = Staff(name="Diego", slug="diego", role=StaffRole.GROUNDSKEEPER)
         s2 = Staff(name="Maria", slug="maria", role=StaffRole.HOUSEKEEPER)
         session.add_all([s1, s2])

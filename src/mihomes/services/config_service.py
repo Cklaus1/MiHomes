@@ -19,18 +19,37 @@ DEFAULTS = {
 }
 
 
+def _lookup(session: Session, key: str) -> Configuration | None:
+    """Find a config row by key within the current account.
+
+    Not `session.get(Configuration, key)`: SPEC-002 made the primary key the
+    composite `(account_id, key)`, so `get()` now demands a 2-tuple and raised
+    "Incorrect number of values in identifier to formulate primary key" for every
+    caller.
+
+    Filtering on `key` alone is deliberate rather than passing the tuple. The
+    account comes from the scoped session (G8), so callers should not have to know
+    their own tenant to read their own settings — and a caller that *did* pass an
+    account_id could pass the wrong one.
+    """
+    return (
+        session.query(Configuration).filter(Configuration.key == key).one_or_none()
+    )
+
+
 def get_config(session: Session, key: str, default: str | None = None) -> str | None:
-    config = session.get(Configuration, key)
+    config = _lookup(session, key)
     if config is not None:
         return config.value
     return DEFAULTS.get(key, default)
 
 
 def set_config(session: Session, key: str, value: str) -> Configuration:
-    config = session.get(Configuration, key)
+    config = _lookup(session, key)
     if config:
         config.value = value
     else:
+        # account_id is stamped by the before_flush listener (G8.3).
         config = Configuration(key=key, value=value)
         session.add(config)
     session.flush()
@@ -49,7 +68,7 @@ def list_config(session: Session) -> list[dict[str, str]]:
 
 
 def reset_config(session: Session, key: str) -> None:
-    config = session.get(Configuration, key)
+    config = _lookup(session, key)
     if config:
         session.delete(config)
         session.flush()

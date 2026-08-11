@@ -1,5 +1,6 @@
 """Tests for document service — CRUD, entity linking, expiry, path validation."""
 
+import uuid
 from datetime import date, timedelta
 
 import pytest
@@ -13,6 +14,14 @@ from mihomes.services.document import (
     list_expiring,
     update_document,
 )
+
+# Placeholder ids for polymorphic entity_type/entity_id pairs. Distinct
+# constants because several tests rely on two ids being DIFFERENT (filter by
+# one, assert the other is excluded) — a single shared UUID would make those
+# tests pass for the wrong reason. Were integers before SPEC-002 D2.
+_ENTITY_1 = uuid.uuid4()
+_ENTITY_2 = uuid.uuid4()
+_ENTITY_5 = uuid.uuid4()
 
 
 class TestCreateDocument:
@@ -36,9 +45,9 @@ class TestCreateDocument:
 
     def test_with_entity_link(self, session):
         doc = create_document(session, "Vendor Contract", "/docs/vc.pdf",
-                               DocumentType.CONTRACT, entity_type="vendor", entity_id=1)
+                               DocumentType.CONTRACT, entity_type="vendor", entity_id=_ENTITY_1)
         assert doc.entity_type == "vendor"
-        assert doc.entity_id == 1
+        assert doc.entity_id == _ENTITY_1
 
     def test_path_traversal_rejected(self, session):
         with pytest.raises(ValueError, match="traversal"):
@@ -52,12 +61,12 @@ class TestCreateDocument:
     def test_entity_id_without_type_raises(self, session):
         with pytest.raises(ValueError, match="entity_type is required"):
             create_document(session, "Doc", "/docs/d.pdf", DocumentType.OTHER,
-                             entity_id=1)
+                             entity_id=_ENTITY_1)
 
     def test_invalid_entity_type_raises(self, session):
         with pytest.raises(ValueError, match="Invalid entity_type"):
             create_document(session, "Doc", "/docs/d.pdf", DocumentType.OTHER,
-                             entity_type="banana", entity_id=1)
+                             entity_type="banana", entity_id=_ENTITY_1)
 
     def test_creates_audit_log(self, session):
         from mihomes.models.audit_log import AuditLog
@@ -103,19 +112,19 @@ class TestListDocuments:
 
     def test_filter_by_entity_type(self, session):
         create_document(session, "Vendor Doc", "/docs/v.pdf", DocumentType.CONTRACT,
-                         entity_type="vendor", entity_id=1)
+                         entity_type="vendor", entity_id=_ENTITY_1)
         create_document(session, "Property Doc", "/docs/p.pdf", DocumentType.CONTRACT,
-                         entity_type="property", entity_id=1)
+                         entity_type="property", entity_id=_ENTITY_1)
         vendor_docs = list_documents(session, entity_type="vendor")
         assert all(d.entity_type == "vendor" for d in vendor_docs)
 
     def test_filter_by_entity_id(self, session):
         create_document(session, "Entity 1 Doc", "/docs/e1.pdf", DocumentType.OTHER,
-                         entity_type="vendor", entity_id=1)
+                         entity_type="vendor", entity_id=_ENTITY_1)
         create_document(session, "Entity 2 Doc", "/docs/e2.pdf", DocumentType.OTHER,
-                         entity_type="vendor", entity_id=2)
-        docs = list_documents(session, entity_type="vendor", entity_id=1)
-        assert all(d.entity_id == 1 for d in docs)
+                         entity_type="vendor", entity_id=_ENTITY_2)
+        docs = list_documents(session, entity_type="vendor", entity_id=_ENTITY_1)
+        assert all(d.entity_id == _ENTITY_1 for d in docs)
 
 
 class TestUpdateDocument:
@@ -133,15 +142,15 @@ class TestUpdateDocument:
 
     def test_update_entity_link(self, session):
         doc = create_document(session, "Link Doc", "/docs/l.pdf", DocumentType.OTHER)
-        update_document(session, doc.slug, entity_type="vendor", entity_id=5)
+        update_document(session, doc.slug, entity_type="vendor", entity_id=_ENTITY_5)
         session.expire(doc)
         assert doc.entity_type == "vendor"
-        assert doc.entity_id == 5
+        assert doc.entity_id == _ENTITY_5
 
     def test_update_invalid_entity_raises(self, session):
         doc = create_document(session, "Bad Link", "/docs/b.pdf", DocumentType.OTHER)
         with pytest.raises(ValueError):
-            update_document(session, doc.slug, entity_type="invalid_type", entity_id=1)
+            update_document(session, doc.slug, entity_type="invalid_type", entity_id=_ENTITY_1)
 
 
 class TestDeleteDocument:

@@ -1,10 +1,17 @@
 """Tests for audit log service."""
 
-from datetime import date, datetime, timezone
+import uuid
 from enum import Enum
 
 from mihomes.models.audit_log import AuditLog
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
+
+# Placeholder ids for polymorphic entity_type/entity_id pairs. Distinct
+# constants because several tests rely on two ids being DIFFERENT (filter by
+# one, assert the other is excluded) — a single shared UUID would make those
+# tests pass for the wrong reason. Were integers before SPEC-002 D2.
+_ENTITY_1 = uuid.uuid4()
+_ENTITY_42 = uuid.uuid4()
 
 
 class FakeEnum(Enum):
@@ -49,7 +56,7 @@ class TestSnapshotInstance:
     def test_snapshot_basic(self, session):
         entry = AuditLog(
             entity_type="property",
-            entity_id=1,
+            entity_id=_ENTITY_1,
             action="create",
             changes={"name": "test"},
             actor="admin",
@@ -58,7 +65,7 @@ class TestSnapshotInstance:
         session.flush()
         snap = snapshot_instance(entry)
         assert snap["entity_type"] == "property"
-        assert snap["entity_id"] == 1
+        assert snap["entity_id"] == str(_ENTITY_1)
         assert snap["action"] == "create"
         assert snap["actor"] == "admin"
 
@@ -68,7 +75,7 @@ class TestRecordChange:
         record_change(
             session,
             entity_type="property",
-            entity_id=42,
+            entity_id=_ENTITY_42,
             action="create",
             changes={"name": {"old": None, "new": "Beach House"}},
             actor="admin",
@@ -77,18 +84,18 @@ class TestRecordChange:
         entries = session.query(AuditLog).all()
         assert len(entries) == 1
         assert entries[0].entity_type == "property"
-        assert entries[0].entity_id == 42
+        assert entries[0].entity_id == _ENTITY_42
         assert entries[0].action == "create"
         assert entries[0].changes["name"]["new"] == "Beach House"
 
     def test_default_actor(self, session):
-        record_change(session, "task", 1, "update")
+        record_change(session, "task", _ENTITY_1, "update")
         session.flush()
         entry = session.query(AuditLog).first()
         assert entry.actor == "admin"
 
     def test_custom_actor(self, session):
-        record_change(session, "issue", 5, "create", actor="whatsapp:Sarah")
+        record_change(session, "issue", uuid.uuid4(), "create", actor="whatsapp:Sarah")
         session.flush()
         entry = session.query(AuditLog).first()
         assert entry.actor == "whatsapp:Sarah"

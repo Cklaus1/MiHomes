@@ -152,7 +152,17 @@ def session(_pg_engine, account_a):
     """
     connection = _pg_engine.connect()
     transaction = connection.begin()
-    Session = sessionmaker(bind=connection, future=True)
+    # join_transaction_mode="create_savepoint" so a test's own commit()/rollback()
+    # behaves as it expects while still living inside the outer transaction.
+    #
+    # Without it, a test that commits and later rolls back (test_real_data's
+    # idempotency check does exactly that, deliberately) loses its committed rows —
+    # the rollback unwound past the commit and the count came back 0 instead of 4.
+    # The savepoint gives the session a nested scope to roll back to, and the outer
+    # transaction still discards everything at teardown so tests stay independent.
+    Session = sessionmaker(
+        bind=connection, future=True, join_transaction_mode="create_savepoint"
+    )
     sess = Session()
 
     with account_context(account_a):
@@ -160,9 +170,8 @@ def session(_pg_engine, account_a):
             yield sess
         finally:
             sess.close()
-            # Roll back the outer transaction, not the inner session: anything the
-            # test committed through `sess` is inside this transaction and goes with
-            # it. Without that, a test that calls commit() would leak rows.
+            # Roll back the OUTER transaction: anything the test committed is inside
+            # it and goes with it, so the session-scoped schema is never mutated.
             transaction.rollback()
             connection.close()
 
@@ -172,7 +181,9 @@ def session_b(_pg_engine, account_b):
     """A session bound to the *other* account. Pairs with `session` for A21."""
     connection = _pg_engine.connect()
     transaction = connection.begin()
-    Session = sessionmaker(bind=connection, future=True)
+    Session = sessionmaker(
+        bind=connection, future=True, join_transaction_mode="create_savepoint"
+    )
     sess = Session()
 
     with account_context(account_b):

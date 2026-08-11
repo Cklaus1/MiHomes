@@ -22,13 +22,15 @@ silent skip becomes an unscoped write. The exception *is* the safety property.
 
 from __future__ import annotations
 
+import uuid
+
 from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from mihomes.models import TenantOwned
 from mihomes.tenancy.context import current_account
 
-__all__ = ["install_tenant_listeners"]
+__all__ = ["association_account_default", "install_tenant_listeners"]
 
 
 def _stamp_tenant_on_insert(session: Session, flush_context, instances) -> None:
@@ -42,6 +44,26 @@ def _stamp_tenant_on_insert(session: Session, flush_context, instances) -> None:
         if isinstance(obj, TenantOwned) and getattr(obj, "account_id", None) is None:
             # Raises LookupError if unset — fail closed. See the module docstring.
             obj.account_id = current_account.get()
+
+
+def association_account_default() -> uuid.UUID:
+    """Column default for the Core association tables' `account_id`.
+
+    **`before_flush` cannot reach those rows.** It iterates `session.new`, which
+    holds mapped *instances* — but `staff_properties` and `vendor_properties` have no
+    declarative class, so appending to `staff.properties` emits an INSERT with no
+    corresponding object. The row went in with a NULL `account_id` and hit the
+    constraint.
+
+    Same blind spot the registry exists for, one layer down: a mixin cannot see a
+    Core `Table`, and neither can a listener that works on instances. A Python-side
+    column `default` *does* fire for Core inserts, so the stamping lives on the
+    column itself — declared where the table is, next to the comment explaining why
+    `account_id` is hand-written there.
+
+    Raises LookupError with no context, like the ORM path: fail closed.
+    """
+    return current_account.get()
 
 
 def install_tenant_listeners() -> None:

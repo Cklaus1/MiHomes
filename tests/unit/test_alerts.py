@@ -1,5 +1,6 @@
 """Tests for alerts service — extending existing partial coverage."""
 
+import uuid
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
@@ -18,6 +19,12 @@ from mihomes.services.alerts import (
     list_alerts,
     snooze_alert,
 )
+
+# Placeholder ids for polymorphic entity_type/entity_id pairs. Distinct
+# constants because several tests rely on two ids being DIFFERENT (filter by
+# one, assert the other is excluded) — a single shared UUID would make those
+# tests pass for the wrong reason. Were integers before SPEC-002 D2.
+_ENTITY_1 = uuid.uuid4()
 
 
 @pytest.fixture
@@ -96,7 +103,7 @@ class TestCheckOverdueTasks:
         assert count == 0
 
     def test_does_not_duplicate_existing_alert(self, session, prop):
-        task = _make_overdue_task(session, prop, "Dup Task", days_overdue=5)
+        _make_overdue_task(session, prop, "Dup Task", days_overdue=5)
         _check_overdue_tasks(session)
         count2 = _check_overdue_tasks(session)
         assert count2 == 0
@@ -217,7 +224,7 @@ class TestListAlerts:
         alert = Alert(
             alert_type=alert_type,
             source_entity_type="test",
-            source_entity_id=1,
+            source_entity_id=_ENTITY_1,
             severity=severity,
             message="Test alert",
             status=status,
@@ -266,7 +273,7 @@ class TestListAlerts:
 class TestSnoozeAlert:
     def test_snoozes_alert(self, session):
         alert = Alert(
-            alert_type="test", source_entity_type="test", source_entity_id=1,
+            alert_type="test", source_entity_type="test", source_entity_id=_ENTITY_1,
             severity=AlertSeverity.MEDIUM, message="Test",
         )
         session.add(alert)
@@ -277,11 +284,11 @@ class TestSnoozeAlert:
 
     def test_snooze_nonexistent_raises(self, session):
         with pytest.raises(ValueError, match="not found"):
-            snooze_alert(session, 99999, days=1)
+            snooze_alert(session, uuid.uuid4(), days=1)
 
     def test_snooze_duration_correct(self, session):
         alert = Alert(
-            alert_type="test", source_entity_type="test", source_entity_id=1,
+            alert_type="test", source_entity_type="test", source_entity_id=_ENTITY_1,
             severity=AlertSeverity.LOW, message="Test",
         )
         session.add(alert)
@@ -296,7 +303,7 @@ class TestSnoozeAlert:
 class TestAcknowledgeAlert:
     def test_acknowledges_alert(self, session):
         alert = Alert(
-            alert_type="test", source_entity_type="test", source_entity_id=1,
+            alert_type="test", source_entity_type="test", source_entity_id=_ENTITY_1,
             severity=AlertSeverity.HIGH, message="Test",
         )
         session.add(alert)
@@ -306,7 +313,7 @@ class TestAcknowledgeAlert:
 
     def test_acknowledge_nonexistent_raises(self, session):
         with pytest.raises(ValueError, match="not found"):
-            acknowledge_alert(session, 88888)
+            acknowledge_alert(session, uuid.uuid4())
 
 
 class TestGenerateAlerts:

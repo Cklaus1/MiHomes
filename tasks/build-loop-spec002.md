@@ -58,14 +58,29 @@ fixture. Every test that took the old `session` fixture is affected, so the firs
 after G15 will look like a mass regression if you compare it to 1233-on-SQLite. It is not. Record
 the post-G15 number as the new baseline the moment G15 commits, and gate on *that* afterwards.
 
-**Measured baseline at authoring time (2026-08-10, HEAD `502d97a`):**
+**Measured baseline — two platforms, two numbers, same collection:**
 
 ```
-py -m pytest -q   →  1 failed, 1233 passed, 1 skipped
+local (Windows, HEAD 502d97a)   1 failed, 1233 passed, 1 skipped   = 1235
+CI    (Linux,  run 31512044524)  0 failed, 1235 passed, 0 skipped   = 1235
 ```
 
-The one failure is the known Windows `os.kill` incompatibility in `test_backup.py`. Pre-existing,
-out of scope, logged. **If a run sees two failures, the second one is real.**
+The local failure is the known Windows `os.kill` incompatibility in `test_backup.py`
+(`os.kill(pid, 0)` — a POSIX signal-0 liveness probe Windows rejects with `WinError 87`), and the
+local skip is the POSIX-only watchdog test. **Both pass on Linux**, so CI exercises two tests this
+machine cannot, and the totals reconcile exactly at 1235.
+
+**Gate on the platform you are running on.** Locally: 1233 passing plus the same one known
+failure. In CI: 1235 passing, nothing failing, nothing skipped. **If a local run sees two
+failures, or CI sees any, it is real.**
+
+> **CI earned its place before SPEC-002 started.** Its first run caught a pre-existing packaging
+> bug no local run could: `pytest-asyncio` was declared **nowhere** while
+> `[tool.pytest.ini_options]` sets `asyncio_mode = "auto"` (without the plugin that setting
+> silently does nothing and async tests never run), and `openai` was only an *optional* extra
+> while seven tests import it unconditionally. `pip install -e ".[dev]"` on a clean machine could
+> not run this suite; the local pass was an artifact of what happened to be installed. Fixed in
+> `f515ec2`.
 
 **Invoke pytest as `py -m pytest`**, never `python` (Store shim). Pass DB env inline — the worktree
 guard rejects `export` chains.

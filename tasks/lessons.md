@@ -86,6 +86,21 @@ Review this at the start of each session.
   branch never had is a modify/delete conflict on replay even though the three-way merge is
   clean. Predicting "no conflicts" from `merge-tree` and then cherry-picking is how you get
   surprised — check which files the *earliest* commit touches against the target.
+- **A green local suite proves the code works *on this machine*, not that the declared deps are
+  sufficient.** First CI run failed 10 tests: `pytest-asyncio` was declared **nowhere** while
+  `pyproject.toml` sets `asyncio_mode = "auto"` (without the plugin that setting silently does
+  nothing — async tests are collected and never run, so they had never actually passed anywhere),
+  and `openai` was declared only as an *optional* extra while seven tests import it
+  unconditionally. Both were installed on the dev machine, so `pip install -e ".[dev]"` on a clean
+  machine could not run the suite and nobody could tell. **A config option that needs a plugin is
+  a dependency**; when a test suite reads an env-driven or plugin-driven setting, check the plugin
+  is declared, not merely present.
+- **Reconcile CI's totals against local rather than comparing pass counts.** Local read
+  `1 failed, 1233 passed, 1 skipped`; CI read `10 failed, 1225 passed, 0 skipped`. Different pass
+  counts, *identical* collection — both total 1235. Comparing only "passed" would have suggested
+  CI was missing tests; totalling all three buckets showed the difference was purely which tests
+  each platform *can* run. Two tests that fail-or-skip on Windows pass on Linux, which is a
+  coverage gain the CI decision bought immediately.
 - **A verified signature is not a verified token — check `aud`, `iss` and `exp` separately.**
   Google signs every relying party's ID tokens with the same keys, so a token minted for *any
   other* Google app carries a perfectly valid signature. Without an audience check that token

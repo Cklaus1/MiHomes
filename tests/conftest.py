@@ -1,19 +1,67 @@
-"""Shared test fixtures."""
+"""Shared test fixtures — Postgres-backed and account-scoped (SPEC-002 Step 15, A23).
+
+**The `session` fixture keeps its name and its semantics.** 38 test files take it
+(measured; the spec says 28 of 33, written before Phase 0). It still yields a
+`Session` that rolls back after the test — what changed is that the rows it creates
+now belong to an account, because `TenantOwned` made `account_id` NOT NULL on 40
+tables. Renaming it would have meant touching 38 files to no benefit.
+
+Two databases are in play and they are deliberately separate:
+
+  mihomes_phase0   owned by the `alembic_landing/` tree — SPEC-001's waitlist tests
+  mihomes_test     this suite (TEST_DATABASE_URL)
+
+Schema is created with `Base.metadata.create_all()`, not by running migrations.
+That is the right call *for tests*: the baseline migration is G6.2's deliverable and
+has its own round-trip gate, so making every test depend on it would couple the
+whole suite to one artifact and make a migration bug look like 900 unrelated
+failures.
+
+**Skipping when `TEST_DATABASE_URL` is unset is a RED gate, not a pass**
+(build-loop-conventions §0). CI always sets it; a local run without it is telling
+you the suite did not really run.
+"""
+
+from __future__ import annotations
+
+import os
+import uuid
 
 import pytest
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 
 from mihomes.models import Base
 
+# Imports `mihomes.tenancy`, whose __init__ installs the before_flush listener that
+# stamps account_id on insert (G8.3). Without it every insert here fails NOT NULL.
+from mihomes.tenancy import account_context
+
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
+
+# For test MODULES that want to declare the dependency explicitly via
+# `pytestmark = needs_postgres`. It cannot decorate a fixture — pytest rejects marks
+# on fixtures ("Marks applied to fixtures have no effect", PytestRemovedIn9Warning).
+# The fixtures below get their skip from `_pg_engine`, which every one of them
+# depends on and which skips internally.
+needs_postgres = pytest.mark.skipif(
+    not TEST_DATABASE_URL,
+    reason=(
+        "TEST_DATABASE_URL unset — SPEC-002 Step 15 makes this suite Postgres-only. "
+        "A skip here means the tenancy criteria did NOT run (conventions §0)."
+    ),
+)
+
 
 @event.listens_for(Engine, "connect")
 def _set_sqlite_pragmas(dbapi_conn, connection_record):
     # Bound to the Engine *class*, so this fires for every engine in the test
-    # session — including the Postgres one SPEC-001 introduces, where PRAGMA is
-    # a syntax error. Check the driver on the raw connection: there is no engine
-    # in scope to ask for a dialect.
+    # session — including Postgres, where PRAGMA is a syntax error. Check the driver
+    # on the raw connection: there is no engine in scope to ask for a dialect.
+    #
+    # Kept even though the shared fixtures are now Postgres: tests/web/conftest.py
+    # and a few migration tests still build SQLite engines on purpose.
     if type(dbapi_conn).__module__.split(".")[0] != "sqlite3":
         return
     cursor = dbapi_conn.cursor()
@@ -21,19 +69,116 @@ def _set_sqlite_pragmas(dbapi_conn, connection_record):
     cursor.close()
 
 
-@pytest.fixture
-def engine():
-    """In-memory SQLite engine with all tables created."""
-    eng = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(eng)
-    return eng
+@pytest.fixture(scope="session")
+def _pg_engine():
+    """One engine for the whole test session; schema built once.
+
+    Session-scoped because `create_all` over 44 tables per test would dominate the
+    runtime. Isolation between tests comes from the per-test transaction rollback in
+    `session`, not from rebuilding the schema.
+    """
+    if not TEST_DATABASE_URL:
+        pytest.skip("TEST_DATABASE_URL unset")
+
+    engine = create_engine(TEST_DATABASE_URL, future=True, pool_pre_ping=True)
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+    yield engine
+    engine.dispose()
 
 
 @pytest.fixture
-def session(engine):
-    """Database session that rolls back after each test."""
-    Session = sessionmaker(bind=engine)
+def engine(_pg_engine):
+    """Kept for the handful of tests that ask for an engine rather than a session."""
+    return _pg_engine
+
+
+def _make_account(conn, *, slug: str, name: str) -> uuid.UUID:
+    """Insert an account with raw SQL.
+
+    Deliberately not via the ORM: the ORM path will soon be tenant-scoped (G8), and
+    creating the very first account cannot itself require an account context. Raw
+    SQL keeps the fixture independent of the machinery it exists to test.
+    """
+    account_id = uuid.uuid4()
+    conn.execute(
+        text(
+            "INSERT INTO accounts (id, slug, name, type, plan, created_at, updated_at) "
+            "VALUES (:id, :slug, :name, 'household', 'free', now(), now())"
+        ),
+        {"id": account_id, "slug": slug, "name": name},
+    )
+    return account_id
+
+
+def _create_account(engine, *, prefix: str, name: str) -> uuid.UUID:
+    """Create and COMMIT an account, then close the connection.
+
+    The commit has to complete *before* the fixture yields. Yielding from inside
+    `with engine.begin()` keeps the transaction open for the whole test, and the
+    `session` fixture runs on a different connection — so it could not see the row
+    and every insert failed `properties_account_id_fkey`. The row was there; it just
+    was not committed yet.
+    """
+    with engine.begin() as conn:
+        return _make_account(
+            conn, slug=f"{prefix}-{uuid.uuid4().hex[:8]}", name=name
+        )
+
+
+@pytest.fixture
+def account_a(_pg_engine):
+    """The account almost every test operates inside."""
+    return _create_account(_pg_engine, prefix="acct-a", name="Account A")
+
+
+@pytest.fixture
+def account_b(_pg_engine):
+    """A *second* account, for the tests that matter most.
+
+    A21 needs two tenants to prove isolation, and a single-account fixture cannot
+    express "A must not see B" — the assertion Phase 1's definition of done rests on.
+    """
+    return _create_account(_pg_engine, prefix="acct-b", name="Account B")
+
+
+@pytest.fixture
+def session(_pg_engine, account_a):
+    """Account-scoped session that rolls back after each test.
+
+    Same name and same rollback semantics as before, now with a bound tenant. The
+    rollback is what keeps tests independent: each runs inside a transaction that is
+    discarded, so the session-scoped schema is never mutated across tests.
+    """
+    connection = _pg_engine.connect()
+    transaction = connection.begin()
+    Session = sessionmaker(bind=connection, future=True)
     sess = Session()
-    yield sess
-    sess.rollback()
-    sess.close()
+
+    with account_context(account_a):
+        try:
+            yield sess
+        finally:
+            sess.close()
+            # Roll back the outer transaction, not the inner session: anything the
+            # test committed through `sess` is inside this transaction and goes with
+            # it. Without that, a test that calls commit() would leak rows.
+            transaction.rollback()
+            connection.close()
+
+
+@pytest.fixture
+def session_b(_pg_engine, account_b):
+    """A session bound to the *other* account. Pairs with `session` for A21."""
+    connection = _pg_engine.connect()
+    transaction = connection.begin()
+    Session = sessionmaker(bind=connection, future=True)
+    sess = Session()
+
+    with account_context(account_b):
+        try:
+            yield sess
+        finally:
+            sess.close()
+            transaction.rollback()
+            connection.close()

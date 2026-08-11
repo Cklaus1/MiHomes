@@ -12,9 +12,17 @@
 name: tests
 
 on:
-  push:
-    branches: ["**"]
+  # Deliberately NOT every branch. Running on `push: ["**"]` meant a run — and a
+  # notification email — for every commit on a feature branch, which during a build
+  # loop is dozens. Pull requests and main are the points where a red build actually
+  # needs to stop someone, so those are the only triggers.
+  #
+  # workflow_dispatch keeps a manual run available for a feature branch when it is
+  # genuinely wanted (Actions tab -> Run workflow).
   pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
 
 concurrency:
   # A newer push supersedes an in-flight run on the same ref.

@@ -16,10 +16,11 @@ an `integer` primary key.
 import uuid
 
 import pytest
+from sqlalchemy import Integer
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 
 from mihomes.models import Base
-from mihomes.tenancy.registry import GLOBAL_TABLES, TENANT_TABLES
+from mihomes.tenancy.registry import GLOBAL_TABLES, TENANT_TABLES, TEST_ONLY_TABLES
 
 ALL_TABLES = sorted(TENANT_TABLES | GLOBAL_TABLES)
 
@@ -116,6 +117,62 @@ def test_no_foreign_key_type_mismatches():
                     )
 
     assert mismatches == [], "FK type mismatches:\n  " + "\n  ".join(mismatches)
+
+
+def test_polymorphic_entity_ids_are_uuid():
+    """F5's five polymorphic columns must be UUID too — and no FK test can see them.
+
+    `alerts.source_entity_id`, `audit_log.entity_id`, `documents.entity_id`,
+    `notes.entity_id` and `tag_assignments.entity_id` carry `entity_type` +
+    `entity_id` with **no ForeignKey**. So `test_no_foreign_key_type_mismatches`
+    structurally cannot check them: there is no target column to compare against.
+
+    They stayed Integer through G6.1 while every PK they reference became UUID, and
+    the failure surfaced as `CannotCoerce: cannot cast type uuid to integer` in a
+    join — several layers away from the cause. This asserts them by name.
+    """
+    polymorphic = {
+        "alerts": "source_entity_id",
+        "audit_log": "entity_id",
+        "documents": "entity_id",
+        "notes": "entity_id",
+        "tag_assignments": "entity_id",
+    }
+    for table_name, col_name in sorted(polymorphic.items()):
+        col = Base.metadata.tables[table_name].c[col_name]
+        assert isinstance(col.type, PGUUID), (
+            f"{table_name}.{col_name} is {col.type!r} — it points at UUID primary "
+            "keys, so an integer here cannot be cast in a join"
+        )
+        assert not col.foreign_keys, (
+            f"{table_name}.{col_name} gained a ForeignKey — if the polymorphic "
+            "design changed, move it into the FK-matching test and drop it here"
+        )
+
+
+def test_no_integer_id_columns_remain():
+    """Nothing named like an id is still an integer.
+
+    A catch-all so the next polymorphic or denormalized id column cannot slip
+    through the way these five did.
+    """
+    # `isinstance` against sqlalchemy.Integer, NOT a name comparison. The first
+    # version of this test checked `type(col.type).__name__ == "INTEGER"` and
+    # reported zero stragglers while `work_orders.source_id` was still
+    # `Integer()` — the generic type spells itself "Integer", the dialect one
+    # "INTEGER", and a string compare catches only whichever you happened to write.
+    stragglers = []
+    for name, table in sorted(Base.metadata.tables.items()):
+        if name in TEST_ONLY_TABLES:
+            continue
+        for col in table.columns:
+            looks_like_id = col.name == "id" or col.name.endswith("_id")
+            if looks_like_id and isinstance(col.type, Integer):
+                stragglers.append(f"{name}.{col.name} ({col.type!r})")
+
+    assert stragglers == [], (
+        "integer id columns remain after the UUID conversion: " + ", ".join(stragglers)
+    )
 
 
 def test_metadata_creates_on_postgres_shape():

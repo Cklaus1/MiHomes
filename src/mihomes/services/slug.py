@@ -1,5 +1,7 @@
 """Slug generation and entity resolution."""
 
+import uuid
+
 from slugify import slugify
 from sqlalchemy.orm import Session
 
@@ -64,18 +66,28 @@ def resolve_identifier(session: Session, model_class, id_or_slug: str):
     """Resolve an ID or slug to an ORM instance. Raises EntityNotFoundError if not found.
 
     Supports:
-    - Integer ID
+    - UUID primary key (SPEC-002 D2)
     - Exact slug match
     - Prefix slug match (unambiguous only)
     """
-    # Try as integer ID first
+    # Try as a UUID primary key first.
+    #
+    # This was `int(id_or_slug)` before SPEC-002 G6.1 converted the primary keys to
+    # UUIDv7. A UUID string raises ValueError there, so every lookup silently fell
+    # through to slug matching and failed with EntityNotFoundError — the id path was
+    # simply gone. Nothing in the spec flags this; it surfaced as 24 test failures
+    # once the fixtures could insert rows at all.
+    #
+    # `int` is no longer accepted deliberately: no table has an integer PK now, so
+    # accepting one would only mask a caller still passing a stale id.
     try:
-        pk = int(id_or_slug)
+        pk = uuid.UUID(str(id_or_slug))
+    except (ValueError, TypeError, AttributeError):
+        pass
+    else:
         instance = session.get(model_class, pk)
         if instance is not None:
             return instance
-    except (ValueError, TypeError):
-        pass
 
     # Try as exact slug
     instance = (

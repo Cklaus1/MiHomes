@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import ForeignKey, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -31,4 +31,4 @@ class TagAssignment(Base, TimestampMixin, TenantOwned):
     tag_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("tags.id"), nullable=False)
     entity_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
-    entity_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    entity_id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)

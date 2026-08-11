@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, DateTime, Integer, String, func
+from sqlalchemy import JSON, DateTime, String, func
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -24,7 +24,7 @@ class AuditLog(Base, TenantOwned):
         index=True,
     )
     entity_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
-    entity_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    entity_id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
     action: Mapped[str] = mapped_column(String(10), nullable=False)  # create, update, delete
     changes: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     actor: Mapped[str] = mapped_column(String(100), default="admin")

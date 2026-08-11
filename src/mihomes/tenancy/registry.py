@@ -26,6 +26,7 @@ from __future__ import annotations
 
 __all__ = [
     "GLOBAL_TABLES",
+    "TEST_ONLY_TABLES",
     "TENANT_TABLES",
     "association_tables",
     "check_registry",
@@ -42,6 +43,13 @@ __all__ = [
 # `accounts` is excluded for a different reason: it is the tenant ROOT. It has no
 # account_id of its own — it is what account_id points at.
 GLOBAL_TABLES = frozenset({"users", "sessions", "waitlist", "accounts"})
+
+# Not a real table: `tests/unit/test_slug.py` defines a throwaway `DummyModel` on the
+# SHARED Base, so it appears in Base.metadata for every test in the session. Excluded
+# by name rather than by a heuristic, so a genuinely unclassified table still fails
+# `check_registry()` — the point of that function is that forgetting to classify a
+# table is an error, and a clever filter would quietly re-open that hole.
+TEST_ONLY_TABLES = frozenset({"dummy"})
 
 # Every account-scoped table. Hardcoded on purpose — see the module docstring.
 #
@@ -137,7 +145,7 @@ def check_registry() -> list[str]:
     problems: list[str] = []
     live = {
         name for name in Base.metadata.tables
-        if not name.startswith("alembic_version")
+        if not name.startswith("alembic_version") and name not in TEST_ONLY_TABLES
     }
 
     unclassified = live - TENANT_TABLES - GLOBAL_TABLES

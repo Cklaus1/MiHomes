@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import Date, DateTime, Enum, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -35,7 +35,12 @@ class WorkOrder(Base, TimestampMixin, SlugMixin, TenantOwned):
     property_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("properties.id"), nullable=False)
     source_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    source_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Polymorphic: pairs with source_type, no ForeignKey. UUID because every id it
+    # can hold is now a UUID (D2) — leaving it Integer produced
+    # "CannotCoerce: cannot cast type uuid to integer" from create_work_order.
+    source_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), nullable=True
+    )
     vendor_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("vendors.id"), nullable=True)
     vendor_name: Mapped[str | None] = mapped_column(String(300), nullable=True)

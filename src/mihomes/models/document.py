@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import date
 
-from sqlalchemy import Date, Enum, Integer, String, Text
+from sqlalchemy import Date, Enum, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -36,6 +36,6 @@ class Document(Base, TimestampMixin, SlugMixin, TenantOwned):
     file_path: Mapped[str] = mapped_column(String(500), nullable=False)
     document_type: Mapped[DocumentType] = mapped_column(Enum(DocumentType), nullable=False)
     entity_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    entity_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    entity_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     expires_at: Mapped[date | None] = mapped_column(Date, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)

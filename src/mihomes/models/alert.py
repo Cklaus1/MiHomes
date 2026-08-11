@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, Enum, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -34,7 +34,7 @@ class Alert(Base, TimestampMixin, TenantOwned):
     )
     alert_type: Mapped[str] = mapped_column(String(100), nullable=False)
     source_entity_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    source_entity_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_entity_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     property_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("properties.id", ondelete="SET NULL"), index=True, nullable=True
     )

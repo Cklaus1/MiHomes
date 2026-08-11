@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import Index, Integer, String, Text
+from sqlalchemy import Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -18,5 +18,5 @@ class Note(Base, TimestampMixin, TenantOwned):
         PGUUID(as_uuid=True), primary_key=True, default=new_id
     )
     entity_type: Mapped[str] = mapped_column(String(50), nullable=False)
-    entity_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    entity_id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)

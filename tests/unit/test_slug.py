@@ -1,9 +1,13 @@
 """Tests for slug generation and entity resolution."""
 
+import uuid
+
 import pytest
-from sqlalchemy import Integer, String
+from sqlalchemy import String
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
+from mihomes.ids import new_id
 from mihomes.models import Base, SlugMixin
 from mihomes.services.slug import (
     EntityNotFoundError,
@@ -13,10 +17,16 @@ from mihomes.services.slug import (
 )
 
 
-# Test model
+# A throwaway model for exercising slug helpers. It lands on the SHARED Base, so it
+# shows up in Base.metadata for every other test — which is why it must mirror the
+# real models rather than keep an integer PK: `resolve_identifier` now looks up by
+# UUID (SPEC-002 D2), and an integer-keyed stand-in would test a code path that no
+# longer exists. It is excluded from the tenancy registry by name.
 class DummyModel(Base, SlugMixin):
     __tablename__ = "dummy"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=new_id
+    )
     name: Mapped[str] = mapped_column(String(100))
 
 

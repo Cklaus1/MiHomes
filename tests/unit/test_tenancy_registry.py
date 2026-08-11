@@ -17,6 +17,7 @@ from mihomes.tenancy.registry import (
     ASSOCIATION_TABLES,
     GLOBAL_TABLES,
     TENANT_TABLES,
+    TEST_ONLY_TABLES,
     check_registry,
     tenant_models,
 )
@@ -41,7 +42,7 @@ def test_every_metadata_table_is_classified():
     """
     live = {
         name for name in Base.metadata.tables
-        if not name.startswith("alembic_version")
+        if not name.startswith("alembic_version") and name not in TEST_ONLY_TABLES
     }
     assert live == TENANT_TABLES | GLOBAL_TABLES, (
         f"unclassified: {sorted(live - TENANT_TABLES - GLOBAL_TABLES)}; "

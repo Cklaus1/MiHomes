@@ -103,8 +103,11 @@ def list_tasks(
     recurrence: str | None = None,
     db: Session = Depends(get_db),
 ):
-    pid = property_id.strip() or None if property_id else None
-    aid = assignee_id.strip() or None if assignee_id else None
+    # Blank and whitespace-only both mean "no filter". The `int()` these used to be
+    # wrapped in is gone (ids are UUIDs now), but the empty-value guard has to stay —
+    # an empty string reaching a UUID column is an error, not a no-op.
+    pid = (property_id or "").strip() or None
+    aid = (assignee_id or "").strip() or None
     return templates.TemplateResponse(
         request, "tasks.html",
         _ctx(db, pid, status or None, overdue, due_week, aid, sort, recurrence),

@@ -224,6 +224,16 @@ Windows `os.kill` baseline failure (`test_backup`), and 6 are open —
 `test_demo_boot` (2, `LookupError: current_account` — the demo-boot path needs an account context),
 `test_csv_cmd` (2), `test_business_logic::test_delete_nonexistent_raises` (2).
 
+> **Do not read "1355 passed" as validation of all of G6.1b.** A green suite proves the sites a test
+> exercises, and the reason G6.1b was needed at all is that this layer is thinly covered. Verified by
+> a failing-then-passing test: the three `test_form_validation` 422s, the two `staff.py`
+> assignment-sync paths (`test_web_smoke::test_directory_edit_assigns_property` /
+> `_unassigns_property`), and the PTO regex (`test_gateway_review_common`). **Changed by reading
+> only, with no test asserting them:** `tasks.py:105-106`, `documents.py:82,107`,
+> `calendar.py:227-264`, `issues.py:75-115`, `work_orders.py:72,120` — roughly 19 of the coercion
+> sites. They are mechanical and individually simple, but "mechanical" is what the G6.1 false-green
+> was too. Worth a coverage pass before G-Final claims A-anything about the web layer.
+
 ### [x] G1 — identity models — *no deps* — *16 tests; A2 green; metadata 38 -> 44 tables*
 
 - [x] G1.1 · §6 Step 1 · — · `models/account.py`, `user.py` (**GLOBAL**), `membership.py`, `invite.py`, `session.py` (**GLOBAL**), `membership_property_scope` per §4.2 · verify: models import

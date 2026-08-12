@@ -29,8 +29,17 @@ cache/npm-packages/
 # Claude Code — per-user local settings (machine-specific paths, personal toggles)
 .claude/settings.local.json
 
-# Runtime-generated upload storage
-src/web/
+# NOTE: `src/web/` was listed here to ignore "runtime-generated upload storage".
+# That directory only ever existed because of the H26/H34 `parents[4]` bug, which
+# resolved the uploads dir to a phantom `src/web/static/uploads`. H26 is fixed and
+# test_gateway_review_common.py now asserts uploads land inside the installed
+# package, so the pattern matched nothing.
+#
+# It was not harmless. ripgrep drops an anchored pattern's leading component when
+# that component IS the search root, then applies the remainder unanchored — so
+# `rg <pattern> src` treated `src/web/` as `web/` and silently skipped all of
+# src/mihomes/web/ (23 route modules + templates). Searches from the repo root or
+# from src/mihomes were unaffected, which is what made it hard to spot.
 
 # Home Assistant — runtime files, credentials, and generated data
 ha-config/.storage/

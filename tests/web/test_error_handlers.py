@@ -10,49 +10,24 @@ getter and has a real detail page).
 """
 
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
-from mihomes.models import Base
 from mihomes.services import property as prop_svc
-from mihomes.web.app import create_app
-from mihomes.web.deps import get_db
 
 
 @pytest.fixture
-def raw_client():
-    """TestClient that does NOT re-raise server exceptions, so 500s are observable."""
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    TestSessionLocal = sessionmaker(bind=engine)
+def raw_client(web_client_factory):
+    """TestClient that does NOT re-raise server exceptions, so 500s are observable.
 
-    with TestSessionLocal() as s:
+    Its own seed rather than `seed_estate`: these tests need two properties whose
+    slugs share a prefix, which is the whole point of the ambiguity case.
+    """
+
+    def seed(s):
         # Two properties whose slugs share the "lake" prefix → ambiguous.
         prop_svc.create_property(s, "Lakeside Cottage")
         prop_svc.create_property(s, "Lakefront Villa")
-        s.commit()
 
-    def override_get_db():
-        s = TestSessionLocal()
-        try:
-            yield s
-            s.commit()
-        except Exception:
-            s.rollback()
-            raise
-        finally:
-            s.close()
-
-    app = create_app()
-    app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app, base_url="http://localhost", raise_server_exceptions=False) as c:
-        yield c
+    return web_client_factory(seed, raise_server_exceptions=False)
 
 
 def test_unknown_slug_returns_404(raw_client):

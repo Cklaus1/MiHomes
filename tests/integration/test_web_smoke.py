@@ -10,61 +10,17 @@ fully isolates these tests from the real database.
 import re
 
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
-
-from mihomes.models import Base
-from mihomes.models.staff import StaffRole
-from mihomes.services import property as prop_svc
-from mihomes.services import space as space_svc
-from mihomes.services import staff as staff_svc
-from mihomes.services import vendor as vendor_svc
-from mihomes.web.app import create_app
-from mihomes.web.deps import get_db
 
 
 @pytest.fixture
-def client():
-    """TestClient bound to a fresh in-memory DB seeded with minimal estate data."""
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    TestSessionLocal = sessionmaker(bind=engine)
+def client(web_client_factory, seed_estate):
+    """Account-scoped TestClient over Postgres, seeded with minimal estate data.
 
-    with TestSessionLocal() as s:
-        prop = prop_svc.create_property(s, "Test Manor")
-        space_svc.create_space(s, "Living Room", prop.slug)
-        staff_svc.create_staff(
-            s, "Marcia Staff", role=StaffRole.HOUSEKEEPER, property_id_or_slug=prop.slug
-        )
-        staff_svc.create_staff(s, "Rita Resident", role=StaffRole.RESIDENT)
-        vendor_svc.create_vendor(s, "Acme Pest", service_categories=["Pest Control"])
-        s.commit()
-
-    def override_get_db():
-        s = TestSessionLocal()
-        try:
-            yield s
-            s.commit()
-        except Exception:
-            s.rollback()
-            raise
-        finally:
-            s.close()
-
-    app = create_app()
-    app.dependency_overrides[get_db] = override_get_db
-    # Bind to a loopback base_url so the H30 Host guard (added in create_app)
-    # accepts these requests; the default `testserver` host is rejected as a
-    # potential DNS-rebinding host.
-    with TestClient(app, base_url="http://localhost") as c:
-        c._SessionLocal = TestSessionLocal  # exposed for assertions if needed
-        yield c
+    Declared here rather than inherited: this module lives under tests/integration/,
+    so tests/web/conftest.py does not apply to it. The body is shared via the root
+    conftest's factory.
+    """
+    return web_client_factory(seed_estate)
 
 
 # --- Every page renders ----------------------------------------------------
@@ -180,7 +136,9 @@ def test_directory_edit_assigns_property(client):
     block = re.search(
         r'hx-post="/staff/(rita-resident)/edit".*?</form>', html, re.S
     ).group(0)
-    prop_id = re.search(r'name="property_ids" value="(\d+)"', block).group(1)
+    # `[^"]+`, not `\d+`: G6.1 made property PKs UUIDv7, so a digit-only capture
+    # returns None here and the failure surfaces as AttributeError on .group().
+    prop_id = re.search(r'name="property_ids" value="([^"]+)"', block).group(1)
     assert "checked" not in re.search(
         r'name="property_ids" value="%s"[^>]*>' % prop_id, block
     ).group(0)
@@ -205,7 +163,7 @@ def test_directory_edit_assigns_property(client):
 
 def test_directory_edit_unassigns_property(client):
     html = client.get("/staff/").text
-    prop_id = re.search(r'name="property_ids" value="(\d+)"', html).group(1)
+    prop_id = re.search(r'name="property_ids" value="([^"]+)"', html).group(1)
     # Assign then clear.
     client.post(
         "/staff/rita-resident/edit",
@@ -319,9 +277,9 @@ def test_ai_stream_persists_conversation(client, monkeypatch):
     import contextlib
 
     import mihomes.db as db_mod
+    from mihomes.models.ai_conversation import AIConversation
     from mihomes.services.ai import agent as agent_mod
     from mihomes.services.ai import ai_config
-    from mihomes.models.ai_conversation import AIConversation
 
     # Force the non-Claude path and stub the provider stream (no real API call).
     monkeypatch.setattr(ai_config, "get_ai_provider_name", lambda db: "openai")

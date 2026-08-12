@@ -201,6 +201,20 @@ Review this at the start of each session.
   meets that would spend its whole 3-attempt poison ceiling on a launcher error and mark a good
   task `[!]`. Environment quirks belong in the harness, not in the operator's head.
 
+- **`Grep(path="src")` was silently hiding the entire web layer.** `.gitignore` carried
+  `src/web/` (dead — the dir only existed because of the fixed H26 `parents[4]` bug). ripgrep
+  drops an anchored pattern's leading component when that component *is* the search root, then
+  applies the remainder unanchored: searching from `src` turned `src/web/` into `web/` and
+  pruned all of `src/mihomes/web/` — 23 route modules — while `git check-ignore` correctly
+  reported the files as *not* ignored. Searching from the repo root or from `src/mihomes` was
+  fine, which is exactly why it survived unnoticed.
+  **Rule:** a directory-scoped search that returns zero hits for something you have concrete
+  reason to expect is a *tool* result to verify, not a fact. Confirm with a file-scoped grep
+  before concluding "no matches" — I only caught this because I had read `run_in_executor` with
+  Read moments earlier and the directory grep disagreed with my own eyes.
+  **Rule:** never calibrate a "no unscoped X remain" gate from a search rooted at `src`.
+  A false-green there is invisible: the gate reports clean *because* it looked nowhere.
+
 ## Fifth Review Lessons (2026-03-27)
 - **SIGPIPE data loss**: When CLI output is piped through `head`/`tail`/etc, SIGPIPE can kill the process before `get_session()` commits. Fix: collect data inside `with get_session()`, print AFTER the session context exits (so commit happens before any output). Critical for commands with long output that modify data.
 - Always test CLI commands with `| head -1` to catch SIGPIPE issues.

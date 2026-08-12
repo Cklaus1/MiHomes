@@ -410,10 +410,20 @@ async def ai_ask_stream(
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     import asyncio
+    import contextvars
 
     async def _generate():
         loop = asyncio.get_event_loop()
         queue: asyncio.Queue = asyncio.Queue()
+
+        # SPEC-002: the tenant is carried in a ContextVar, and `run_in_executor` does
+        # NOT propagate context to the worker (unlike `asyncio.to_thread`, which copies
+        # it). Without this the worker's `current_account` is unset, the G8.3 insert
+        # listener fails closed with LookupError, and the conversation save below is
+        # swallowed by the `except Exception` — the stream would still look fine to the
+        # user while silently persisting nothing. Capture the request's context here and
+        # run the worker inside a copy of it.
+        ctx = contextvars.copy_context()
 
         def _run_sync():
             # H14: the streaming work runs in a worker thread. It opens its own
@@ -467,7 +477,7 @@ async def ai_ask_stream(
             finally:
                 loop.call_soon_threadsafe(queue.put_nowait, (None, None))
 
-        future = loop.run_in_executor(None, _run_sync)
+        future = loop.run_in_executor(None, ctx.run, _run_sync)
 
         while True:
             msg_type, msg_data = await queue.get()

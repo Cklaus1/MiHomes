@@ -24,6 +24,7 @@ you the suite did not really run.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import uuid
 
@@ -33,6 +34,11 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 
 from mihomes.models import Base
+from mihomes.models.staff import StaffRole
+from mihomes.services import property as prop_svc
+from mihomes.services import space as space_svc
+from mihomes.services import staff as staff_svc
+from mihomes.services import vendor as vendor_svc
 
 # Imports `mihomes.tenancy`, whose __init__ installs the before_flush listener that
 # stamps account_id on insert (G8.3). Without it every insert here fails NOT NULL.
@@ -174,6 +180,105 @@ def session(_pg_engine, account_a):
             # it and goes with it, so the session-scoped schema is never mutated.
             transaction.rollback()
             connection.close()
+
+
+@pytest.fixture
+def seed_estate():
+    """The minimal estate two web suites both want: one property, one room, two
+    people (staff + resident), one vendor.
+
+    Exposed as a fixture rather than a plain helper module because `tests/` has no
+    `__init__.py`, so `tests/web/` and `tests/integration/` cannot import a shared
+    module from `tests/` — but they can both see root-conftest fixtures.
+    """
+
+    def _seed(s):
+        prop = prop_svc.create_property(s, "Test Manor")
+        space_svc.create_space(s, "Living Room", prop.slug)
+        staff_svc.create_staff(
+            s, "Marcia Staff", role=StaffRole.HOUSEKEEPER,
+            property_id_or_slug=prop.slug,
+        )
+        staff_svc.create_staff(s, "Rita Resident", role=StaffRole.RESIDENT)
+        vendor_svc.create_vendor(s, "Acme Pest", service_categories=["Pest Control"])
+
+    return _seed
+
+
+@pytest.fixture
+def web_client_factory(_pg_engine, account_a):
+    """Build account-scoped FastAPI `TestClient`s over Postgres.
+
+    Four places used to hand-roll this fixture against in-memory SQLite. G2 made
+    `account_id` NOT NULL on 40 tables and Step 15 moved the suite to Postgres, so all
+    four broke the same way at once (`LookupError: current_account` — fail-closed
+    working as designed). Rather than repair the same body four times, they now share
+    this one. That duplication is what bit SPEC-001's `_unmanaged` sets too: a fix
+    applied to the shared copy silently misses the local overrides.
+
+    The account context stays open for the whole test, not just for requests, because
+    several tests write through `client._SessionLocal()` directly and those inserts
+    need the G8.3 stamp listener to find a tenant.
+    """
+    # Imported lazily: this conftest is loaded for every test in the suite, and only
+    # web tests need FastAPI.
+    from fastapi.testclient import TestClient
+
+    from mihomes.web.app import create_app
+    from mihomes.web.deps import get_db
+
+    stack = contextlib.ExitStack()
+
+    def make(seed=None, *, raise_server_exceptions=True):
+        connection = stack.enter_context(_pg_engine.connect())
+        transaction = connection.begin()
+        # Registered as a callback so it runs during unwinding even if the test body
+        # raises. The old per-file fixtures put `transaction.rollback()` after the
+        # `with` block, where an exception thrown into the generator leaked the
+        # connection and left the outer transaction open.
+        stack.callback(transaction.rollback)
+        SessionLocal = sessionmaker(
+            bind=connection, future=True, join_transaction_mode="create_savepoint"
+        )
+        stack.enter_context(account_context(account_a))
+
+        if seed is not None:
+            with SessionLocal() as s:
+                seed(s)
+                s.commit()
+
+        def override_get_db():
+            s = SessionLocal()
+            try:
+                yield s
+                s.commit()
+            except Exception:
+                s.rollback()
+                raise
+            finally:
+                s.close()
+
+        app = create_app()
+        app.dependency_overrides[get_db] = override_get_db
+        # Loopback base_url so the H30 Host guard accepts requests by default; the
+        # foreign-host test overrides the Host header explicitly.
+        client = stack.enter_context(
+            TestClient(
+                app,
+                base_url="http://localhost",
+                raise_server_exceptions=raise_server_exceptions,
+            )
+        )
+        client._SessionLocal = SessionLocal
+        return client
+
+    try:
+        yield make
+    finally:
+        # LIFO: TestClient closed, account context exited, transaction rolled back,
+        # connection returned. The rollback is what keeps the session-scoped schema
+        # clean between tests, seed rows included.
+        stack.close()
 
 
 @pytest.fixture

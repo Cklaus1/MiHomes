@@ -344,7 +344,7 @@ def add_note(request: Request, slug: str, content: str = Form(...), db: Session 
 
 
 @router.delete("/{slug}/notes/{note_id}", response_class=HTMLResponse)
-def delete_note(request: Request, slug: str, note_id: int, db: Session = Depends(get_db)):
+def delete_note(request: Request, slug: str, note_id: uuid.UUID, db: Session = Depends(get_db)):
     note_svc.delete_note(db, note_id)
     asset = asset_svc.get_asset(db, slug)
     notes = note_svc.list_notes(db, f"asset:{asset.id}")
@@ -460,10 +460,10 @@ async def add_asset_document(
 def delete_asset_document(
     request: Request,
     slug: str,
-    doc_id: int,
+    doc_id: str,
     db: Session = Depends(get_db),
 ):
-    doc_svc.delete_document(db, str(doc_id))
+    doc_svc.delete_document(db, doc_id)
     asset = asset_svc.get_asset(db, slug)
     docs = doc_svc.list_documents(db, entity_type="asset", entity_id=asset.id)
     return templates.TemplateResponse(request, "partials/docs_section.html", {
@@ -496,7 +496,7 @@ def delete_space_note(
     request: Request,
     property_slug: str,
     space_slug: str,
-    note_id: int,
+    note_id: uuid.UUID,
     db: Session = Depends(get_db),
 ):
     note_svc.delete_note(db, note_id)

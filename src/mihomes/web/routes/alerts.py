@@ -1,5 +1,7 @@
 """Alerts routes."""
 
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
@@ -43,7 +45,7 @@ def alert_badge(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/{alert_id}/acknowledge", response_class=HTMLResponse)
-def acknowledge(request: Request, alert_id: int, db: Session = Depends(get_db)):
+def acknowledge(request: Request, alert_id: UUID, db: Session = Depends(get_db)):
     alert_svc.acknowledge_alert(db, alert_id)
     alerts = alert_svc.list_alerts(db, include_snoozed=True)
     return templates.TemplateResponse(
@@ -56,7 +58,7 @@ def acknowledge(request: Request, alert_id: int, db: Session = Depends(get_db)):
 @router.post("/{alert_id}/snooze", response_class=HTMLResponse)
 def snooze(
     request: Request,
-    alert_id: int,
+    alert_id: UUID,
     days: int = Form(1),
     db: Session = Depends(get_db),
 ):
@@ -70,7 +72,7 @@ def snooze(
 
 
 @router.post("/{alert_id}/resolve", response_class=HTMLResponse)
-def resolve(request: Request, alert_id: int, db: Session = Depends(get_db)):
+def resolve(request: Request, alert_id: UUID, db: Session = Depends(get_db)):
     alert = db.get(Alert, alert_id)
     if alert:
         alert.status = AlertStatus.RESOLVED

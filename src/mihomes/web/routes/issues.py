@@ -1,5 +1,7 @@
 """Issue routes."""
 
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
@@ -48,7 +50,7 @@ def _ctx(db: Session, property_id=None, active_tab: str = "current") -> dict:
 @router.get("/")
 def list_issues(
     request: Request,
-    property_id: int | None = None,
+    property_id: str | None = None,
     tab: str = "current",
     db: Session = Depends(get_db),
 ):
@@ -59,7 +61,7 @@ def list_issues(
 def create_issue(
     request: Request,
     title: str = Form(...),
-    property_id: int = Form(...),
+    property_id: str = Form(...),
     severity: str = Form("medium"),
     description: str = Form(""),
     reported_by_id: str | None = Form(None),
@@ -72,7 +74,7 @@ def create_issue(
         property_id_or_slug=str(property_id),
         severity=IssueSeverity(severity),
         description=description or None,
-        reported_by_id=int(reported_by_id) if reported_by_id else None,
+        reported_by_id=reported_by_id or None,
         space_id_or_slug=space_id or None,
     )
     return templates.TemplateResponse(request, "issues.html", _ctx(db, active_tab="current"))
@@ -85,7 +87,7 @@ def resolve_issue(
     resolved_by_id: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
-    issue_svc.resolve_issue(db, slug, resolved_by_id=int(resolved_by_id) if resolved_by_id else None)
+    issue_svc.resolve_issue(db, slug, resolved_by_id=resolved_by_id or None)
     return templates.TemplateResponse(request, "issues.html", _ctx(db, active_tab="current"))
 
 
@@ -106,13 +108,13 @@ def edit_issue(
         title=title,
         severity=IssueSeverity(severity),
         description=description or None,
-        reported_by_id=int(reported_by_id) if reported_by_id else None,
-        space_id=int(space_id) if space_id else None,
+        reported_by_id=reported_by_id or None,
+        space_id=space_id or None,
     )
     if status:
         kwargs["status"] = IssueStatus(status)
     if resolved_by_id:
-        kwargs["resolved_by_id"] = int(resolved_by_id)
+        kwargs["resolved_by_id"] = resolved_by_id
     issue_svc.update_issue(db, slug, **kwargs)
     new_status = kwargs.get("status")
     tab = "history" if new_status in _RESOLVED_STATUSES else "current"
@@ -138,7 +140,7 @@ def add_note(request: Request, slug: str, content: str = Form(...), db: Session 
 
 
 @router.delete("/{slug}/notes/{note_id}", response_class=HTMLResponse)
-def delete_note(request: Request, slug: str, note_id: int, db: Session = Depends(get_db)):
+def delete_note(request: Request, slug: str, note_id: UUID, db: Session = Depends(get_db)):
     note_svc.delete_note(db, note_id)
     issue = issue_svc.get_issue(db, slug)
     notes = note_svc.list_notes(db, f"issue:{issue.id}")
@@ -179,8 +181,8 @@ async def add_document(
 
 
 @router.delete("/{slug}/documents/{doc_id}", response_class=HTMLResponse)
-def delete_document(request: Request, slug: str, doc_id: int, db: Session = Depends(get_db)):
-    doc_svc.delete_document(db, str(doc_id))
+def delete_document(request: Request, slug: str, doc_id: str, db: Session = Depends(get_db)):
+    doc_svc.delete_document(db, doc_id)
     issue = issue_svc.get_issue(db, slug)
     docs = doc_svc.list_documents(db, entity_type="issue", entity_id=issue.id)
     return templates.TemplateResponse(request, "partials/docs_section.html", {

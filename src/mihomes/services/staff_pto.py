@@ -1,13 +1,13 @@
 """Staff PTO service — request creation, approval, denial, and balance tracking."""
 
 import logging
+import uuid
 from datetime import datetime, timezone
-from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from mihomes.models.staff_pto import PTOStatus, StaffPTORequest
 from mihomes.models.staff import Staff
+from mihomes.models.staff_pto import PTOStatus, StaffPTORequest
 from mihomes.models.task import Task, TaskStatus
 from mihomes.services.slug import resolve_identifier
 
@@ -62,10 +62,28 @@ def create_pto_request(
     return req
 
 
-def approve_pto(session: Session, request_id: int, decided_by: str = "admin") -> StaffPTORequest:
-    req = session.get(StaffPTORequest, request_id)
+def _pto_request(session: Session, request_id: uuid.UUID | str) -> StaffPTORequest:
+    """Load a PTO request by UUID, treating a malformed id as "not found".
+
+    G6.1 made these ids UUIDv7. The gateway hands us whatever the approver typed
+    into a chat reply, so a non-UUID string has to raise the same ValueError as a
+    valid-but-unknown id rather than reaching the driver as a bad UUID literal —
+    callers already turn ValueError into "could not approve, try again".
+    """
+    try:
+        pk = uuid.UUID(str(request_id))
+    except (ValueError, TypeError, AttributeError):
+        raise ValueError(f"PTO request #{request_id} not found") from None
+    req = session.get(StaffPTORequest, pk)
     if not req:
         raise ValueError(f"PTO request #{request_id} not found")
+    return req
+
+
+def approve_pto(
+    session: Session, request_id: uuid.UUID | str, decided_by: str = "admin"
+) -> StaffPTORequest:
+    req = _pto_request(session, request_id)
     if req.status != PTOStatus.PENDING:
         raise ValueError(f"PTO request #{request_id} is not pending (status: {req.status.value})")
     req.status = PTOStatus.APPROVED
@@ -76,10 +94,13 @@ def approve_pto(session: Session, request_id: int, decided_by: str = "admin") ->
     return req
 
 
-def deny_pto(session: Session, request_id: int, decided_by: str = "admin", reason: str | None = None) -> StaffPTORequest:
-    req = session.get(StaffPTORequest, request_id)
-    if not req:
-        raise ValueError(f"PTO request #{request_id} not found")
+def deny_pto(
+    session: Session,
+    request_id: uuid.UUID | str,
+    decided_by: str = "admin",
+    reason: str | None = None,
+) -> StaffPTORequest:
+    req = _pto_request(session, request_id)
     if req.status != PTOStatus.PENDING:
         raise ValueError(f"PTO request #{request_id} is not pending (status: {req.status.value})")
     req.status = PTOStatus.DENIED
@@ -140,7 +161,7 @@ def _sync_to_calendar(req: StaffPTORequest) -> None:
     import logging
     log = logging.getLogger("mihomes.staff_pto")
     try:
-        from mihomes.services.calendar_sync import is_google_auth_available, _get_provider
+        from mihomes.services.calendar_sync import _get_provider, is_google_auth_available
         if not is_google_auth_available():
             return
         from datetime import date, datetime, timezone
@@ -219,7 +240,10 @@ def notify_staff(session: Session, req: StaffPTORequest) -> bool:
         else:
             msg = f"🏠 Your PTO request for {dates_str} has been denied."
             if req.notes:
-                reason = [l for l in req.notes.splitlines() if l.startswith("Denied:")]
+                reason = [
+                    line for line in req.notes.splitlines()
+                    if line.startswith("Denied:")
+                ]
                 if reason:
                     msg += f" {reason[-1].replace('Denied: ', '')}"
         client.send_message(staff.whatsapp_phone, msg)

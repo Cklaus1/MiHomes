@@ -614,14 +614,19 @@ def handle_approval_messages(
             continue
 
         text = (message.get("text") or "").strip()
-        approve_match = re.match(r"APPROVE\s+(\d+)", text, re.IGNORECASE)
-        deny_match = re.match(r"DENY\s+(\d+)(?:\s+(.+))?", text, re.IGNORECASE)
+        # `(\S+)`, not `(\d+)`: SPEC-002 G6.1 made PTO request ids UUIDv7, so a
+        # digit-only pattern stopped matching altogether and the whole
+        # approve-by-reply flow went dead silently — no error, just no match.
+        # A malformed id now falls through to `approve_pto`, whose lookup raises and
+        # is caught by the handler below, so the approver still gets told it failed.
+        approve_match = re.match(r"APPROVE\s+(\S+)", text, re.IGNORECASE)
+        deny_match = re.match(r"DENY\s+(\S+)(?:\s+(.+))?", text, re.IGNORECASE)
         reply_target = message.get("jid")
 
         if approve_match:
             req_id = approve_match.group(1)
             try:
-                req = approve_pto(session, int(req_id), decided_by="approver")
+                req = approve_pto(session, req_id, decided_by="approver")
                 notify_staff(session, req)
                 if reply_target:
                     adapter.send(reply_target, f"PTO approved for {req.staff.name} — {', '.join(req.dates)} ✓")
@@ -637,7 +642,7 @@ def handle_approval_messages(
             req_id = deny_match.group(1)
             try:
                 req = deny_pto(
-                    session, int(req_id),
+                    session, req_id,
                     decided_by="approver", reason=deny_match.group(2) or None,
                 )
                 notify_staff(session, req)

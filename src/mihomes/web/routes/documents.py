@@ -79,7 +79,7 @@ def create_document(
         notes=notes or None,
         expires_at=date.fromisoformat(expires_at) if expires_at else None,
         entity_type="property" if property_id else None,
-        entity_id=int(property_id) if property_id else None,
+        entity_id=property_id or None,
     )
     return templates.TemplateResponse(request, "documents.html", _ctx(db))
 
@@ -104,7 +104,7 @@ def edit_document(
         notes=notes or None,
         expires_at=date.fromisoformat(expires_at) if expires_at else None,
         entity_type="property" if property_id else None,
-        entity_id=int(property_id) if property_id else None,
+        entity_id=property_id or None,
     )
     return templates.TemplateResponse(request, "documents.html", _ctx(db))
 

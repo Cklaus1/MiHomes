@@ -1,6 +1,7 @@
 """Contracts routes."""
 
 from datetime import date
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
@@ -78,7 +79,7 @@ def create_contract(
 
 
 @router.post("/{contract_id}/notes", response_class=HTMLResponse)
-def add_note(request: Request, contract_id: int, content: str = Form(...), db: Session = Depends(get_db)):
+def add_note(request: Request, contract_id: str, content: str = Form(...), db: Session = Depends(get_db)):
     note_svc.add_note(db, f"contract:{contract_id}", content)
     notes = note_svc.list_notes(db, f"contract:{contract_id}")
     return templates.TemplateResponse(request, "partials/notes_section.html", {
@@ -89,7 +90,7 @@ def add_note(request: Request, contract_id: int, content: str = Form(...), db: S
 
 
 @router.delete("/{contract_id}/notes/{note_id}", response_class=HTMLResponse)
-def delete_note(request: Request, contract_id: int, note_id: int, db: Session = Depends(get_db)):
+def delete_note(request: Request, contract_id: str, note_id: UUID, db: Session = Depends(get_db)):
     note_svc.delete_note(db, note_id)
     notes = note_svc.list_notes(db, f"contract:{contract_id}")
     return templates.TemplateResponse(request, "partials/notes_section.html", {
@@ -102,7 +103,7 @@ def delete_note(request: Request, contract_id: int, note_id: int, db: Session = 
 @router.post("/{contract_id}/documents", response_class=HTMLResponse)
 async def add_document(
     request: Request,
-    contract_id: int,
+    contract_id: str,
     title: str = Form(...),
     doc_type: str = Form("other"),
     file: UploadFile = File(...),
@@ -128,8 +129,8 @@ async def add_document(
 
 
 @router.delete("/{contract_id}/documents/{doc_id}", response_class=HTMLResponse)
-def delete_document(request: Request, contract_id: int, doc_id: int, db: Session = Depends(get_db)):
-    doc_svc.delete_document(db, str(doc_id))
+def delete_document(request: Request, contract_id: str, doc_id: str, db: Session = Depends(get_db)):
+    doc_svc.delete_document(db, doc_id)
     docs = doc_svc.list_documents(db, entity_type="contract", entity_id=contract_id)
     return templates.TemplateResponse(request, "partials/docs_section.html", {
         "docs": docs,
@@ -141,7 +142,7 @@ def delete_document(request: Request, contract_id: int, doc_id: int, db: Session
 @router.post("/{contract_id}/edit", response_class=HTMLResponse)
 def edit_contract(
     request: Request,
-    contract_id: int,
+    contract_id: str,
     notes: str = Form(""),
     start_date: str = Form(""),
     end_date: str = Form(""),
@@ -164,6 +165,6 @@ def edit_contract(
 
 
 @router.post("/{contract_id}/delete", response_class=HTMLResponse)
-def delete_contract(request: Request, contract_id: int, db: Session = Depends(get_db)):
+def delete_contract(request: Request, contract_id: str, db: Session = Depends(get_db)):
     contract_svc.delete_contract(db, contract_id)
     return templates.TemplateResponse(request, "contracts.html", _ctx(db))

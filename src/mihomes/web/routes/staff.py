@@ -1,5 +1,7 @@
 """Staff routes."""
 
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
@@ -49,7 +51,7 @@ def create_staff(
     role: str = Form("other"),
     phone: str = Form(""),
     email: str = Form(""),
-    property_ids: list[int] = Form(default=[]),
+    property_ids: list[str] = Form(default=[]),
     db: Session = Depends(get_db),
 ):
     member = staff_svc.create_staff(
@@ -68,7 +70,7 @@ def create_staff(
 def assign_property(
     request: Request,
     slug: str,
-    property_id: int = Form(...),
+    property_id: str = Form(...),
     db: Session = Depends(get_db),
 ):
     staff_svc.assign_to_property(db, slug, str(property_id))
@@ -84,7 +86,7 @@ def edit_staff(
     email: str = Form(""),
     role: str = Form(""),
     active: list[str] = Form(default=[]),
-    property_ids: list[int] = Form(default=[]),
+    property_ids: list[str] = Form(default=[]),
     db: Session = Depends(get_db),
 ):
     kwargs = {"name": name, "phone": phone or None, "email": email or None}
@@ -94,8 +96,13 @@ def edit_staff(
     kwargs["active"] = "1" in active
     member = staff_svc.update_staff(db, slug, **kwargs)
     # Sync property assignments to the submitted set.
+    #
+    # Both sides must be strings. Form values arrive as strings while `p.id` is a
+    # uuid.UUID after G6.1, so a mixed comparison makes every element look distinct:
+    # `selected - current` would be all of `selected` and `current - selected` all of
+    # `current`, re-assigning and re-removing everything on every edit.
     selected = set(property_ids)
-    current = {p.id for p in member.properties}
+    current = {str(p.id) for p in member.properties}
     for pid in selected - current:
         staff_svc.assign_to_property(db, member.slug, str(pid))
     for pid in current - selected:
@@ -122,7 +129,7 @@ def add_note(request: Request, slug: str, content: str = Form(...), db: Session 
 
 
 @router.delete("/{slug}/notes/{note_id}", response_class=HTMLResponse)
-def delete_note(request: Request, slug: str, note_id: int, db: Session = Depends(get_db)):
+def delete_note(request: Request, slug: str, note_id: UUID, db: Session = Depends(get_db)):
     note_svc.delete_note(db, note_id)
     member = staff_svc.get_staff(db, slug)
     notes = note_svc.list_notes(db, f"staff:{member.id}")

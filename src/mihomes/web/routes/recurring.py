@@ -1,6 +1,7 @@
 """Recurring expenses routes — rendered as a tab inside budget.html."""
 
 from datetime import date
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
@@ -59,7 +60,7 @@ def create_recurring(
 @router.post("/{expense_id}/edit", response_class=HTMLResponse)
 def edit_recurring(
     request: Request,
-    expense_id: int,
+    expense_id: str,
     name: str = Form(""),
     amount: str = Form(""),
     frequency: str = Form(""),
@@ -99,7 +100,7 @@ def generate_transactions(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/{expense_id}/notes", response_class=HTMLResponse)
-def add_note(request: Request, expense_id: int, content: str = Form(...), db: Session = Depends(get_db)):
+def add_note(request: Request, expense_id: str, content: str = Form(...), db: Session = Depends(get_db)):
     note_svc.add_note(db, f"recurring:{expense_id}", content)
     notes = note_svc.list_notes(db, f"recurring:{expense_id}")
     return templates.TemplateResponse(request, "partials/notes_section.html", {
@@ -110,7 +111,7 @@ def add_note(request: Request, expense_id: int, content: str = Form(...), db: Se
 
 
 @router.delete("/{expense_id}/notes/{note_id}", response_class=HTMLResponse)
-def delete_note(request: Request, expense_id: int, note_id: int, db: Session = Depends(get_db)):
+def delete_note(request: Request, expense_id: str, note_id: UUID, db: Session = Depends(get_db)):
     note_svc.delete_note(db, note_id)
     notes = note_svc.list_notes(db, f"recurring:{expense_id}")
     return templates.TemplateResponse(request, "partials/notes_section.html", {
@@ -121,6 +122,6 @@ def delete_note(request: Request, expense_id: int, note_id: int, db: Session = D
 
 
 @router.post("/{expense_id}/delete", response_class=HTMLResponse)
-def delete_recurring(request: Request, expense_id: int, db: Session = Depends(get_db)):
+def delete_recurring(request: Request, expense_id: str, db: Session = Depends(get_db)):
     recurring_svc.update_recurring_expense(db, expense_id, end_date=date.today())
     return templates.TemplateResponse(request, "budget.html", _ctx(db))

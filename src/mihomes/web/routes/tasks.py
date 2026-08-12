@@ -1,6 +1,7 @@
 """Task routes."""
 
 from datetime import date
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
@@ -102,8 +103,8 @@ def list_tasks(
     recurrence: str | None = None,
     db: Session = Depends(get_db),
 ):
-    pid = int(property_id) if property_id and property_id.strip() else None
-    aid = int(assignee_id) if assignee_id and assignee_id.strip() else None
+    pid = property_id.strip() or None if property_id else None
+    aid = assignee_id.strip() or None if assignee_id else None
     return templates.TemplateResponse(
         request, "tasks.html",
         _ctx(db, pid, status or None, overdue, due_week, aid, sort, recurrence),
@@ -114,7 +115,7 @@ def list_tasks(
 def create_task(
     request: Request,
     title: str = Form(...),
-    property_id: int = Form(...),
+    property_id: str = Form(...),
     priority: str = Form("medium"),
     due_date: str = Form(None),
     db: Session = Depends(get_db),
@@ -178,7 +179,7 @@ def add_note(request: Request, slug: str, content: str = Form(...), db: Session 
 
 
 @router.delete("/{slug}/notes/{note_id}", response_class=HTMLResponse)
-def delete_note(request: Request, slug: str, note_id: int, db: Session = Depends(get_db)):
+def delete_note(request: Request, slug: str, note_id: UUID, db: Session = Depends(get_db)):
     note_svc.delete_note(db, note_id)
     task = task_svc.get_task(db, slug)
     notes = note_svc.list_notes(db, f"task:{task.id}")

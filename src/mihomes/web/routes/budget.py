@@ -48,7 +48,7 @@ def _ctx(
     db: Session,
     active_tab: str = "overview",
     *,
-    analysis_property_id: int | None = None,
+    analysis_property_id: str | None = None,
     txn_search: str | None = None,
     txn_date_from: str | None = None,
     txn_date_to: str | None = None,
@@ -86,7 +86,14 @@ def _ctx(
 
     analysis_prop = None
     if analysis_property_id:
-        analysis_prop = next((p for p in properties if p.id == analysis_property_id), None)
+        # Compare as strings: the id arrives from a query param, and `p.id` is a
+        # uuid.UUID after G6.1 — a str/UUID comparison is silently always False, so
+        # the filter would quietly fall back to "no property selected" rather than
+        # erroring. The template's "all properties" option submits an empty value,
+        # which the truthiness check above already treats as unset.
+        analysis_prop = next(
+            (p for p in properties if str(p.id) == analysis_property_id), None
+        )
     if analysis_prop is None:
         analysis_prop = properties[0] if properties else None
     category_data: list = []
@@ -139,7 +146,7 @@ def _ctx(
 def budget_overview(
     request: Request,
     tab: str = "overview",
-    property_id: int | None = None,
+    property_id: str | None = None,
     txn_q: str = "",
     txn_date_from: str = "",
     txn_date_to: str = "",
@@ -157,7 +164,7 @@ def budget_overview(
 @router.post("/transactions", response_class=HTMLResponse)
 def add_transaction(
     request: Request,
-    property_id: int = Form(...),
+    property_id: str = Form(...),
     description: str = Form(...),
     amount: str = Form(...),
     category: str = Form("general"),
@@ -174,7 +181,7 @@ def add_transaction(
     budget_svc.add_transaction(
         db,
         amount=amount_val,
-        property_id_or_slug=str(property_id),
+        property_id_or_slug=property_id,
         category=category or "general",
         tx_date=date.today(),
         description=description,
@@ -186,7 +193,7 @@ def add_transaction(
 @router.post("/set", response_class=HTMLResponse)
 def set_budget(
     request: Request,
-    property_id: int = Form(...),
+    property_id: str = Form(...),
     category: str = Form(...),
     period: str = Form("monthly"),
     amount: str = Form(...),
@@ -209,7 +216,7 @@ def set_budget(
 
     budget_svc.set_budget(
         db,
-        property_id_or_slug=str(property_id),
+        property_id_or_slug=property_id,
         category=category,
         period=BudgetPeriod(period),
         amount=amount_val,

@@ -1,6 +1,7 @@
 """Consumable inventory routes."""
 
 from datetime import date
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
@@ -193,7 +194,7 @@ def restock(
 def delete_item_price(
     request: Request,
     slug: str,
-    entry_id: int,
+    entry_id: UUID,
     property_slug: str = Form(""),
     category: str = Form(""),
     db: Session = Depends(get_db),
@@ -208,7 +209,7 @@ def delete_item_price(
 def edit_item_price(
     request: Request,
     slug: str,
-    entry_id: int,
+    entry_id: UUID,
     price: str = Form(...),
     entry_date: str = Form(...),
     quantity: str = Form("1"),

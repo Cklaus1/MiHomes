@@ -1,6 +1,8 @@
 """Calendar routes — appointments and property events in a monthly view."""
 
+import logging
 from datetime import date, datetime, time, timedelta, timezone
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
@@ -13,7 +15,6 @@ from mihomes.services import event as event_svc
 from mihomes.services import property as prop_svc
 from mihomes.services import vendor as vendor_svc
 from mihomes.web.deps import get_db, templates
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ def _build_calendar_weeks(month_date: date) -> list[list[date]]:
     return weeks
 
 
-def _ctx(db: Session, month_date: date, property_id: int | None = None) -> dict:
+def _ctx(db: Session, month_date: date, property_id: str | None = None) -> dict:
     month_start = month_date.replace(day=1)
     # Last day of month
     if month_start.month == 12:
@@ -187,7 +188,7 @@ def _ctx(db: Session, month_date: date, property_id: int | None = None) -> dict:
 def calendar_view(
     request: Request,
     month: str | None = None,
-    property_id: int | None = None,
+    property_id: str | None = None,
     db: Session = Depends(get_db),
 ):
     if month:
@@ -204,7 +205,7 @@ def calendar_view(
 def create_appointment(
     request: Request,
     title: str = Form(...),
-    property_id: int = Form(...),
+    property_id: str = Form(...),
     appt_date: str = Form(...),
     vendor_id: str = Form(""),
     contract_id: str = Form(""),
@@ -224,8 +225,8 @@ def create_appointment(
         title=title,
         property_id_or_slug=str(property_id),
         appt_date=date.fromisoformat(appt_date),
-        vendor_id=int(vendor_id) if vendor_id else None,
-        contract_id=int(contract_id) if contract_id else None,
+        vendor_id=vendor_id or None,
+        contract_id=contract_id or None,
         start_time=parsed_time,
         appointment_type=appointment_type,
         notes=notes or None,
@@ -235,14 +236,14 @@ def create_appointment(
     except ValueError:
         month_date = date.today().replace(day=1)
     # Use the calendar's active filter, not the appointment's property
-    cal_filter = int(filter_property_id) if filter_property_id else None
+    cal_filter = filter_property_id or None
     return templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date, cal_filter))
 
 
 @router.post("/appointments/{appointment_id}/edit", response_class=HTMLResponse)
 def edit_appointment(
     request: Request,
-    appointment_id: int,
+    appointment_id: UUID,
     title: str = Form(...),
     appt_date: str = Form(...),
     vendor_id: str = Form(""),
@@ -260,8 +261,8 @@ def edit_appointment(
     kwargs = dict(
         title=title,
         date=date.fromisoformat(appt_date),
-        vendor_id=int(vendor_id) if vendor_id else None,
-        contract_id=int(contract_id) if contract_id else None,
+        vendor_id=vendor_id or None,
+        contract_id=contract_id or None,
         start_time=parsed_time,
         appointment_type=appointment_type,
         notes=notes or None,
@@ -277,7 +278,7 @@ def edit_appointment(
 @router.post("/appointments/{appointment_id}/mark-serviced", response_class=HTMLResponse)
 def mark_appointment_serviced(
     request: Request,
-    appointment_id: int,
+    appointment_id: UUID,
     actual_cost: str = Form(""),
     month: str = Form(""),
     db: Session = Depends(get_db),
@@ -299,7 +300,7 @@ def mark_appointment_serviced(
 @router.post("/appointments/{appointment_id}/delete", response_class=HTMLResponse)
 def delete_appointment(
     request: Request,
-    appointment_id: int,
+    appointment_id: UUID,
     month: str = Form(""),
     db: Session = Depends(get_db),
 ):
@@ -314,7 +315,7 @@ def delete_appointment(
 @router.post("/events/{event_id}/delete", response_class=HTMLResponse)
 def delete_event_from_calendar(
     request: Request,
-    event_id: int,
+    event_id: UUID,
     month: str = Form(""),
     db: Session = Depends(get_db),
 ):

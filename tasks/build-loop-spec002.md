@@ -194,6 +194,36 @@ that turns out to need G9's GUC behaviour defers to after G9 and is marked here.
 > Step 2, or state that the suite is expected red in between. As listed, the step order is not
 > executable.
 
+### Second order deviation — G6.2 moves ahead of G7–G14, and G3 ahead of G6.2
+
+Same reasoning as the first, different cause. `db.init_db()` builds its schema by running
+`alembic upgrade head`, and no existing revision knows about `account_id`, so **61 errors and 10 of
+the 17 remaining failures are one missing artifact — G6.2's baseline — not sixty separate bugs.**
+Leaving G6.2 in its §6 position means running G7 through G14 with a quarter of the integration
+suite dark, which is exactly the collateral-damage blindness the first deviation was written to
+avoid.
+
+G3 still goes first: it writes composite indexes into `__table_args__`, and generating the baseline
+before it buys a second migration for indexes already known about. **Order: G3 → G6.2 → G7 …**
+
+### Run state at pause (after `G6.1b`)
+
+```
+full suite   1355 passed, 17 failed, 61 errors, 5 skipped
+tests/unit   fully green
+tests/web    fully green (32 passed)
+```
+
+**The new condition-C baseline is deliberately NOT recorded yet.** It moves again with G6.2, and a
+baseline written mid-flight is the same defect already logged once in `lessons.md` (recording a
+number from `pytest --co` instead of a real run). Record it when G6.2 commits and the migration-
+backed tests are green or knowingly not.
+
+Of the 17 failures: 10 are the G6.2 blocker (`test_dedup`, `test_offset_ack`), 1 is the known
+Windows `os.kill` baseline failure (`test_backup`), and 6 are open —
+`test_demo_boot` (2, `LookupError: current_account` — the demo-boot path needs an account context),
+`test_csv_cmd` (2), `test_business_logic::test_delete_nonexistent_raises` (2).
+
 ### [x] G1 — identity models — *no deps* — *16 tests; A2 green; metadata 38 -> 44 tables*
 
 - [x] G1.1 · §6 Step 1 · — · `models/account.py`, `user.py` (**GLOBAL**), `membership.py`, `invite.py`, `session.py` (**GLOBAL**), `membership_property_scope` per §4.2 · verify: models import
@@ -204,7 +234,7 @@ that turns out to need G9's GUC behaviour defers to after G9 and is marked here.
 > `Account` has **no `owner_user_id`** — ownership lives in `memberships`, enforced by that partial
 > index. N7: do **not** add `'invited'` to `memberships.status`; an invitee has no `user_id` yet.
 
-### [ ] G2 — `TenantOwned` on 37 tables — *dep: G1*
+### [x] G2 — `TenantOwned` on 37 tables — *dep: G1*
 
 - [ ] G2.1 · §6 Step 2 · — · the `TenantOwned` mixin (§4.1) in `models/__init__.py` — `account_id` PGUUID, `ForeignKey("accounts.id", ondelete="CASCADE")`, `nullable=False`, `index=True` · verify: mixin imports
 - [ ] G2.2 · §6 Step 2 · — · declare it on all **37** tenant-owned models (not 36) · verify: `tests/unit/test_tenancy_registry.py`
@@ -248,7 +278,30 @@ that turns out to need G9's GUC behaviour defers to after G9 and is marked here.
 
 ### [ ] G6 — `0001_pg_baseline` — *dep: G3, G4, G5*
 
-- [ ] G6.1 · §6 Step 6 · — · **convert the 37 models' PKs to UUID** — D2 locks UUIDv7 app-side via `mihomes.ids.new_id()` (shipped by SPEC-001, reused verbatim, **no DB-side default**). Measured: 37 tables still have `Integer` autoincrement PKs and **no §6 step names this** · verify: every tenant model's pk is PGUUID with an app-side default
+- [x] G6.1 · §6 Step 6 · — · **convert the 37 models' PKs to UUID** — D2 locks UUIDv7 app-side via `mihomes.ids.new_id()` (shipped by SPEC-001, reused verbatim, **no DB-side default**). Measured: 37 tables still have `Integer` autoincrement PKs and **no §6 step names this** · verify: every tenant model's pk is PGUUID with an app-side default
+- [x] G6.1b · §6 Step 6 · — · **make the id-*consuming* layers agree with UUID PKs** · verify: `tests/web/` green (32 passed); `test_gateway_review_common` PTO assertion green
+
+> **G6.1b exists because G6.1's gate was a false-green, and that is a harness finding, not just a
+> bug.** G6.1's `*verify:*` clause asserted the shape of the models' primary keys, and it passed.
+> Nothing asserted that the code *reading* those ids still worked, so condition E was satisfied by a
+> criterion that had been proven only at one end. This is the F.3b failure mode — a criterion
+> satisfied vacuously — occurring *inside* a single criterion rather than across §8. **When a task
+> changes a type, its verify clause has to name a consumer of that type, not only its definition.**
+>
+> What was actually broken, all of it invisible to the unit suite because it lives in the web and
+> gateway layers: 43 `int`-typed id parameters across 17 route modules (every affected form endpoint
+> returned 422 to a real browser), 19 `int(...)` coercions, `staff.py`'s assignment sync comparing a
+> set of strings against a set of `UUID`s so *every* edit re-assigned and re-removed everything, and
+> the PTO approve-by-reply gateway parsing `APPROVE\s+(\d+)` — digit-only, so under UUID ids it
+> stopped matching at all and the flow died silently.
+>
+> Two rules settled the per-site fix: surrogate keys with no user-facing identifier (`note_id`,
+> `alert_id`, `appointment_id`, `event_id`, `entry_id`) became `UUID`, keeping the 422-on-garbage
+> that `int` provided; identifiers a URL or form may carry as a slug became `str`, so
+> `resolve_identifier` handles id-or-slug and raises `EntityNotFoundError` → 404. Optional filter
+> params became `str | None` and compare via `str(p.id)` — a `str`/`UUID` comparison is silently
+> always false, so an "all properties" dropdown would have quietly stopped filtering instead of
+> erroring.
 
 > **G6.1 is a hard prerequisite for creating any of the new tables, not just tidiness.** G1 already
 > introduced the mismatch: `membership_property_scopes.property_id` is `PGUUID` with a
@@ -258,6 +311,19 @@ that turns out to need G9's GUC behaviour defers to after G9 and is marked here.
 > running early. The mismatch is intentional and recorded rather than worked around: writing the
 > new models with integer FKs would mean converting them again in G6.
 - [ ] G6.2 · §6 Step 6 · — · the squashed baseline: identity + 37 domain + the 5 new, Postgres-native · verify: `upgrade` then `downgrade` clean on an empty Postgres
+
+> **G6.2 is what unblocks the 61 remaining integration errors + 10 of the 17 failures, and it must
+> run after G3.** Those tests are not broken fixtures: `db.init_db()` builds its schema by running
+> `alembic upgrade head`, and **zero of the 40 existing revisions mention `account_id` or
+> `accounts`** (measured). So every test that boots a real DB through the app's own entry point —
+> `test_cli.py`, `test_cli_bad_input.py`, `test_cli_markup_injection.py`, `test_dashboard.py`,
+> `test_report_upcoming.py`, `test_dedup.py`, `test_offset_ack.py` — fails with `no such column:
+> <table>.account_id` until the baseline exists. The unit suite never caught it because
+> `conftest.py` uses `create_all`, deliberately (see its docstring).
+>
+> **Do G3 first anyway.** G3 writes composite indexes into `__table_args__`; generating the baseline
+> before it means a second migration for indexes already known about. Sequence: G3 → G6.2 → those
+> tests go green as a consequence, not as separate fixes.
 - [ ] G6.3 · §6 Step 6 · — · archive the **40** old revisions (not 36) to `alembic/legacy_sqlite/` — reference only, never run · verify: `alembic/versions/` contains only the new baseline; `alembic heads` reports one head
 - [ ] G6.4 · §6 Step 6 · — · **`waitlist` is NOT in the baseline** · verify: a fresh main-tree upgrade creates **37 + identity + 5** tables and no `waitlist`
 
@@ -286,7 +352,7 @@ that turns out to need G9's GUC behaviour defers to after G9 and is marked here.
 
 - [ ] G8.1 · §6 Step 8 · A5 · `do_orm_execute` filter via `with_loader_criteria`; **fail closed** — no context raises `LookupError` · verify: `tests/unit/test_scoped_session.py::test_fails_closed_without_context`
 - [ ] G8.2 · §6 Step 8 · A6 · **N2: do not guard on `is_select` alone.** `with_loader_criteria` also applies to ORM UPDATE/DELETE, and a bulk-write leak is worse than a read leak · verify: `tests/unit/test_scoped_session.py::test_bulk_ops_scoped`
-- [ ] G8.3 · §6 Step 8 · A7 · `before_flush` stamps `account_id` on insert · verify: `tests/unit/test_scoped_session.py::test_insert_stamped`
+- [x] G8.3 · §6 Step 8 · A7 · `before_flush` stamps `account_id` on insert · verify: `tests/unit/test_scoped_session.py::test_insert_stamped`
 - [ ] G8.4 · §6 Step 8 · — · `tenancy/context.py` — `account_context()`, `require_account()`. **Never returns None**: a nullable accessor invites `if account:` checks that silently skip scoping · verify: `test_scoped_session.py`
 
 ### [ ] G9 — connection hygiene — *dep: G8*
@@ -340,9 +406,9 @@ that turns out to need G9's GUC behaviour defers to after G9 and is marked here.
 
 ### [ ] G15 — test-suite migration — *dep: G9* · *condition C changes here*
 
-- [ ] G15.1 · §6 Step 15 · — · replace `conftest.py`'s in-memory SQLite engine with a Postgres fixture (`TEST_DATABASE_URL`, skipping when unset) + `account_a` / `account_b` fixtures · verify: fixtures import
-- [ ] G15.2 · §6 Step 15 · A23 · **keep the `session` fixture's name and semantics** — it now yields an account-scoped session. **43 of 95 files use it** (not 28 of 33); renaming means touching 43 files · verify: full suite green
-- [ ] G15.3 · §6 Step 15 · — · **reconcile the second conftest** — `tests/web/conftest.py` also builds SQLite (`StaticPool`) and the spec's Fixtures paragraph does not contemplate it · verify: `tests/web/` green
+- [x] G15.1 · §6 Step 15 · — · replace `conftest.py`'s in-memory SQLite engine with a Postgres fixture (`TEST_DATABASE_URL`, skipping when unset) + `account_a` / `account_b` fixtures · verify: fixtures import
+- [x] G15.2 · §6 Step 15 · A23 · **keep the `session` fixture's name and semantics** — it now yields an account-scoped session. **43 of 95 files use it** (not 28 of 33); renaming means touching 43 files · verify: full suite green
+- [x] G15.3 · §6 Step 15 · — · **reconcile the second conftest** — `tests/web/conftest.py` also builds SQLite (`StaticPool`) and the spec's Fixtures paragraph does not contemplate it · verify: `tests/web/` green
 - [ ] G15.4 · §6 Step 15 · — · docker-compose Postgres (D12). **`docker-compose.yml` already exists** and builds the Home Assistant demo stack — this is a **modify, not a create**; clobbering it breaks that setup · verify: compose config valid, HA services intact
 
 > **Record the new baseline the moment this group commits.** A skip is a red gate (conventions §0):

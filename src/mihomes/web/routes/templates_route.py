@@ -50,7 +50,7 @@ def create_template(
 def run_template(
     request: Request,
     slug: str,
-    property_id: int = Form(...),
+    property_id: str = Form(...),
     due_date: str = Form(""),
     priority: str = Form("medium"),
     db: Session = Depends(get_db),

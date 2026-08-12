@@ -1,6 +1,7 @@
 """Work Orders routes."""
 
 from datetime import date
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
@@ -69,7 +70,7 @@ def create_work_order(
         due_date=date.fromisoformat(due_date) if due_date else None,
     )
     if issue_id:
-        wo_svc.update_work_order(db, wo.slug, issue_id=int(issue_id))
+        wo_svc.update_work_order(db, wo.slug, issue_id=issue_id)
     return templates.TemplateResponse(request, "work_orders.html", _ctx(db))
 
 
@@ -86,7 +87,7 @@ def add_note(request: Request, slug: str, content: str = Form(...), db: Session 
 
 
 @router.delete("/{slug}/notes/{note_id}", response_class=HTMLResponse)
-def delete_note(request: Request, slug: str, note_id: int, db: Session = Depends(get_db)):
+def delete_note(request: Request, slug: str, note_id: UUID, db: Session = Depends(get_db)):
     note_svc.delete_note(db, note_id)
     wo = wo_svc.get_work_order(db, slug)
     notes = note_svc.list_notes(db, f"workorder:{wo.id}")
@@ -117,7 +118,7 @@ def edit_work_order(
         title=title,
         description=description or None,
         completion_notes=completion_notes or None,
-        issue_id=int(issue_id) if issue_id else None,
+        issue_id=issue_id or None,
     )
     if estimated_cost:
         kwargs["estimated_cost"] = float(estimated_cost)
@@ -236,8 +237,8 @@ async def add_document(
 
 
 @router.delete("/{slug}/documents/{doc_id}", response_class=HTMLResponse)
-def delete_document(request: Request, slug: str, doc_id: int, db: Session = Depends(get_db)):
-    doc_svc.delete_document(db, str(doc_id))
+def delete_document(request: Request, slug: str, doc_id: str, db: Session = Depends(get_db)):
+    doc_svc.delete_document(db, doc_id)
     wo = wo_svc.get_work_order(db, slug)
     docs = doc_svc.list_documents(db, entity_type="work_order", entity_id=wo.id)
     return templates.TemplateResponse(request, "partials/docs_section.html", {

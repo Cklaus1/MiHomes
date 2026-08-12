@@ -1,5 +1,7 @@
 """Note service — polymorphic notes on any entity."""
 
+import uuid
+
 from sqlalchemy.orm import Session
 
 from mihomes.models.note import Note
@@ -88,7 +90,7 @@ def update_note(session: Session, note_id: int, content: str) -> Note:
     return note
 
 
-def delete_note(session: Session, note_id: int) -> None:
+def delete_note(session: Session, note_id: uuid.UUID | str) -> None:
     note = session.get(Note, note_id)
     if note is None:
         raise ValueError(f"Note {note_id} not found")

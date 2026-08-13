@@ -215,6 +215,34 @@ Review this at the start of each session.
   **Rule:** never calibrate a "no unscoped X remain" gate from a search rooted at `src`.
   A false-green there is invisible: the gate reports clean *because* it looked nowhere.
 
+- **"N tests are blocked on X" is a hypothesis until X lands.** I wrote — in the harness and in two
+  commit messages — that 61 integration errors were "one missing artifact, not sixty bugs", the
+  missing artifact being the Postgres baseline. The baseline landed and **the count did not move:
+  61 before, 61 after.** They were two *stacked* blockers: the schema (`no such column account_id`),
+  and behind it a missing account context (`LookupError: current_account`). Fixing the first only
+  revealed the second.
+  **Rule:** when several tests fail for one visible reason, that reason is the *first* blocker, not
+  necessarily the only one. Say "blocked on X, and unknown what is behind it" — a reader planning
+  around "61 tests go green when X lands" would have been wrong. The diagnosis was right; the
+  extrapolation from it was not.
+- **A test that passes alone and fails in the suite is the suite telling you about shared state.**
+  This paid out twice in one session. (a) `alembic.ini`'s `fileConfig()` defaults to
+  `disable_existing_loggers=True`, so a new migration test's `command.upgrade()` silently switched
+  off loggers three `test_email_service` tests assert on. (b) A `SlugMixin` count was 15 alone and 16
+  in the suite, because a test-only `Dummy` model registers itself on the shared `Base.metadata` when
+  its module imports. Neither was reproducible in isolation, which is exactly why the full run is
+  the gate and not an afterthought.
+- **Don't assert on source text when you can assert on structure.** A guard I wrote checked
+  `"waitlist" not in baseline_source` and failed on the baseline's own **docstring**, which mentions
+  `waitlist` to explain why it is absent. Parsing `op.create_table('X')` asserts the schema; grepping
+  the file asserts the prose. Same class of error as gating on `pytest --co` instead of a real run.
+- **A dead exclusion list is not inert — it is a silent-omission machine.** `IDENTITY_TABLES`
+  excluded six tables from autogenerate for good reason, and its own comment said it would retire
+  with the tree. Autogenerating the baseline *with it still in place* would have produced a schema
+  missing all six identity tables, with no error. This is the third time this session that stale
+  config caused silent omission rather than a loud failure (see also the `src/web/` gitignore line
+  and G6.1's one-ended type gate). **Deleting retired config is part of the change that retires it.**
+
 ## Fifth Review Lessons (2026-03-27)
 - **SIGPIPE data loss**: When CLI output is piped through `head`/`tail`/etc, SIGPIPE can kill the process before `get_session()` commits. Fix: collect data inside `with get_session()`, print AFTER the session context exits (so commit happens before any output). Critical for commands with long output that modify data.
 - Always test CLI commands with `| head -1` to catch SIGPIPE issues.

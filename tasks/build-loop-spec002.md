@@ -85,10 +85,20 @@ failures, or CI sees any, it is real.**
 **Invoke pytest as `py -m pytest`**, never `python` (Store shim). Pass DB env inline — the worktree
 guard rejects `export` chains.
 
-### Two expected skips, declared by name
+### Two expected skips, declared by name — ✅ RETIRED at G6.3
+
+**Both are gone, and the skip count went 5 → 3 as a result.** G6.3 deleted the two files along with
+the revisions they checked, and `tests/integration/test_pg_baseline.py::test_baseline_matches_metadata`
+replaces their oracle with a Postgres one that needs no carve-out — it asserts the same
+"models match schema" property against the tree that actually runs, so it can be green rather than
+skipped. The remaining 3 skips are the POSIX-only watchdog test and two platform skips, none of them
+SPEC-002's.
+
+The original declaration is kept below because it is the record of *why* a skip was tolerated for
+eleven groups, and conventions §0 treats an undeclared skip as red.
 
 Conventions §0 says **a skipped test is a red gate**, so any skip has to be declared here or the
-F.2 walk should flag it. Exactly two are expected for the duration of this spec:
+F.2 walk should flag it. Exactly two were expected for the duration of this spec:
 
 ```
 tests/integration/test_migration_reconciliation.py::test_g_r4d_autogenerate_empty
@@ -110,10 +120,12 @@ the case the rule exists for. The behaviour these two files cover is not lost:
 `test_money_cast_preserves_values` and `test_money_round_trip` assert the money cast's *values*
 rather than its schema shape and stay green, as do the four G-R4 gate tests either side of them.
 
-> **Note the `alembic/env.py` exclusion is different and stays.** `IDENTITY_TABLES` is excluded
-> there so `alembic revision --autogenerate` does not propose creating six tables in the SQLite
-> tree — and G6 needs autogenerate *working* to build the baseline. That exclusion retires with the
-> tree too, but it is load-bearing until then.
+> **The `alembic/env.py` exclusion also retired — at G6.3, on schedule.** `IDENTITY_TABLES` was
+> excluded there so `alembic revision --autogenerate` would not propose creating six tables in the
+> SQLite tree, and it was load-bearing right up until the baseline. Removing it was a *precondition*
+> for G6.2, not a cleanup after: autogenerating with it still in place would have produced a
+> baseline **silently missing all six identity tables**. The constant is deleted from
+> `mihomes/migration_scope.py` rather than left unused.
 
 ---
 
@@ -435,7 +447,7 @@ suite. That is exactly how it was found: the test passed in isolation and failed
 > something establishes a bootstrap account context.** That belongs to **G13** (CLI re-point) — noted
 > here so it is not rediscovered as a G6.2 migration problem, which is what it will look like.
 
-### [ ] G6 — `0001_pg_baseline` — *dep: G3, G4, G5*
+### [x] G6 — `0001_pg_baseline` — *dep: G3, G4, G5* — *43 tables, 52 triggers, 22 enums; 6 tests*
 
 - [x] G6.1 · §6 Step 6 · — · **convert the 37 models' PKs to UUID** — D2 locks UUIDv7 app-side via `mihomes.ids.new_id()` (shipped by SPEC-001, reused verbatim, **no DB-side default**). Measured: 37 tables still have `Integer` autoincrement PKs and **no §6 step names this** · verify: every tenant model's pk is PGUUID with an app-side default
 - [x] G6.1b · §6 Step 6 · — · **make the id-*consuming* layers agree with UUID PKs** · verify: `tests/web/` green (32 passed); `test_gateway_review_common` PTO assertion green
@@ -469,22 +481,80 @@ suite. That is exactly how it was found: the test passed in isolation and failed
 > real database until this conversion lands, which is why G6 depends on G3/G4/G5 rather than
 > running early. The mismatch is intentional and recorded rather than worked around: writing the
 > new models with integer FKs would mean converting them again in G6.
-- [ ] G6.2 · §6 Step 6 · — · the squashed baseline: identity + 37 domain + the 5 new, Postgres-native · verify: `upgrade` then `downgrade` clean on an empty Postgres
+- [x] G6.2 · §6 Step 6 · — · the squashed baseline: identity + domain + the 5 new, Postgres-native · verify: `tests/integration/test_pg_baseline.py::test_upgrade_then_downgrade_is_clean`
+- [x] G6.3 · §6 Step 6 · — · archive the **40** old revisions to `alembic/legacy_sqlite/` · verify: `test_pg_baseline.py::test_single_head_and_no_legacy_revisions`
+- [x] G6.4 · §6 Step 6 · — · **`waitlist` is NOT in the baseline** · verify: `test_pg_baseline.py::test_waitlist_is_not_in_the_baseline` + `test_migration_waitlist.py::test_the_two_trees_do_not_overlap`
 
-> **G6.2 is what unblocks the 61 remaining integration errors + 10 of the 17 failures, and it must
-> run after G3.** Those tests are not broken fixtures: `db.init_db()` builds its schema by running
-> `alembic upgrade head`, and **zero of the 40 existing revisions mention `account_id` or
-> `accounts`** (measured). So every test that boots a real DB through the app's own entry point —
-> `test_cli.py`, `test_cli_bad_input.py`, `test_cli_markup_injection.py`, `test_dashboard.py`,
-> `test_report_upcoming.py`, `test_dedup.py`, `test_offset_ack.py` — fails with `no such column:
-> <table>.account_id` until the baseline exists. The unit suite never caught it because
-> `conftest.py` uses `create_all`, deliberately (see its docstring).
->
-> **Do G3 first anyway.** G3 writes composite indexes into `__table_args__`; generating the baseline
-> before it means a second migration for indexes already known about. Sequence: G3 → G6.2 → those
-> tests go green as a consequence, not as separate fixes.
-- [ ] G6.3 · §6 Step 6 · — · archive the **40** old revisions (not 36) to `alembic/legacy_sqlite/` — reference only, never run · verify: `alembic/versions/` contains only the new baseline; `alembic heads` reports one head
-- [ ] G6.4 · §6 Step 6 · — · **`waitlist` is NOT in the baseline** · verify: a fresh main-tree upgrade creates **37 + identity + 5** tables and no `waitlist`
+**Measured after `upgrade`:** 43 tables + `alembic_version`, 52 drift triggers, 22 enum types, the
+guard function present, no `waitlist`. `alembic check` reports **"No new upgrade operations
+detected"** — the baseline matches `Base.metadata` exactly, which is the empty-autogenerate oracle
+the two deleted SQLite tests used to carry, now green on the tree that actually runs.
+
+### ✗ CORRECTION — "the 61 errors are one missing artifact" was wrong
+
+I wrote that in this file and in two commit messages, and the baseline proves it false. **The count
+did not move: 61 errors before G6.2, 61 after.** They were **two stacked blockers**, and fixing the
+first only exposed the second:
+
+| | before G6.2 | after G6.2 |
+|---|---|---|
+| cause | `sqlite3.OperationalError: no such column: <table>.account_id` | `LookupError: <ContextVar 'current_account'>` |
+| owner | G6.2 (schema) | **G13** (no account context in the CLI path) |
+
+Verified, not assumed: all 61 errors across all five files (`test_cli.py` ×48,
+`test_cli_bad_input.py` ×8, `test_cli_markup_injection.py` ×2, `test_dashboard.py` ×2,
+`test_report_upcoming.py` ×1) are now `LookupError`. The schema blocker is genuinely gone — the
+migration builds `account_id` on every table — but these tests still cannot pass until something
+establishes a bootstrap account context, which is the gap already recorded under G5 and assigned to
+G13. **The lesson: "N tests are blocked on X" is a hypothesis until X lands.** I stated it as fact
+twice, and a reader planning around it would have expected 61 tests to go green here.
+
+**What did move:** failures 17 → 17 with a different composition (10 of the old ones were
+`test_dedup`/`test_offset_ack`, which now fail on the same `LookupError` rather than on the schema),
+and **the two expected skips in §0.1 are gone** — retired exactly as predicted, taking the skip
+count from 5 to 3.
+
+### Four things the migration needed that autogenerate does not produce
+
+1. **`DROP TYPE` for all 22 enums in `downgrade()`.** `op.drop_table` does not drop the Postgres
+   enum type it created, so `upgrade → downgrade → upgrade` died on "type already exists". The
+   spec's verify clause is exactly that cycle, so without this the gate fails — and a downgrade that
+   leaves types behind *looks* clean, because every table is gone. Only re-upgrading catches it.
+2. **An import for the custom `Money` type.** Autogenerate renders it fully qualified as
+   `mihomes.type.money.Money()` and emits no import, so the generated file raised `NameError` on the
+   first money column.
+3. **The drift-guard DDL, imported not pasted** — `DRIFT_GUARD_FUNCTION` and
+   `trigger_ddl_statements(Base.metadata)` come from `mihomes/tenancy/drift_guard.py`, so the
+   migration and `create_all` cannot diverge. `test_drift_guard_triggers_created_by_the_migration`
+   closes the gap that `test_drift_guard.py` leaves open: that file proves the guard exists in the
+   *`create_all`-built* suite database and would stay green if the migration forgot it entirely.
+4. **A dialect guard on the guard.** `CREATE OR REPLACE FUNCTION` is a syntax error on SQLite, and
+   `install_drift_guard()` already skips non-Postgres — the migration now applies the same rule, so
+   the two paths cannot differ by backend. **Consequence, stated plainly: a SQLite database built
+   from this migration has no drift guard and no RLS.** SPEC-002 retires SQLite (RLS, the non-owner
+   role, and transaction-local `set_config` all require Postgres); until G13 re-points
+   `init_db()`'s default, those CLI tests exercise application logic against a schema with no tenant
+   enforcement and **are not evidence for A21.**
+
+> **`IDENTITY_TABLES` retired with the tree it protected.** It excluded the six identity tables from
+> `alembic/env.py`'s autogenerate so the old oracles would not read them as drift. Leaving it in
+> place would have generated a baseline **silently missing six tables** — its own comment predicted
+> this retirement, and removing it (rather than leaving dead config) is the same call as the
+> `src/web/` gitignore line.
+
+> **Tests deleted: 10.** `test_migration_reconciliation.py` (7) and `test_money_migration.py` (2)
+> replayed the archived chain, plus one migration-level test in `test_vendor_properties.py` written
+> against integer PKs. Nothing lasting went with them — `tests/unit/test_money_type.py` covers the
+> `Money` type itself, and `test_pg_baseline.py` (6 new tests) replaces their oracle with a stronger
+> Postgres one. `alembic/legacy_sqlite/README.md` records the reasoning at the archive.
+
+> **A test of mine polluted the suite, caught only by the full run.** `alembic.ini`'s
+> `fileConfig()` defaults to `disable_existing_loggers=True`, so each `command.upgrade()` in
+> `test_pg_baseline.py` silently switched off loggers configured earlier — three `test_email_service`
+> tests failed in the full suite while passing in isolation. Fixed by clearing
+> `cfg.config_file_name`. **A test that passes alone and fails in the suite is the suite telling you
+> about shared state**, and this is the second time that signal paid out today (the first being
+> `dummy` in the SlugMixin count).
 
 > **Why `waitlist` is excluded — decided 2026-08-10.** D3 lists it as a global table, and SPEC-001
 > built it in a **separate `alembic_landing/` tree** with its own database (D1: *"shares the stack

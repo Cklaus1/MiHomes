@@ -13,27 +13,14 @@ second tree at all, so this guard is ours rather than the spec's.
 
 from __future__ import annotations
 
-__all__ = ["IDENTITY_TABLES", "VERSION_TABLE"]
+__all__ = ["VERSION_TABLE"]
 
 VERSION_TABLE = "alembic_version_landing"
 
-# Tables that live on Base.metadata but are NOT in the legacy SQLite tree.
-#
-# The `alembic/` tree's autogenerate oracles compare the SQLite schema against
-# Base.metadata, so anything on the metadata that SQLite does not have reads as
-# drift. `waitlist` is excluded because alembic_landing/ owns it; these six are
-# excluded because SPEC-002's Postgres baseline (Step 6) creates them and the
-# legacy SQLite chain never will.
-#
-# This is legitimate drift, not a false positive — the tables really are absent
-# from that schema. Once 0001_pg_baseline lands and the legacy revisions move to
-# alembic/legacy_sqlite/, these oracles retire with the tree they check, and this
-# set retires with them.
-IDENTITY_TABLES = frozenset({
-    "accounts",
-    "users",
-    "memberships",
-    "membership_property_scopes",
-    "invites",
-    "sessions",
-})
+# `IDENTITY_TABLES` used to live here: the six SPEC-002 identity tables, excluded from
+# the `alembic/` tree's autogenerate so its oracles would not read them as drift against
+# a SQLite schema that never created them. Its own comment said it would retire with that
+# tree, and G6.3 is where that happened — `0001_pg_baseline` creates those tables, the
+# legacy revisions moved to `alembic/legacy_sqlite/`, and the two oracles were deleted.
+# Removed rather than left in place: a stale exclusion list is how a baseline ends up
+# silently missing six tables.

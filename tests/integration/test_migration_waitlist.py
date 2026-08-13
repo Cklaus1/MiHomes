@@ -10,6 +10,7 @@ test still exits 0.
 """
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -154,18 +155,46 @@ def test_email_uniqueness_is_enforced_by_the_database(clean_db):
             )
 
 
-def test_the_main_alembic_tree_is_untouched():
-    """The landing tree must not have disturbed `alembic/`.
+def _created_tables(path: Path) -> set[str]:
+    """Table names a revision passes to `op.create_table`.
 
-    A harness non-negotiable: the single-user product keeps running on SQLite and
-    its 40 revisions stay as they are. Patching them for Postgres is SPEC-002
-    Step 6's job, not Phase 0's.
+    Parsed rather than substring-matched: the first version of this check asserted
+    `"waitlist" not in baseline_source` and failed on the baseline's own **docstring**,
+    which mentions `waitlist` to explain why it is absent. A test that a comment can
+    break is testing the prose, not the schema.
     """
-    versions = REPO_ROOT / "alembic" / "versions"
-    diff = subprocess.run(
-        ["git", "diff", "--name-only", "origin/main", "--", str(versions)],
-        cwd=REPO_ROOT, capture_output=True, text=True, timeout=60,
+    return set(re.findall(r"op\.create_table\(\s*['\"]([A-Za-z_]+)['\"]", path.read_text(encoding="utf-8")))
+
+
+def test_the_two_trees_do_not_overlap():
+    """Neither tree may create the other's tables (G6.4).
+
+    **This replaces a Phase 0 guard that SPEC-002 Step 6 inverted, exactly as that
+    guard's own docstring predicted.** It used to require `alembic/versions/` to be
+    byte-identical to `origin/main` — meaning "the landing work must not patch the
+    product's 40 revisions; that is Step 6's job". Step 6 has now happened: those
+    revisions moved to `alembic/legacy_sqlite/` and `0001_pg_baseline` replaced them, so
+    the old assertion is false by design. A diff against `origin/main` cannot express the
+    invariant anyway — `alembic_landing/` does not exist on that branch, so it reads as
+    entirely changed no matter what.
+
+    The invariant that actually matters is ownership, and it is checkable directly: the
+    landing tree creates `waitlist` and nothing else, the product tree creates everything
+    else and not `waitlist`. The failure this prevents is concrete — point both trees at
+    one database and a shared table has two owners with two version rows fighting over it.
+    """
+    product = _created_tables(REPO_ROOT / "alembic" / "versions" / "0001_pg_baseline.py")
+    assert product, "0001_pg_baseline creates no tables — did autogenerate run?"
+    assert "waitlist" not in product, (
+        "0001_pg_baseline creates `waitlist`, which alembic_landing/ owns"
     )
-    assert diff.stdout.strip() == "", (
-        f"alembic/versions/ must be unchanged, but git reports:\n{diff.stdout}"
+
+    landing_revisions = list((REPO_ROOT / "alembic_landing" / "versions").glob("*.py"))
+    assert landing_revisions, "the landing tree has no revisions — did it move?"
+    landing = set()
+    for path in landing_revisions:
+        landing |= _created_tables(path)
+    assert landing == {"waitlist"}, (
+        f"the landing tree must create only `waitlist`, but creates: {sorted(landing)}"
     )
+    assert not (landing & product), f"both trees create: {sorted(landing & product)}"

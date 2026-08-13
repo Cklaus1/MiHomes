@@ -7,7 +7,6 @@ from sqlalchemy import create_engine, event, pool
 
 from alembic import context
 from mihomes.config import DB_URL
-from mihomes.migration_scope import IDENTITY_TABLES
 from mihomes.models import Base
 
 config = context.config
@@ -27,19 +26,17 @@ target_metadata = Base.metadata
 # entry, autogenerate on THIS tree would propose create_table('waitlist') on every
 # future diff, dirtying the single-user product's migrations and breaking the
 # empty-autogenerate gate. The exclusion is symmetric: alembic_landing/env.py
-# likewise scopes its metadata to `waitlist` alone.
+# likewise scopes its metadata to `waitlist` alone. **This is G6.4** — the baseline
+# creates identity + the tenant tables and no `waitlist`.
 #
-# The SPEC-002 identity tables are excluded for the same reason as `waitlist`, one
-# step removed: they are on Base.metadata, but 0001_pg_baseline (SPEC-002 Step 6)
-# creates them in the Postgres tree — this legacy SQLite chain never will. Without
-# the exclusion, autogenerate here proposes creating six tables that do not belong
-# to this tree, and the empty-diff gate G-R4 established goes permanently red.
-#
-# This exclusion retires with the tree: once the baseline lands and these revisions
-# move to alembic/legacy_sqlite/, both it and the oracles that check them are gone.
+# **`IDENTITY_TABLES` used to be excluded here and no longer is (G6.3).** It was
+# excluded because the six identity tables are on Base.metadata while the legacy
+# SQLite chain never created them, so autogenerate against that tree read them as
+# drift. `0001_pg_baseline` is the migration that creates them, so excluding them now
+# would generate a baseline **missing six tables** — the exclusion retired with the
+# tree it protected, exactly as its own comment predicted.
 _UNMANAGED_TABLES = {
     "audit_log_archive", "ai_conversations_archive", "waitlist",
-    *IDENTITY_TABLES,
 }
 
 

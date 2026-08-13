@@ -425,6 +425,16 @@ suite. That is exactly how it was found: the test passed in isolation and failed
 > schema changes alone. Any future spec step whose verification runs through a service getter has the
 > same latent coupling to G8.1.
 
+> **Known gap, checked explicitly because G5 could have caused it and did not.** `ensure_unique_slug`
+> now calls `require_account()`, which raises `LookupError` with no context set — and measured,
+> **neither `services/demo.py` nor `cli/init.py` establishes one**. That path was *already* broken
+> before G5: `create_property` inserts a row whose `account_id` is NOT NULL, so G8.3's stamp listener
+> raised the same `LookupError` at flush time. G5 moves the failure a few frames earlier without
+> changing its class, and `test_demo_boot`'s two failures are in the known set both before and after
+> (17 → 17). **The real gap: `mihomes init` and demo seeding cannot run under tenancy until
+> something establishes a bootstrap account context.** That belongs to **G13** (CLI re-point) — noted
+> here so it is not rediscovered as a G6.2 migration problem, which is what it will look like.
+
 ### [ ] G6 — `0001_pg_baseline` — *dep: G3, G4, G5*
 
 - [x] G6.1 · §6 Step 6 · — · **convert the 37 models' PKs to UUID** — D2 locks UUIDv7 app-side via `mihomes.ids.new_id()` (shipped by SPEC-001, reused verbatim, **no DB-side default**). Measured: 37 tables still have `Integer` autoincrement PKs and **no §6 step names this** · verify: every tenant model's pk is PGUUID with an app-side default

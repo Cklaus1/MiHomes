@@ -385,6 +385,40 @@
   `invalid input syntax for type uuid: ""` instead of returning zero rows. Worth stating in §4.3
   beside the predicate, since the naive form looks correct and fails only under reuse.
 
+- [BUG][SPEC-002 Step 6 CONSEQUENCE — ARCHIVAL HAS NO TABLES, AND THE SPEC NEVER ACCOUNTS FOR IT]
+  `audit_log_archive` and `ai_conversations_archive` were created by a raw-SQL revision in the
+  SQLite chain and were never on `Base.metadata`. Step 6 squashes that chain, and
+  `0001_pg_baseline` does not create them — so **no migration in the resulting tree creates these
+  tables at all.** Measured at G10: `run_archival()` raises
+  `UndefinedTable: relation "audit_log_archive" does not exist`.
+
+  Step 6 *revealed* this rather than caused it (the dependency on unmanaged tables was always going
+  to break on a fresh deploy), but the spec squashes the chain without noting that two tables leave
+  the schema. **Fix:** Step 6 should enumerate the raw-SQL-managed tables the squash drops, and
+  either bring them into the baseline **tenant-aware** or state that the feature depending on them
+  is out of scope for Phase 1.
+
+  They cannot simply be recreated as they were: `id` is `INTEGER` while D2 makes every source id a
+  UUIDv7, so `INSERT INTO audit_log_archive (id, …) SELECT id, …` cannot succeed; and they have no
+  `account_id`, so archived rows would sit in a table with no tenant, no registry entry, no RLS
+  policy and no drift-guard link. Gated with an explicit error at G10 pending a retention decision.
+
+- [BUG][SPEC-002 Step 10 — THE `text()` CENSUS UNDERSTATES THE TENANCY PROBLEM] Step 10 frames the
+  raw-SQL audit as removing **interpolation**. The interpolation in `archive.py` was never
+  injectable (table names came from a hardcoded dict); the actual defect is that a raw `text()`
+  statement **has no mappers, so the §4.4 ORM filter cannot see it** — those `SELECT COUNT(*)`
+  queries returned cross-tenant totals, and `run_archival`'s `DELETE FROM audit_log` is scoped by
+  **RLS alone**. **Fix:** Step 10 should be "rewrite raw SQL onto the ORM wherever a mapped model
+  exists, and enumerate what remains as RLS-only" rather than "remove f-strings". A13's static
+  guard catches the spelling; it cannot catch the exposure.
+
+- [INFO][SPEC-002 — `except Exception:` AROUND SQL IS A POSTGRES LANDMINE] Not a spec defect, but it
+  will bite anyone porting this codebase per §6: a broad `except` around a failing statement is safe
+  on SQLite and harmful on Postgres, where the failed statement aborts the whole transaction and the
+  **next** unrelated query fails with `InFailedSqlTransaction`. Measured in `archive.py`'s
+  `except Exception: archived = 0`, which turned a missing table into an error several frames away.
+  Worth a line in §11's migration notes: make optional statements optional with a `SAVEPOINT`.
+
 ## Resolved during SPEC-002 pre-flight (not defects — decisions)
 
 - [DEFER][waitlist ownership] SPEC-002 mentions `alembic_landing`, `version_locations` and

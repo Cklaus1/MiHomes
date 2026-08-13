@@ -813,11 +813,67 @@ unsatisfiable and the account picker returns an empty list — a failure that wo
 > **non-superuser** connection with **no account bound** — the actual pre-picker state. Both
 > conditions are required for the test to be able to fail at all.
 
-### [ ] G10 — raw-SQL audit — *dep: G8*
+### [x] G10 — raw-SQL audit — *dep: G8* — *zero `text(f"…")` in `src/`; archival gated*
 
-- [ ] G10.1 · §6 Step 10 · — · **`services/archive.py:45,61`** — the real remaining interpolation. **NOT `ai/tools.py`: that file has zero `text(` calls; the hardening pass already fixed it** · verify: `tests/unit/test_no_raw_sql_interpolation.py`
-- [ ] G10.2 · §6 Step 10 · A13 · the static guard must be **AST-based, not grep**. `grep 'text(f"'` matches `write_text(f"` and `save_document_text(f"` — two false positives that make the spec's verify clause unsatisfiable · verify: `tests/unit/test_no_raw_sql_interpolation.py::test_no_fstring_text_calls`
-- [ ] G10.3 · §6 Step 10 · — · `backup.py:203` runs `PRAGMA foreign_key_check` — a SQLite assumption in the `text()` census · verify: covered by G14
+- [x] G10.1 · §6 Step 10 · — · `services/archive.py` — the two interpolations are gone, rewritten onto the ORM · verify: `tests/unit/test_no_raw_sql_interpolation.py::test_no_fstring_text_calls`
+- [x] G10.2 · §6 Step 10 · A13 · the static guard is **AST-based, not grep** · verify: `test_no_raw_sql_interpolation.py::test_the_guard_actually_detects_the_pattern`
+- [x] G10.3 · §6 Step 10 · — · `backup.py:203`'s `PRAGMA foreign_key_check` — still a SQLite assumption, deferred to **G14** as planned
+
+**The interpolation was the small half.** `text(f"SELECT COUNT(*) FROM {table_name}")` took its
+table name from a hardcoded dict, so it was never injectable — but it was **raw SQL where the ORM
+would do**, and a raw `text()` statement has no mappers, so the G8 filter cannot see it. Those
+counts were therefore **cross-tenant totals**: one account's stats page reporting every account's
+row count. Rewritten as `session.query(model).count()`, which both removes the interpolation and
+makes the numbers mean what they always should have.
+
+The AST guard is a `Call` whose callee is named exactly `text` with a `JoinedStr` first argument.
+Grep cannot do this: `text(f"` matches `SESSION_FILE.write_text(f"…")` and
+`save_document_text(f"…")`, two file writes with no SQL near them, so Step 10's clause is
+permanently red for reasons unrelated to SQL. A companion test asserts the guard **catches**
+`text(f"…")`, `sa.text(f"…")` and a nested form while **not** matching those two — a guard that
+cannot fail is decoration.
+
+### Archival is broken, and Step 6 revealed it rather than caused it
+
+`audit_log_archive` / `ai_conversations_archive` were created by a raw-SQL revision in the SQLite
+chain and were never on `Base.metadata`. **No migration in the current tree creates them.**
+Measured: `run_archival()` raised `UndefinedTable: relation "audit_log_archive" does not exist`.
+
+Stated carefully because the wrong framing invites the wrong fix: this is **not a regression from
+G6.3**. `archive.py` depended on tables outside the managed metadata; the squash — or the first
+fresh deploy — was always going to expose that. Reverting the squash would not make archival
+correct.
+
+**Not recreated, deliberately.** Their `id` columns are `INTEGER` while G6.1 made every source id
+a UUIDv7, so `INSERT INTO audit_log_archive (id, …) SELECT id, …` cannot succeed even against the
+original schema; and they have **no `account_id`**, so archived rows would have no tenant — not in
+the registry, no RLS policy, no drift-guard link. A tenant-aware archive is retention's design
+decision, not something a raw-SQL audit step should invent. `run_archival()` now raises
+`ArchivalUnavailableError` with the reason, and `get_stats()` reports `already_archived: None`
+rather than fabricating `0`.
+
+> **`except Exception:` around a SQL statement is safe on SQLite and harmful on Postgres.** The old
+> `try: … except Exception: archived = 0` was written so a missing table degraded gracefully. On
+> Postgres the failed statement **aborts the transaction**, so the *next* unrelated query fails
+> with `InFailedSqlTransaction` — an error pointing nowhere near the cause. Measured:
+> `get_stats()` raised that instead of the `UndefinedTable` it had swallowed. Swept the codebase —
+> one instance, now gone. To make a statement optional on Postgres, use a `SAVEPOINT` or do not
+> issue it.
+
+> **The tests were passing against a schema they invented themselves.** `test_archive.py` ran
+> `CREATE TABLE IF NOT EXISTS audit_log_archive (id UUID, …)` in a helper and then asserted
+> archival worked — so five tests were green while the feature failed on every real database. The
+> fabricated table had **no `account_id`**, which means those tests asserted that tenant rows move
+> into an untenanted table: the leak encoded as an expectation. Replaced with tests of the refusal,
+> plus a structural check that the tables really are absent. The M8 boundary knowledge (bind the
+> cutoff, never format it — `' ' < 'T'` made a string compare disagree with the ORM's strict `<`)
+> is preserved in `_run_archival_unreachable`'s docstring beside the code that implements it.
+
+> **Second time I asserted on source text and tripped over my own prose.** The first version of the
+> "no test fabricates these tables" guard searched `.py` files for `CREATE TABLE …
+> audit_log_archive` and matched **its own docstring**, exactly as G6.3's guard matched the
+> baseline's comment about `waitlist`. Now a schema query. Recorded in `lessons.md` as a rule
+> rather than an anecdote, since twice is a pattern.
 
 ### [ ] G11 — `StorageProvider` — *dep: G6* · *needs P4 (`boto3`)*
 

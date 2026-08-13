@@ -50,13 +50,19 @@ def run_cmd(
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview what would be archived without making changes"),
 ):
     """Archive old records based on configured retention periods."""
-    from mihomes.services.archive import run_archival
+    from mihomes.services.archive import ArchivalUnavailableError, run_archival
 
     if dry_run:
         console.print("[dim]Dry run — no changes will be made.[/dim]")
 
-    with get_session() as session:
-        results = run_archival(session, dry_run=dry_run)
+    try:
+        with get_session() as session:
+            results = run_archival(session, dry_run=dry_run)
+    except ArchivalUnavailableError as e:
+        # Report the reason rather than a traceback: the service raises this deliberately
+        # while the archive tables are absent and not tenant-aware (SPEC-002 G10).
+        console.print(f"[yellow]Archival unavailable.[/yellow]\n{e}")
+        raise typer.Exit(1) from None
 
     total = sum(results.values())
     if total == 0:

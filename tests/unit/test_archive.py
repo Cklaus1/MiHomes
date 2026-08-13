@@ -3,11 +3,16 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import text
+import pytest
 
 from mihomes.models.ai_conversation import AIConversation
 from mihomes.models.audit_log import AuditLog
-from mihomes.services.archive import _retention_cutoff, get_stats, run_archival
+from mihomes.services.archive import (
+    ArchivalUnavailableError,
+    _retention_cutoff,
+    get_stats,
+    run_archival,
+)
 
 # Placeholder ids for polymorphic entity_type/entity_id pairs. Distinct
 # constants because several tests rely on two ids being DIFFERENT (filter by
@@ -67,18 +72,6 @@ class TestRetentionCutoff:
 
 class TestGetStats:
     def test_returns_two_table_entries(self, session):
-        # Create archive tables for the test
-        session.execute(text(
-            "CREATE TABLE IF NOT EXISTS audit_log_archive "
-            "(id UUID, timestamp TIMESTAMPTZ, entity_type TEXT, entity_id UUID, "
-            "action TEXT, changes TEXT, actor TEXT, archived_at TIMESTAMPTZ)"
-        ))
-        session.execute(text(
-            "CREATE TABLE IF NOT EXISTS ai_conversations_archive "
-            "(id UUID, session_id TEXT, role TEXT, user_message TEXT, "
-            "ai_response TEXT, context_summary TEXT, tokens_used INTEGER, "
-            "provider TEXT, model TEXT, created_at TEXT, updated_at TEXT, archived_at TEXT)"
-        ))
         stats = get_stats(session)
         assert len(stats) == 2
         tables = {s["table"] for s in stats}
@@ -86,17 +79,6 @@ class TestGetStats:
         assert "ai_conversations" in tables
 
     def test_counts_eligible_rows(self, session):
-        session.execute(text(
-            "CREATE TABLE IF NOT EXISTS audit_log_archive "
-            "(id UUID, timestamp TIMESTAMPTZ, entity_type TEXT, entity_id UUID, "
-            "action TEXT, changes TEXT, actor TEXT, archived_at TIMESTAMPTZ)"
-        ))
-        session.execute(text(
-            "CREATE TABLE IF NOT EXISTS ai_conversations_archive "
-            "(id UUID, session_id TEXT, role TEXT, user_message TEXT, "
-            "ai_response TEXT, context_summary TEXT, tokens_used INTEGER, "
-            "provider TEXT, model TEXT, created_at TEXT, updated_at TEXT, archived_at TEXT)"
-        ))
         _make_audit(session, timestamp=_old_dt(years=3))  # old — eligible
         _make_audit(session, timestamp=_recent_dt())       # recent — not eligible
         stats = get_stats(session)
@@ -106,78 +88,76 @@ class TestGetStats:
 
 
 class TestRunArchival:
-    def _setup_archive_tables(self, session):
-        session.execute(text(
-            "CREATE TABLE IF NOT EXISTS audit_log_archive "
-            "(id UUID, timestamp TIMESTAMPTZ, entity_type TEXT, entity_id UUID, "
-            "action TEXT, changes TEXT, actor TEXT, archived_at TIMESTAMPTZ)"
-        ))
-        session.execute(text(
-            "CREATE TABLE IF NOT EXISTS ai_conversations_archive "
-            "(id UUID, session_id TEXT, role TEXT, user_message TEXT, "
-            "ai_response TEXT, context_summary TEXT, tokens_used INTEGER, "
-            "provider TEXT, model TEXT, created_at TEXT, updated_at TEXT, archived_at TEXT)"
-        ))
+    """Archival refuses while the archive tables are absent and untenanted (G10).
 
-    def test_dry_run_does_not_delete(self, session):
-        self._setup_archive_tables(session)
-        _make_audit(session, timestamp=_old_dt(years=3))
-        results = run_archival(session, dry_run=True)
-        assert results["audit_log"] == 1
-        # Row still in active table
-        count = session.query(AuditLog).count()
-        assert count == 1
+    **The previous tests in this class fabricated the tables they needed** —
+    `CREATE TABLE IF NOT EXISTS audit_log_archive (id UUID, ...)` in a `_setup_archive_tables`
+    helper — and then asserted that archival worked. No migration in the current tree creates
+    those tables, so what those tests proved was that the code works against a schema invented
+    by the test. Worse, the fabricated table had **no `account_id`**, so they asserted that
+    tenant rows move into an untenanted table: the exact leak, encoded as an expectation.
 
-    def test_dry_run_returns_counts(self, session):
-        self._setup_archive_tables(session)
-        _make_audit(session, timestamp=_old_dt(years=3))
-        _make_audit(session, timestamp=_old_dt(years=3))
-        results = run_archival(session, dry_run=True)
-        assert results["audit_log"] == 2
+    They are replaced rather than repaired. Preserved knowledge, so it is not lost with them:
 
-    def test_recent_rows_not_archived(self, session):
-        self._setup_archive_tables(session)
-        _make_audit(session, timestamp=_recent_dt())
-        results = run_archival(session, dry_run=True)
-        assert results["audit_log"] == 0
+    * **M8** — the raw DELETE must archive exactly the rows the ORM counted. The original bug
+      interpolated the cutoff as a `T`-separated ISO literal while SQLite stored DateTime
+      space-separated, and since `' ' < 'T'` a row *at* the cutoff was excluded by the ORM's
+      strict `<` but included by the string comparison, archiving a row still inside its
+      retention window. The fix was bound datetime parameters. Any replacement must keep the
+      cutoff bound, not formatted.
+    * The insert-then-delete order, and that `dry_run` must not delete.
 
-    def test_no_rows_returns_zero_counts(self, session):
-        self._setup_archive_tables(session)
-        results = run_archival(session, dry_run=True)
-        assert results["audit_log"] == 0
-        assert results["ai_conversations"] == 0
+    Both are recorded in `_run_archival_unreachable`'s docstring in the service, next to the
+    code that implements them.
+    """
 
-    def test_raw_sql_delete_matches_orm_count_at_boundary(self, session, monkeypatch):
-        """M8: the raw-SQL predicate used an f-string ISO literal (T-separated,
-        `2024-...T...`) while SQLite stores DateTime space-separated
-        (`2024-... ...`). Since ' ' (0x20) < 'T' (0x54), a row stored at exactly
-        the cutoff instant is EXCLUDED by the ORM (`timestamp < cutoff` is
-        strict) yet INCLUDED by the buggy raw-string DELETE — so a row within
-        the retention window gets archived and deleted anyway. The raw DELETE
-        must archive exactly the rows the ORM counted, no more."""
-        import mihomes.services.archive as archive_mod
+    def test_run_archival_refuses(self, session):
+        with pytest.raises(ArchivalUnavailableError) as exc:
+            run_archival(session, dry_run=False)
+        assert "not tenant-aware" in str(exc.value)
 
-        # Pin the cutoff so the boundary row lands on it deterministically.
-        fixed_cutoff = datetime(2024, 7, 29, 12, 0, 0, tzinfo=timezone.utc)
-        monkeypatch.setattr(archive_mod, "_retention_cutoff",
-                            lambda *a, **k: fixed_cutoff)
+    def test_dry_run_also_refuses(self, session):
+        """A dry run that reported success while the real run could not would be a worse lie."""
+        with pytest.raises(ArchivalUnavailableError):
+            run_archival(session, dry_run=True)
 
-        self._setup_archive_tables(session)
-        clearly_old = _make_audit(session, timestamp=fixed_cutoff - timedelta(days=1))
-        boundary = _make_audit(session, timestamp=fixed_cutoff)  # NOT eligible (== cutoff)
-        boundary_id = boundary.id
-        session.commit()
+    def test_get_stats_reports_archival_unavailable(self, session):
+        """`already_archived` is None, not 0.
 
-        results = run_archival(session, dry_run=False)
-        # ORM counts only the clearly-old row.
-        assert results["audit_log"] == 1
+        Reporting 0 would read as "nothing archived yet" rather than "cannot be answered", and
+        the old code produced that 0 from `except Exception` around a failing query — which on
+        Postgres also aborts the transaction and makes the *next* query fail somewhere else.
+        """
+        for row in get_stats(session):
+            assert row["already_archived"] is None
+            assert row["archival_available"] is False
 
-        # The boundary row (within retention) must survive in the active table…
-        remaining = {a.id for a in session.query(AuditLog).all()}
-        assert boundary_id in remaining, "boundary row was wrongly archived (M8)"
-        assert clearly_old.id not in remaining
-        # …and the archive table holds exactly the one counted row, not two.
-        archived = session.execute(
-            text("SELECT COUNT(*) FROM audit_log_archive")
-        ).scalar()
-        assert archived == 1
+    def test_the_archive_tables_really_are_absent(self, _pg_engine):
+        """The premise this whole class rests on, asserted structurally.
+
+        If someone adds tenant-aware archive tables, this fails and it is the signal to
+        re-enable archival (and to re-derive the M8 coverage above) rather than to delete the
+        assertion.
+
+        **Deliberately a schema query, not a source grep.** The first version of this test
+        searched test files for `CREATE TABLE ... audit_log_archive` and failed on the string
+        inside this class's own docstring — the identical mistake logged in G6.3, where a guard
+        asserted `"waitlist" not in baseline_source` and tripped over the baseline's own comment.
+        Twice now, so the rule earns its place in `lessons.md`: **assert on structure, never on
+        the text of source files.**
+        """
+        from sqlalchemy import inspect
+
+        from mihomes.models import Base
+
+        present = set(inspect(_pg_engine).get_table_names())
+        archive_tables = {"audit_log_archive", "ai_conversations_archive"}
+        assert not (archive_tables & present), (
+            f"archive tables now exist ({sorted(archive_tables & present)}) — if they are "
+            "tenant-aware (UUID keys, account_id, in TENANT_TABLES, RLS policy, drift-guard "
+            "link), re-enable run_archival and restore the M8 boundary coverage"
+        )
+        assert not (archive_tables & set(Base.metadata.tables)), (
+            "archive tables are on Base.metadata but no migration creates them — the state "
+            "that made get_stats() fail with InFailedSqlTransaction"
+        )

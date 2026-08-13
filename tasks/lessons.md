@@ -261,6 +261,33 @@ Review this at the start of each session.
   **Tell:** if a commit message explains a spec defect at length and `opportunities.md` is
   unchanged in that commit, the finding has been recorded for me and lost for everyone else.
 
+- **`except Exception:` around a SQL statement is safe on SQLite and harmful on Postgres.**
+  `archive.py` wrapped a count in `try: ... except Exception: archived = 0` so a missing table
+  would degrade gracefully. On Postgres the failed statement **aborts the whole transaction**,
+  so the next unrelated query in that session dies with
+  `InFailedSqlTransaction: current transaction is aborted, commands ignored until end of
+  transaction block` — an error pointing nowhere near the cause. Measured: `get_stats()` raised
+  that instead of the `UndefinedTable` it had swallowed.
+  **Rule:** to make a statement optional on Postgres, wrap it in a `SAVEPOINT`
+  (`session.begin_nested()`) or do not issue it. A broad `except` that keeps using the same
+  session is a landmine. Swept the codebase: one instance, now removed.
+- **Assert on structure, never on the text of source files — I have now made this mistake
+  twice.** In G6.3 a guard asserted `"waitlist" not in baseline_source` and failed on the
+  baseline's own docstring explaining why waitlist is absent. In G10 a guard searched test files
+  for `CREATE TABLE ... audit_log_archive` and failed on **its own class docstring** describing
+  the pattern it was banning. Both times the fix was to assert the real thing: parse
+  `op.create_table()` calls; query `inspect(engine).get_table_names()`.
+  **Tell:** if a test reads `.py` files as text, it is testing prose. Writing about the thing
+  you are banning is normal and must not trip the ban.
+- **A test that fabricates the schema it needs proves nothing about production — and can encode
+  a leak as an expectation.** `test_archive.py` ran `CREATE TABLE IF NOT EXISTS
+  audit_log_archive (id UUID, ...)` in a helper and then asserted archival worked. No migration
+  in the tree creates that table, so the tests passed while the feature was broken on every real
+  database. Worse: the fabricated table had **no `account_id`**, so the assertion "rows move to
+  the archive" was asserting that tenant data moves into an untenanted table.
+  **Rule:** if a test creates a table, ask which migration creates it. If none does, the test is
+  describing a schema that does not exist.
+
 ## Fifth Review Lessons (2026-03-27)
 - **SIGPIPE data loss**: When CLI output is piped through `head`/`tail`/etc, SIGPIPE can kill the process before `get_session()` commits. Fix: collect data inside `with get_session()`, print AFTER the session context exits (so commit happens before any output). Critical for commands with long output that modify data.
 - Always test CLI commands with `| head -1` to catch SIGPIPE issues.

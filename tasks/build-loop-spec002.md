@@ -85,6 +85,28 @@ failures, or CI sees any, it is real.**
 **Invoke pytest as `py -m pytest`**, never `python` (Store shim). Pass DB env inline — the worktree
 guard rejects `export` chains.
 
+## 0.0 UNMET LAUNCH GATES — things that are green *because they are switched off*
+
+> Conventions §3.3: blocks-ship items are *"carried forward into the end-of-run report as an
+> unmet launch gate — visible, not silently satisfied."* **I was not maintaining this register**,
+> which is how G10 could disable a shipped feature and leave the suite greener than before. A
+> passing suite does not mean the product works; it means the tests and the code agree. When a
+> test is changed to assert a refusal, that agreement is about the refusal.
+
+**None of these are counted in the 15 failures / 61 errors.** That is the point of listing them.
+
+| # | What is off / degraded | Since | Green because | Owner |
+|---|---|---|---|---|
+| **S1** | **Archival does not work.** `run_archival()` raises `ArchivalUnavailableError`; `mihomes archive run` exits 1. The archive tables are not created by any migration and are not tenant-aware (INTEGER ids, no `account_id`). | G10 | the tests were rewritten to assert the refusal | **unowned — needs a retention decision** |
+| **S2** | **A SQLite-built database has no RLS and no drift guard.** Both are dialect-guarded, so `init_db()` against SQLite produces a schema with no tenant enforcement at all. | G6.2 | those paths are not asserted to be secure anywhere | **G13** (re-point `init_db`) |
+| **S3** | **`mihomes init` and demo seeding cannot run.** No bootstrap account context exists, so the stamp listener raises `LookupError`. | G5 | the 61 errors are counted, but as "G13's", not as "the CLI is unusable" | **G13** |
+| **S4** | **The two association tables are protected by RLS alone.** The mixin, `before_flush` and `with_loader_criteria` all cannot reach a Core `Table`. RLS is only real on a non-superuser connection. | G2.5 / G8 | correct *if* N5 holds in production; nothing verifies the deployed role | **G12 / deploy** |
+| **S5** | **Drift for the four polymorphic tables is app-only.** No `entity_type`→table mapping exists to build a trigger from. A raw-SQL insert, or an ORM insert whose `entity_id` came from a cross-tenant read, is unguarded. | G4.2 | the spec permits app-only enforcement *if stated*; **A21 does not cover it** | accepted, documented |
+
+**S1 is the one at risk of slipping**, because unlike S2–S5 it has no group to land in. S2/S3 clear
+when G13 runs; S4 becomes a deployment assertion; S5 is an accepted, recorded limitation. S1 needs
+someone to decide whether Phase 1 ships without retention.
+
 ### Triage of the remaining red — every item has an owner
 
 Done after G6 rather than deferred wholesale, because "17 failed / 61 errors" is not a state you can

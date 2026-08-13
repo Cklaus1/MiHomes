@@ -261,6 +261,23 @@ Review this at the start of each session.
   **Tell:** if a commit message explains a spec defect at length and `opportunities.md` is
   unchanged in that commit, the finding has been recorded for me and lost for everyone else.
 
+- **A green suite means the tests and the code agree — not that the product works.** At G10 I
+  disabled a shipped feature (archival), rewrote its five tests to assert the refusal, and
+  reported *"1397 passed, no new failures"*. Every word was true and the overall impression was
+  wrong: the suite got **greener** as the product got smaller. The user caught it by asking why
+  a broken feature wasn't counted as a failure.
+  **Rule:** when a fix is "turn it off and assert it's off", the delta is not zero — it is one
+  fewer capability. It belongs in a **blocks-ship register** (conventions §3.3: *"visible, not
+  silently satisfied"*), not only in a defect log and a docstring. I had not been maintaining
+  that register at all; §0.0 of `build-loop-spec002.md` now exists for it.
+  **Tell:** if a change makes the suite pass *more* while shipping *less*, say both numbers in
+  the same breath — "1397 passing; archival no longer works" — because the first one alone reads
+  as progress.
+- **Disabling a service is not done until its callers are updated.** Returning `None` for
+  `already_archived` left the CLI printing the literal string `"None"` in a Rich table and still
+  advertising `mihomes archive run`, a command that now always exits 1. The service was honest;
+  the surface the user actually sees was not. **Rule:** after changing a return contract, grep
+  the callers — the sweep is three seconds and the alternative is a user-visible `"None"`.
 - **`except Exception:` around a SQL statement is safe on SQLite and harmful on Postgres.**
   `archive.py` wrapped a count in `try: ... except Exception: archived = 0` so a missing table
   would degrade gracefully. On Postgres the failed statement **aborts the whole transaction**,

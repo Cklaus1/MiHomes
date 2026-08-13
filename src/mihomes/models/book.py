@@ -3,7 +3,7 @@
 import enum
 import uuid
 
-from sqlalchemy import Boolean, Enum, ForeignKey, String, Text
+from sqlalchemy import Boolean, Enum, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -21,6 +21,9 @@ class BookCondition(str, enum.Enum):
 
 class Book(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "books"
+    __table_args__ = (
+        UniqueConstraint("account_id", "slug", name="uq_books_account_slug"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, default=new_id

@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Index, String, Text
+from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -31,6 +31,7 @@ class IssueStatus(str, enum.Enum):
 class Issue(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "issues"
     __table_args__ = (
+        UniqueConstraint("account_id", "slug", name="uq_issues_account_slug"),
         Index("ix_issues_account_reported_by", 'account_id', 'reported_by_id'),
         Index("ix_issues_account_resolved_by", 'account_id', 'resolved_by_id'),
     )

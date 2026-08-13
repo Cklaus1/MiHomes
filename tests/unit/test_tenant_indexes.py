@@ -23,29 +23,12 @@ from mihomes.tenancy.registry import TENANT_TABLES
 # Indexes that deliberately do NOT lead with account_id. Every entry needs a reason;
 # an unexplained addition here is how the Step 3 guarantee would rot.
 #
-# The 16 slug/name entries retire in G5, which replaces them with
-# UNIQUE (account_id, slug) / per-account tag names — a unique constraint produces an
-# index leading with account_id on its own, so converting them here would write them
-# twice. **G5 must delete them from this list**, and the test below fails loudly if a
-# listed index no longer exists, so the list cannot silently outlive its reason.
+# G5 retired the 16 slug/name entries that used to live here: `UNIQUE (account_id, slug)`
+# (and `(account_id, name)` for tags) produces an index leading with account_id on its own,
+# so `index=True` came off `SlugMixin.slug` in the same pass. Only the permanent exception
+# remains — which is the point of `test_every_declared_exception_still_exists`: the list
+# could not have quietly kept 16 stale entries.
 EXPECTED_NON_LEADING = {
-    "ix_assets_slug": "G5: UNIQUE (account_id, slug) supersedes this",
-    "ix_books_slug": "G5",
-    "ix_consumables_slug": "G5",
-    "ix_documents_slug": "G5",
-    "ix_events_slug": "G5",
-    "ix_guests_slug": "G5",
-    "ix_issues_slug": "G5",
-    "ix_properties_slug": "G5",
-    "ix_spaces_slug": "G5",
-    "ix_staff_slug": "G5",
-    "ix_tasks_slug": "G5",
-    "ix_templates_slug": "G5",
-    "ix_vendors_slug": "G5",
-    "ix_work_orders_slug": "G5",
-    "ix_zones_slug": "G5",
-    "ix_tags_name": "G5 / F4: tag names become unique per account",
-    # Not a deferral — a permanent exception.
     "ix_invites_token_hash": (
         "An invite is accepted by presenting this token before the recipient belongs "
         "to any account, so the lookup cannot supply one. A composite index would also "

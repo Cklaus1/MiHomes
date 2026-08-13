@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import date
 
-from sqlalchemy import Date, Enum, String, Text
+from sqlalchemy import Date, Enum, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -28,6 +28,9 @@ class DocumentType(str, enum.Enum):
 
 class Document(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "documents"
+    __table_args__ = (
+        UniqueConstraint("account_id", "slug", name="uq_documents_account_slug"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, default=new_id

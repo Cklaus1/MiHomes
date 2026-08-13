@@ -3,7 +3,7 @@
 import enum
 import uuid
 
-from sqlalchemy import Boolean, Column, Enum, ForeignKey, String, Table, Text
+from sqlalchemy import Boolean, Column, Enum, ForeignKey, String, Table, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -85,6 +85,9 @@ def is_staff_role(role: StaffRole) -> bool:
 
 class Staff(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "staff"
+    __table_args__ = (
+        UniqueConstraint("account_id", "slug", name="uq_staff_account_slug"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, default=new_id

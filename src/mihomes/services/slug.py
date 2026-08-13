@@ -31,13 +31,33 @@ def ensure_unique_slug(
     session: Session,
     model_class,
     slug: str,
-    exclude_id: int | None = None,
+    exclude_id: uuid.UUID | None = None,
 ) -> str:
-    """Ensure a slug is unique within its table, appending -2, -3, etc. if needed."""
+    """Ensure a slug is unique **within its account**, appending -2, -3, … if needed.
+
+    SPEC-002 G5 made slugs unique per account (`UNIQUE (account_id, slug)`), so this had
+    to learn the same scope. Without the account filter it searched the whole table and
+    the *second* account to create a "Main House" got `main-house-2` — the schema allowed
+    the plain slug, but this function still de-duplicated against a row the caller must
+    not be able to observe. That is a cross-tenant read, and a mild information leak in
+    its own right: the suffix tells you another tenant used the name.
+
+    Scoped here rather than left to G8.1's `with_loader_criteria` backstop on purpose.
+    This function's entire job is to enforce a uniqueness rule, so it has to know the
+    rule's scope; depending on an ambient filter would break it silently the moment a
+    caller used a path that filter does not reach.
+    """
     candidate = slug
     suffix = 2
+    account_column = getattr(model_class, "account_id", None)
     while True:
         query = session.query(model_class).filter(model_class.slug == candidate)
+        if account_column is not None:
+            # Tenant-owned model: uniqueness is per account. GLOBAL models (accounts)
+            # have no such column and keep table-wide uniqueness.
+            from mihomes.tenancy import require_account
+
+            query = query.filter(account_column == require_account())
         if exclude_id is not None:
             query = query.filter(model_class.id != exclude_id)
         if query.first() is None:

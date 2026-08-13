@@ -392,11 +392,38 @@ legitimate rows or silently skip them, which is worse than not claiming the guar
 > discrepancy widened scope. `tag_assignments` sits in **both** buckets: its `tag_id` side is
 > guarded, its `entity_id` side cannot be.
 
-### [ ] G5 — unique constraints — *dep: G2*
+### [x] G5 — unique constraints — *dep: G2* — *15 slug tables + tags.name; 4 tests*
 
-- [ ] G5.1 · §6 Step 5 · A3 · `UNIQUE (account_id, slug)` on each of the **16** `SlugMixin` classes (not 15 — `event.py` has two) · verify: `tests/unit/test_slug_scoping.py::test_slug_unique_per_account`
-- [ ] G5.2 · §6 Step 5 · A4 · `tag.name` per-account · verify: `tests/unit/test_slug_scoping.py::test_tag_name_per_account`
-- [ ] G5.3 · §6 Step 5 · — · **skip `task.py:90`** per F4. The `ha_entity` sub-task is a **NO-OP — that model does not exist** · verify: n/a, documented
+- [x] G5.1 · §6 Step 5 · A3 · `UNIQUE (account_id, slug)` on each `SlugMixin` class · verify: `tests/integration/test_per_account_uniqueness.py::test_every_slug_table_has_the_constraint`
+- [x] G5.2 · §6 Step 5 · A4 · `tag.name` per-account · verify: `test_per_account_uniqueness.py::test_two_accounts_can_reuse_a_slug_and_a_tag_name`
+- [x] G5.3 · §6 Step 5 · — · **skip `task.py:90`** per F4 (now line 106). The `ha_entity` sub-task is a **NO-OP — that model does not exist** · verify: `test_task_schedule_task_id_stays_globally_unique` asserts the skip rather than trusting it
+
+**The count is 15, and the earlier "not 15 — 16" correction was right about the number for the
+wrong reason.** `event.py` does have two `SlugMixin` classes (`Event`, `Guest`), and the total is
+still 15. The 16th is **`dummy`** — a test-only model that registers itself into `Base.registry` the
+moment its module is imported, so the count reads 15 when the file runs alone and 16 under the full
+suite. That is exactly how it was found: the test passed in isolation and failed in the full run.
+`TEST_ONLY_TABLES` is now excluded explicitly.
+
+**The schema was the easy half. The spec's verify clause failed on the *service* layer.** With
+`UNIQUE (account_id, slug)` in place, the second account creating "Main House" still got
+`main-house-2` — because `ensure_unique_slug()` searched the whole table with no account filter, and
+`create_tag()`'s get-or-create matched on `name` alone. Both are now account-scoped:
+
+- `ensure_unique_slug` de-duplicating against another tenant's row is a **cross-tenant read**, and a
+  mild information leak on its own — the `-2` suffix tells you another tenant used that name.
+- `create_tag` was worse in kind: an unscoped get-or-create **returns account A's Tag row to
+  account B**, handing over a foreign primary key rather than merely failing to insert.
+
+> **Both were fixed here rather than left to G8.1's ambient read filter, deliberately.** G8.1's
+> `with_loader_criteria` would also catch them, but a function whose whole purpose is to enforce a
+> uniqueness rule has to know that rule's scope — depending on an ambient filter means it breaks
+> silently the first time a caller uses a path the filter does not reach (a bulk op, raw SQL, a
+> `Query` built outside the session hook). Correctness at the point of use, backstop at the session.
+
+> **This is a DAG dependency the spec does not record:** Step 5's verify clause is not satisfiable by
+> schema changes alone. Any future spec step whose verification runs through a service getter has the
+> same latent coupling to G8.1.
 
 ### [ ] G6 — `0001_pg_baseline` — *dep: G3, G4, G5*
 

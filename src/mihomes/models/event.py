@@ -23,6 +23,9 @@ class EventStatus(str, enum.Enum):
 
 class Event(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "events"
+    __table_args__ = (
+        UniqueConstraint("account_id", "slug", name="uq_events_account_slug"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, default=new_id
@@ -45,6 +48,9 @@ class Event(Base, TimestampMixin, SlugMixin, TenantOwned):
 
 class Guest(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "guests"
+    __table_args__ = (
+        UniqueConstraint("account_id", "slug", name="uq_guests_account_slug"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, default=new_id

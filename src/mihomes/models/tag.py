@@ -12,11 +12,14 @@ from mihomes.models import Base, TenantOwned, TimestampMixin
 
 class Tag(Base, TimestampMixin, TenantOwned):
     __tablename__ = "tags"
+    __table_args__ = (
+        UniqueConstraint("account_id", "name", name="uq_tags_account_name"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, default=new_id
     )
-    name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
 
 
 class TagAssignment(Base, TimestampMixin, TenantOwned):

@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import JSON, Boolean, Column, ForeignKey, String, Table, Text
+from sqlalchemy import JSON, Boolean, Column, ForeignKey, String, Table, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -42,6 +42,9 @@ def _association_account_default():
 
 class Vendor(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "vendors"
+    __table_args__ = (
+        UniqueConstraint("account_id", "slug", name="uq_vendors_account_slug"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, default=new_id

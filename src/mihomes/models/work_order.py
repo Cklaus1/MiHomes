@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Enum, ForeignKey, Index, String, Text
+from sqlalchemy import Date, DateTime, Enum, ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -27,6 +27,7 @@ class WorkOrderStatus(str, enum.Enum):
 class WorkOrder(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "work_orders"
     __table_args__ = (
+        UniqueConstraint("account_id", "slug", name="uq_work_orders_account_slug"),
         Index("ix_work_orders_account_issue", 'account_id', 'issue_id'),
     )
 

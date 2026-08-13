@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -12,6 +12,9 @@ from mihomes.models import Base, SlugMixin, TenantOwned, TimestampMixin
 
 class Template(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "templates"
+    __table_args__ = (
+        UniqueConstraint("account_id", "slug", name="uq_templates_account_slug"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, default=new_id

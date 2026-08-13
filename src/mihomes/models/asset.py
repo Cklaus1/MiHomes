@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import date, datetime, timezone
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, Enum, Float, ForeignKey, Index, String, Text
+from sqlalchemy import JSON, Boolean, Date, DateTime, Enum, Float, ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -36,6 +36,9 @@ class PriceEntryType(str, enum.Enum):
 
 class Asset(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "assets"
+    __table_args__ = (
+        UniqueConstraint("account_id", "slug", name="uq_assets_account_slug"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, default=new_id

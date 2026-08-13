@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import date
 
-from sqlalchemy import Boolean, Date, Enum, Float, Integer, String, Text
+from sqlalchemy import Boolean, Date, Enum, Float, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -31,6 +31,9 @@ class PropertyStatus(str, enum.Enum):
 
 class Property(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "properties"
+    __table_args__ = (
+        UniqueConstraint("account_id", "slug", name="uq_properties_account_slug"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, default=new_id

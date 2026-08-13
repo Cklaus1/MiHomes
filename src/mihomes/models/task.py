@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Enum, Float, ForeignKey, Index, String, Text
+from sqlalchemy import Date, DateTime, Enum, Float, ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -65,6 +65,7 @@ class TaskCategory(str, enum.Enum):
 class Task(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "tasks"
     __table_args__ = (
+        UniqueConstraint("account_id", "slug", name="uq_tasks_account_slug"),
         Index("ix_tasks_account_due", 'account_id', 'due_date'),
         Index("ix_tasks_account_zone", 'account_id', 'zone_id'),
         Index("ix_tasks_account_category", 'account_id', 'category'),

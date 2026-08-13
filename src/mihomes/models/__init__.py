@@ -66,7 +66,10 @@ class SlugMixin:
     property gets an IntegrityError (SPEC-002 §4.1).
     """
 
-    slug: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    # No `index=True`: G5 gives every SlugMixin table
+    # UNIQUE (account_id, slug), whose index both covers slug lookups and leads with
+    # account_id. A second single-column index would only tax writes.
+    slug: Mapped[str] = mapped_column(String(100), nullable=False)
 
 
 # Import all models so Alembic and Base.metadata.create_all() see them.

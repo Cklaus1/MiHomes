@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import ForeignKey, Index, String, Text
+from sqlalchemy import ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -13,6 +13,7 @@ from mihomes.models import Base, SlugMixin, TenantOwned, TimestampMixin
 class Space(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "spaces"
     __table_args__ = (
+        UniqueConstraint("account_id", "slug", name="uq_spaces_account_slug"),
         Index("ix_spaces_account_zone", 'account_id', 'zone_id'),
     )
 

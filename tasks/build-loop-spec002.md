@@ -694,12 +694,64 @@ arrives.
 > while passing alone. Fixed with a `committed` fixture that records ids and deletes them in reverse
 > dependency order.
 
-### [ ] G8 — scoped session — *dep: G7*
+### [x] G8 — scoped session — *dep: G7* — *11 tests; two §4.4 defects found*
 
-- [ ] G8.1 · §6 Step 8 · A5 · `do_orm_execute` filter via `with_loader_criteria`; **fail closed** — no context raises `LookupError` · verify: `tests/unit/test_scoped_session.py::test_fails_closed_without_context`
-- [ ] G8.2 · §6 Step 8 · A6 · **N2: do not guard on `is_select` alone.** `with_loader_criteria` also applies to ORM UPDATE/DELETE, and a bulk-write leak is worse than a read leak · verify: `tests/unit/test_scoped_session.py::test_bulk_ops_scoped`
-- [x] G8.3 · §6 Step 8 · A7 · `before_flush` stamps `account_id` on insert · verify: `tests/unit/test_scoped_session.py::test_insert_stamped`
-- [ ] G8.4 · §6 Step 8 · — · `tenancy/context.py` — `account_context()`, `require_account()`. **Never returns None**: a nullable accessor invites `if account:` checks that silently skip scoping · verify: `test_scoped_session.py`
+- [x] G8.1 · §6 Step 8 · A5 · `do_orm_execute` filter via `with_loader_criteria`; **fail closed** · verify: `tests/unit/test_scoped_session.py::test_fails_closed_without_context`
+- [x] G8.2 · §6 Step 8 · A6 · **N2** — the filter covers ORM UPDATE/DELETE, not just SELECT · verify: `test_scoped_session.py::test_bulk_ops_scoped`
+- [x] G8.3 · §6 Step 8 · A7 · `before_flush` stamps `account_id` on insert · verify: `test_scoped_session.py::test_insert_stamped`
+- [x] G8.4 · §6 Step 8 · — · `require_account()` **never returns None** · verify: `test_scoped_session.py::test_context_accessor_never_returns_none`
+
+**§4.4's code snippet has two defects, and the first means it does not run at all.**
+
+**(1) `current_account.get()` cannot be called inside the criteria lambda.** The spec writes
+`lambda cls: cls.account_id == current_account.get()`. SQLAlchemy rejects it outright:
+
+```
+InvalidRequestError: Can't invoke Python callable get() inside of lambda expression argument
+...; lambda SQL constructs should not invoke functions from closure variables to produce
+literal values ... Call the function outside of the lambda and assign to a local variable
+that is used in the lambda as a closure variable
+```
+
+So the fix — hoist into a local, let the lambda close over it — is the form SQLAlchemy itself
+prescribes, not a precaution. **Confirmed by reverting to the spec's version and watching 4
+tests fail**, which is also how `test_filter_is_not_cached_across_accounts` was shown to have
+teeth rather than being decorative. That test runs one query shape under two accounts in
+sequence, so if this ever became silent caching instead of a hard error it would still catch a
+stale bound value.
+
+**(2) The filter must not demand a tenant for statements involving no tenant entity.** §4.4
+guards only on `is_select or is_update or is_delete`, so implemented literally it calls
+`current_account.get()` for **every ORM statement in the process** and raises `LookupError`
+whenever no account is bound. That is not a corner case:
+
+- `users` and `sessions` are GLOBAL *precisely because* sign-in must read them **before** any
+  account exists (D3). An unconditional check makes authentication impossible — the same
+  bootstrap problem `membership_self` exists to solve, one layer up. **G12 would have hit
+  this.**
+- `waitlist` belongs to the standalone landing app, whose sessions are the same `Session`
+  class this listener binds to. Implementing §4.4 literally broke **all 10 SPEC-001 landing
+  tests** — which is how it was found.
+
+Fixed by checking `state.all_mappers` and returning early when no `TenantOwned` entity is
+involved. `all_mappers` covers top-level entities, so a join *from* a global table *to* a
+tenant table still includes the tenant mapper and is still filtered —
+`test_join_to_a_tenant_table_is_still_filtered` pins that, because otherwise "start the query
+from a global entity" would be a bypass.
+
+> **Third recurrence of the same blind spot: the ORM filter cannot reach the two Core
+> association tables.** `with_loader_criteria` takes a mapped class, and `staff_properties` /
+> `vendor_properties` have none. Their only protection is RLS — which is only real on a
+> non-superuser connection. First the mixin could not reach them (G2.5), then `before_flush`
+> could not (G8.3's column default), now the read filter cannot.
+> `test_association_tables_are_not_covered_by_the_orm_filter` fails if either gains a mapped
+> class, so the gap notes cannot quietly go stale.
+
+> **The escape hatch is an execution option, `skip_tenant`**, for the paths that legitimately
+> span tenants: Alembic, the Step 16 importer, admin tooling. Spelled per-call rather than as a
+> context flag so every use is visible at the call site — a module-level "disable scoping"
+> switch would be reachable from anywhere and invisible in review. Tested, so the paths that
+> rely on it fail here rather than in production.
 
 ### [ ] G9 — connection hygiene — *dep: G8*
 

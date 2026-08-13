@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -12,6 +12,9 @@ from mihomes.models import Base, SlugMixin, TenantOwned, TimestampMixin
 
 class Space(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "spaces"
+    __table_args__ = (
+        Index("ix_spaces_account_zone", 'account_id', 'zone_id'),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, default=new_id
@@ -22,7 +25,7 @@ class Space(Base, TimestampMixin, SlugMixin, TenantOwned):
     property_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("properties.id"), nullable=False)
     zone_id: Mapped[uuid.UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("zones.id"), index=True, nullable=True)
+        PGUUID(as_uuid=True), ForeignKey("zones.id"), nullable=True)
 
     property = relationship("Property", back_populates="spaces")
     zone = relationship("Zone", back_populates="spaces")

@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Enum, ForeignKey, String, Text
+from sqlalchemy import Date, DateTime, Enum, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -26,6 +26,9 @@ class WorkOrderStatus(str, enum.Enum):
 
 class WorkOrder(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "work_orders"
+    __table_args__ = (
+        Index("ix_work_orders_account_issue", 'account_id', 'issue_id'),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, default=new_id
@@ -55,7 +58,7 @@ class WorkOrder(Base, TimestampMixin, SlugMixin, TenantOwned):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     issue_id: Mapped[uuid.UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("issues.id"), index=True, nullable=True)
+        PGUUID(as_uuid=True), ForeignKey("issues.id"), nullable=True)
     completion_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     ai_report: Mapped[str | None] = mapped_column(Text, nullable=True)
 

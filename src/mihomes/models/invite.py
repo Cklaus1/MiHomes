@@ -18,7 +18,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, func
+from sqlalchemy import DateTime, ForeignKey, Index, String, func
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -28,10 +28,18 @@ from mihomes.models import Base, TenantOwned
 
 class Invite(Base, TenantOwned):
     __tablename__ = "invites"
+    __table_args__ = (
+        Index("ix_invites_account_email", 'account_id', 'email'),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=new_id)
-    email: Mapped[str] = mapped_column(String(320), nullable=False, index=True)
+    email: Mapped[str] = mapped_column(String(320), nullable=False)
     role: Mapped[str] = mapped_column(String(20), nullable=False)   # admin | staff
+    # Deliberately NOT composite with account_id, and deliberately globally
+    # unique: an invite is accepted by presenting this token *before* the
+    # recipient belongs to any account, so the lookup cannot supply one. Making
+    # it (account_id, token_hash) would also let two accounts mint the same
+    # hash. Do not "fix" this in a leads-with-account_id sweep.
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="pending")

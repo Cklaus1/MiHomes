@@ -263,14 +263,57 @@ Windows `os.kill` baseline failure (`test_backup`), and 6 are open —
 > against a hardcoded list of 37 — a sampled or derived list rots, which is the A11 lesson from the
 > pilot.
 
-### [ ] G3 — composite indexes lead with `account_id` — *dep: G2*
+### [x] G3 — composite indexes lead with `account_id` — *dep: G2* — *43 non-leading → 17, all deferred by name; 4 gate tests*
 
-- [ ] G3.1 · §6 Step 3 · — · per-table index audit; every composite index leads with `account_id` · verify: `EXPLAIN` on representative queries shows an index scan, not a sequential scan
-- [ ] G3.2 · §6 Step 3 · — · **merge with the four existing `__table_args__`** — `budget.py:21`, `event.py:54`, `note.py:11`, `tag.py:18` · verify: those four models' existing constraints still hold
+- [x] G3.1 · §6 Step 3 · — · per-table index audit; every composite index leads with `account_id` · verify: `tests/unit/test_tenant_indexes.py::test_composite_indexes_lead_with_account_id`
+- [x] G3.2 · §6 Step 3 · — · **merge with the four existing `__table_args__`** — `budget.py`, `event.py`, `note.py`, `tag.py` · verify: `test_tenant_indexes.py::test_preexisting_table_args_survived_the_merge` asserts each surviving constraint **by name**
 
 > The spec says *"only one model declares `__table_args__` (`note.py:11`), so this is nearly
 > greenfield."* **There are four.** Replacing rather than merging silently drops existing
-> constraints.
+> constraints. Confirmed and located: `budget.py:24` (`uq_budget_property_category_period`),
+> `event.py:62` (`uq_event_guest`), `note.py:15` (`ix_note_entity`), `tag.py:24`
+> (`uq_tag_assignment`) — the last two on `TagAssignment`/`Note`, not `Tag`/the note table's owner,
+> which is why a line-number search for them misleads. Three more exist but are SPEC-002's own
+> (`membership.py` ×2, `configuration.py`) and are already account-aware.
+
+**The audit, and why the number went 43 → 17 rather than 43 → 0.** Measured: 40 tenant tables, **84
+indexes, 43 of which did not lead with `account_id`.** The discriminating question is not "is it
+composite" but **what the query knows at lookup time**, which sorts them into four buckets:
+
+- **Converted (the actual G3 work, 26 indexes).** FK and time/filter columns queried within an
+  account — `transactions.{property_id,vendor_id,work_order_id,appointment_id}`,
+  `tasks.{due_date,zone_id,category}`, `audit_log.{timestamp,entity_type+entity_id}`,
+  `issues.{reported_by_id,resolved_by_id}`, and so on. The single-column index is **replaced**, not
+  supplemented: the composite serves every lookup the single did, and keeping both taxes every
+  insert.
+- **Deferred to G5 (16).** The 15 `SlugMixin` slug indexes plus `tags.name`. G5's
+  `UNIQUE (account_id, slug)` produces a leading index by itself, so converting here writes them
+  twice. **G5 must delete its entries from `EXPECTED_NON_LEADING`**; a companion test
+  (`test_every_declared_exception_still_exists`) fails if a listed index disappears, so the
+  allow-list cannot outlive its reason.
+- **Permanent exception (1).** `invites.token_hash` stays globally unique and non-composite. An
+  invite is accepted by presenting the token **before** the recipient belongs to any account, so the
+  lookup cannot supply one — and `(account_id, token_hash)` would let two accounts mint the same
+  hash. A comment at the column says so, because this is precisely what a later
+  "every index leads with `account_id`" sweep would break.
+- **Out of scope.** `users`, `sessions`, `accounts`, `waitlist` are GLOBAL.
+
+> **The allow-list is exact, not a superset** — 17 declared, 17 actual, verified. An eighteenth
+> non-leading index fails the gate rather than being absorbed.
+
+> **Recorded for G7/G12, cheap now and expensive later:** RLS on `invites` blocks the token lookup
+> above outright, since the accepting request has no `app.current_account` yet. Either `invites`
+> needs a policy that permits the pre-tenant read, or the accept flow runs outside RLS. Same shape
+> as the `src/web/` finding — the thing that bites later is trivially recordable at the moment you
+> notice it.
+
+**On the spec's `EXPLAIN` verify clause.** Not used as the gate, deliberately. A sequential scan is
+the *correct* plan on a table with a handful of rows, so an `EXPLAIN` assertion fails or passes for
+reasons unrelated to whether the index is right, and seeding each of 40 tables enough to move the
+planner would buy a slow test that still only checks the cost model. The gate asserts index
+existence and **column order** in metadata — the property Step 3 actually asks for — plus
+`test_indexes_exist_in_postgres`, which confirms `create_all` really created them and closes the gap
+a metadata-only assertion leaves open.
 
 ### [ ] G4 — child-table drift guard — *dep: G2*
 

@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, String, Text
+from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -30,6 +30,10 @@ class IssueStatus(str, enum.Enum):
 
 class Issue(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "issues"
+    __table_args__ = (
+        Index("ix_issues_account_reported_by", 'account_id', 'reported_by_id'),
+        Index("ix_issues_account_resolved_by", 'account_id', 'resolved_by_id'),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, default=new_id
@@ -46,9 +50,9 @@ class Issue(Base, TimestampMixin, SlugMixin, TenantOwned):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     resolution_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     reported_by_id: Mapped[uuid.UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("staff.id"), index=True, nullable=True)
+        PGUUID(as_uuid=True), ForeignKey("staff.id"), nullable=True)
     resolved_by_id: Mapped[uuid.UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("staff.id"), index=True, nullable=True)
+        PGUUID(as_uuid=True), ForeignKey("staff.id"), nullable=True)
 
     property = relationship("Property")
     space = relationship("Space")

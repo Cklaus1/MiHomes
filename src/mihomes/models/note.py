@@ -12,7 +12,9 @@ from mihomes.models import Base, TenantOwned, TimestampMixin
 
 class Note(Base, TimestampMixin, TenantOwned):
     __tablename__ = "notes"
-    __table_args__ = (Index("ix_note_entity", "entity_type", "entity_id"),)
+    __table_args__ = (
+        Index("ix_note_entity", "account_id", "entity_type", "entity_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, default=new_id

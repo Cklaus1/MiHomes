@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Enum, Float, ForeignKey, String, Text
+from sqlalchemy import Date, DateTime, Enum, Float, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -64,6 +64,11 @@ class TaskCategory(str, enum.Enum):
 
 class Task(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "tasks"
+    __table_args__ = (
+        Index("ix_tasks_account_due", 'account_id', 'due_date'),
+        Index("ix_tasks_account_zone", 'account_id', 'zone_id'),
+        Index("ix_tasks_account_category", 'account_id', 'category'),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, default=new_id
@@ -76,14 +81,14 @@ class Task(Base, TimestampMixin, SlugMixin, TenantOwned):
         PGUUID(as_uuid=True), ForeignKey("staff.id"), nullable=True)
     priority: Mapped[TaskPriority] = mapped_column(Enum(TaskPriority), default=TaskPriority.MEDIUM)
     status: Mapped[TaskStatus] = mapped_column(Enum(TaskStatus), default=TaskStatus.PENDING)
-    due_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     completion_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     estimated_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
     gcal_event_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
     zone_id: Mapped[uuid.UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("zones.id"), index=True, nullable=True)
-    category: Mapped[TaskCategory | None] = mapped_column(Enum(TaskCategory), nullable=True, index=True)
+        PGUUID(as_uuid=True), ForeignKey("zones.id"), nullable=True)
+    category: Mapped[TaskCategory | None] = mapped_column(Enum(TaskCategory), nullable=True)
 
     property = relationship("Property")
     assignee = relationship("Staff")

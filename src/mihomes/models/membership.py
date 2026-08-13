@@ -42,7 +42,7 @@ class Membership(Base, TenantOwned):
     # once, via the mixin, so there is one definition to change.
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=new_id)
     user_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     role: Mapped[str] = mapped_column(String(20), nullable=False)     # owner | admin | staff
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="active")
@@ -74,15 +74,19 @@ class MembershipPropertyScope(Base, TenantOwned):
     """
 
     __tablename__ = "membership_property_scopes"
+    __table_args__ = (
+        Index("ix_scopes_account_membership", 'account_id', 'membership_id'),
+        Index("ix_scopes_account_property", 'account_id', 'property_id'),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=new_id)
     membership_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("memberships.id", ondelete="CASCADE"),
-        nullable=False, index=True,
+        nullable=False,
     )
     property_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("properties.id", ondelete="CASCADE"),
-        nullable=False, index=True,
+        nullable=False,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

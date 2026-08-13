@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import date, datetime, timezone
 
-from sqlalchemy import Date, DateTime, Enum, Float, ForeignKey, String, Text
+from sqlalchemy import Date, DateTime, Enum, Float, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -51,12 +51,15 @@ class Consumable(Base, TimestampMixin, SlugMixin, TenantOwned):
 
 class ConsumablePriceEntry(Base, TenantOwned):
     __tablename__ = "consumable_price_entries"
+    __table_args__ = (
+        Index("ix_consumable_prices_account_item", 'account_id', 'consumable_id'),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, default=new_id
     )
     consumable_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("consumables.id"), nullable=False, index=True)
+        PGUUID(as_uuid=True), ForeignKey("consumables.id"), nullable=False)
     date: Mapped[date] = mapped_column(Date, nullable=False)
     price: Mapped[float] = mapped_column(Money, nullable=False)
     quantity: Mapped[float] = mapped_column(Float, default=1.0)

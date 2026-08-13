@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String, Text
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -28,6 +28,9 @@ class AlertStatus(str, enum.Enum):
 
 class Alert(Base, TimestampMixin, TenantOwned):
     __tablename__ = "alerts"
+    __table_args__ = (
+        Index("ix_alerts_account_property", 'account_id', 'property_id'),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, default=new_id
@@ -36,7 +39,7 @@ class Alert(Base, TimestampMixin, TenantOwned):
     source_entity_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     source_entity_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     property_id: Mapped[uuid.UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("properties.id", ondelete="SET NULL"), index=True, nullable=True
+        PGUUID(as_uuid=True), ForeignKey("properties.id", ondelete="SET NULL"), nullable=True
     )
     severity: Mapped[AlertSeverity] = mapped_column(Enum(AlertSeverity), default=AlertSeverity.MEDIUM)
     message: Mapped[str] = mapped_column(Text, nullable=False)

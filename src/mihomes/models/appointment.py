@@ -4,7 +4,7 @@ import uuid
 from datetime import date, time
 from enum import Enum
 
-from sqlalchemy import Boolean, Date, ForeignKey, String, Text, Time
+from sqlalchemy import Boolean, Date, ForeignKey, Index, String, Text, Time
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -22,6 +22,10 @@ class AppointmentType(str, Enum):
 
 class Appointment(Base, TimestampMixin, TenantOwned):
     __tablename__ = "appointments"
+    __table_args__ = (
+        Index("ix_appointments_account_date", 'account_id', 'date'),
+        Index("ix_appointments_account_recurring", 'account_id', 'recurring_expense_id'),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, default=new_id
@@ -34,8 +38,8 @@ class Appointment(Base, TimestampMixin, TenantOwned):
     contract_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("contracts.id"), nullable=True)
     recurring_expense_id: Mapped[uuid.UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("recurring_expenses.id"), index=True, nullable=True)
-    date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+        PGUUID(as_uuid=True), ForeignKey("recurring_expenses.id"), nullable=True)
+    date: Mapped[date] = mapped_column(Date, nullable=False)
     start_time: Mapped[time | None] = mapped_column(Time, nullable=True)
     appointment_type: Mapped[str] = mapped_column(String(50), default="vendor_visit", nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)

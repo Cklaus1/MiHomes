@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, joinedload
 from mihomes.models.consumable import Consumable, ConsumablePriceEntry, ConsumableStatus
 from mihomes.models.property import Property
 from mihomes.services.query_helpers import exact_ci
-from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
+from mihomes.services.slug import ensure_unique_slug, generate_slug, get_by_id, resolve_identifier
 from mihomes.services.validators import validate_name
 
 
@@ -229,7 +229,7 @@ def add_price_entry(
 
 
 def delete_price_entry(session: Session, entry_id: int) -> None:
-    entry = session.get(ConsumablePriceEntry, entry_id)
+    entry = get_by_id(session, ConsumablePriceEntry, entry_id)
     if not entry:
         raise ValueError(f"Price entry {entry_id} not found")
     consumable_id = entry.consumable_id
@@ -242,7 +242,7 @@ def delete_price_entry(session: Session, entry_id: int) -> None:
         .order_by(ConsumablePriceEntry.date.desc())
         .first()
     )
-    item = session.get(Consumable, consumable_id)
+    item = get_by_id(session, Consumable, consumable_id)
     if item:
         item.unit_price = latest.price if latest else None
 
@@ -257,7 +257,7 @@ def edit_price_entry(
     entry_type: str = "purchase",
     note: str | None = None,
 ) -> ConsumablePriceEntry:
-    entry = session.get(ConsumablePriceEntry, entry_id)
+    entry = get_by_id(session, ConsumablePriceEntry, entry_id)
     if not entry:
         raise ValueError(f"Price entry {entry_id} not found")
     entry.price = price

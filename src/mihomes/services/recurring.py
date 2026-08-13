@@ -10,7 +10,7 @@ from mihomes.models.recurring_expense import ExpenseFrequency, RecurringExpense
 from mihomes.models.vendor import Vendor
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
 from mihomes.services.recurrence import add_months
-from mihomes.services.slug import resolve_identifier
+from mihomes.services.slug import get_by_id, resolve_identifier
 from mihomes.services.update_helpers import safe_update
 
 
@@ -47,7 +47,7 @@ def create_recurring_expense(
 
 
 def get_recurring_expense(session: Session, expense_id: int) -> RecurringExpense:
-    exp = session.get(RecurringExpense, expense_id)
+    exp = get_by_id(session, RecurringExpense, expense_id)
     if exp is None:
         raise ValueError(f"Recurring expense {expense_id} not found")
     return exp

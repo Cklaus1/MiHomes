@@ -8,7 +8,7 @@ from mihomes.models.contract import Contract
 from mihomes.models.property import Property
 from mihomes.models.vendor import Vendor
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
-from mihomes.services.slug import resolve_identifier
+from mihomes.services.slug import get_by_id, resolve_identifier
 from mihomes.services.update_helpers import safe_update
 
 
@@ -58,7 +58,7 @@ def list_contracts(
 
 
 def update_contract(session: Session, contract_id: int, **kwargs) -> Contract:
-    contract = session.get(Contract, contract_id)
+    contract = get_by_id(session, Contract, contract_id)
     if contract is None:
         raise ValueError(f"Contract {contract_id} not found")
     old_snap = snapshot_instance(contract)
@@ -71,7 +71,7 @@ def update_contract(session: Session, contract_id: int, **kwargs) -> Contract:
 
 
 def delete_contract(session: Session, contract_id: int) -> None:
-    contract = session.get(Contract, contract_id)
+    contract = get_by_id(session, Contract, contract_id)
     if contract is None:
         raise ValueError(f"Contract {contract_id} not found")
     record_change(session, "contract", contract.id, "delete", snapshot_instance(contract))

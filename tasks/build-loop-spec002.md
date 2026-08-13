@@ -85,6 +85,54 @@ failures, or CI sees any, it is real.**
 **Invoke pytest as `py -m pytest`**, never `python` (Store shim). Pass DB env inline — the worktree
 guard rejects `export` chains.
 
+### Triage of the remaining red — every item has an owner
+
+Done after G6 rather than deferred wholesale, because "17 failed / 61 errors" is not a state you can
+act on and because one bucket turned out to be a live bug rather than scheduled work.
+
+| count | what | owner | why it is not actionable now |
+|---:|---|---|---|
+| **61** | errors, all `LookupError: current_account` — `test_cli.py` ×48, `test_cli_bad_input` ×8, `test_cli_markup_injection` ×2, `test_dashboard` ×2, `test_report_upcoming` ×1 | **G13** | The CLI path establishes no account context. Fixing it *is* G13; doing it here would be G13 done early and out of dependency order (it depends on G8). |
+| **12** | failures on the same `LookupError` — `test_dedup` ×6, `test_offset_ack` ×4, `test_demo_boot` ×2 | **G13** | Same root cause, reached through `db.init_db()` rather than the CLI runner. |
+| **2** | `test_csv_cmd` — non-zero exit | **G13** | CLI-invoking; same context gap, different symptom. |
+| **1** | `test_backup::test_stale_pid_file_does_not_block_restore` | **nobody — platform** | Windows rejects `os.kill(pid, 0)` with `WinError 87`. Pre-existing on the untouched baseline and green on Linux (CI). Recorded in §0.1 as the known local failure. |
+| ~~2~~ | ~~`test_business_logic::test_delete_nonexistent_raises` ×2~~ | **fixed here** | Not scheduled work — a real bug. See below. |
+
+**The one that could not wait.** `delete_contract(session, 99999)` raised
+`psycopg.errors.CannotCoerce: cannot cast type integer to uuid` — a `ProgrammingError`, which
+surfaces to a user as a **500 instead of a 404**. Same class as the PTO bug fixed in G6.1b, in two
+more places I had not swept. The sweep found **21 `session.get(Model, …)` call sites, exactly one of
+which was guarded** (the PTO one). Fixed with a single `get_by_id()` helper in `services/slug.py`
+rather than a third hand-written coercion, and applied to the 14 sites whose id arrives as a function
+parameter — the surface where a caller can supply a non-UUID. Sites reading an id off an
+already-loaded row are left alone: those values came from the database and are UUIDs by construction.
+
+> **Why this matters beyond two tests:** the failing pair happened to have coverage. The other 12
+> converted sites did not, and each was one non-UUID argument away from the same 500. The bug class
+> was "any caller-supplied id that is not a UUID", and only a sweep bounds it — which is the same
+> conclusion G6.1b reached about type changes needing a consumer-side gate.
+
+### Current skip inventory — 3, all declared
+
+Conventions §0 makes an **undeclared** skip a red gate, so the live set is listed here rather
+than left to inference. Checked with `pytest -rs`, not assumed:
+
+```
+tests/unit/test_uuid_pks.py:41   configurations has a natural primary key — see NATURAL_KEY_TABLES
+tests/unit/test_uuid_pks.py:85   configurations has a natural primary key — see NATURAL_KEY_TABLES
+tests/unit/test_watchdog.py:20   POSIX-only crash
+```
+
+The two `test_uuid_pks` skips are **correct and permanent**, not deferrals: G6.1 gave
+`configurations` a natural composite primary key `(account_id, key)`, so the two tests that assert
+"every tenant table has a single UUID surrogate PK" have nothing to check there. They name
+`NATURAL_KEY_TABLES` as the authority, so adding another natural-key table extends that set rather
+than growing skip logic. `test_watchdog` is the pre-existing POSIX-only platform skip that passes on
+Linux (CI).
+
+**These two were undeclared until now** — they arrived with G6.1 and I did not add them to §0.1 at
+the time, which is precisely the gap §0's rule exists to close.
+
 ### Two expected skips, declared by name — ✅ RETIRED at G6.3
 
 **Both are gone, and the skip count went 5 → 3 as a result.** G6.3 deleted the two files along with

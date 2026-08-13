@@ -9,7 +9,7 @@ from mihomes.models.budget import Budget, BudgetPeriod, Transaction
 from mihomes.models.property import Property
 from mihomes.models.vendor import Vendor
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
-from mihomes.services.slug import resolve_identifier
+from mihomes.services.slug import get_by_id, resolve_identifier
 from mihomes.services.update_helpers import safe_update
 
 
@@ -89,7 +89,7 @@ def add_transaction(
 
 
 def update_transaction(session: Session, transaction_id: int, **kwargs) -> Transaction:
-    tx = session.get(Transaction, transaction_id)
+    tx = get_by_id(session, Transaction, transaction_id)
     if tx is None:
         raise ValueError(f"Expense {transaction_id} not found")
     old_snap = snapshot_instance(tx)

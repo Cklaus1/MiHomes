@@ -5,8 +5,9 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 
 from mihomes.models.alert import Alert, AlertSeverity, AlertStatus
-from mihomes.models.task import Task, TaskStatus
 from mihomes.models.issue import Issue, IssueSeverity, IssueStatus
+from mihomes.models.task import Task, TaskStatus
+from mihomes.services.slug import get_by_id
 
 
 def generate_alerts(session: Session) -> int:
@@ -165,13 +166,16 @@ def list_alerts(
     if not include_snoozed:
         now = datetime.now(timezone.utc)
         query = query.filter(
-            (Alert.snoozed_until == None) | (Alert.snoozed_until <= now)
+            # `== None`, not `is None`: SQLAlchemy overloads `==` on a Column to emit
+            # `IS NULL`. `is None` would evaluate to a Python bool and silently drop the
+            # predicate, so ruff's E711 suggestion is wrong for a filter expression.
+            (Alert.snoozed_until == None) | (Alert.snoozed_until <= now)  # noqa: E711
         )
     return query.order_by(Alert.severity, Alert.created_at.desc()).all()
 
 
 def snooze_alert(session: Session, alert_id: int, days: int) -> Alert:
-    alert = session.get(Alert, alert_id)
+    alert = get_by_id(session, Alert, alert_id)
     if alert is None:
         raise ValueError(f"Alert {alert_id} not found")
     alert.snoozed_until = datetime.now(timezone.utc) + timedelta(days=days)
@@ -181,7 +185,7 @@ def snooze_alert(session: Session, alert_id: int, days: int) -> Alert:
 
 
 def acknowledge_alert(session: Session, alert_id: int) -> Alert:
-    alert = session.get(Alert, alert_id)
+    alert = get_by_id(session, Alert, alert_id)
     if alert is None:
         raise ValueError(f"Alert {alert_id} not found")
     alert.status = AlertStatus.ACKNOWLEDGED

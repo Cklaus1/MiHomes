@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from mihomes.models.appointment import Appointment, AppointmentType
 from mihomes.models.property import Property
 from mihomes.services.audit import record_change, snapshot_instance
-from mihomes.services.slug import resolve_identifier
+from mihomes.services.slug import get_by_id, resolve_identifier
 from mihomes.services.update_helpers import safe_update
 
 
@@ -65,7 +65,7 @@ def list_appointments(
 
 
 def get_appointment(session: Session, appointment_id: int) -> Appointment:
-    appt = session.get(Appointment, appointment_id)
+    appt = get_by_id(session, Appointment, appointment_id)
     if appt is None:
         raise ValueError(f"Appointment {appointment_id} not found")
     return appt

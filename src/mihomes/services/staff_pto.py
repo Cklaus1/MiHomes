@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from mihomes.models.staff import Staff
 from mihomes.models.staff_pto import PTOStatus, StaffPTORequest
 from mihomes.models.task import Task, TaskStatus
-from mihomes.services.slug import resolve_identifier
+from mihomes.services.slug import get_by_id, resolve_identifier
 
 _log = logging.getLogger("mihomes.staff_pto")
 
@@ -63,18 +63,18 @@ def create_pto_request(
 
 
 def _pto_request(session: Session, request_id: uuid.UUID | str) -> StaffPTORequest:
-    """Load a PTO request by UUID, treating a malformed id as "not found".
+    """Load a PTO request, treating a malformed id as "not found".
 
-    G6.1 made these ids UUIDv7. The gateway hands us whatever the approver typed
-    into a chat reply, so a non-UUID string has to raise the same ValueError as a
-    valid-but-unknown id rather than reaching the driver as a bad UUID literal —
-    callers already turn ValueError into "could not approve, try again".
+    G6.1 made these ids UUIDv7. The gateway hands us whatever the approver typed into a
+    chat reply, so a non-UUID string has to raise the same ValueError as a valid-but-unknown
+    id rather than reaching the driver as a bad UUID literal — callers already turn
+    ValueError into "could not approve, try again".
+
+    The coercion itself lives in `get_by_id` now: this was the first of three places that
+    needed it (contract and insurance deletes were failing the same way, with
+    `CannotCoerce` surfacing as a 500), so it became one helper instead of three.
     """
-    try:
-        pk = uuid.UUID(str(request_id))
-    except (ValueError, TypeError, AttributeError):
-        raise ValueError(f"PTO request #{request_id} not found") from None
-    req = session.get(StaffPTORequest, pk)
+    req = get_by_id(session, StaffPTORequest, request_id)
     if not req:
         raise ValueError(f"PTO request #{request_id} not found")
     return req

@@ -82,6 +82,30 @@ class AmbiguousIdentifierError(ValueError):
         super().__init__(f"'{identifier}' is ambiguous — matches: {slugs}")
 
 
+def get_by_id(session: Session, model_class, entity_id):
+    """`session.get()` that treats a malformed id as "not found" rather than an error.
+
+    Returns the instance or `None`, so callers keep whatever not-found behaviour they
+    already had (`if x is None: raise ValueError(...)`).
+
+    **Why this exists.** After G6.1 made every primary key a UUID, passing a non-UUID id
+    to `session.get()` reaches the driver and raises
+    `psycopg.errors.CannotCoerce: cannot cast type integer to uuid` — a `ProgrammingError`,
+    which surfaces as a 500 rather than a 404. `delete_contract(session, 99999)` did
+    exactly that, and two `test_delete_nonexistent_raises` tests caught it.
+
+    This is the third appearance of the pattern (PTO first, then contract and insurance),
+    which is why it is one helper rather than a coercion re-written at each call site.
+    Sibling of `resolve_identifier`: same concern — turn a caller-supplied identifier into
+    an instance or a clean miss — for models that have no slug to fall back on.
+    """
+    try:
+        pk = uuid.UUID(str(entity_id))
+    except (ValueError, TypeError, AttributeError):
+        return None
+    return session.get(model_class, pk)
+
+
 def resolve_identifier(session: Session, model_class, id_or_slug: str):
     """Resolve an ID or slug to an ORM instance. Raises EntityNotFoundError if not found.
 

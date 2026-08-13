@@ -48,10 +48,26 @@ def _active_url() -> str:
 
 
 def get_engine(url: str | None = None) -> Engine:
-    """Get or create the SQLAlchemy engine."""
+    """Get or create the SQLAlchemy engine.
+
+    `pool_pre_ping=True` for Postgres (§5, Step 9): a pooled connection can be closed by the
+    server, a network blip, or PgBouncer between checkouts, and without a pre-ping the first
+    query of the next request fails instead of transparently reconnecting. Not applied to
+    SQLite, where there is no server to lose and the ping is pure overhead.
+
+    **The engine is shared; the tenant is never baked into it.** The account travels on the
+    ContextVar and reaches the connection through `tenancy/connection.py`'s transaction-local
+    GUC. An engine or pool per tenant would be the obvious-looking alternative and is the
+    thing N3 exists to prevent — see that module for what a session-scoped GUC does to a
+    reused connection.
+    """
     global _engine, _SessionLocal
     if _engine is None or url is not None:
-        _engine = create_engine(url or _active_url(), echo=False)
+        resolved = url or _active_url()
+        kwargs = {"echo": False}
+        if not resolved.startswith("sqlite"):
+            kwargs["pool_pre_ping"] = True
+        _engine = create_engine(resolved, **kwargs)
         # H3: a swapped engine must invalidate the cached session factory, or
         # get_session() keeps binding new sessions to the previous DB. cli/init.py
         # used to hand-poke this global as a workaround; the reset belongs here.

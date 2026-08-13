@@ -350,6 +350,41 @@
   **Fix:** Step 6 should list these as required manual edits rather than implying `--autogenerate`
   output is complete.
 
+- [BUG][SPEC-002 Step 9 — THE POOL `checkin` `RESET` IS NOT IMPLEMENTABLE] Step 9 prescribes a pool
+  `checkin` `RESET` alongside the `after_begin` GUC. Measured at G9: executing SQL in SQLAlchemy's
+  `checkin` event leaves an implicit transaction open on the psycopg connection, and SQLAlchemy's own
+  connection reset — which restores the isolation level, i.e. sets `autocommit` — then fails with
+  `can't change 'autocommit' now: connection in transaction status INERROR`, breaking every fixture
+  that shares the pool. `RESET` is also itself transactional, so one issued inside a transaction that
+  is subsequently rolled back is undone.
+
+  **Fix:** drop the checkin RESET and have `after_begin` stamp the GUCs **unconditionally** —
+  the bound value, or `NULL` when nothing is bound. A transaction-local `set_config(guc, NULL, true)`
+  overrides a session-level value for the duration of the transaction (measured), so a stray `SET`
+  cannot be observed by a scoped query. This is strictly stronger than the checkin reset: the
+  guarantee holds at the point of use rather than depending on the pool having cleaned up.
+
+- [BUG][SPEC-002 §4.4 — THE `after_begin` SNIPPET SETS ONLY ONE OF THE TWO GUCS] §4.4 sets
+  `app.current_account` and never `app.current_user`, but §4.2's `membership_self` policy — the one
+  bootstrap exception, which exists so the account picker can work *before* an account is chosen —
+  keys on `app.current_user`. As specified, that policy is permanently unsatisfiable and the picker
+  returns an empty list, presenting as *"sign-in works but you belong to no accounts"*. **Fix:** stamp
+  both GUCs in `after_begin`, independently — a user may be bound with no account, which is precisely
+  the pre-picker state.
+
+  Related: §4.4's snippet `return`s early on `LookupError` and leaves the GUC untouched. Combined with
+  connection reuse that is how a stale value survives; stamping `NULL` instead is what makes the
+  absence explicit.
+
+- [INFO][SPEC-002 §4.3 / Step 9 — WHERE THE EMPTY-STRING GUC COMES FROM] Closing the loop on the
+  `NULLIF` finding logged above: after a **transaction-local** GUC's transaction ends,
+  `current_setting('app.current_account', true)` returns `''`, not `NULL` (measured at G9). Every
+  transaction after the first on a reused pooled connection is in that state, so
+  `NULLIF(current_setting(...), '')::uuid` in the RLS predicate is **required for correctness**, not
+  defensive — without it the second transaction on any pooled connection raises
+  `invalid input syntax for type uuid: ""` instead of returning zero rows. Worth stating in §4.3
+  beside the predicate, since the naive form looks correct and fails only under reuse.
+
 ## Resolved during SPEC-002 pre-flight (not defects — decisions)
 
 - [DEFER][waitlist ownership] SPEC-002 mentions `alembic_landing`, `version_locations` and

@@ -753,13 +753,65 @@ from a global entity" would be a bypass.
 > switch would be reachable from anywhere and invisible in review. Tested, so the paths that
 > rely on it fail here rather than in production.
 
-### [ ] G9 — connection hygiene — *dep: G8*
+### [x] G9 — connection hygiene — *dep: G8* — *7 tests; A10 now closes end-to-end*
 
-- [ ] G9.1 · §6 Step 9 · A11 · `after_begin` GUC (**transaction-local**, N3 — a session-level `SET` persists on a pooled connection and the next tenant inherits it), pool `checkin` `RESET`, `pool_pre_ping` · verify: `tests/integration/test_connection_hygiene.py::test_no_guc_leak_across_transactions`
+- [x] G9.1 · §6 Step 9 · A11 · transaction-local `after_begin` GUC (N3), `pool_pre_ping`, and — in place of the pool `checkin` `RESET` — an unconditional stamp · verify: `tests/integration/test_connection_hygiene.py::test_no_guc_leak_across_transactions`
 
 > N3 is the subtlest rule in the spec: Fly's PgBouncer runs in **transaction** pooling mode, so a
 > session-scoped GUC outlives the request that set it. Two sequential transactions on one pooled
 > connection under different accounts must never see each other's rows.
+
+**N3 measured rather than trusted.** With `pool_size=1, max_overflow=0` forcing every transaction
+onto one physical connection:
+
+```
+session-level SET, second transaction on the same connection  -> sees 'bbbb'     LEAK
+session-level SET, connection returned to the pool + reused   -> sees 'cccc'     LEAK
+transaction-local set_config(..., true), next transaction      -> sees ''        cleared
+```
+
+**The pool pinning in those fixtures is the experiment, not scaffolding.** With a default pool the
+second transaction may get a *different* connection and the test passes with the bug intact — a
+version of `test_connection_hygiene.py` without `pool_size=1` would be exactly the false green N3
+warns about.
+
+### Step 9's pool `checkin` `RESET` was replaced, deliberately
+
+*It does not work.* Executing SQL in the `checkin` event leaves an implicit transaction open on the
+psycopg connection, and SQLAlchemy's own reset — which restores the isolation level, i.e. sets
+`autocommit` — then fails with `can't change 'autocommit' now: connection in transaction status
+INERROR`. Measured: it broke every fixture sharing the pool. `RESET` is also itself transactional, so
+one issued inside a transaction that later rolls back is simply undone.
+
+*Stamping every transaction is stronger anyway.* `after_begin` now sets both GUCs unconditionally —
+the bound value, or **`NULL`** when nothing is bound. A transaction-local `set_config(guc, NULL, true)`
+**overrides** a session-level value for the duration of the transaction (measured), so a stray `SET`
+from a migration, a `psql` session on the same pool, or any future code cannot be observed by a
+scoped query. The guarantee holds **at the point of use** instead of depending on the pool having
+cleaned up — the same principle G5 applied to `ensure_unique_slug`.
+
+### ✅ This closes the empty-string question G7 left open
+
+G7 recorded that `NULLIF(..., '')` was needed in the RLS predicate but that *"some path supplies an
+empty string"* and said so rather than inventing a mechanism. **Found here:** after a
+transaction-local GUC's transaction ends, `current_setting('app.current_account', true)` returns
+**`''`**, not `NULL`. Since every transaction after the first on a reused connection is in exactly
+that state, the `NULLIF` is **required for correctness, not defensive** — without it the second
+transaction on any pooled connection raises `invalid input syntax for type uuid: ""` instead of
+returning zero rows. Two groups apart, and the second one explains the first.
+
+### Both GUCs, and A10 finishes here
+
+§4.4's snippet sets only `app.current_account`. §4.2's `membership_self` policy keys on
+`app.current_user`, so setting only the account leaves A10's bootstrap policy permanently
+unsatisfiable and the account picker returns an empty list — a failure that would present as
+"sign-in works but you belong to no accounts". Both are stamped.
+
+> **G7 declared A10 incomplete until this group; that claim is now discharged rather than left
+> dangling.** `test_membership_self_works_through_the_real_app_path` binds the user via
+> `account_context(..., user_id=...)`, lets `after_begin` set the GUC, and reads through a
+> **non-superuser** connection with **no account bound** — the actual pre-picker state. Both
+> conditions are required for the test to be able to fail at all.
 
 ### [ ] G10 — raw-SQL audit — *dep: G8*
 

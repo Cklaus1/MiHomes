@@ -14,6 +14,11 @@ security property and not a style choice.
 # `mihomes.models`, to keep the dependency one-way: registry imports models, so models
 # must not import tenancy. See `install_drift_guard(...)` at the bottom of this module.
 from mihomes.models import Base
+
+# Imported for its import-time side effect, like `session` below: registers the
+# `after_begin` listener that stamps the transaction-local tenant GUCs (G9). Without it RLS
+# has nothing to read and every scoped query returns zero rows.
+from mihomes.tenancy.connection import install_connection_listeners  # noqa: E402, F401
 from mihomes.tenancy.context import (
     account_context,
     current_account,

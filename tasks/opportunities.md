@@ -235,6 +235,121 @@
   `memberships` and `membership_property_scopes` — which its own **Step 1** adds. Every per-table
   estimate in Steps 2–5 and §4.3 is low by three.
 
+## Found while RUNNING SPEC-002, G3–G8 (2026-08-13)
+
+> **These were fixed in the implementation and documented in `build-loop-spec002.md`, but that
+> is the *builder's* artifact.** They are routed here because SPEC-002 §0.1's own warning is
+> that *"divergence compounds — if SPEC-002 is implemented differently than specified, every
+> spec above it inherits the difference"*, and SPEC-003…008 are written against this design.
+> The two §4.4 defects in particular are **copy-pasteable code in the spec body**: anyone
+> building from §4.4 as written gets code that raises on its first query.
+
+- [BUG][SPEC-002 §4.4 — THE CRITERIA LAMBDA DOES NOT RUN] §4.4's scoped-session snippet writes
+  `with_loader_criteria(TenantOwned, lambda cls: cls.account_id == current_account.get(), ...)`.
+  SQLAlchemy rejects it outright, on the first ORM query:
+
+  ```
+  InvalidRequestError: Can't invoke Python callable get() inside of lambda expression argument
+  ...; lambda SQL constructs should not invoke functions from closure variables to produce
+  literal values since the lambda SQL system normally extracts bound values without actually
+  invoking the lambda or any functions within it. Call the function outside of the lambda and
+  assign to a local variable that is used in the lambda as a closure variable...
+  ```
+
+  Measured at G8 by implementing §4.4 verbatim; reverting to it fails 4 tests. **Fix:** hoist the
+  read out of the lambda — `account_id = current_account.get()` on the line above, then
+  `lambda cls: cls.account_id == account_id`. That is the form SQLAlchemy's own error message
+  prescribes, and it keeps the fail-closed `LookupError` firing per statement.
+
+- [BUG][SPEC-002 §4.4 — BLOCKING FOR G12 AUTH] **The filter as specified makes sign-in
+  impossible.** §4.4 guards only on `state.is_select or state.is_update or state.is_delete`, so it
+  calls `current_account.get()` for **every ORM statement in the process** and raises
+  `LookupError` whenever no account is bound. But:
+
+  - `users` and `sessions` are GLOBAL *precisely because* authentication must read them **before**
+    any account exists (D3). Sign-in therefore cannot complete — the same bootstrap problem
+    §4.2's `membership_self` policy exists to solve, one layer up, which the spec solves for RLS
+    and not for the ORM filter.
+  - `waitlist` belongs to the standalone landing app, whose sessions are the same `Session` class
+    the listener binds to. Implementing §4.4 literally broke **all 10 SPEC-001 landing tests**,
+    which is how this was found.
+
+  **Fix:** return early when the statement involves no tenant-owned entity —
+  `if not any(issubclass(m.class_, TenantOwned) for m in state.all_mappers): return`. `all_mappers`
+  covers top-level entities, so a join *from* a global table *to* a tenant table still includes the
+  tenant mapper and stays filtered; without that caveat "start the query from a global entity"
+  would be a bypass.
+
+- [BUG][SPEC-002 §4.3 / Step 7 — THE RLS PREDICATE CAN RAISE] The specified predicate,
+  `current_setting('app.current_account', true)::uuid`, raises
+  `invalid input syntax for type uuid: ""` when the GUC is set to the **empty string**.
+  `missing_ok` (the `true`) only covers an *absent* setting. An error is the one outcome Step 7's
+  verify clause rules out ("zero rows, not an error"). **Fix:** wrap in `NULLIF(..., '')`.
+  This is a live constraint on **Step 9**, which owns the pool-checkin `RESET` — clearing tenant
+  context by assigning `''` is a natural way to write a reset and would turn every subsequent
+  query into a 500. Step 9 should clear with `RESET` / `set_config(..., NULL, ...)`.
+
+- [BUG][SPEC-002 Step 7 — THE VERIFY CLAUSE IS UNSATISFIABLE ON A SUPERUSER CONNECTION, AND THE
+  SPEC NEVER SAYS SO] Step 7 says *"connected as `app`"*, which is correct but easy to read as
+  incidental. It is load-bearing: **superusers bypass RLS unconditionally, and `FORCE ROW LEVEL
+  SECURITY` does not change that** — FORCE binds the table *owner*, not a superuser. Measured: as
+  `postgres` with the GUC unset, a FORCE-protected table returned every row.
+
+  The consequence is a false green, not a failure. Any test suite that connects as a superuser —
+  which is the default for a local Postgres — passes **whether or not RLS exists at all**. In this
+  run that silently covered 1366 tests before G7. **This is most dangerous for A21**, the spec's
+  stated definition of done: run as a superuser it exercises only the §4.4 ORM filter while
+  reporting that RLS holds, and A21's raw-`text()` arm is defended by RLS *alone*.
+  **Fix:** §11/§13 should require a dedicated non-superuser role for the test harness, and A21
+  should assert `NOT usesuper` on its own connection before asserting isolation.
+
+- [BUG][SPEC-002 §4.4 + §4.3 — THE TWO ASSOCIATION TABLES EVADE *EVERY* ORM-LEVEL MECHANISM]
+  Already logged for §4.3/A1 above (no `account_id`, no policy from a `__subclasses__()`-derived
+  registry). Running it surfaced that the blind spot is **threefold**, not one item:
+  `TenantOwned` is a `declared_attr` mixin and cannot apply to a Core `Table`; `before_flush`
+  iterates `session.new` and Core inserts produce no instance; and `with_loader_criteria` takes a
+  mapped class, so the read filter cannot reach them either. **Their only protection is RLS**,
+  which per the finding above is only real on a non-superuser connection. **Fix:** §4.4 should say
+  so explicitly, and name the column-level `default=` that stamping requires for Core tables.
+
+- [BUG][SPEC-002 Step 4 — F5 NAMES FIVE POLYMORPHIC TABLES; THERE ARE FOUR] `alerts` is not
+  polymorphic — it carries a real `property_id` FK and is fully drift-guardable. The four are
+  `notes`, `documents`, `audit_log`, `tag_assignments`. **Note this discrepancy runs the opposite
+  way to the others: the spec *understated* existing protection.** Also, `tag_assignments` belongs
+  to *both* classes (real `tag_id` FK plus polymorphic `entity_id`), so filing it once misses half
+  its exposure.
+
+- [BUG][SPEC-002 Step 4 — THE COMPOSITE FK IS NOT IMPLEMENTABLE AS SPECIFIED] Step 4 prescribes a
+  composite FK `(account_id, parent_id) → (account_id, id)` for the real-FK children. Measured at
+  G4 across 52 links: adding it *alongside* the existing single-column FK gives two FK paths
+  between the same tables and SQLAlchemy raises `AmbiguousForeignKeysError`; *replacing* the
+  single-column FK does configure, but makes `account_id` a write target for every relationship
+  into the child, and SQLAlchemy warns that sibling relationships conflict over it — silencing
+  that needs an `overlaps=` annotation on all **53** of the codebase's relationships.
+  **Fix:** Step 4 should offer the trigger as the primary mechanism rather than the
+  polymorphic-only fallback. A trigger delivers the same database-level guarantee, needs no
+  `UNIQUE (account_id, id)` on the 18 referenced parents (18 fewer indexes), and reaches the Core
+  association tables that a `__table_args__` edit cannot.
+
+- [BUG][SPEC-002 Step 5 — THE VERIFY CLAUSE IS NOT SATISFIABLE BY SCHEMA CHANGES ALONE] Step 5's
+  clause is *"two accounts can each create a 'main-house' property and a 'Plumbing' tag"*. With
+  `UNIQUE (account_id, slug)` correctly in place it still failed: `ensure_unique_slug()` searched
+  the whole table with no account filter, so the second account got `main-house-2`, and
+  `create_tag()`'s get-or-create matched on `name` alone and **returned account A's Tag row to
+  account B** — handing over a foreign primary key rather than failing to insert. **Fix:** Step 5
+  should name the service-layer functions that enforce uniqueness as part of its scope. There is a
+  latent dependency on Step 8 for any verify clause that runs through a service getter.
+
+- [BUG][SPEC-002 Step 6 — AUTOGENERATE DOES NOT PRODUCE A RUNNABLE BASELINE] Three gaps, all
+  measured at G6.2: (a) `op.drop_table` does not drop the Postgres **enum type** it created, so
+  `upgrade → downgrade → upgrade` — Step 6's own verify clause — fails on "type already exists"
+  until `downgrade()` drops all 22 explicitly; (b) autogenerate renders the custom `Money` type as
+  a fully-qualified `mihomes.type.money.Money()` and **emits no import**, so the generated file
+  raises `NameError`; (c) the pre-existing `IDENTITY_TABLES` exclusion in `alembic/env.py` must be
+  **removed before** autogenerating, or the baseline is silently missing all six identity tables.
+  **Fix:** Step 6 should list these as required manual edits rather than implying `--autogenerate`
+  output is complete.
+
 ## Resolved during SPEC-002 pre-flight (not defects — decisions)
 
 - [DEFER][waitlist ownership] SPEC-002 mentions `alembic_landing`, `version_locations` and

@@ -243,6 +243,24 @@ Review this at the start of each session.
   config caused silent omission rather than a loud failure (see also the `src/web/` gitignore line
   and G6.1's one-ended type gate). **Deleting retired config is part of the change that retires it.**
 
+- **Fixing a spec defect is not the same as reporting it, and I conflated the two for six
+  groups.** Across G3–G8 I found nine defects in SPEC-002 — including two in §4.4's
+  copy-pasteable code, one of which makes the specified filter raise on its first query and
+  another that makes sign-in impossible. I fixed each, documented each in
+  `build-loop-spec002.md`, and explained each in a commit message. I did **not** route any of
+  them to `opportunities.md` until asked. Every artifact I updated was the *builder's*; none
+  was the one that goes back to the spec's author.
+  This is not a bookkeeping nit. SPEC-002 §0.1 says *"divergence compounds — if SPEC-002 is
+  implemented differently than specified, every spec above it inherits the difference"*, and
+  SPEC-003…008 are all written against this design. A defect fixed only in the implementation
+  leaves the next reader of §4.4 with code that does not run.
+  **Rule:** the conventions' three-artifact routing (§5) is a checklist per *finding*, not per
+  *group*. A defect in the spec goes to `opportunities.md` **when it is found** — the same turn
+  it is worked around — because the workaround is exactly the moment the knowledge exists and
+  the moment it stops being visible in the code.
+  **Tell:** if a commit message explains a spec defect at length and `opportunities.md` is
+  unchanged in that commit, the finding has been recorded for me and lost for everyone else.
+
 ## Fifth Review Lessons (2026-03-27)
 - **SIGPIPE data loss**: When CLI output is piped through `head`/`tail`/etc, SIGPIPE can kill the process before `get_session()` commits. Fix: collect data inside `with get_session()`, print AFTER the session context exits (so commit happens before any output). Critical for commands with long output that modify data.
 - Always test CLI commands with `| head -1` to catch SIGPIPE issues.

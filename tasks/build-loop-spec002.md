@@ -315,13 +315,82 @@ existence and **column order** in metadata — the property Step 3 actually asks
 `test_indexes_exist_in_postgres`, which confirms `create_all` really created them and closes the gap
 a metadata-only assertion leaves open.
 
-### [ ] G4 — child-table drift guard — *dep: G2*
+### [x] G4 — child-table drift guard — *dep: G2* — *52 links guarded by trigger; 4 tests*
 
-- [ ] G4.1 · §6 Step 4 · — · **real-FK children** (`task_schedules`, `transactions`, `template_items`, …) → composite FK `(account_id, parent_id)` → `(account_id, id)` · verify: `tests/integration/test_drift_guard.py`
-- [ ] G4.2 · §6 Step 4 · A12 · **polymorphic, no FK** (F5: `alert`, `audit_log`, `document`, `note`, `tag_assignments`) — a composite FK is **impossible**; use a trigger, or accept app-only enforcement **and say so**. Do not silently skip · verify: `tests/integration/test_drift_guard.py::test_child_account_mismatch_rejected`
+- [x] G4.1 · §6 Step 4 · — · **real-FK children** — 52 links across 27 child tables, guarded by a trigger rather than a composite FK (evidence below) · verify: `tests/integration/test_drift_guard.py::test_child_account_mismatch_rejected`
+- [x] G4.2 · §6 Step 4 · A12 · **polymorphic, no FK** — app-only enforcement, with the residual exposure named · verify: `test_drift_guard.py::test_polymorphic_tables_are_documented_as_uncovered`
 
-> F5's five tables carry `entity_type` + `entity_id` with **no `ForeignKey`** — verified: all five
-> are bare `Integer`. The spec is explicit that skipping them silently is not an option.
+**Third order/mechanism deviation: a trigger, not a composite FK — and this one was measured
+before it was chosen.** Step 4's *guarantee* is "a child row whose `account_id` differs from its
+parent's is rejected by the database"; the composite FK is its suggested *mechanism*. The mechanism
+was built and probed against real Postgres, and it does not survive contact with the ORM:
+
+1. A composite FK **alongside** the existing single-column FK gives two FK paths between the same
+   pair of tables → `AmbiguousForeignKeysError` on `configure_mappers()`. Measured.
+2. **Replacing** the single-column FK does configure — and joins on both columns, correctly — but it
+   makes `account_id` a write target for every relationship into the child. SQLAlchemy warns that
+   `Transaction.vendor` and `Transaction.property` both copy `<parent>.account_id` into
+   `transactions.account_id`. Silencing that needs `overlaps=` on **53** relationships, and the
+   write ambiguity is real rather than cosmetic.
+
+What the composite FK *did* prove, in a scratch schema, is worth keeping: four composite FKs sharing
+one `account_id` column create fine, a NULL optional parent is accepted (MATCH SIMPLE), and a
+cross-tenant parent raises `ForeignKeyViolation`. The trigger reproduces all three deliberately —
+including the `IS NULL` early return, which is why `test_null_optional_parent_accepted` exists as a
+named test rather than a comment.
+
+**Three things the trigger buys beyond avoiding the ORM fight:**
+- **18 fewer indexes.** A composite FK needs `UNIQUE (account_id, id)` on all 18 referenced parents,
+  since Postgres requires a unique constraint on the referenced column list. The trigger needs none.
+  *(This supersedes the earlier note that G5 must not remove one of two overlapping unique
+  constraints — there is now only `(account_id, slug)` to add.)*
+- **It reaches the two Core `Table` association tables.** `staff_properties` / `vendor_properties`
+  take constraints as positional `Table(...)` args, not `__table_args__`, so they needed a different
+  edit shape for a composite FK. DDL does not care.
+- **One definition.** A single parameterised PL/pgSQL function, with the 52 links derived from
+  metadata rather than hand-listed — so a new FK is guarded the moment it is declared, and
+  `test_trigger_present_on_every_guarded_child` fails on a 28th child rather than silently skipping.
+
+> **The DDL is attached to `Base.metadata`, not just to the migration.** `create_all` does not create
+> triggers, so a guard living only in G6.2 would be absent from every test database and the drift
+> test would pass against an unguarded schema — the false-green shape this run has already produced
+> twice. **G6.2 must import `DRIFT_GUARD_FUNCTION` / `trigger_ddl_statements()` from
+> `mihomes/tenancy/drift_guard.py`, not copy the SQL.**
+
+> **psycopg3 gotcha, recorded because it is invisible until it fires:** psycopg scans statement text
+> for client-side placeholders and rejects anything that is not `%s`/`%b`/`%t`, so a PL/pgSQL body
+> using `format('… %I …')` fails *before Postgres sees it* — "only '%s', '%b', '%t' are allowed as
+> placeholders, got '%I'". The function therefore contains **no `%` at all**: `to_jsonb(NEW) ->> col`
+> for the dynamic field read, `quote_ident` concatenation for the lookup, and
+> `RAISE … USING MESSAGE =` instead of a `%`-formatted message. Escaping as `%%` would have worked
+> only depending on whether the driver was handed an empty parameter tuple or `None`.
+
+**G4.2 — the polymorphic four get app-only enforcement, and here is the evidence for that choice.**
+The spec allows "a trigger, or application-only enforcement **and say so**". A trigger needs an
+`entity_type` → table mapping in SQL, and **no authoritative mapping exists to derive one from** —
+the three tables use three inconsistent vocabularies. Measured:
+
+| table | distinct `entity_type` values | notable |
+|---|---|---|
+| `audit_log` | 22 | says `"work_order"` |
+| `documents` | 9 | includes **`"ha_entity"`, which is not a table at all** |
+| `notes` | 13 (`ENTITY_TYPE_MAP`) | says `"workorder"` — no underscore |
+
+`notes` and `audit_log` spell the same concept two different ways, and `documents` points at a
+table the pre-flight already established does not exist. A partial mapping would either reject
+legitimate rows or silently skip them, which is worse than not claiming the guarantee.
+
+> **Residual exposure, stated rather than implied:** these four get `account_id` from the G8.3
+> `before_flush` listener, so an ORM insert lands in the writer's tenant. Unguarded: (a) a raw-SQL
+> insert, and (b) an ORM insert whose `entity_id` was read from another tenant's row — the child is
+> stamped with the *writer's* account while pointing at a foreign parent. **A21 does not cover this.**
+
+> **Spec finding (the fourth), and note its direction.** F5 names **five** polymorphic tables; there
+> are **four**. `alerts` is not polymorphic — it has a real `property_id` FK and is therefore fully
+> drift-guarded. Unlike the other three findings this one means the spec *understated* existing
+> protection rather than overstating it; a reader skimming the defect log should not assume every
+> discrepancy widened scope. `tag_assignments` sits in **both** buckets: its `tag_id` side is
+> guarded, its `entity_id` side cannot be.
 
 ### [ ] G5 — unique constraints — *dep: G2*
 

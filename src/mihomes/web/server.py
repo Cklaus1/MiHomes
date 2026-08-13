@@ -61,6 +61,18 @@ def main() -> None:
 
     init_db()
 
+    # N5 — refuse to serve as a role that bypasses RLS.
+    #
+    # This is the only point where "this connection will handle tenant traffic" is true;
+    # migrations legitimately run as the owner, so the check cannot live in get_engine().
+    # A superuser bypasses row-level security silently — no error, the other tenants' rows
+    # are simply visible — so this is checked rather than assumed. See
+    # mihomes/tenancy/runtime_role.py.
+    from mihomes.db import get_engine
+    from mihomes.tenancy.runtime_role import verify_runtime_role
+
+    verify_runtime_role(get_engine())
+
     from a2wsgi import ASGIMiddleware
     from waitress import serve
 

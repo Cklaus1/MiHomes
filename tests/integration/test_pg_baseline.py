@@ -191,11 +191,24 @@ def test_drift_guard_triggers_created_by_the_migration(scratch_db):
 
 
 def test_single_head_and_no_legacy_revisions():
-    """G6.3. One revision, and the archived chain is off the search path."""
+    """G6.3. One linear chain, and the archived 40 are off the search path.
+
+    Asserts the *chain*, not a fixed count: `0002_rls` legitimately extends it, and a test
+    pinned to "exactly one revision" would fail every time a real migration was added. What
+    must stay true is that there is one head (no branching) and that the chain is short
+    enough to be obviously just the SPEC-002 revisions rather than the archived 40.
+    """
     from alembic.script import ScriptDirectory
 
     script = ScriptDirectory.from_config(_config(_scratch_url("postgres")))
     heads = script.get_heads()
-    assert heads == ["0001_pg_baseline"], f"expected one head, got {heads}"
-    revs = list(script.walk_revisions())
-    assert len(revs) == 1, f"legacy revisions are still on the path: {len(revs)}"
+    assert len(heads) == 1, f"expected a single head, got {heads}"
+
+    revs = [r.revision for r in script.walk_revisions()]
+    assert "0001_pg_baseline" in revs, "the baseline is not on the path"
+    assert revs[-1] == "0001_pg_baseline", (
+        f"the baseline must be the root of the chain, but the root is {revs[-1]}"
+    )
+    # The 40 archived revisions all carry hex ids; the SPEC-002 chain is 000N_-prefixed.
+    legacy = [r for r in revs if not r.startswith("000")]
+    assert not legacy, f"legacy revisions are still on the search path: {legacy}"

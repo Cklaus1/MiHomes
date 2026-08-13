@@ -30,6 +30,7 @@ from mihomes.tenancy.registry import (
     check_registry,
     tenant_models,
 )
+from mihomes.tenancy.rls import install_rls  # noqa: E402
 
 # Imported for its import-time side effect: registering the before_flush listener
 # that stamps account_id on insert. Importing `mihomes.tenancy` is therefore enough
@@ -42,6 +43,10 @@ from mihomes.tenancy.session import install_tenant_listeners  # noqa: F401
 # would be absent from every test database, and the drift test would then pass against an
 # unguarded schema.
 install_drift_guard(Base.metadata)
+
+# G7, same reasoning again: policies present in the migration but absent from the
+# `create_all`-built test schema would let an RLS test pass against an unprotected table.
+install_rls(Base.metadata)
 
 __all__ = [
     "ASSOCIATION_TABLES",

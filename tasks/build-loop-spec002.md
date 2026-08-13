@@ -614,16 +614,85 @@ count from 5 to 3.
 > `e5f6a7b8c9d0` on a native-enum literal. So G6.2's `*Verify:*` is the **first** path proven to
 > work, not a regression check — and `legacy_sqlite/` is correctly labelled "never run".
 
-### [ ] G7 — `0002_rls` — *dep: G6*
+### [x] G7 — `0002_rls` — *dep: G6* — *40 tables, FORCE, 11 tests*
 
-- [ ] G7.1 · §6 Step 7 · A8 · **generate** the policies, do not hand-write 37 near-identical blocks (§4.3). `FORCE ROW LEVEL SECURITY` (owners bypass plain RLS); `current_setting('app.current_account', true)` so an unset GUC yields **zero rows, not an error** · verify: `tests/integration/test_rls.py::test_unset_guc_returns_empty`
-- [ ] G7.2 · §6 Step 7 · A8 · `TENANT_TABLES` must include the **two association tables** — deriving it from `__subclasses__()` leaves them with no policy at all · verify: `test_rls.py` asserts a policy exists on all 37
-- [ ] G7.3 · §6 Step 7 · A9 · `WITH CHECK` rejects an insert stamped with another account · verify: `tests/integration/test_rls.py::test_with_check_rejects_foreign_account`
-- [ ] G7.4 · §6 Step 7 · A10 · the **one** bootstrap exception — `membership_self` on `memberships`, keyed on `app.current_user`, so the account picker works before account context · verify: `tests/integration/test_rls.py::test_membership_self_policy`
+- [x] G7.1 · §6 Step 7 · A8 · **generated** from the registry, not 40 hand-written blocks · verify: `tests/integration/test_rls.py::test_unset_guc_returns_empty`
+- [x] G7.2 · §6 Step 7 · A8 · the two association tables carry policies · verify: `test_rls.py::test_every_registry_table_has_a_policy`
+- [x] G7.3 · §6 Step 7 · A9 · `WITH CHECK` rejects a foreign-account insert · verify: `test_rls.py::test_with_check_rejects_foreign_account` (+ `..._allows_own_account`, so a WITH CHECK that rejected *everything* could not pass)
+- [x] G7.4 · §6 Step 7 · A10 · `membership_self` on `memberships`, the only user-keyed policy · verify: `test_rls.py::test_membership_self_policy` (+ `..._is_the_only_user_keyed_policy`)
 
 > The `(SELECT current_setting(...))` wrapper is load-bearing: it forces an InitPlan, evaluated
 > once per query rather than once per row. And `memberships` is the **only** table that gets a
-> user-keyed policy — §4.2 says keep it that way.
+> user-keyed policy — §4.2 says keep it that way. Permissive policies **OR** together, so a
+> user-keyed policy on any other table would punch a hole through that table's account scoping
+> for every row that user can reach; there is now a test asserting there is exactly one.
+
+### ⚠ The largest false-green surface in this run, and it was structural
+
+**Superusers bypass RLS unconditionally — `FORCE ROW LEVEL SECURITY` binds the table *owner*,
+not a superuser.** Measured on this cluster: as `postgres` with the GUC unset, a FORCE-protected
+table returned **every row**.
+
+The suite connects as `postgres`. So **all 1366 tests that existed before G7 ran with RLS inert**,
+and RLS could have been entirely broken — or entirely absent — without one failure. Nothing about a
+passing test says which role ran it.
+
+Closed with a session-scoped **`app_engine`** fixture in `tests/conftest.py` on a dedicated
+non-superuser role (`mihomes_test_app`), plus two tests that keep it honest:
+
+- `test_app_role_is_not_a_superuser` — fails loudly if `app_engine` ever points at a superuser, so a
+  later conftest edit cannot turn this whole file green and meaningless.
+- `test_superuser_really_does_bypass_rls` — pins the asymmetry itself. It is a test of the
+  *assumption*, not of our code: if a future Postgres made FORCE apply to superusers, this fails and
+  the fixture's rationale becomes wrong rather than silently over-cautious.
+
+> **G17/A21 MUST take `app_engine`.** A21 is the definition of done for Phase 1, and run as
+> `postgres` it would demonstrate that the G8 ORM filter works **while reporting that RLS does** —
+> a green light on the one criterion the spec says the phase hangs on. Written here now because from
+> G17 it will look like a passing test.
+
+> **Role creation is not in the migration.** A role is cluster-wide, not per-database, so
+> `CREATE ROLE` in `0002_rls` would collide the second time it ran against another database in the
+> same cluster. The fixture creates it idempotently; `0002_rls`'s docstring carries the production
+> provisioning equivalent. `GRANT USAGE ON SCHEMA` is required and **not** implied by table grants —
+> without it every table reports "relation does not exist" rather than "permission denied", which is
+> a misleading way to find a missing grant.
+
+### `NULLIF` in the predicate — a bug `missing_ok` does not cover
+
+The policy is
+`account_id = (SELECT NULLIF(current_setting('app.current_account', true), '')::uuid)`.
+`missing_ok` (the `true`) only makes an **absent** GUC return `NULL`; a GUC **set to the empty
+string** returns `''`, and `''::uuid` raises `invalid input syntax for type uuid: ""` — an error,
+which is the single outcome Step 7 rules out.
+
+**My first explanation of this was wrong and is worth recording as such.** I assumed that once any
+`app.*` GUC was set, Postgres returned `''` for other unset members of the prefix. Measured: it does
+not — `current_setting` returns `NULL` when unset, *even with another `app.*` GUC set*, and `''` only
+when something explicitly assigns `''`. The unguarded cast was nonetheless observed failing with
+exactly that error on `SELECT account_id FROM memberships`, so some path does supply an empty string.
+`NULLIF` makes the predicate total over both spellings of "no account" rather than depending on which
+arrives.
+
+> **This is a live constraint on G9, not defensive habit.** G9 owns the pool-checkin `RESET` and the
+> `after_begin` GUC. Clearing tenant context by assigning `''` is an entirely natural way to write a
+> reset, and without `NULLIF` it would turn every subsequent query into a 500 instead of an empty
+> result. G9 should clear with `RESET` / `set_config(..., NULL, ...)`;
+> `test_empty_string_guc_is_treated_as_unset` pins the behaviour either way.
+
+> **A10 is not fully satisfied by G7.** `membership_self` is keyed on a *second* GUC,
+> `app.current_user`. The `current_user` ContextVar exists (G8.3) but **nothing sets the GUC** — that
+> is G9's `after_begin`. `test_membership_self_policy` sets it directly, so it verifies the *policy*;
+> until G9 wires it, the real account picker would return an empty list. Declared here rather than
+> discovered then, the same way G5's verify clause was declared to depend on G8.1.
+
+> **Third test-pollution bug of the run, and mine again.** RLS tests cannot roll back — the whole
+> point is that a *second* connection reads what the first wrote, and an uncommitted row is invisible
+> across connections. So these rows must be committed, and the first version leaked them into the
+> session-scoped database. Because G8.1's read filter is still open, `list_properties()` is unscoped,
+> and five unrelated tests in `test_web_smoke` / `test_form_validation` began failing in the full run
+> while passing alone. Fixed with a `committed` fixture that records ids and deletes them in reverse
+> dependency order.
 
 ### [ ] G8 — scoped session — *dep: G7*
 
@@ -710,6 +779,20 @@ count from 5 to 3.
 > **A21 is the phase's definition of done.** Treat a red A21 as a stop-the-run defect, not an
 > ordinary failure — and check it by hand as well as by test. The pilot's A11 taught that a sampled
 > assertion rots; this one must enumerate.
+
+> ### ⚠ A21 MUST run on `app_engine`, not `_pg_engine` — read this before writing G17.1
+>
+> `_pg_engine` connects as `postgres`, a **superuser, and superusers bypass RLS unconditionally**,
+> even with `FORCE ROW LEVEL SECURITY` (measured in G7: all rows returned with the GUC unset). An
+> A21 written on that connection would exercise only the G8 `with_loader_criteria` ORM filter —
+> and would therefore report **green on the criterion the spec says the whole phase hangs on**
+> while proving nothing about the database-level guarantee.
+>
+> The tell is subtle in the direction that matters: the test *passes*. Use the `app_engine` /
+> non-superuser fixture added in G7, and assert the role (`test_app_role_is_not_a_superuser` is the
+> pattern). The raw-`text()` arm of A21 in particular is **only** defended by RLS — the ORM filter
+> does not see raw SQL at all — so on a superuser connection that arm has no enforcement behind it
+> whatsoever.
 
 ### [ ] G-Final — compound-stop verification — *dep: all*
 

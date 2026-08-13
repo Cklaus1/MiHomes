@@ -30,7 +30,7 @@ import uuid
 
 import pytest
 from sqlalchemy import create_engine, event, text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import sessionmaker
 
 from mihomes.models import Base
@@ -180,6 +180,63 @@ def session(_pg_engine, account_a):
             # it and goes with it, so the session-scoped schema is never mutated.
             transaction.rollback()
             connection.close()
+
+
+APP_ROLE = "mihomes_test_app"
+APP_PASSWORD = "mihomes_test_app"
+
+
+@pytest.fixture(scope="session")
+def app_engine(_pg_engine):
+    """An engine connected as a **non-superuser** role, so RLS actually applies.
+
+    **Why this fixture has to exist.** `_pg_engine` connects as `postgres`, a superuser, and
+    **superusers bypass RLS unconditionally — even with `FORCE ROW LEVEL SECURITY`.**
+    Measured: as `postgres` with the GUC unset, a FORCE-protected table returned every row.
+    So every test in this suite runs with RLS inert, and RLS could be entirely broken
+    without a single failure. That is the largest false-green surface in SPEC-002, and it is
+    structural rather than an oversight — nothing about a passing test tells you which role
+    ran it.
+
+    **Any test that means to prove tenant isolation must take this fixture, A21 included.**
+    A21 run as `postgres` demonstrates that the G8 ORM filter works while reporting that
+    RLS does. `test_rls.py::test_app_role_is_not_a_superuser` fails loudly if this engine
+    ever points at a superuser, because a later edit that quietly repointed it would turn
+    the whole RLS suite green and meaningless.
+
+    The role is created here rather than in `0002_rls`: a role is cluster-wide, not
+    per-database, so `CREATE ROLE` in a migration collides the second time it runs against
+    another database in the same cluster. The migration's docstring carries the production
+    equivalent.
+    """
+    if not TEST_DATABASE_URL:
+        pytest.skip("TEST_DATABASE_URL unset")
+
+    with _pg_engine.connect() as conn:
+        conn.execution_options(isolation_level="AUTOCOMMIT")
+        conn.exec_driver_sql(
+            f"""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{APP_ROLE}') THEN
+                    CREATE ROLE {APP_ROLE} LOGIN PASSWORD '{APP_PASSWORD}';
+                END IF;
+            END $$;
+            """
+        )
+        # USAGE on the schema is required and is NOT implied by the table grants: without
+        # it every table reports "relation does not exist" rather than "permission denied".
+        conn.exec_driver_sql(f"GRANT USAGE ON SCHEMA public TO {APP_ROLE}")
+        conn.exec_driver_sql(
+            "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public "
+            f"TO {APP_ROLE}"
+        )
+        conn.commit()
+
+    url = make_url(TEST_DATABASE_URL).set(username=APP_ROLE, password=APP_PASSWORD)
+    engine = create_engine(url, future=True, pool_pre_ping=True)
+    yield engine
+    engine.dispose()
 
 
 @pytest.fixture

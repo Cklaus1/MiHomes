@@ -29,7 +29,14 @@ app = typer.Typer(
 
 
 @app.callback(invoke_without_command=True)
-def main(ctx: typer.Context):
+def main(
+    ctx: typer.Context,
+    account: str = typer.Option(
+        None,
+        "--account",
+        help="Account slug to operate on. Optional when the install has exactly one account.",
+    ),
+):
     """MiHomes — AI-first multi-home estate management."""
     from mihomes.config import is_initialized
     from mihomes.logging_config import setup_logging
@@ -43,6 +50,35 @@ def main(ctx: typer.Context):
     if not is_initialized():
         rprint("[yellow]MiHomes is not initialized. Run:[/yellow] [bold]mihomes init[/bold]")
         raise typer.Exit(1)
+
+    _bind_account(ctx, account)
+
+
+def _bind_account(ctx: typer.Context, slug: str | None) -> None:
+    """Bind the tenant for the whole command (G13).
+
+    Every write stamps `account_id` from this ContextVar and raises `LookupError` without it, so
+    a CLI process that never binds one cannot write at all — which is exactly what launch gate
+    S3 recorded.
+
+    **`ctx.with_resource`, not a bare `.set()`.** Click closes the resource when the command's
+    context ends, so the ContextVar is reset on the way out — including when the command raises.
+    Setting the ContextVar and never resetting it happens to work in a process that exits
+    immediately, and quietly stops working the moment anything invokes the CLI in-process, which
+    is precisely what `CliRunner` does in 48 tests.
+    """
+    from mihomes.db import get_session
+    from mihomes.tenancy import account_context
+    from mihomes.tenancy.bootstrap import AccountResolutionError, resolve_account
+
+    try:
+        with get_session() as session:
+            account_id = resolve_account(session, slug)
+    except AccountResolutionError as e:
+        rprint(f"[red]{e}[/red]")
+        raise typer.Exit(1) from None
+
+    ctx.with_resource(account_context(account_id))
 
 
 @app.command("help")

@@ -1,6 +1,5 @@
 """Alerts CLI commands."""
 
-from typing import Optional
 
 import typer
 from rich.table import Table
@@ -37,7 +36,8 @@ def show_alerts(
         if format == "json":
             import json
             data = [{"id": a.id, "type": a.alert_type, "severity": a.severity.value, "message": a.message} for a in alerts]
-            print(json.dumps(data, indent=2))
+            print(json.dumps(data, indent=2, default=str))  # default=str: UUID/datetime
+            # are not JSON-serializable, and G6.1 made every id a UUID.
             return
 
         table = Table(title=f"Alerts ({len(alerts)} pending)")
@@ -75,7 +75,8 @@ def list_alerts(
         if format == "json":
             import json
             data = [{"id": a.id, "type": a.alert_type, "severity": a.severity.value, "message": a.message} for a in alerts]
-            print(json.dumps(data, indent=2))
+            print(json.dumps(data, indent=2, default=str))  # default=str: UUID/datetime
+            # are not JSON-serializable, and G6.1 made every id a UUID.
             return
 
         table = Table(title=f"Alerts ({len(alerts)} pending)")
@@ -100,8 +101,8 @@ def snooze_alert(
     """Snooze an alert for N days."""
     with get_session() as session:
         try:
-            alert = alert_svc.snooze_alert(session, alert_id, days)
+            alert_svc.snooze_alert(session, alert_id, days)
             format_success(f"Alert {alert_id} snoozed for {days} days")
         except ValueError as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None

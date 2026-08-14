@@ -239,6 +239,66 @@ def app_engine(_pg_engine):
     engine.dispose()
 
 
+@pytest.fixture(scope="session")
+def cli_database():
+    """A dedicated Postgres database for the CLI/on-disk integration modules (G13).
+
+    Five modules (`test_cli`, `test_cli_bad_input`, `test_cli_markup_injection`,
+    `test_dashboard`, `test_report_upcoming`) drive the real CLI through `init_db()` and
+    `load_demo_data()`. They used to share one on-disk **SQLite** file, and that stopped working
+    for a reason worth stating precisely: `0001_pg_baseline` is Postgres-native, so the SQLite
+    schema it produces is not merely unenforced but **broken** — `created_at` carries
+    `DEFAULT now()`, and SQLite has no such function, so the very first INSERT into `accounts`
+    fails with `unknown function: now()`.
+
+    A **separate** database, not `TEST_DATABASE_URL`: these modules commit demo data and share it
+    across the module, so pointing them at the main suite's schema would leak roughly a hundred
+    rows into every other test — the pollution that has already cost this run three times.
+
+    `DATABASE_URL` is what `mihomes.db._active_url()` now honours, which is Step 13's "db.py →
+    Postgres" in the one place it has to be true: the process the CLI actually runs in.
+    """
+    if not TEST_DATABASE_URL:
+        pytest.skip("TEST_DATABASE_URL unset")
+
+    import mihomes.db as db_mod
+
+    url = make_url(TEST_DATABASE_URL)
+    cli_db = f"{url.database}_cli"
+    admin = create_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT", future=True)
+    with admin.connect() as conn:
+        conn.exec_driver_sql(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+            f"WHERE datname = '{cli_db}' AND pid <> pg_backend_pid()"
+        )
+        conn.exec_driver_sql(f'DROP DATABASE IF EXISTS "{cli_db}"')
+        conn.exec_driver_sql(f'CREATE DATABASE "{cli_db}"')
+
+    cli_url = str(url.set(database=cli_db))
+    previous = os.environ.get("DATABASE_URL")
+    os.environ["DATABASE_URL"] = cli_url
+    # The global engine may already be bound to the previous URL.
+    db_mod.dispose_engine()
+
+    # Deliberately does NOT build the schema. These modules call `init_db()`, which runs the real
+    # migrations — that is the path they exist to exercise, and `create_all` here would collide
+    # with it ("relation accounts already exists"). The database is handed over empty.
+    yield {"url": cli_url}
+
+    db_mod.dispose_engine()
+    if previous is None:
+        os.environ.pop("DATABASE_URL", None)
+    else:
+        os.environ["DATABASE_URL"] = previous
+    with admin.connect() as conn:
+        conn.exec_driver_sql(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+            f"WHERE datname = '{cli_db}' AND pid <> pg_backend_pid()"
+        )
+        conn.exec_driver_sql(f'DROP DATABASE IF EXISTS "{cli_db}"')
+    admin.dispose()
+
+
 @pytest.fixture
 def seed_estate():
     """The minimal estate two web suites both want: one property, one room, two

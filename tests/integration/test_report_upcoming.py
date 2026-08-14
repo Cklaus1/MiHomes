@@ -22,11 +22,14 @@ from datetime import date, timedelta
 # collects before test_cli.py) must not let it point at the real ~/.mihomes DB.
 os.environ.setdefault("MIHOMES_DIR", tempfile.mkdtemp())
 
-import pytest
-from typer.testing import CliRunner
 
-from mihomes.cli import app
-from mihomes import db
+# Imports are deliberately below the MIHOMES_DIR assignment: mihomes.config binds its
+# paths at import time, so importing earlier would freeze the real home directory.
+import pytest  # noqa: E402
+from typer.testing import CliRunner  # noqa: E402
+
+from mihomes import db  # noqa: E402
+from mihomes.cli import app  # noqa: E402
 
 runner = CliRunner()
 

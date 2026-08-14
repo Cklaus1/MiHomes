@@ -39,12 +39,25 @@ def _set_sqlite_pragmas(dbapi_conn, connection_record):
 
 
 def _active_url() -> str:
-    # Resolve config paths live rather than binding them at import: a test that
-    # reloads mihomes.config (logging/backup isolation) rebinds config.DB_DIR to
-    # a new object, and a by-value import here would silently keep the stale one.
+    """The database this process should use.
+
+    **`DATABASE_URL` wins (SPEC-002 Step 13).** SPEC-002 makes the product Postgres-only, and
+    the reason is stronger than RLS: `0001_pg_baseline` is Postgres-native, so a SQLite database
+    built from it is not merely unenforced but **subtly broken** — its `created_at` columns carry
+    a `DEFAULT now()` that SQLite has no such function for, so the first INSERT into `accounts`
+    fails with `unknown function: now()`. Measured while wiring G13.
+
+    The SQLite fallback is kept for one reason only: a pre-SPEC-002 local install whose data has
+    not yet been imported (G16). It is not a supported runtime — `verify_runtime_role` does not
+    even apply there, and neither RLS nor the drift guard exists.
+
+    Resolve config paths live rather than binding them at import: a test that reloads
+    `mihomes.config` (logging/backup isolation) rebinds `config.DB_DIR` to a new object, and a
+    by-value import here would silently keep the stale one.
+    """
     if os.environ.get("MIHOMES_DEMO") == "1":
         return f"sqlite:///{config.DB_DIR / 'demo.db'}"
-    return config.DB_URL
+    return os.environ.get("DATABASE_URL") or config.DB_URL
 
 
 def get_engine(url: str | None = None) -> Engine:
@@ -114,7 +127,14 @@ def get_session(engine: Engine | None = None) -> Generator[Session, None, None]:
 
 
 def init_db(url: str | None = None) -> None:
-    """Initialize the database: create dirs, run migrations."""
+    """Initialize the database: create dirs, run migrations, ensure an account exists.
+
+    The account bootstrap lives here rather than in the CLI callback so that **every** path
+    which initialises a database gets one — the CLI, the demo seeder, and the test fixtures that
+    call `init_db()` directly. Under SPEC-002 a write with no account raises `LookupError` (G8.3
+    stamps `account_id` and fails closed), so a database without an account is a database nothing
+    can write to.
+    """
     ensure_dirs()
     engine = get_engine(url)
 
@@ -126,6 +146,12 @@ def init_db(url: str | None = None) -> None:
     alembic_cfg.set_main_option("script_location", _get_alembic_dir())
     alembic_cfg.set_main_option("sqlalchemy.url", str(engine.url))
     command.upgrade(alembic_cfg, "head")
+
+    # Imported here, not at module scope: `mihomes.tenancy` imports the models, and db.py is
+    # imported by them in turn during CLI startup.
+    from mihomes.tenancy.bootstrap import ensure_default_account
+
+    ensure_default_account(engine)
 
 
 def _get_alembic_dir() -> str:

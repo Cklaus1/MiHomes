@@ -26,7 +26,47 @@ from __future__ import annotations
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-__all__ = ["PrivilegedRoleError", "verify_runtime_role"]
+__all__ = [
+    "PrivilegedRoleError",
+    "UnsupportedBackendError",
+    "verify_runtime_role",
+    "verify_tenant_capable_backend",
+]
+
+
+class UnsupportedBackendError(RuntimeError):
+    """The database cannot enforce tenant isolation at all."""
+
+
+_SQLITE_MESSAGE = (
+    "SQLite cannot be used with the multitenant schema.\n\n"
+    "Every database-level tenant control SPEC-002 relies on is PostgreSQL-only: row-level "
+    "security, the transaction-local `app.current_account` GUC, `FORCE ROW LEVEL SECURITY`, and "
+    "the drift-guard trigger. A SQLite database built from these migrations has none of them — "
+    "it would run, and it would have no tenant isolation whatsoever, which is worse than "
+    "refusing because nothing in its behaviour would say so.\n\n"
+    "Set DATABASE_URL to a PostgreSQL database:\n"
+    "  DATABASE_URL=postgresql+psycopg://user:pass@host:5432/mihomes\n\n"
+    "If you have an existing single-user SQLite install, its data is untouched — it is simply "
+    "not readable by this schema, which expects `account_id` on 40 tables and an `accounts` "
+    "table. Importing it into Postgres is SPEC-002 Step 16's job and is not built yet."
+)
+
+
+def verify_tenant_capable_backend(engine: Engine) -> None:
+    """Refuse a backend that cannot enforce tenant isolation.
+
+    **Why a hard refusal rather than a warning.** The migration is now dialect-correct, so a
+    SQLite database *builds* — and that is exactly the danger. It would come up, accept writes,
+    and silently serve every tenant's rows to every request, because RLS, the GUC and the trigger
+    are all Postgres-only and all silently skipped. A backend that cannot enforce the boundary
+    should not be able to hold data that depends on it.
+
+    The previous behaviour was an accident rather than a policy: `unknown function: now()` from
+    inside an INSERT, which told the operator nothing.
+    """
+    if engine.dialect.name == "sqlite":
+        raise UnsupportedBackendError(_SQLITE_MESSAGE)
 
 
 class PrivilegedRoleError(RuntimeError):

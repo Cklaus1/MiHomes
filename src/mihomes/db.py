@@ -138,6 +138,15 @@ def init_db(url: str | None = None) -> None:
     ensure_dirs()
     engine = get_engine(url)
 
+    # Refuse a backend that cannot enforce tenant isolation, before creating anything. The
+    # migration is dialect-correct, so SQLite would build a schema and then silently serve every
+    # tenant's rows to every request — RLS, the GUC and the drift trigger are all Postgres-only
+    # and all skipped without a word. Failing here gives an actionable message instead of
+    # `unknown function: now()` from three frames inside an INSERT.
+    from mihomes.tenancy.runtime_role import verify_tenant_capable_backend
+
+    verify_tenant_capable_backend(engine)
+
     from alembic.config import Config
 
     from alembic import command

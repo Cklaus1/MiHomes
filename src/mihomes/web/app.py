@@ -7,7 +7,7 @@ from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from mihomes.config import UPLOADS_DIR, UPLOADS_URL_PREFIX, ensure_dirs
+from mihomes.config import ensure_dirs
 from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
 from mihomes.web.routes import ai as ai_route
 from mihomes.web.routes import (
@@ -18,6 +18,7 @@ from mihomes.web.routes import (
     contracts,
     dashboard,
     documents,
+    documents_download,  # noqa: E402
     issues,
     playbooks_route,
     properties,
@@ -33,7 +34,6 @@ from mihomes.web.routes import calendar as calendar_route
 from mihomes.web.routes import inventory as inventory_route
 from mihomes.web.routes import library as library_route
 from mihomes.web.routes import weather as weather_route
-from mihomes.web.secure_static import SecureStaticFiles
 from mihomes.web.security import HostAndOriginGuardMiddleware
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -51,15 +51,19 @@ def create_app() -> FastAPI:
 
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-    # User-uploaded documents live outside the package (survive pip upgrade,
-    # included in backups — spec H34) and are served with nosniff + forced
-    # attachment for non-inline types (spec D6).
+    # User-uploaded documents live outside the package (survive pip upgrade, included in
+    # backups — spec H34).
+    #
+    # **The static mount that used to be here was a cross-tenant hole (G11 · A14).**
+    # `app.mount(UPLOADS_URL_PREFIX, SecureStaticFiles(directory=UPLOADS_DIR))` served the whole
+    # uploads directory with no authentication and no tenant check, so any request that could reach
+    # the app could fetch any tenant's document. Unguessable upload filenames were the only thing
+    # in the way, and generated reports were named from their titles, so not even that held.
+    #
+    # Documents are now served by `documents_download.router`, which authorises against the
+    # account prefix in the storage key before reading a byte. The mount is not merely narrowed —
+    # it is gone, because a static mount has nowhere to put an authorisation check.
     ensure_dirs()
-    app.mount(
-        UPLOADS_URL_PREFIX,
-        SecureStaticFiles(directory=str(UPLOADS_DIR)),
-        name="uploads",
-    )
 
     app.include_router(dashboard.router)
     app.include_router(properties.router, prefix="/properties")
@@ -76,6 +80,9 @@ def create_app() -> FastAPI:
     app.include_router(search.router, prefix="/search")
     app.include_router(templates_route.router, prefix="/templates")
     app.include_router(documents.router, prefix="/documents")
+    # Tenant-checked object download (G11 · A14). Registered without a prefix because it owns
+    # its full path; it replaces the unauthenticated /uploads static mount.
+    app.include_router(documents_download.router)
     app.include_router(books.router, prefix="/books")
     app.include_router(ai_route.router, prefix="/ai")
     app.include_router(weather_route.router, prefix="/weather")

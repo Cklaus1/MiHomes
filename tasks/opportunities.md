@@ -490,6 +490,26 @@
   A9 so a reviewer does not read an explicit `WITH CHECK` as the only thing preventing cross-tenant
   writes, nor conclude from its removal that nothing changed.
 
+- [BUG][SPEC-002 Step 11 / A14 — THE PRE-EXISTING STATIC MOUNT IS A LIVE CROSS-TENANT HOLE, AND THE
+  STEP DOES NOT MENTION IT] Step 11 describes adding a `StorageProvider` and turning
+  `Document.file_path` into an opaque key. It says nothing about how documents are **served**, and
+  that is where the exposure is: `web/app.py` mounts the uploads directory via
+  `SecureStaticFiles` with no authentication and no tenant check, so any request reaching the app can
+  fetch any tenant's document. Filename obscurity was the only barrier and it was partial — generated
+  reports were named `{title-slug}-{8 hex}`, i.e. 32 bits attached to user-visible text.
+
+  **Fix:** Step 11 should require *removing* the static mount (not narrowing it) and serving objects
+  through a route that authorises on the key's account prefix before reading bytes, and A14's wording
+  should say "never world-readable **and never served without a tenant check**". Note also that
+  removing the mount breaks every writer that returned a `/uploads/...` URL — three of them here — so
+  the step should name converting the write paths as part of its scope.
+
+- [INFO][SPEC-002 Step 11 — A 403 ON A FOREIGN OBJECT IS ITSELF A DISCLOSURE] Worth one line beside
+  A14: an authorisation failure on someone else's storage key must be a **404**, not a 403. A 403
+  confirms the object exists, which converts "may I read this?" into "does this exist?" and is enough
+  to enumerate another tenant's documents given a key. The existing-but-foreign and never-existed
+  cases should be indistinguishable.
+
 ## Resolved during SPEC-002 pre-flight (not defects — decisions)
 
 - [DEFER][waitlist ownership] SPEC-002 mentions `alembic_landing`, `version_locations` and

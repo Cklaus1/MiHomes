@@ -243,6 +243,23 @@ Review this at the start of each session.
   config caused silent omission rather than a loud failure (see also the `src/web/` gitignore line
   and G6.1's one-ended type gate). **Deleting retired config is part of the change that retires it.**
 
+- **Reading a lesson is not applying it: I hit the frozen-config trap that `lessons.md` already
+  documented, and wrote test files into the user's real data directory.** The storage fixture used
+  `monkeypatch.setenv("MIHOMES_DIR", tmp_path)`, but `config.MEDIA_DIR` is computed from that
+  variable **at config import time** — exactly the hazard recorded above for `DB_URL`/`DB_DIR`. Eight
+  fixture files landed in `~/.mihomes/media/objects`.
+  **Rule:** when a test needs to redirect where production code writes, **pass the destination in**
+  rather than trying to influence it through the environment. `get_storage(override_root=...)` cannot
+  be got wrong; a monkeypatch of a frozen value silently does nothing. The general form: for any
+  path-producing global, the safe fixture changes an *argument*, not an *environment variable*.
+  **Tell:** a fixture that sets an env var read at import time is a no-op that looks like isolation.
+- **Removing an insecure convenience is only half the change — find who depended on it.** Deleting
+  the unauthenticated `/uploads` static mount silently broke three writers that returned
+  `/uploads/<name>` URLs: the bytes still landed on disk and every resulting link 404'd. The suite
+  stayed green because no test fetched those URLs. **Rule:** after removing a serving path, grep for
+  everything that produced references to it. A security fix that leaves the feature broken will be
+  reverted by whoever notices the breakage first.
+
 - **A security test suite made only of negative assertions is satisfied by a system that returns
   nothing at all.** A21 asserted "account A cannot see B's rows" across 40 tables and four vectors,
   and it stayed **entirely green with the tenant GUC disabled** — because RLS then returns zero rows,

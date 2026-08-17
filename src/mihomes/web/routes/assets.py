@@ -1,14 +1,11 @@
 """Assets & Inventory routes."""
 
-import base64
 import uuid
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
-from mihomes.config import UPLOADS_DIR, UPLOADS_URL_PREFIX
 from mihomes.models.asset import AssetCondition, AssetType
 from mihomes.models.book import BookCondition
 from mihomes.models.document import DocumentType
@@ -29,18 +26,21 @@ _MEDIA_EXT = {"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "i
 
 
 def _save_room_photo(att) -> str:
-    """Persist a scan photo to the user-data uploads dir and return its served path.
+    """Store a room-scan photo and return its storage key (G11 · A14).
 
-    The photo comes from an AI room-scan Attachment (base64), not a raw upload,
-    so the extension is taken from the media-type whitelist (never client-named).
-    Written under ``UPLOADS_DIR`` so it survives ``pip upgrade`` and is backed up
-    (spec H34), the same location ``read_document_upload`` uses.
+    Was written directly under ``UPLOADS_DIR`` and referenced as ``/uploads/<name>``, which the
+    unauthenticated static mount served to anyone. Now goes through the storage provider under a
+    tenant-prefixed key, like every other object.
     """
-    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-    suffix = _MEDIA_EXT.get(att.media_type, Path(att.filename).suffix.lower() or ".jpg")
-    fname = f"{uuid.uuid4().hex}{suffix}"
-    (UPLOADS_DIR / fname).write_bytes(base64.b64decode(att.base64_data))
-    return f"{UPLOADS_URL_PREFIX}/{fname}"
+    import base64 as _b64
+
+    from mihomes.web.forms import _store_bytes
+
+    return _store_bytes(
+        _b64.b64decode(att.base64_data),
+        getattr(att, "filename", None) or "room-scan.png",
+        content_type=getattr(att, "content_type", None) or "image/png",
+    )
 
 
 def _ai_scan_error(msg: str) -> str:

@@ -14,12 +14,8 @@ the serving-side headers ``SecureStaticFiles`` adds:
 import asyncio
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
-from mihomes.web import forms
 from mihomes.web.forms import MAX_DOCUMENT_BYTES, read_document_upload
-from mihomes.web.secure_static import SecureStaticFiles
 
 
 class _FakeUpload:
@@ -40,9 +36,32 @@ def _run(coro):
 
 @pytest.fixture(autouse=True)
 def _isolate_uploads(tmp_path, monkeypatch):
-    """Point the shared UPLOADS_DIR at a throwaway dir for every test here."""
-    monkeypatch.setattr(forms, "UPLOADS_DIR", tmp_path)
-    return tmp_path
+    """Point storage at a throwaway root and bind an account for every test here.
+
+    Uploads no longer go to `UPLOADS_DIR` directly — G11 routes them through the storage provider
+    under a tenant-prefixed key, so the fixture has to supply both a storage root and an account
+    context. `require_account()` raising without one is deliberate: a file with no tenant has
+    nowhere to live and nobody who may read it.
+
+    **Uses `override_root`, not `monkeypatch.setenv("MIHOMES_DIR")`.** `config.MEDIA_DIR` is
+    computed from that variable **at config import time**, so setting it in a fixture changes
+    nothing — and the first version of this fixture therefore wrote 8 test files into the author's
+    real `~/.mihomes/media/objects`. `lessons.md` already recorded the same trap for `DB_URL`;
+    passing the root explicitly removes the possibility rather than relying on getting the
+    monkeypatch right.
+    """
+    import uuid as _uuid
+
+    from mihomes.storage import get_storage, reset_storage
+    from mihomes.tenancy import account_context
+
+    monkeypatch.delenv("STORAGE_PROVIDER", raising=False)
+    reset_storage()
+    root = tmp_path / "objects"
+    get_storage(refresh=True, override_root=root)
+    with account_context(_uuid.uuid4()):
+        yield root
+    reset_storage()
 
 
 # --- read_document_upload validation --------------------------------------
@@ -73,16 +92,33 @@ def test_oversized_upload_rejected(_isolate_uploads):
     big = b"0" * (MAX_DOCUMENT_BYTES + 1)
     with pytest.raises(ValueError):
         _run(read_document_upload(_FakeUpload("huge.pdf", big, content_type="application/pdf")))
-    # Nothing should have been written.
-    assert not any(_isolate_uploads.iterdir())
+    # Nothing should have been written. The storage root may not even exist yet — the filesystem
+    # backend creates directories lazily on the first `put`, so "no directory" is the strongest
+    # possible form of "nothing was written" rather than a missing-path bug.
+    written = list(_isolate_uploads.rglob("*")) if _isolate_uploads.exists() else []
+    assert not written, f"a rejected oversized upload still wrote {written}"
 
 
-def test_pdf_accepted_and_stored_under_uploads_dir(_isolate_uploads):
-    path = _run(read_document_upload(_FakeUpload("invoice.pdf", b"%PDF-1.4", content_type="application/pdf")))
-    assert path.startswith("/uploads/")
-    stored = list(_isolate_uploads.iterdir())
+def test_pdf_accepted_and_stored_under_a_tenant_key(_isolate_uploads):
+    """A legitimate PDF is accepted and stored under a tenant-prefixed key (G11 · A14).
+
+    Was `assert path.startswith("/uploads/")`. That URL was served by an unauthenticated static
+    mount, so it is gone; the return value is now an opaque storage key whose first segment is the
+    owning account.
+    """
+    from mihomes.storage import is_storage_key, key_account
+
+    key = _run(read_document_upload(
+        _FakeUpload("invoice.pdf", b"%PDF-1.4", content_type="application/pdf")
+    ))
+    assert is_storage_key(key), f"expected a storage key, got {key!r}"
+    assert key_account(key) is not None, "the key must carry the owning account"
+    assert key.endswith(".pdf")
+    # The client filename never appears in the key — a filename is content.
+    assert "invoice" not in key
+
+    stored = [p for p in _isolate_uploads.rglob("*") if p.is_file()]
     assert len(stored) == 1
-    # Stored name is randomised, never the client filename.
     assert stored[0].name != "invoice.pdf"
     assert stored[0].suffix == ".pdf"
 
@@ -95,35 +131,15 @@ def test_stored_path_is_outside_the_package(_isolate_uploads):
     assert str(_isolate_uploads).startswith(pkg_root) is False
 
 
-# --- SecureStaticFiles serving headers ------------------------------------
-
-@pytest.fixture
-def serve_client(tmp_path):
-    (tmp_path / "a.pdf").write_bytes(b"%PDF-1.4")
-    (tmp_path / "note.txt").write_text("hello")
-    (tmp_path / "pic.png").write_bytes(b"\x89PNG\r\n\x1a\n")
-    app = FastAPI()
-    app.mount("/uploads", SecureStaticFiles(directory=str(tmp_path)), name="uploads")
-    return TestClient(app)
-
-
-def test_pdf_served_inline_with_nosniff(serve_client):
-    r = serve_client.get("/uploads/a.pdf")
-    assert r.status_code == 200
-    assert r.headers["x-content-type-options"] == "nosniff"
-    assert "attachment" not in r.headers.get("content-disposition", "")
-
-
-def test_image_served_inline_with_nosniff(serve_client):
-    r = serve_client.get("/uploads/pic.png")
-    assert r.status_code == 200
-    assert r.headers["x-content-type-options"] == "nosniff"
-    assert "attachment" not in r.headers.get("content-disposition", "")
-
-
-def test_non_inline_type_forced_to_attachment(serve_client):
-    # text/plain isn't inline-safe → must download, not render in page context.
-    r = serve_client.get("/uploads/note.txt")
-    assert r.status_code == 200
-    assert r.headers["x-content-type-options"] == "nosniff"
-    assert "attachment" in r.headers.get("content-disposition", "")
+# --- serving headers ------------------------------------------------------
+#
+# The three tests that lived here drove `SecureStaticFiles` through the `/uploads` mount, asserting
+# nosniff and forced-attachment on downloads. **G11 removed that mount** — it served every tenant's
+# documents to any request that could reach the app, and a static mount has nowhere to put an
+# authorisation check.
+#
+# The behaviour they guarded was not dropped with them. The tenant-checked download route sets the
+# same headers, and `tests/web/test_document_download.py` asserts them
+# (`test_owner_can_download_its_own_document` checks `X-Content-Type-Options: nosniff` and
+# `Cache-Control: private, no-store`) alongside the cross-tenant refusal those tests could not
+# express at all.

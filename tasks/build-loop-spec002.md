@@ -899,10 +899,84 @@ rather than fabricating `0`.
 > baseline's comment about `waitlist`. Now a schema query. Recorded in `lessons.md` as a rule
 > rather than an anecdote, since twice is a pattern.
 
-### [ ] G11 — `StorageProvider` — *dep: G6* · *needs P4 (`boto3`)*
+### [x] G11 — `StorageProvider` — *dep: G6* — *33 tests; closed a live cross-tenant hole*
 
-- [ ] G11.1 · §6 Step 11 · — · Protocol + exceptions + factory, S3 backend, filesystem dev backend · verify: `tests/unit/test_storage.py`
-- [ ] G11.2 · §6 Step 11 · A14 · `Document.file_path` → an **opaque key**; keys are tenant-prefixed; presigned URLs only (**tenant files are never world-readable**) · verify: `tests/unit/test_storage.py::test_key_prefix_and_roundtrip`
+- [x] G11.1 · §6 Step 11 · — · Protocol + exceptions + factory, S3 backend, filesystem dev backend · verify: `tests/unit/test_storage.py`
+- [x] G11.2 · §6 Step 11 · A14 · opaque tenant-prefixed keys; presigned URLs only · verify: `test_storage.py::test_key_prefix_and_roundtrip`
+
+### ⚠ The hole G11 actually closed — it was live, not hypothetical
+
+`web/app.py` mounted the uploads directory as static files:
+
+```python
+app.mount(UPLOADS_URL_PREFIX, SecureStaticFiles(directory=str(UPLOADS_DIR)))
+```
+
+**No authentication, no tenant check.** Any request that could reach the app could fetch **any**
+tenant's document. The only obstacle was filename guessability, and that did not hold either:
+uploads were `uuid4().hex` (fine), but generated reports were named
+`f"{base_name}-{uuid4().hex[:8]}"` where `base_name` came from the report's **title** — 32 bits of
+randomness attached to text the user can see. Obscurity was doing the work that authorisation
+should have.
+
+The mount is **removed**, not narrowed: a static mount has nowhere to put an authorisation check.
+Documents are served by `documents_download.router`, which authorises against the account prefix in
+the key **before reading a byte** — no database round trip, and nothing a storage backend's own path
+handling can bypass.
+
+> **The refusal is a 404, never a 403.** A 403 confirms the object exists and belongs to someone
+> else, which turns "may I read this?" into "does this exist?" — enough to enumerate another tenant's
+> documents. `test_refusal_is_404_not_403` asserts the foreign-key and never-existed cases are
+> indistinguishable.
+
+### Design decisions worth defending
+
+- **Keys are `{account_id}/{category}/{uuid4().hex}{ext}`.** The account is *in the key*, which is
+  what makes pre-storage authorisation possible. Only the extension survives from the client
+  filename — a filename is **content** (`2026-divorce-settlement.pdf` in a log line is a
+  disclosure), so the stem is discarded rather than sanitised.
+- **Hostile filenames are dropped, not cleaned.** A sanitiser has to anticipate every escape;
+  accepting only a short alphanumeric extension has no such failure mode.
+- **The filesystem backend's `url()` returns `None` deliberately.** A URL from it would mean a static
+  mount — the very hole removed. `None` forces the caller through the tenant-checked route.
+- **No ACL is ever set on an S3 put.** An object written `public-read` is world-readable *forever*
+  and no application check takes that back. The test asserts the request carries **no ACL at all**,
+  so a future boto3 default cannot quietly become permissive.
+- **Presigned expiry defaults to 15 minutes and is capped at one hour.** Anyone holding the URL can
+  fetch the object until it expires; that is acceptable for a link handed to the requesting browser
+  and is why it is not days. A caller asking for a week is capped rather than refused, so a mistake
+  degrades instead of erroring.
+- **The Protocol is deliberately narrow** — `test_provider_exposes_no_way_to_make_an_object_public`
+  asserts there is no `make_public`/`set_acl`/`list_all`, because a method that can publish an object
+  will eventually be called.
+- **`STORAGE_PROVIDER=s3` without `S3_BUCKET` raises** rather than falling back to local disk: a
+  hosted deployment quietly writing tenant documents to an ephemeral container filesystem loses them
+  with no error, which is worse than not starting.
+
+### Mutation-verified, per G17's lesson
+
+Every control was broken and the matching assertion confirmed to fail:
+
+```
+tenant check removed          -> test_cannot_download_another_accounts_document   fails correctly
+403 instead of 404            -> test_refusal_is_404_not_403                      fails correctly
+public-read ACL on upload     -> test_no_public_acl_is_ever_set                   fails correctly
+uploads static mount restored -> test_the_unauthenticated_uploads_mount_is_gone   fails correctly
+presigned expiry uncapped     -> test_presigned_url_expires_and_is_capped         fails correctly
+```
+
+> **Removing the mount broke three writers, and finishing the job meant converting them.**
+> `forms.save_document_upload`, `forms.save_document_text` and `assets._save_room_photo` all wrote
+> straight to `UPLOADS_DIR` and returned `/uploads/<name>` — URLs that 404 once the mount is gone.
+> All three now go through `_store_bytes`, the single place the web layer creates an object. Deleting
+> the mount without this would have been a half-finished change that looked complete.
+
+> **I wrote 8 test files into the author's real `~/.mihomes/media/objects`, and `lessons.md` had
+> already warned about exactly this.** The fixture used `monkeypatch.setenv("MIHOMES_DIR", tmp)`,
+> but `config.MEDIA_DIR` is computed from that variable **at config import time**, so it changed
+> nothing. Removed the files (verified they were only fixtures — `%PDF-1.4 mine`, `not yours`,
+> `exists`), then fixed the *cause*: `get_storage(override_root=...)` makes the root explicit, so a
+> test cannot depend on getting a monkeypatch right. Reading a lesson is not the same as applying it.
 
 > **N6: never a Fly volume.** Single-machine local NVMe silently caps the app at one machine *and*
 > puts tenant files outside any backup.

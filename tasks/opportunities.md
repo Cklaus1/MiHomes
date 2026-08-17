@@ -419,6 +419,49 @@
   `except Exception: archived = 0`, which turned a missing table into an error several frames away.
   Worth a line in §11's migration notes: make optional statements optional with a `SAVEPOINT`.
 
+- [BUG][SPEC-002 Step 16 — THE IMPORTER NEEDS SIX THINGS THE STEP DOES NOT MENTION] Step 16 describes
+  the importer as "read SQLite, build the int->UUIDv7 remap table per source table". Measured while
+  building it against a real 1,823-row install, the remap is the easy half. Each of these breaks the
+  import or loses data, and none is implied by the step:
+
+  1. **A legacy JSON id-list must be expanded into its association table, or associations are lost
+     silently.** All 59 vendors in the source carry a non-empty `vendors.property_ids` JSON blob and
+     the source has no `vendor_properties` table (it predates the M14 normalisation). Treated as "a
+     source column with no target column", every vendor-to-property link disappears **with correct
+     row counts**, because what is lost is a column rather than rows.
+  2. **The TARGET schema is the foreign-key authority, not the source.** The old schema declares
+     `transactions.work_order_id` as a bare `INTEGER` with no `FOREIGN KEY`, so
+     `PRAGMA foreign_key_list` omits it while the target has a real FK — the raw integer lands in a
+     UUID column (`cannot cast type smallint to uuid`).
+  3. **There are six polymorphic column pairs, not the four tables F5 names.**
+     `alerts.source_entity_id` and `work_orders.source_id` are polymorphic too. F5 counts *tables
+     carrying entity_type/entity_id*; the importer needs *columns*.
+  4. **SQLite does not enforce `VARCHAR(n)` and Postgres does**, so real data violates target
+     lengths. Truncation is needed — and a truncated **slug** can collide, tripping
+     `UNIQUE (account_id, slug)` and failing the import for a cosmetic reason.
+  5. **Not every table has a surrogate `id`** (`staff_properties`, `configurations`), so any
+     per-row logic keyed on `id` raises `no such column: id`.
+  6. **SQLite/Postgres type coercion is mandatory**: booleans are stored as 0/1 and datetimes as
+     text. Best driven by the target column's Python type rather than a per-column list.
+
+  **Fix:** Step 16 should name these as required work. A harness reading the step literally builds an
+  importer that runs, reports correct counts, and quietly drops a relationship.
+
+- [BUG][SPEC-002 Step 16 — "NO PARTIAL ACCOUNT" NEEDS AN EMPTY-ACCOUNT PRECONDITION] The verify clause
+  requires that "a simulated mid-import failure leaves no partial account", but the step does not say
+  what happens on a **re-run**. Importing into an account that already holds data either duplicates
+  every row or trips `UNIQUE (account_id, slug)` partway through — producing exactly the partial
+  account the clause forbids. **Fix:** state that the import targets an empty account and refuses
+  otherwise, checked before any write. Idempotency across 1,800 rows is the alternative and is far
+  more machinery for no benefit.
+
+- [INFO][SPEC-002 Step 16 — G11 IS NOT A PREREQUISITE] Step 16's ordering (upload, verify, then
+  commit) reads as though object storage must exist first. It does not: the ordering guarantee is
+  about *sequence*, so it is fully implementable and testable against a narrow file-mover interface
+  with a filesystem backend, and G11's S3 provider slots in behind it unchanged. Worth noting in §6 so
+  the importer is not blocked behind storage — especially since a real source may contain no movable
+  files at all (this one contains exactly one document row, whose file is missing).
+
 ## Resolved during SPEC-002 pre-flight (not defects — decisions)
 
 - [DEFER][waitlist ownership] SPEC-002 mentions `alembic_landing`, `version_locations` and

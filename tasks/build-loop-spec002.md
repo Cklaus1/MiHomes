@@ -100,7 +100,7 @@ guard rejects `export` chains.
 | **S1** | **Archival does not work.** `run_archival()` raises `ArchivalUnavailableError`; `mihomes archive run` exits 1. The archive tables are not created by any migration and are not tenant-aware (INTEGER ids, no `account_id`). | G10 | the tests were rewritten to assert the refusal | **unowned — needs a retention decision** |
 | ~~**S2**~~ | ~~A SQLite-built database has no RLS and no drift guard.~~ **Closed by refusal, not by making it work.** `init_db()` now raises `UnsupportedBackendError` on SQLite with an actionable message. Every DB-level control is Postgres-only, so a SQLite install would run and silently serve every tenant's rows — refusing is the only correct outcome. | G6.2 | — | **closed** |
 | ~~**S3**~~ | ~~`mihomes init` cannot run.~~ **Closed for Postgres:** the account bootstrap in `init_db()` + the `--account` resolution mean the CLI works. 61 errors → 11. | G5 | — | **closed** |
-| **S6** | **The local SQLite install is unreachable, including `mihomes-dev` and demo mode.** `DATABASE_URL` must point at Postgres or the server refuses to start. The existing `~/.mihomes/db/mihomes.db` (37 tables, no `account_id`, no `accounts`) is **not readable by this schema** — measured. Data is untouched, just not loadable. | G13 | nothing tests the SQLite runtime, by design | **G16** (importer) |
+| ~~**S6**~~ | ~~The local SQLite install is unreachable.~~ **Closed:** `mihomes import <path>` moves it into Postgres — 1,869 rows, 0 dangling FKs, verified on a copy of the real database. `mihomes-dev` still needs `DATABASE_URL`, which is now a setup step rather than a dead end. *(original text)* **The local SQLite install is unreachable, including `mihomes-dev` and demo mode.** `DATABASE_URL` must point at Postgres or the server refuses to start. The existing `~/.mihomes/db/mihomes.db` (37 tables, no `account_id`, no `accounts`) is **not readable by this schema** — measured. Data is untouched, just not loadable. | G13 | nothing tests the SQLite runtime, by design | **G16** (importer) |
 | **S7** | **Demo mode is broken.** `load_demo_data` writes tenant-owned rows with no account context (`LookupError`), and the demo DB is SQLite, which is now refused. | G13 | `test_demo_boot`'s 2 failures are counted | **G16-adjacent — needs an account + Postgres demo DB** |
 | ~~**S4**~~ | ~~The two association tables are protected by RLS alone, and nothing verifies the deployed role.~~ **Half closed:** the role is now verified at server startup (`verify_runtime_role`, N5). The association tables are still RLS-only, but RLS is no longer a promise. | G2.5 / G8 | — | **closed for the role; the RLS-only coverage is accepted** |
 | **S5** | **Drift for the four polymorphic tables is app-only.** No `entity_type`→table mapping exists to build a trigger from. A raw-SQL insert, or an ORM insert whose `entity_id` came from a cross-tenant read, is unguarded. | G4.2 | the spec permits app-only enforcement *if stated*; **A21 does not cover it** | accepted, documented |
@@ -945,10 +945,72 @@ rather than fabricating `0`.
 > if `TEST_DATABASE_URL` is unset the Postgres fixture skips, the suite reads green, and the
 > criteria that prove tenant isolation never ran.
 
-### [ ] G16 — importer — *dep: G15*
+### [x] G16 — importer — *dep: G15* — *11 tests; 1,869 real rows imported, 0 dangling FKs*
 
-- [ ] G16.1 · §6 Step 16 · A19 · `mihomes import <sqlite-path>` — read SQLite, build the **int→UUIDv7 remap** per source table · verify: `tests/integration/test_importer.py::test_roundtrip_counts_and_fks`
-- [ ] G16.2 · §6 Step 16 · A20 · **the ordering is load-bearing:** upload all files → **verify every object exists and its size matches** → *then* commit the DB transaction. Failure leaves **orphaned objects (garbage), never dangling references (corruption)**. The reverse order is prohibited · verify: `tests/integration/test_importer.py::test_failure_leaves_nothing`
+- [x] G16.1 · §6 Step 16 · A19 · `mihomes import <sqlite-path>` with the int→UUIDv7 remap · verify: `tests/integration/test_importer.py::test_roundtrip_counts_and_fks`
+- [x] G16.2 · §6 Step 16 · A20 · upload → **verify** → *then* commit · verify: `test_failure_leaves_nothing`, parameterised over all three failure points
+
+**Verified against the real thing, not a fixture.** The spec's clause says *"dry-run against a copy
+of the `telegram-bot` archive"*; the author's own 1,823-row install was available and is a stronger
+test. Result on a **copy** (never the original):
+
+```
+1,869 rows inserted   12 skipped   0 dangling FKs   1,881 of 1,822 accounted for
+```
+
+**G11 is not a blocker and G16 did not wait for it.** Measured: the source has exactly **one**
+`documents` row and its file is missing — the path is `/static/uploads/…`, the phantom `src/web/`
+artifact from the fixed H26 bug. So this import moves zero files. The *ordering* is still built and
+tested against a narrow `FileMover` interface, because A20's requirement is that **failure leaves
+orphans, not dangling references** — a property of sequence, not of backend. G11's S3 provider slots
+in behind the same interface.
+
+### Six findings from real data, each of which would have been invisible in a synthetic fixture
+
+1. **`vendors.property_ids` — silent loss of every vendor→property link.** All 59 vendors carry a
+   non-empty JSON id-list and the source has **no `vendor_properties` table**: their database
+   predates M14's normalisation. The first working importer reported one line — `dropped:
+   property_ids` — and threw all 59 associations away. **Row counts were correct**, because what was
+   lost was a *column*. Found by investigating that line instead of accepting it.
+2. **The target is the FK authority, not the source.** The old schema declares
+   `transactions.work_order_id` as a bare `INTEGER` with no `FOREIGN KEY`, so
+   `PRAGMA foreign_key_list` never mentions it while the target has a real FK. The raw integer went
+   into a UUID column → `cannot cast type smallint to uuid`.
+3. **Six polymorphic column pairs, not three** — derived from the schema rather than hardcoded.
+   `alerts.source_entity_id` and `work_orders.source_id` would both have been missed.
+   **This corrects the G4 note:** four *tables* carry `entity_type`/`entity_id`, but six *columns*
+   are polymorphic, and it is columns that need remapping.
+4. **SQLite does not enforce `VARCHAR(n)`; Postgres does.** A book's 108-character title is its slug
+   against `VARCHAR(100)`. Truncating is right, but a truncated **slug** can collide and trip
+   `UNIQUE (account_id, slug)` — so uniqueness is preserved explicitly and every truncation is
+   reported.
+5. **Not every table has an `id`.** `staff_properties` (association) and `configurations` (natural
+   key) do not — the fourth appearance of the Core-`Table`-has-no-surrogate-key blind spot.
+6. **Type coercion is unavoidable:** SQLite booleans are `0`/`1`, its datetimes are text. Driven by
+   the **target column's** Python type so a column added later is coerced without anyone
+   remembering.
+
+### Design decisions worth defending
+
+**Dangling references are preserved, not repaired.** 118 of 505 `audit_log` rows point at entities
+that no longer exist — normal, because an audit log **records deletions**. The remap mints a UUID for
+any `(table, old_id)` pair on first sight whether or not the row exists, so two audit rows about
+deleted task 47 still share one id. **One mechanism** covers real remaps and dangling ones.
+
+**A skip cascades only through REQUIRED links, decided per column.** 14 rows have missing parents,
+and the outcome depends on the *target*'s nullability: `insurance_policies.property_id` is nullable,
+so 2 rows are saved unparented; `spaces.property_id` is NOT NULL, so 9 are skipped and the skip
+propagates. A blanket skip would have discarded estate data for no reason — and a test of mine
+initially asserted the *wrong*, stricter behaviour.
+
+**Empty account only.** Re-running would duplicate rows or trip a unique constraint partway through,
+leaving the half-imported account the spec's clause forbids. Refusing before any write is simpler
+than making 1,800 inserts idempotent.
+
+> **My own G10 guard caught my own new code**, and I fixed the layer rather than the symptom. The
+> importer's `text(f'SELECT COUNT(*) FROM "{table}" …')` tripped the AST guard. The table names came
+> from the registry so nothing was injectable — which is precisely the defence G10 rejected. Now a
+> Core `select`. A guard that fires on its author is a guard that works.
 
 > Object writes are **not** transactional with Postgres, which is the whole reason for that order.
 > This is where the data-preservation gate lives for this set (conventions §2) — not in the

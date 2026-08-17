@@ -202,9 +202,11 @@ app.add_typer(alerts_app, name="alerts")
 
 from mihomes.cli.audit import app as audit_app  # noqa: E402
 from mihomes.cli.dashboard import app as dashboard_app  # noqa: E402
+from mihomes.cli.import_cmd import app as import_app  # noqa: E402
 
 app.add_typer(dashboard_app, name="dashboard")
 app.add_typer(audit_app, name="audit")
+app.add_typer(import_app, name="import")
 
 # Phase 1b sub-apps
 from mihomes.cli.backup import app as backup_app  # noqa: E402

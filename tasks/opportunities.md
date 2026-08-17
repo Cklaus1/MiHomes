@@ -510,6 +510,28 @@
   to enumerate another tenant's documents given a key. The existing-but-foreign and never-existed
   cases should be indistinguishable.
 
+- [BUG][SPEC-002 Step 12 / A17 — AUTHENTICATION CANNOT READ `memberships` THROUGH THE ORM, AND THE
+  SPEC DOES NOT SAY HOW] A17 requires that revoking a membership denies access on the next request,
+  which means session lookup must re-read `memberships` every time. But `Membership` is `TenantOwned`,
+  so an ORM query invokes the §4.4 filter — which demands an account context that authentication runs
+  *before*: resolving the session is how the account gets chosen. Implemented literally, every
+  authenticated request raises `LookupError`.
+
+  Three ways out, and the spec picks none: bind a context (circular), use `skip_tenant` (N9 forbids
+  putting the codebase's `sudo` on the hot path of every request), or read via a **Core select** so no
+  mappers are involved and the filter correctly skips it — with RLS's `membership_self` policy (A10)
+  providing the real boundary. **Fix:** §4.4 or Step 12 should state that the auth path reads
+  `memberships` without the ORM filter and that `membership_self` is what secures it. This is the same
+  bootstrap tension A10 already solves for RLS, unsolved one layer up.
+
+- [INFO][SPEC-002 Step 12 — TWO PROPERTIES A16 IMPLIES BUT DOES NOT NAME] A16 lists the cookie flags.
+  Two adjacent requirements are easy to miss and both are security-relevant: (a) the session id must
+  **rotate on sign-in** and the old row be deleted, or a fixated cookie stays authenticated; (b) the
+  `Secure` decision must come from the **request host**, not a debug flag — a flag can be wrong in
+  production, and it must be dropped on loopback because browsers refuse Secure cookies over http, so
+  development cannot sign in otherwise. Worth adding beside A16 since both are one line of code and
+  invisible when absent.
+
 ## Resolved during SPEC-002 pre-flight (not defects — decisions)
 
 - [DEFER][waitlist ownership] SPEC-002 mentions `alembic_landing`, `version_locations` and

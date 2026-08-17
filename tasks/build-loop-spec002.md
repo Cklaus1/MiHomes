@@ -981,12 +981,91 @@ presigned expiry uncapped     -> test_presigned_url_expires_and_is_capped       
 > **N6: never a Fly volume.** Single-machine local NVMe silently caps the app at one machine *and*
 > puts tenant files outside any backup.
 
-### [ ] G12 — auth — *dep: G8*
+### [x] G12 — auth — *dep: G8* — *23 tests, 8 controls mutation-verified, zero skips*
 
-- [ ] G12.1 · §6 Step 12 · A15 · Google OIDC + PKCE, `users` upsert on `sub`, server-side sessions · verify: `tests/integration/test_auth.py::test_signin_flow`, `::test_rejects_forged_token`
-- [ ] G12.2 · §6 Step 12 · A16 · session cookie is httpOnly + Secure + SameSite=Lax · verify: `tests/integration/test_auth.py::test_cookie_flags`
-- [ ] G12.3 · §6 Step 12 · A17 · revoking a membership denies access on the **next request** · verify: `tests/integration/test_auth.py::test_revocation_immediate`
-- [ ] G12.4 · §6 Step 12 · — · CSRF (double-submit), `/signout`, sign-out-everywhere · verify: `test_auth.py`
+- [x] G12.1 · §6 Step 12 · A15 · Google OIDC + PKCE, `users` upsert on `sub`, server-side sessions · verify: `test_auth.py::test_signin_flow`, `::test_rejects_forged_token`
+- [x] G12.2 · §6 Step 12 · A16 · session cookie is httpOnly + Secure + SameSite=Lax · verify: `test_auth.py::test_cookie_flags`, `::test_secure_flag_is_set_on_a_non_loopback_host`
+- [x] G12.3 · §6 Step 12 · A17 · revoking a membership denies access on the **next request** · verify: `test_auth.py::test_revocation_immediate`
+- [x] G12.4 · §6 Step 12 · — · CSRF (double-submit), `/signout`, `/signout-all` · verify: `test_auth.py::test_signout_requires_a_matching_csrf_token`
+
+**The token verifier is SPEC-001's, reused rather than rewritten.** `landing/oauth.py` already does
+JWKS fetch, signature check and `aud`/`iss`/`exp` validation with a 60-second skew, and it has tests.
+A second verifier would mean two places to get `aud` wrong, and the one nobody reads is the one that
+rots. G12 adds what Phase 0 refused: a `users` row, a session, and claim-level validation.
+
+### Design decisions worth defending
+
+- **Only the hash reaches the database.** The raw session id exists once, goes to the cookie, and is
+  never stored. A backup or read-only leak yields nothing usable. **A bare SHA-256 is correct here**
+  and a KDF would be wrong: the id is 256 bits of `secrets` output, so there is no dictionary to
+  attack, and bcrypt would add latency to every authenticated request. Salting would break the
+  lookup, since the point is to find a row *by* the hash.
+- **`sub` is the identity, never the email.** An email can change hands; upserting on it would
+  eventually hand one person's estate to whoever inherited their address. The email is refreshed on
+  each sign-in for display only.
+- **`email_verified` is enforced**, and an *absent* claim does not read as true — the usual shape of
+  that bug.
+- **The session id rotates on sign-in**, and the old row is deleted rather than superseded, so a
+  planted (fixated) id authenticates nobody.
+- **`Secure` is decided from the request's host, not a `DEBUG` flag.** A flag can be wrong in
+  production; "this request arrived at localhost" cannot. Loopback drops `Secure` because a browser
+  refuses such a cookie over plain http and dev could not sign in at all.
+- **The CSRF cookie is deliberately *not* httpOnly** (the page must echo it into a form field) while
+  the session cookie always is. The asymmetry is the point: the CSRF value carries no authority, the
+  session carries all of it. Compared with `hmac.compare_digest`, and blanks never match.
+- **`/signout` is a POST with CSRF.** A `GET /signout` can be triggered by any third-party page with
+  an `<img src>`.
+
+### A17 required a design decision the spec does not mention
+
+`lookup_session` reads `Membership` with a **Core select, not the ORM**. `Membership` is
+`TenantOwned`, so an ORM query invokes the G8 filter — which demands an account context. But
+authentication is precisely the path that runs *before* any account exists: resolving the session is
+**how** the account gets chosen. An ORM read would be circular, and reaching for `skip_tenant` would
+put the codebase's `sudo` on the hot path of every request, which N9 forbids.
+
+A Core select carries no mappers, so the filter correctly skips it — the same mechanism that lets
+sign-in read GLOBAL `users`. The boundary is still enforced one layer down by RLS's `membership_self`
+policy (A10, keyed on `app.current_user`), which exists for exactly this bootstrap case. **Two
+mechanisms, each applying where the other cannot** — the same shape as G17's finding that each layer
+must be verified where it is the only one present.
+
+> **Revocation is re-checked every request and never cached in the session row.** A cached decision
+> would leave a removed user with access until their session expired — 14 days, which is not
+> "immediate" by any reading of A17. And a revoked membership **denies** rather than downgrading to
+> "signed in, no account": downgrading would let them re-pick the very account they were removed from.
+
+### Mutation-verified — and it caught a test with no teeth
+
+```
+membership check skipped      -> test_revocation_immediate                fails correctly
+raw session id stored         -> test_only_the_hash_is_stored             fails correctly
+session cookie not httpOnly   -> test_cookie_flags                       fails correctly
+Secure never set              -> test_secure_flag_is_set_on_a_non_...     fails correctly
+email_verified not enforced   -> test_unverified_email_is_refused         fails correctly
+CSRF comparison always true   -> test_signout_requires_a_matching_csrf    fails correctly
+OAuth state not checked       -> test_callback_rejects_a_mismatched_state fails correctly
+no rotation on sign-in        -> test_signin_rotates_the_session_id       fails correctly *
+```
+
+*\* only after being rewritten.* The fixation test passed with rotation removed, for two reasons
+worth keeping because both are easy to repeat: it planted a session for a **different user** than
+sign-in resolves to (so a fresh id was minted either way), and it planted the row on a **different
+connection** than the app uses (so the "planted session is gone" assertion checked a row that was
+never visible). Fixed to use the same user and the app's own session factory.
+
+> **A conditionally-skipped security assertion is a red gate, and I nearly shipped one.**
+> `test_secure_flag_is_set_on_a_non_loopback_host` originally drove a request at
+> `https://app.example.com`, which the Host guard rejects — so it ended in `pytest.skip` and would
+> have skipped silently forever while nothing verified the production cookie was TLS-only. Replaced
+> with a deterministic assertion against `_set_cookie` across four hosts. **Zero skips in this file.**
+
+> **Third time: my own guard tripped on prose.** `test_skip_tenant_is_not_used_in_application_code`
+> searched source *text*, so it failed the moment `auth/sessions.py` gained a docstring explaining
+> why it deliberately avoids the escape hatch. Same mistake as the `waitlist` guard in G6.3 and the
+> archive-table guard in G10. Now an **AST walk** for real usage — an import, a bare name, or the
+> literal as an argument — ignoring docstrings. Verified both ways: it fires on a planted import and
+> on a planted execution option, and does *not* fire on a docstring mention.
 
 > SPEC-001's OAuth stub is the reference for the *verification* half — real signature check, real
 > `aud`/`iss`/`exp` validation (see `landing/oauth.py`). What Phase 1 adds is what Phase 0

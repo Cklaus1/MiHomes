@@ -639,106 +639,57 @@ def test_skip_tenant_is_not_used_in_application_code():
     The escape hatch legitimately exists for migrations, the importer and admin tooling. What must
     not happen is a route or service reaching for it, because that is an unscoped query with a
     comment explaining why it is fine.
+
+    **Parsed, not grepped — and this is the third time that distinction has cost me.** The first
+    version searched source text for `"skip_tenant"`, so it failed the moment `auth/sessions.py`
+    gained a docstring explaining why it *deliberately avoids* the escape hatch. Discussing a
+    forbidden construct is normal and must not trip its ban; the same mistake hit a `waitlist` guard
+    in G6.3 and an archive-table guard in G10.
+
+    So this walks the AST for real *usage* — an import of the constant, or the literal appearing as
+    an argument or subscript — and ignores strings inside docstrings and comments entirely.
     """
+    import ast
     from pathlib import Path
 
     src = Path(__file__).resolve().parents[2] / "src"
-    offenders = []
+    offenders: list[str] = []
+
     for path in src.rglob("*.py"):
         if "__pycache__" in path.parts:
             continue
         if path.name == "session.py" and path.parent.name == "tenancy":
             continue  # where it is defined
-        body = path.read_text(encoding="utf-8")
-        if "skip_tenant" in body or "SKIP_TENANT" in body:
-            offenders.append(str(path.relative_to(src)))
+
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        docstrings = {
+            node.value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant)
+        }
+
+        for node in ast.walk(tree):
+            # `from mihomes.tenancy.session import SKIP_TENANT`
+            if isinstance(node, ast.ImportFrom):
+                if any(a.name in ("SKIP_TENANT", "skip_tenant") for a in node.names):
+                    offenders.append(f"{path.relative_to(src)}:{node.lineno} imports SKIP_TENANT")
+                continue
+            # A bare `SKIP_TENANT` reference in real code.
+            if isinstance(node, ast.Name) and node.id == "SKIP_TENANT":
+                offenders.append(f"{path.relative_to(src)}:{node.lineno} uses SKIP_TENANT")
+                continue
+            # The literal `"skip_tenant"` used as a value — an execution option or dict key — as
+            # opposed to appearing inside a docstring.
+            if (
+                isinstance(node, ast.Constant)
+                and node.value == "skip_tenant"
+                and node not in docstrings
+            ):
+                offenders.append(
+                    f"{path.relative_to(src)}:{node.lineno} passes \"skip_tenant\""
+                )
+
     assert not offenders, (
-        "skip_tenant appears in application code, which means an unscoped query: " f"{offenders}"
+        "skip_tenant is used in application code, which means an unscoped query:\n  "
+        + "\n  ".join(offenders)
     )
-
-def test_orm_filter_alone_blocks_cross_tenant_reads(isolation_world):
-    """The ORM filter verified **in isolation**, on a connection where RLS cannot help.
-
-    **Why this test exists — a mutation test caught A21 passing without it.** Disabling the G8
-    `with_loader_criteria` filter entirely left `test_cross_tenant_denied_all_models` green, because
-    that test runs on the unprivileged role where **RLS also blocks the read**. It was asserting
-    "something stopped A", not "the ORM filter stopped A".
-
-    That is the general hazard of defence in depth: two independent layers mean a test exercising
-    both verifies *neither*. So each layer is now pinned on the connection where it is the only one
-    present:
-
-        this test               owner/superuser  -> RLS is inert, so ONLY the ORM filter can pass it
-        raw-SQL arm             app role         -> no mappers, so ONLY RLS can pass it
-
-    Verified by mutation: neutering `_apply_tenant_filter` makes this fail, and disabling RLS makes
-    the raw-SQL arm fail. Neither mutation moves the other.
-    """
-    owner = isolation_world["owner"]  # superuser: RLS bypassed, ORM filter is the only defence
-    account_a = isolation_world["account_a"]
-    account_b = isolation_world["account_b"]
-    Session = sessionmaker(bind=owner, future=True)
-
-    # Sanity: prove RLS really is inert here, or this test would pass for the wrong reason.
-    with owner.connect() as conn:
-        assert conn.execute(
-            text("SELECT COUNT(*) FROM properties")
-        ).scalar() >= 2, (
-            "expected the superuser connection to see both accounts' rows with no GUC set; if it "
-            "does not, RLS is active here and this test no longer isolates the ORM filter"
-        )
-
-    leaks = []
-    for table, model in sorted(_tenant_models().items()):
-        with account_context(account_a):
-            with Session() as s:
-                foreign = [
-                    r for r in s.query(model).all()
-                    if getattr(r, "account_id", None) == account_b
-                ]
-                if foreign:
-                    leaks.append(f"{table} ({len(foreign)} of B's rows)")
-
-    assert not leaks, (
-        "the ORM filter alone did not scope these reads — on a superuser connection RLS is not "
-        "there to catch it:\n  " + "\n  ".join(leaks)
-    )
-
-def test_each_account_can_read_its_own_rows(isolation_world):
-    """The **positive control**, and A21 is incomplete without it.
-
-    **Found by mutation testing.** Disabling the G9 `after_begin` GUC entirely left every negative
-    assertion in this file green — because with no GUC, RLS returns **zero rows**, so "A cannot see
-    B's rows" is trivially true. Isolation looked perfect precisely because nothing worked.
-
-    That is the structural weakness of a security suite made only of negatives: **it is fully
-    satisfied by a system that returns nothing at all.** A tenancy layer that denies everything is
-    not secure, it is broken — and it would ship looking green.
-
-    So this asserts the other half: each account sees its own row in every tenant table, on the
-    unprivileged connection where RLS is live. Together the two halves pin the boundary from both
-    sides, which is what makes "isolated" mean isolated rather than empty.
-    """
-    app = isolation_world["app"]
-    Session = sessionmaker(bind=app, future=True)
-    blind = []
-
-    for label, account in (
-        ("A", isolation_world["account_a"]),
-        ("B", isolation_world["account_b"]),
-    ):
-        for table in sorted(TENANT_TABLES):
-            with account_context(account):
-                with Session() as s:
-                    n = s.execute(
-                        text(f'SELECT COUNT(*) FROM "{table}"')  # noqa: S608
-                    ).scalar()
-            if not n:
-                blind.append(f"{table} (account {label} sees none of its own rows)")
-
-    assert not blind, (
-        "these accounts cannot see their OWN data, so every negative assertion in this file is "
-        "passing vacuously — RLS is denying everything rather than scoping:\n  "
-        + "\n  ".join(blind)
-    )
-

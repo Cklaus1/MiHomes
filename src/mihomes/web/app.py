@@ -30,6 +30,7 @@ from mihomes.web.routes import (
     vendors,
     work_orders,
 )
+from mihomes.web.routes import auth as auth_route
 from mihomes.web.routes import calendar as calendar_route
 from mihomes.web.routes import inventory as inventory_route
 from mihomes.web.routes import library as library_route
@@ -83,6 +84,9 @@ def create_app() -> FastAPI:
     # Tenant-checked object download (G11 · A14). Registered without a prefix because it owns
     # its full path; it replaces the unauthenticated /uploads static mount.
     app.include_router(documents_download.router)
+    # Sign-in / sign-out (G12). No prefix: these paths are fixed by the OAuth redirect URI
+    # registered with Google, so they cannot move without reconfiguring the provider.
+    app.include_router(auth_route.router)
     app.include_router(books.router, prefix="/books")
     app.include_router(ai_route.router, prefix="/ai")
     app.include_router(weather_route.router, prefix="/weather")

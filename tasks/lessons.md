@@ -243,6 +243,25 @@ Review this at the start of each session.
   config caused silent omission rather than a loud failure (see also the `src/web/` gitignore line
   and G6.1's one-ended type gate). **Deleting retired config is part of the change that retires it.**
 
+- **Assert on structure, not source text — third occurrence, so the rule needs teeth of its own.**
+  A `skip_tenant` guard grepped `src/` for the string and failed on a docstring explaining why that
+  escape hatch is deliberately *not* used. The same mistake hit a `waitlist` guard (G6.3) and an
+  archive-table guard (G10). **Rule:** a test that reads `.py` files as text is testing prose.
+  Parse it — walk the AST for real usage and skip docstring nodes — and then verify **both**
+  directions: it fires on planted usage, and does not fire on a comment discussing the thing.
+  Writing about a forbidden construct is normal.
+- **A conditionally-skipped security assertion is worse than a missing one.** A cookie-flag test
+  ended in `pytest.skip` whenever middleware rejected its host, so it would have skipped forever
+  while nothing verified the production cookie was TLS-only — and the suite would report the
+  criterion green. **Rule:** if a security test can skip itself, restructure it until it cannot.
+  Testing the helper directly with a stand-in request beats driving the full stack and giving up.
+- **A test can be unable to fail for reasons unrelated to the code under test.** A session-fixation
+  test passed with the rotation removed, because it planted a session for a *different user* than
+  sign-in resolves to and on a *different connection* than the app uses. Both assertions were true
+  regardless of the behaviour. **Rule:** when mutation testing shows an arm has no teeth, suspect the
+  fixture before the assertion — "does this test's setup actually reach the code path?" is the first
+  question, not "is the assertion strong enough?".
+
 - **Reading a lesson is not applying it: I hit the frozen-config trap that `lessons.md` already
   documented, and wrote test files into the user's real data directory.** The storage fixture used
   `monkeypatch.setenv("MIHOMES_DIR", tmp_path)`, but `config.MEDIA_DIR` is computed from that

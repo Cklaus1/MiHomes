@@ -1016,7 +1016,75 @@ than making 1,800 inserts idempotent.
 > This is where the data-preservation gate lives for this set (conventions §2) — not in the
 > baseline, which runs against an empty database.
 
-### [ ] G17 — the isolation test — *dep: all* · **the definition of done**
+### [x] G17 — the isolation test — *dep: all* · **the definition of done** — *11 tests, all 40 tables, mutation-verified*
+
+**A21 is green, and — more importantly — it is green for the right reasons.** Every arm was
+mutation-tested: the layer it verifies was deliberately broken and the arm was confirmed to fail.
+That check found **two of four arms had no teeth**, which a passing suite would never have revealed.
+
+```
+mutation                        arm that must fail                        result
+ORM filter disabled             test_orm_filter_alone_...                 fails correctly
+RLS disabled on properties      test_raw_sql_cannot_reach_...             fails correctly
+WITH CHECK (true)               test_cannot_insert_..._another_account    fails correctly
+GUC never set (G9 off)          test_each_account_can_read_its_own_rows   fails correctly
+```
+
+### The two findings that a green A21 was hiding
+
+**1. Defence in depth means a test exercising both layers verifies neither.** Disabling the G8 ORM
+filter *entirely* left `test_cross_tenant_denied_all_models` green — because it runs on the
+unprivileged role where **RLS also blocks the read**. It was asserting "something stopped A", not
+"the ORM filter stopped A". Fixed by pinning each layer on the connection where it is the *only*
+defence present:
+
+| test | connection | sole defence |
+|---|---|---|
+| `test_orm_filter_alone_blocks_cross_tenant_reads` | owner/superuser — RLS inert | the ORM filter |
+| `test_raw_sql_cannot_reach_another_tenant` | app role — no mappers | RLS |
+
+**2. A suite of only negative assertions is satisfied by a system that returns nothing at all.**
+Disabling the G9 GUC left *every* negative assertion green: with no GUC, RLS returns **zero rows**,
+so "A cannot see B's rows" is trivially true. **Isolation looked perfect precisely because nothing
+worked.** A tenancy layer that denies everything is not secure, it is broken — and it would have
+shipped green. `test_each_account_can_read_its_own_rows` is the positive control that closes it, and
+it earned its place immediately by catching a real defect (below).
+
+> **Not a toothless test, a bad mutation — worth recording so the distinction is not lost.** My first
+> `WITH CHECK` mutation (removing the clause) also left its arm green, and the cause is that
+> **`WITH CHECK` is optional in Postgres: when omitted, the `USING` expression is used for the write
+> case too.** So removing it does not disable write checking. `WITH CHECK (true)` is the real
+> mutation, and the arm fails correctly under it. A mutation that changes no behaviour proves nothing
+> about the test.
+
+### Built to enumerate, not to sample
+
+- **All 40 registry tables**, via a **type-driven seeder** rather than 40 hand-written fixtures: 114
+  required columns, 34 UUID FKs, 6 enums, seeded parents-first in topological order. A hand-written
+  list stops covering a table the day someone adds one, and the suite stays green — the A11 lesson
+  from the pilot.
+- The seeder **fails loudly** on any table it cannot seed, because an unseeded table is a table A21
+  does not cover. It did exactly that on first run (`memberships`, `membership_property_scopes` FK
+  into GLOBAL `users`), which is the behaviour wanted from it.
+- `test_both_accounts_are_fully_seeded` then asserts every table really has rows for both accounts —
+  without it, a silently-unseeded table makes every assertion about it pass trivially.
+- `EXPECTED_TENANT_TABLE_COUNT = 40` is hardcoded **deliberately**, so a change to the registry has
+  to be acknowledged at that line rather than absorbed.
+
+### G17.3 / A22 — retargeted, and non-destructive
+
+The spec names *"the three `ai/tools.py` call sites"*; that file has **zero** `text(` calls, so the
+criterion has no target. Retargeted at the property A22 is actually about: a raw
+`DELETE FROM audit_log WHERE timestamp < :cutoff` — the literal shape from `archive.py`'s retention
+path — issued by one account cannot touch another's rows. Node id kept for traceability.
+
+> **The positive control caught my own test polluting the fixture on its first run.** The A22 test
+> originally committed that DELETE, destroying account A's audit rows, and
+> `test_each_account_can_read_its_own_rows` failed with *"account A sees none of its own rows"*. Now
+> the counts are asserted **inside** the transaction and rolled back: same property proven, no
+> residue. That would have been the fourth test-pollution bug of this run.
+
+### [ ] G-Final — compound-stop verification — *dep: all*
 
 - [ ] G17.1 · §6 Step 17 · A21 · for **every** model in the registry: A can never read, update or delete B's rows — via ORM queries, ORM **bulk** `update()`/`delete()`, **and** raw `session.execute(text(...))` — and can never insert a row stamped with B's `account_id` (RLS `WITH CHECK` rejects it) · verify: `tests/integration/test_isolation.py::test_cross_tenant_denied_all_models`
 - [ ] G17.2 · §6 Step 17 · A21 · the registry covers **all 37** tenant tables **including the two association tables** — assert positively against a hardcoded list, not a derived one · verify: `test_isolation.py` fails if a tenant table is missing from the registry
@@ -1039,8 +1107,6 @@ than making 1,800 inserts idempotent.
 > pattern). The raw-`text()` arm of A21 in particular is **only** defended by RLS — the ORM filter
 > does not see raw SQL at all — so on a superuser connection that arm has no enforcement behind it
 > whatsoever.
-
-### [ ] G-Final — compound-stop verification — *dep: all*
 
 - [ ] F.1 · full-suite green against the **post-G15** baseline (condition C)
 - [ ] F.2 · all **23** §8 criteria green by the test named in their own row (condition E)

@@ -243,6 +243,24 @@ Review this at the start of each session.
   config caused silent omission rather than a loud failure (see also the `src/web/` gitignore line
   and G6.1's one-ended type gate). **Deleting retired config is part of the change that retires it.**
 
+- **A security test suite made only of negative assertions is satisfied by a system that returns
+  nothing at all.** A21 asserted "account A cannot see B's rows" across 40 tables and four vectors,
+  and it stayed **entirely green with the tenant GUC disabled** — because RLS then returns zero rows,
+  so every denial is trivially true. Isolation looked perfect precisely because nothing worked.
+  **Rule:** every "X cannot reach Y" suite needs a paired positive control ("X *can* reach its own
+  X"). Without it, the most complete-looking outcome and the most broken one are indistinguishable.
+- **Defence in depth means a test that exercises both layers verifies neither.** Disabling the ORM
+  tenant filter outright left the main A21 test green, because it ran on a connection where RLS also
+  blocked the read. It was asserting "something stopped this". **Rule:** when two independent
+  controls guard the same property, pin each on the configuration where it is the *only* one present
+  — otherwise each masks the other's failure and both can rot silently.
+- **Mutation-test the gate that matters, and distinguish a toothless test from a bad mutation.**
+  Breaking each control and confirming the matching assertion fails found 2 of 4 A21 arms had no
+  teeth. A third mutation *also* left its arm green — but there the mutation was wrong, not the test:
+  `WITH CHECK` is optional in Postgres (`USING` covers writes when it is absent), so removing it
+  changes no behaviour. **A mutation that changes nothing proves nothing**, and reading it as "the
+  test is weak" would have sent me rewriting a test that was already correct.
+
 - **Fixing a spec defect is not the same as reporting it, and I conflated the two for six
   groups.** Across G3–G8 I found nine defects in SPEC-002 — including two in §4.4's
   copy-pasteable code, one of which makes the specified filter raise on its first query and

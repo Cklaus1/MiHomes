@@ -462,6 +462,34 @@
   the importer is not blocked behind storage — especially since a real source may contain no movable
   files at all (this one contains exactly one document row, whose file is missing).
 
+- [BUG][SPEC-002 Step 17 / A21 — THE CRITERION AS WRITTEN CAN BE MET BY A SUITE WITH NO TEETH] A21 is
+  the spec's definition of done ("if it is not green, Phase 1 is not finished"), but it specifies only
+  what must be *denied*. Building it exactly as written produced a suite where **two of four arms
+  passed with the enforcement they check switched off**. Both causes are general, not incidental:
+
+  1. **Defence in depth hides the failure of either layer.** SPEC-002 builds two independent
+     boundaries (the §4.4 ORM filter and §4.3 RLS). An A21 run on the unprivileged role exercises
+     both at once, so disabling the ORM filter entirely changes nothing observable — RLS catches it.
+     The test asserts "something denied this", never "this specific layer denied this". **Fix:** §8
+     should require each layer to be verified on the connection where it is the *only* one present —
+     the ORM filter on a privileged connection where RLS is inert, RLS via raw SQL where the ORM
+     filter is blind.
+  2. **A21 needs a positive control, and the spec does not ask for one.** With the Step 9 GUC never
+     set, RLS returns zero rows, so every "A cannot see B" assertion is trivially true and the suite
+     is fully green while the product is completely broken. **Fix:** add "each account can read its
+     own rows in every tenant table" to A21. A tenancy layer that denies everything satisfies the
+     criterion as currently worded.
+
+  Both were found by mutation-testing the finished suite, which is worth adding to §8 as the standard
+  for A21 specifically: break each control, confirm the corresponding assertion fails.
+
+- [INFO][SPEC-002 §4.3 — `WITH CHECK` IS OPTIONAL IN POSTGRES, WHICH MATTERS FOR REVIEWING A9] When a
+  policy omits `WITH CHECK`, Postgres uses the `USING` expression for the write case as well. So a
+  policy written with `USING` alone still rejects a foreign-account insert, and *removing* `WITH
+  CHECK` is not a way to test A9 — the honest mutation is `WITH CHECK (true)`. Worth stating beside
+  A9 so a reviewer does not read an explicit `WITH CHECK` as the only thing preventing cross-tenant
+  writes, nor conclude from its removal that nothing changed.
+
 ## Resolved during SPEC-002 pre-flight (not defects — decisions)
 
 - [DEFER][waitlist ownership] SPEC-002 mentions `alembic_landing`, `version_locations` and

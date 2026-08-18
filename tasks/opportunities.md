@@ -17,6 +17,19 @@
 ## New bugs (candidate tasks for next loop)
 <!-- format: `- [BUG][proposed-severity] file:line — title — concrete failure — proposed fix (surfaced during <task-id>)` -->
 - [BUG][P2 — FIXED IN-RUN] services/weekly_report.py:258 `_assignee_name` — `report weekly --format markdown`/`15-5` crashed with `AttributeError: 'Staff' object has no attribute 'full_name'` whenever a task was assigned (terminal renderer never hit this path, so it was latent). Fixed to `s.name` during L4; regression covered by test_cli.py TestFormatEnumValidation.test_report_weekly_valid_format (exercises the markdown path). (surfaced during G-CLI/L4)
+- [BUG][P2 — NOT FIXED, OUTSIDE THIS DAG] `scripts/start-mihomes.sh` — checked out with **CRLF** line
+  terminators on this Windows machine (`core.autocrlf=true`; measured with `file scripts/start-
+  mihomes.sh`). `docker-compose.yml`'s `mihomes` service bind-mounts this file straight from the
+  host filesystem into a Linux container (`./scripts/start-mihomes.sh:/start.sh:ro`) and runs it as
+  `sh /start.sh` — a CRLF-terminated script fed to `sh` this way typically fails per-line (`$'\r':
+  command not found` or similar) rather than merely warning. Anyone running `docker compose up` for
+  the HA demo stack from a Windows checkout would hit this, independent of and in addition to S7
+  (the SQLite/`LookupError` bug in the same startup path). **Fix:** `git add --renormalize
+  scripts/start-mihomes.sh` after adding a `.gitattributes` `*.sh text eol=lf` rule (added this run,
+  in G15.4, to stop the new `docker/postgres-init/01-create-databases.sh` from suffering the same
+  fate) — not done here because the file's content is untouched by G15.4 and outside its DAG; the
+  `.gitattributes` rule alone fixes it for anyone who re-clones, but not for an existing Windows
+  working tree until it is re-added. (surfaced during G15.4)
 
 ## DAG-omissions caught by F.3 reconciliation (surfaced during G-Final)
 > F.3 walked the spec top-to-bottom and found 4 findings the DAG author never assigned to a group: H3, M7, M8, M9. Per compound-stop condition B each is now landed-with-test or deferred below.

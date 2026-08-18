@@ -1121,12 +1121,31 @@ would be exactly the false pass A18 exists to prevent, one level up from what A1
   database edit that bypasses constraints, with a comment saying plainly that no normal write path
   can trigger it — better than a comment that used to claim the opposite.
 
-### [ ] G15 — test-suite migration — *dep: G9* · *condition C changes here*
+### [x] G15 — test-suite migration — *dep: G9* · *condition C changes here*
 
 - [x] G15.1 · §6 Step 15 · — · replace `conftest.py`'s in-memory SQLite engine with a Postgres fixture (`TEST_DATABASE_URL`, skipping when unset) + `account_a` / `account_b` fixtures · verify: fixtures import
 - [x] G15.2 · §6 Step 15 · A23 · **keep the `session` fixture's name and semantics** — it now yields an account-scoped session. **43 of 95 files use it** (not 28 of 33); renaming means touching 43 files · verify: full suite green
 - [x] G15.3 · §6 Step 15 · — · **reconcile the second conftest** — `tests/web/conftest.py` also builds SQLite (`StaticPool`) and the spec's Fixtures paragraph does not contemplate it · verify: `tests/web/` green
-- [ ] G15.4 · §6 Step 15 · — · docker-compose Postgres (D12). **`docker-compose.yml` already exists** and builds the Home Assistant demo stack — this is a **modify, not a create**; clobbering it breaks that setup · verify: compose config valid, HA services intact
+- [x] G15.4 · §6 Step 15 · — · docker-compose Postgres (D12). **`docker-compose.yml` already exists** and builds the Home Assistant demo stack — this is a **modify, not a create**; clobbering it breaks that setup · verify: `docker compose config --quiet` passes; `mihomes`/`homeassistant` service blocks unchanged apart from one documentation comment
+
+**Purely additive, by design.** A new `postgres` service (`postgres:18`, matching CI and the local
+dev Postgres this session already runs against) plus an init script
+(`docker/postgres-init/01-create-databases.sh`) that creates `mihomes_test` and `mihomes_phase0`
+alongside the default `mihomes` database — the same three-database split `conftest.py` and
+`cli_database` already keep apart, now provisioned in one `docker compose up -d postgres`. The
+`mihomes`/`homeassistant` services are untouched: a comment above `mihomes:` names why it is not
+wired to the new service (it still runs `MIHOMES_DEMO=1` → SQLite, which `init_db()` now refuses —
+launch gate S7, owned elsewhere), so wiring it in here would have meant fixing S7 as a side effect
+of a docker-compose task rather than taking it on deliberately.
+
+**Verification gap, recorded rather than skipped over:** the Docker daemon is stopped in this
+session (`com.docker.service`, STOPPED), so `docker compose up -d postgres` — and with it, proof
+that the init script actually creates the two extra databases — could not be run here. Confirmed
+instead: `docker compose config --quiet` (structural validity) and `sh -n` on the init script
+(shell syntax). Asked the user rather than starting a stopped system service unprompted; they
+confirmed config-level verification is sufficient for this task. **Follow-up for whoever has Docker
+running:** `docker compose up -d postgres && docker compose exec postgres psql -U postgres -l` and
+confirm `mihomes`, `mihomes_test`, `mihomes_phase0` all appear.
 
 > **Record the new baseline the moment this group commits.** A skip is a red gate (conventions §0):
 > if `TEST_DATABASE_URL` is unset the Postgres fixture skips, the suite reads green, and the

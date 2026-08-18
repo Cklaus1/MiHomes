@@ -348,11 +348,24 @@ resumable. **Each group ships its own revision in the chain** (`0003…`, `0004�
 > `current_account`, raised inside the route. The end-to-end probe exists because the sync
 > version fails only at runtime and only on paths that touch tenant data.
 
-### [ ] G1 — Step 1: action vocabulary + the matrix as data — *dep: none*
-- [ ] G1.1 · §6 Step 1 · A1 · `authz/actions.py`: 21 keys covering all 20 `ONBOARDING` §9.2 rows, `Grant`/`Access`/`ActionSpec` per §4.1 verbatim · verify: `tests/unit/test_matrix.py::test_all_twenty_rows_covered`
-- [ ] G1.2 · §6 Step 1 · A2 · R1 — an admin may change neither the active owner's role nor their own; the owner may change anyone's except their own (D2) · verify: `tests/unit/test_matrix.py::test_rule_change_role`
-- [ ] G1.3 · §6 Step 1 · A3 · R2 — linking a gateway grants no additional data access; link is self-only for every role · verify: `tests/unit/test_matrix.py::test_rule_link_self`
-- [ ] G1.4 · §6 Step 1 · C10 · entity classification covering **every** `Base` subclass incl. the 13 unclassified (§0.6 C10); fail-closed on unclassified; class is **not** inferred from `property_id` · verify: `tests/unit/test_matrix.py::test_every_model_is_classified`
+### [x] G1 — Step 1: action vocabulary + the matrix as data — *dep: none* — *`1583 passed` (1565 → 1583, +18); 4 arms mutation-verified*
+- [x] G1.1 · §6 Step 1 · A1 · `authz/actions.py`: 21 keys covering all 20 `ONBOARDING` §9.2 rows, `Grant`/`Access`/`ActionSpec` per §4.1 verbatim · verify: `tests/unit/test_matrix.py::test_all_twenty_rows_covered` ✓
+- [x] G1.2 · §6 Step 1 · A2 · R1 — an admin may change neither the active owner's role nor their own; the owner may change anyone's except their own (D2) · verify: `tests/unit/test_matrix.py::test_rule_change_role` ✓
+- [x] G1.3 · §6 Step 1 · A3 · R2 — linking a gateway grants no additional data access; link is self-only for every role · verify: `tests/unit/test_matrix.py::test_rule_link_self` ✓
+- [x] G1.4 · §6 Step 1 · C10 · entity classification covering **all 42 mapped classes** (§0.6 C10); fail-closed on unclassified; class is **not** inferred from `property_id` · verify: `tests/unit/test_matrix.py::test_every_model_is_classified` ✓
+
+> **Mutation-verified, because tests and module were written in one pass and never observed red.**
+> Four independent mutations, each caught by exactly its intended test: dropping `Alert` from
+> `ENTITY_CLASSES` → `test_every_model_is_classified`; widening `task.manage` staff to `ALLOW` →
+> `test_owner_is_never_weaker_than_admin_or_staff`; deleting R1's admin-cannot-touch-owner clause
+> → `test_rule_change_role`; renumbering row 20 → `test_all_twenty_rows_covered`.
+>
+> **A gate whose result depended on collection order, found and fixed here.**
+> `test_every_model_is_classified` passed alone and failed in the full unit suite:
+> `Base.registry` is process-global and `tests/unit/test_slug.py:25` declares a `DummyModel` on
+> it. Now filtered to `__module__.startswith("mihomes.models")`, with a second assertion that the
+> filter still covers ≥42 models — otherwise a refactor moving models out of that package would
+> silently shrink the gate to nothing while every test still passed.
 
 ### [ ] G2 — Step 6: the scope primitive + `redact_for_role` — *dep: G1 — moved ahead of Step 2, see above*
 - [ ] G2.1 · §6 Step 6 · A10 · `authz/scope.py::scoped_property_ids(membership)`; staff with zero scope rows → `frozenset()` (D3, fail closed) · verify: `tests/unit/test_scope.py::test_empty_scope_is_empty`

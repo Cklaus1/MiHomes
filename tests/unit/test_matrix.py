@@ -160,16 +160,38 @@ class TestEntityClassification:
     column one relationship hop from a row staff are permitted to see.
     """
 
+    @staticmethod
+    def _application_models() -> set[type]:
+        """Every mapped class that belongs to the application, excluding test fixtures.
+
+        **Why the module filter is necessary, and why it is not a loophole.** `Base.registry` is
+        process-global, so any test that declares a throwaway model registers it for the whole
+        session — `tests/unit/test_slug.py:25` defines `DummyModel` exactly that way. Without
+        this filter the gate passes when `test_matrix.py` runs alone and fails when the unit
+        suite runs together, which is the worst kind of gate: one whose result depends on
+        collection order.
+
+        Filtering on the `mihomes.models` prefix keeps it fail-closed for the thing it guards —
+        a genuinely new application model still lands here unclassified and still fails — while
+        refusing to let a test fixture dictate the production classification.
+        """
+        from mihomes.models import Base
+
+        return {
+            mapper.class_
+            for mapper in Base.registry.mappers
+            if mapper.class_.__module__.startswith("mihomes.models")
+        }
+
     def test_every_model_is_classified(self):
         """Fail closed on an unclassified model — including one added after this was written.
 
         This is the F.3b pattern applied inside a step: the gate enumerates the *code* rather
         than a transcription of it, so a new model cannot arrive unclassified and unnoticed.
         """
-        from mihomes.models import Base
-
-        mapped = {mapper.class_ for mapper in Base.registry.mappers}
-        unclassified = sorted(m.__name__ for m in mapped if m not in ENTITY_CLASSES)
+        unclassified = sorted(
+            m.__name__ for m in self._application_models() if m not in ENTITY_CLASSES
+        )
         assert not unclassified, (
             "every mapped model must land in exactly one §4.1 entity class (N4); "
             f"unclassified: {unclassified}"
@@ -181,11 +203,22 @@ class TestEntityClassification:
         Without this, removing a model would leave its entry behind and the forward test would
         still pass at the same count, so the table would drift out of the schema unnoticed.
         """
-        from mihomes.models import Base
-
-        mapped = {mapper.class_ for mapper in Base.registry.mappers}
+        mapped = self._application_models()
         stale = sorted(m.__name__ for m in ENTITY_CLASSES if m not in mapped)
         assert not stale, f"ENTITY_CLASSES names unmapped classes: {stale}"
+
+    def test_the_classification_actually_covers_the_whole_schema(self):
+        """A guard on the guard: the module filter must not be silently excluding real models.
+
+        If a future refactor moved application models out of `mihomes.models`, the filter above
+        would quietly shrink the gate's scope to almost nothing and every classification test
+        would still pass. Pinning the count makes that visible — the number is expected to change
+        when a model is added, and changing it is a deliberate act.
+        """
+        assert len(self._application_models()) >= 42, (
+            "the application-model filter is excluding models it should cover — "
+            "check that models still live under mihomes.models"
+        )
 
     def test_class_is_not_inferred_from_property_id(self):
         """C10 — §4.1's stated rationale is wrong even where its outcome is right.

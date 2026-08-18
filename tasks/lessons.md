@@ -390,3 +390,53 @@ Review this at the start of each session.
 - **SIGPIPE data loss**: When CLI output is piped through `head`/`tail`/etc, SIGPIPE can kill the process before `get_session()` commits. Fix: collect data inside `with get_session()`, print AFTER the session context exits (so commit happens before any output). Critical for commands with long output that modify data.
 - Always test CLI commands with `| head -1` to catch SIGPIPE issues.
 - Test with adversarial inputs: empty strings, very long strings, negative numbers, invalid dates, non-existent references. These find real user-facing bugs that code reading misses.
+
+## SPEC-003 Build-Loop Lessons (2026-08-18)
+
+- **A gate whose scope is supplied by the thing it guards cannot fail.** SPEC-003's A12 is
+  "money is redacted for staff on every `REDACTED_FIELDS` model" — but `REDACTED_FIELDS` is the
+  dict under test. Implementing §4.4 verbatim makes A12 green while nine of the tree's fifteen
+  `Money` columns leak, including `Event.budget` on a row staff are explicitly permitted to see.
+  A15 has the same shape ("via any of the 15 executors" — a hand-written list of 15 passes
+  forever). **Rule:** when a criterion names a collection, derive that collection from the code
+  at test time (`Base.registry.mappers`, `_EXECUTORS.keys()`, the `Money` type census) and assert
+  the spec's list *against* it. Never let the transcription define the scope of its own test.
+
+- **A frozenset of attribute names is not type-checked, so a wrong name redacts nothing,
+  silently.** Five of SPEC-003 §4.4's seventeen field names do not exist on their models
+  (`WorkOrder.cost`, `WorkOrder.invoice_number`, `Asset.value`, `Consumable.last_order_cost`,
+  `Task.estimated_cost` — `Task` has no money column at all). **Rule:** any collection of
+  attribute names used for a security decision needs an existence test resolving each name
+  against the mapper. The failure is silent in the permissive direction.
+
+- **`Base.registry` is process-global, so a test-defined model pollutes any gate that enumerates
+  mappers.** `test_every_model_is_classified` passed running `test_matrix.py` alone and failed in
+  the full unit suite, because `tests/unit/test_slug.py:25` declares a `DummyModel` on the shared
+  `Base`. A gate whose result depends on collection order is worse than no gate — it reads as
+  flakiness and gets retried rather than investigated. **Rule:** when enumerating mappers for an
+  assertion, filter to the application package (`__module__.startswith("mihomes.models")`), and
+  add a second assertion that the filter still covers the expected model count — otherwise a
+  refactor that moves models silently shrinks the gate to nothing.
+
+- **A ContextVar set inside a *sync* FastAPI dependency is discarded before the endpoint runs.**
+  FastAPI executes sync dependency bodies in a threadpool (`contextmanager_in_threadpool`), so
+  the `.set()` applies to the worker thread's copy of the context. An `async` dependency body
+  runs in the request's own task, and Starlette copies *that* context into the threadpool when
+  calling a sync endpoint. Verified by mutation: flipping `async def` to `def` turned the binding
+  test into a 500 with `LookupError` raised inside the route. **Rule:** anything that binds
+  request-scoped context in FastAPI must be an async dependency, and must be proved by an
+  end-to-end request rather than by unit-testing the dependency — the sync version fails only at
+  runtime, and only on paths that touch the contextvar.
+
+- **When a spec's premise is dated, re-measure before believing any number in it.** SPEC-003 was
+  written against a tree where SPEC-002 did not exist and says so in its own §0.1. Thirteen of
+  its factual claims needed correction, and one — that nothing binds tenant context to a web
+  request — was a prerequisite absent from its step list entirely, gating seven of its
+  seventeen steps. **Tell:** a spec that opens by naming its own stale premise is telling you
+  where the rework is; conventions §3.1's pre-flight is not a formality on those.
+
+- **The fixture that makes the suite pass can be the thing hiding the gap.**
+  `conftest.web_client_factory` enters `account_context(account_a)` around every web test, so the
+  entire web suite passed against an application that never bound a tenant to a request. **Rule:**
+  when a test fixture supplies something production must supply, at least one test must build its
+  own client *without* the fixture's help — otherwise the suite is testing the harness.

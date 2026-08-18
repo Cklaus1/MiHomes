@@ -119,7 +119,7 @@ act on and because one bucket turned out to be a live bug rather than scheduled 
 | **61** | errors, all `LookupError: current_account` — `test_cli.py` ×48, `test_cli_bad_input` ×8, `test_cli_markup_injection` ×2, `test_dashboard` ×2, `test_report_upcoming` ×1 | **G13** | The CLI path establishes no account context. Fixing it *is* G13; doing it here would be G13 done early and out of dependency order (it depends on G8). |
 | **12** | failures on the same `LookupError` — `test_dedup` ×6, `test_offset_ack` ×4, `test_demo_boot` ×2 | **G13** | Same root cause, reached through `db.init_db()` rather than the CLI runner. |
 | **2** | `test_csv_cmd` — non-zero exit | **G13** | CLI-invoking; same context gap, different symptom. |
-| **1** | `test_backup::test_stale_pid_file_does_not_block_restore` | **nobody — platform** | Windows rejects `os.kill(pid, 0)` with `WinError 87`. Pre-existing on the untouched baseline and green on Linux (CI). Recorded in §0.1 as the known local failure. |
+| ~~1~~ | ~~`test_backup::test_stale_pid_file_does_not_block_restore`~~ | **fixed at G14** | Was recorded as "platform, not actionable" — turned out to be a real bug reachable on Windows in production, not a test-environment artifact: `_live_service_pids()` only caught `ProcessLookupError`, which Windows never raises for a stale pid (`WinError 87` instead). Fixed by catching `PermissionError` first, then the broader `OSError`. `test_backup.py` itself is retired — its whole premise (SQLite backup/restore) is gone under G14's media-only rewrite — and the case lives on as `test_ops_commands.py::test_stale_pid_file_does_not_block_restore`. |
 | ~~2~~ | ~~`test_business_logic::test_delete_nonexistent_raises` ×2~~ | **fixed here** | Not scheduled work — a real bug. See below. |
 
 **The one that could not wait.** `delete_contract(session, 99999)` raised
@@ -1077,15 +1077,49 @@ never visible). Fixed to use the same user and the app's own session factory.
 - [ ] G13.1 · §6 Step 13 · — · `db.py` → Postgres; drop the SQLite PRAGMA hook; ops commands take `--account` · verify: `mihomes task list --account <slug>` returns only that account's tasks
 - [ ] G13.2 · §6 Step 13 · — · **N9: `skip_tenant` is the `sudo` of this codebase.** Admin/ops only, greppable, code-reviewed · verify: a test enumerates every `skip_tenant` use site
 
-### [ ] G14 — `backup.py` + `doctor` — *dep: G13*
+### [x] G14 — `backup.py` + `doctor` — *dep: G13* — *14 tests, zero skips*
 
-- [ ] G14.1 · §6 Step 14 · — · **drop the `pg_dump` path** (D13) — managed Postgres owns DB backups and PITR; a second unmonitored backup system is worse than none because it invites false confidence · verify: no `pg_dump` in `backup.py`
-- [ ] G14.2 · §6 Step 14 · — · keep and build the **media sync** — no database backup covers object storage. `mihomes backup` becomes media-only **and its docstring must say so** · verify: round-trips media to and from object storage
-- [ ] G14.3 · §6 Step 14 · A18 · `doctor` drops its `DB_PATH`/`MEDIA_DIR` assumptions (which produce a false *"Database not found"* and **skip every later check**), keeps the ORM integrity checks, adds a stale-backup check against the RPO window · verify: `tests/integration/test_ops_commands.py::test_doctor_no_filesystem_assumptions`
+- [x] G14.1 · §6 Step 14 · — · **drop the `pg_dump` path** (D13) — managed Postgres owns DB backups and PITR; a second unmonitored backup system is worse than none because it invites false confidence · verify: `test_backup_module_no_longer_imports_filesystem_paths` (AST check — no `DB_PATH` import survives, never had `pg_dump` to begin with)
+- [x] G14.2 · §6 Step 14 · — · keep and build the **media sync** — no database backup covers object storage. `mihomes backup` becomes media-only **and its docstring must say so** · verify: `test_backup_restore_round_trips_through_storage`
+- [x] G14.3 · §6 Step 14 · A18 · `doctor` drops its `DB_PATH`/`MEDIA_DIR` assumptions (which produce a false *"Database not found"* and **skip every later check**), keeps the ORM integrity checks, adds a stale-backup check against the RPO window · verify: `tests/integration/test_ops_commands.py::test_doctor_no_filesystem_assumptions`
 
 > D14: **rehearse a restore before the first non-founder tenant.** Not automated, not optional — do
 > it once by hand and write down how long it took. That number is the real RTO. An untested restore
-> is not a backup.
+> is not a backup. **Still unmet** — this is a human action G14 cannot discharge; recorded as an
+> open gate in the final report, not faked here.
+
+**G14.2 turned out not to need an S3 branch at all — the DB already holds every key.** The first
+draft tarred the filesystem backend's storage root directly and refused outright on S3 (no `list()`
+on the Protocol, deliberately — G11). That would have shipped hosted deployments, the *only* ones
+D13 actually applies to, with no media backup whatsoever, against §11.1's "required regardless of
+this decision." `build_key()` has exactly one caller (verified by grep, not assumed), so every
+object is reachable from a `Document.file_path` row — enumerate `Document`, `storage.get()` each
+key, archive it, `storage.put()` it back on restore. One code path, both backends, no Protocol
+change. An external reviewer caught this before the first line of `backup.py` was written.
+
+**What G14.3's stale-backup check actually checks, and what it cannot.** Step 14 also asks for a
+check that the *managed Postgres provider's* last backup is within the RPO window (D14) — that
+needs that provider's API, and D13 leaves the vendor as "an implementation detail," so nothing in
+this codebase can name which API to call. Built instead: a check against **our own** media backups'
+mtime, RPO taken as 24h from D14's "automated daily backups" until a real SLA sets a number. The
+vendor-side gap is routed to `opportunities.md`, not faked — same treatment G12 gave A17.
+
+**`doctor` is per-account, and now says so as its first line of output.** Every ops command binds
+to one account (G13); a clean `doctor` run on a multi-tenant host read as "the install is healthy"
+would be exactly the false pass A18 exists to prevent, one level up from what A18 names.
+
+**Two bugs surfaced only by writing the tests, both fixed in the code they exposed, not the test:**
+- `_live_service_pids()`'s `except ProcessLookupError` was POSIX-only. A pid with no matching
+  process on Windows raises a plain `OSError` (`WinError 87`), not `ProcessLookupError` — the SQLite
+  -era version of this exact check had carried the bug silently since SPEC-001. Fixed by catching
+  `PermissionError` first (still "live"), then the broader `OSError` (now "gone"), rather than the
+  narrower POSIX-only exception type.
+- `Task.property_id` turned out to carry a real `ForeignKey("properties.id")` under
+  `0001_pg_baseline` (checked, not assumed) — the SQLite-era orphan-tasks check and its
+  `PRAGMA foreign_key_check` companion were written for a world where that FK was unenforced. The
+  `PRAGMA` (Postgres syntax error) is gone; the orphan check stays as a sanity net against a direct
+  database edit that bypasses constraints, with a comment saying plainly that no normal write path
+  can trigger it — better than a comment that used to claim the opposite.
 
 ### [ ] G15 — test-suite migration — *dep: G9* · *condition C changes here*
 

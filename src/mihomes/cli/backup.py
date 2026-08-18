@@ -54,8 +54,8 @@ def restore_backup(
         raise typer.Exit(1)
     typer.confirm(f"Restore from {path.name}? This will overwrite current data.", abort=True)
     try:
-        backup_svc.restore_backup(path, force=force)
+        count = backup_svc.restore_backup(path, force=force)
     except RuntimeError as e:
         format_error(str(e))
-        raise typer.Exit(1)
-    format_success(f"Restored from {path.name}")
+        raise typer.Exit(1) from e
+    format_success(f"Restored {count} object(s) from {path.name}")

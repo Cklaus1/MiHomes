@@ -532,6 +532,27 @@
   development cannot sign in otherwise. Worth adding beside A16 since both are one line of code and
   invisible when absent.
 
+- [BUG][SPEC-002 Step 14 / D14 — THE RPO CHECK STEP 14 ASKS FOR HAS NO API TO CALL] Step 14 wants
+  `doctor` to check that "the managed provider's most recent backup is within the RPO window." D13
+  leaves the vendor as "an implementation detail," so nothing in the codebase can name which API to
+  query, and no credentials for one are configured anywhere. Built instead: a check against **our
+  own** media backups' mtime (`create_backup`'s output), with the RPO taken as 24h from D14's
+  "automated daily backups" until a real provider SLA sets a number. **Fix:** once a vendor is
+  actually selected and its SLA recorded (`MULTITENANCY.md` §11.1), Step 14 should name that
+  provider's status API and the credential it needs, the same way A17 needed the bootstrap
+  exception named rather than implied.
+
+- [DEFER][SPEC-002 Step 14 — THE BACKUP ARCHIVE ITSELF IS NOT DURABLE ON A HOSTED DEPLOYMENT] `mihomes
+  backup` now round-trips media correctly through `StorageProvider` (G14.2), but the **archive file**
+  it produces still lands on local disk (`BACKUPS_DIR`). On a Fly machine with no persistent volume
+  (§11.3 already rules those out for exactly this reason) that file does not survive a redeploy.
+  Two real options, both out of scope for G14: enable versioning on the bucket the live objects
+  already sit in and let `mihomes backup` become a smoke test rather than a copy, or add a genuinely
+  separate `S3_BACKUP_BUCKET` and push the archive there. Building the second option against a bucket
+  nobody has provisioned would be exactly the "second unmonitored backup system" D13 warns against
+  for the database half, just moved to the media half — so it waits for an operator decision, not a
+  guess.
+
 ## Resolved during SPEC-002 pre-flight (not defects — decisions)
 
 - [DEFER][waitlist ownership] SPEC-002 mentions `alembic_landing`, `version_locations` and

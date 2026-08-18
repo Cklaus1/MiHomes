@@ -262,6 +262,33 @@ Review this at the start of each session.
   fixture before the assertion — "does this test's setup actually reach the code path?" is the first
   question, not "is the assertion strong enough?".
 
+- **A `with A(), B():` closes B before A — the wrong order silently breaks a listener that needs
+  both open.** A test wrote `with get_session() as session, account_context(account):`, meaning
+  `account_context` (declared second, so innermost) reset the ContextVar *before* `get_session()`'s
+  own exit ran its `commit()` → `flush()` → `before_flush` listener, which needed that ContextVar
+  still bound to stamp `account_id`. The fix was reordering to `with account_context(account),
+  get_session() as session:` — the manager whose *exit* does the real work must be innermost, so it
+  runs first, while everything it depends on is still open. **Rule:** for a multi-manager `with`,
+  ask which exit does work and which exit is just "make the state available during the body" — the
+  state-provider goes outer, the doer goes inner. Getting this backwards produces exactly the
+  `LookupError`/`AttributeError` a completely unrelated-looking bug would, so check exit order
+  before doubting the listener itself.
+- **`except ProcessLookupError` is a POSIX assumption wearing a specific-looking name.** A liveness
+  check (`os.kill(pid, 0)`) caught `ProcessLookupError` for "no such process" and `PermissionError`
+  for "exists, not mine" — correct on Linux, where a stale pid raises exactly `ProcessLookupError`.
+  On Windows the same stale pid raises a **plain `OSError`** (`WinError 87`, "the parameter is
+  incorrect"), which is not a `ProcessLookupError`, so the exception fell through uncaught. This
+  shipped for at least two build-loop phases before a test on this platform actually exercised the
+  branch. **Rule:** `PermissionError` first (it is the one case that must NOT be swallowed), then
+  the broadest `OSError` last (covers `ProcessLookupError` and every platform's "gone" spelling) —
+  never the specific POSIX subclass alone, unless the code is verified never to run on Windows.
+- **A comment can assert something about the schema that was true once and is checked nowhere.** A
+  doctor check's comment claimed `property_id` was "a plain UUID column, not a modeled FK" to
+  justify why an orphan-detection query still mattered — false: `Task.property_id` carries a real
+  `ForeignKey("properties.id")`, so the query is unreachable through any normal write path, and the
+  comment was simply wrong, not simplified. **Rule:** a comment that explains *why a check still
+  matters* is a claim about the schema, and claims about the schema get verified the same way a
+  claim about behavior does — by reading the model, not by trusting the comment it replaced.
 - **Reading a lesson is not applying it: I hit the frozen-config trap that `lessons.md` already
   documented, and wrote test files into the user's real data directory.** The storage fixture used
   `monkeypatch.setenv("MIHOMES_DIR", tmp_path)`, but `config.MEDIA_DIR` is computed from that

@@ -1,0 +1,471 @@
+# SPEC-003 Build Loop — Phase 2: Onboarding + Team + RBAC
+
+> **Input spec:** `docs/specs/SPEC-003-phase2-onboarding-team-rbac.md` (857 lines, *Ready to
+> build*, **one open decision — O1**)
+> **Conventions:** `tasks/build-loop-conventions.md` — stop condition, poison ceiling, circuit
+> breaker, artifact routing are defined there and inherited here **unchanged**.
+> **Branch:** `worktree-spec-build-harness`. **Target ref:** HEAD `c09c54d` (SPEC-002 complete).
+> **Invocation:** `/loop tasks/build-loop-spec003.md`
+
+**Phase 1 defends the boundary *between* customers. Phase 2 defends the boundary *inside* one.**
+The spec's own framing, and it sets the failure mode: cross-tenant leakage fails loudly and RLS
+backstops it, but a staff member seeing another property's data — or the household's finances —
+**looks exactly like the feature working**. There is no backstop below this layer. Every gate in
+this harness is built on the assumption that a passing UI is not evidence.
+
+**A15 is the definition of done** (spec §8): *"Roles enforced in the UI while the AI answers
+freely is not a partial success — it is the leak wearing the feature's clothes. If A15 is not
+green, Phase 2 is not finished regardless of what else works."*
+
+---
+
+## 0. Prerequisites
+
+| # | Prerequisite | State |
+|---|---|---|
+| P1 | Reachable Postgres, `TEST_DATABASE_URL` set | ✅ PostgreSQL 18.x, trust auth on localhost, `mihomes_test` exists |
+| P2 | **A separate landing database**, `LANDING_TEST_DATABASE_URL` | ✅ `mihomes_phase0` exists — **see §0.2, this is a real gate, not boilerplate** |
+| P3 | SPEC-002 landed: `accounts`, `memberships`, `membership_property_scopes`, `invites`, `sessions`, `TenantOwned`, scoped session | ✅ verified at HEAD — 162 `account_id` hits, `0001_pg_baseline` + `0002_rls` |
+| P4 | SPEC-001 `EmailService` (Step 12 needs `welcome`, `staff_invite`, `invite_accepted`) | ⚠️ **verify at G12 pre-flight** — not re-measured here |
+
+**Environment — pass inline, the worktree guard rejects `export` chains:**
+
+```
+DATABASE_URL            postgresql+psycopg://postgres@localhost:5432/mihomes_test
+MIGRATION_DATABASE_URL  postgresql+psycopg://postgres@localhost:5432/mihomes_test
+TEST_DATABASE_URL       postgresql+psycopg://postgres@localhost:5432/mihomes_test
+LANDING_TEST_DATABASE_URL  postgresql+psycopg://postgres@localhost:5432/mihomes_phase0
+```
+
+Invoke pytest as `py -m pytest`, never `python` (Store shim).
+
+### 0.2 `LANDING_TEST_DATABASE_URL` is a stop-condition dependency, not a convenience
+
+Measured at pre-flight: pointing all URLs at one database yields **4 failed, 1558 passed**. With
+`LANDING_TEST_DATABASE_URL` pointed at `mihomes_phase0`, the same four pass (46 passed in the
+affected modules). The failures are:
+
+```
+test_migration_waitlist.py::test_landing_database_holds_only_the_waitlist_table
+test_oauth_stub.py::test_callback_creates_no_users_table
+test_waitlist_service.py::test_signup_is_idempotent
+test_waitlist_service.py::test_confirm_rejects_expired_token
+```
+
+`tests/integration/test_migration_waitlist.py:28-35` documents the mechanism in the code: SPEC-002's
+conftest runs `create_all()` over 44 tenant tables against `TEST_DATABASE_URL`, which breaks the
+landing module's *"exactly {waitlist, alembic_version_landing}"* assertion. The fallback to
+`TEST_DATABASE_URL` exists so a single-database setup still runs — it just does not **pass**.
+
+**SPEC-002's harness never recorded this**, and its report's `1562 passed, 0 failed` is only
+reproducible with the landing URL set. A run that starts from the one-database env will read four
+red tests as a SPEC-003 regression and burn attempts on them. Set both URLs or the baseline is wrong.
+
+---
+
+## 0.3 Stop condition
+
+Per conventions §0, all five. Conventions §0.1: *"SPEC-003 onward — C is suite green **including
+this spec's new tests**."*
+
+| | Condition | For SPEC-003 |
+|---|---|---|
+| **A** | every checkbox `[x]` or `[!]` | §1 below |
+| **B** | every §6 step tasked **and** every §8 criterion gated | F.3a + F.3b |
+| **C** | full suite green **including this spec's new tests** | baseline below → final |
+| **D** | smoke green | `tests/integration/test_smoke_all_tools.py` — **a Step 10 migration target** (see §0.5) |
+| **E** | every §8 criterion green by its own named test | all 33, F.2 |
+
+**Measured baseline — HEAD `c09c54d`, correct env, before any SPEC-003 code:**
+
+```
+py -m pytest -q   →   1562 passed, 3 skipped, 2 xfailed, 0 failed   (171s)
+```
+
+**This exactly reproduces SPEC-002's reported `1562 passed, 3 skipped, 2 xfailed`** — which is
+itself the evidence that §0.2's env fix is correct rather than merely convenient. The same tree
+under the one-database env reports `4 failed, 1558 passed`; the four-test delta is entirely
+§0.2's landing-DB collision. The 3 skips and 2 xfails are inherited from SPEC-002 and
+known-benign; conventions §0 makes **a new skip red** — a skipped test is the most likely way
+this harness reports a false success.
+
+### 0.4 Condition E has a hole this spec cannot close by itself — two gates close it
+
+Conventions §0: *"a stub can satisfy A+B+C+D"*, and E binds completion to §8. **But two of
+SPEC-003's criteria define their own scope, so E passes vacuously on a faithful implementation:**
+
+- **A12** — *"money is redacted for staff on every `REDACTED_FIELDS` model"*. `REDACTED_FIELDS` is
+  the dict under test. Implement §4.4 verbatim and A12 is green while seven real money columns
+  leak (§0.6). The test cannot fail, because the thing being tested supplies the test's scope.
+- **A15** — *"…via any of the 15 executors"*. A hand-written list of 15 passes forever; a 16th
+  executor added later is unscoped and untested.
+
+**Two derived gates, both mandatory, both independent of the spec's transcription:**
+
+| Gate | Check | Closes |
+|---|---|---|
+| **G-census** | Every `Money`-typed column on every mapped model is either in `REDACTED_FIELDS` or in an explicit `MONEY_VISIBLE_TO_STAFF` allowlist **with a one-line reason per entry**. A new money column fails the suite until classified. | A12's circularity |
+| **G-exists** | Every string in `REDACTED_FIELDS` resolves to a real mapped attribute or relationship on its model. | five names in §4.4 that do not exist (§0.6) |
+
+A15's test is **parameterised over `_EXECUTORS.keys()` read from `tools.py` at test time**, never
+a literal list. Same principle as the census: derive the gate from the code, not from a
+transcription of it. This is conventions §4.1's F.3b applied inside a step.
+
+### 0.5 D's smoke file is a Step 10 target
+
+`tests/integration/test_smoke_all_tools.py` invokes all 15 executors. Step 10 changes every
+executor's signature to take a **required** scope (§4.3, N2 — *"a forgetting call site fails to
+import"*). The smoke file **is** a forgetting call site. Expect it red the moment G10 lands the
+signature and green when G10 finishes; do not read that as regression, and do not soften the
+required-positional rule to keep it green — that would reintroduce F3's footgun.
+
+---
+
+## 0.6 PRE-FLIGHT RE-VERIFICATION (conventions §3.1) — measured at HEAD `c09c54d`
+
+SPEC-003 was written **2026-08-03 against a tree where SPEC-002 did not exist** (its own §0.1:
+*"Phase 1 is not built… `account_id` appears zero times"*). That premise is now false, and §0.1
+states the consequence: *"If SPEC-002's implementation diverges from its spec, this document
+inherits the divergence. Re-verify §4 and §5 against the tree before building."* This section is
+that re-verification. **Corrected values are authoritative over the spec's prose.**
+
+### Claims that hold
+
+| Claim | Source | Measured |
+|---|---|---|
+| **146** route decorators | F1 | **146** ✓ |
+| `assets.py` 18, `work_orders.py` 13, `properties.py` 10, `ai.py` 10 | F1 | 18 ✓, 13 ✓, 10 ✓, 10 ✓ |
+| **15** AI tool executors (`_query_*` defs == `_EXECUTORS` entries) | F3 | **15** ✓ |
+| `require_permission` — zero hits in `src/` | F6 | **0** ✓ |
+| `entitlement` — zero hits in `src/` | F6 | **0** ✓ |
+| `AuditLog.actor` exists, defaults `"admin"` | F6 | ✓ `String(100)`, and the model is **already `TenantOwned`** |
+| `configurations` PK is `(account_id, key)` | F7 | ✓ SPEC-002 landed it |
+| next migration is `0003_phase2_rbac` | §3 | ✓ `0001_pg_baseline`, `0002_rls` present |
+
+### Claims corrected — build against the right-hand column
+
+| # | Claim | Spec | **Measured at HEAD** |
+|---|---|---|---|
+| **C1** | router files | "23 files" (F1) | **24** — `auth.py` (4 routes) is new from SPEC-002 G12 |
+| **C2** | `vendors.py` route count | 11 (F1) | **9** |
+| **C3** | `assemble_context` signature | `(session, *, property_slug=None)` (§4.3) | `(session, roles, query, *, property_slug=None, session_id=None, max_tokens=50000)` |
+| **C4** | `_EXECUTORS` map location | `tools.py:919-935` (F3) | `:922` |
+| **C5** | `execute_tool` location | `tools.py:274` (F3) | `:292` |
+| **C6** | `AuditLog.actor` location | `audit_log.py:25` (F6) | `:33` |
+| **C7** | `account_id` appears zero times | §0.1 | **162 hits** — superseded by SPEC-002 |
+
+**C1/C2 note for the reviewer:** the 146 total is unchanged *by coincidence*, not because nothing
+moved — `vendors.py` lost 2 and `auth.py` added 4. Do not read "146 ✓" as "the census is stable."
+
+**C3 is load-bearing.** §4.3's "AFTER" signature is written against a 2-argument function that
+does not exist. The rule it encodes — **required, positional, no default** (N2) — is what must be
+preserved, not the literal line. Scope is inserted as a required positional; a call site that
+forgets it raises `TypeError` at call time rather than silently receiving full-account access.
+
+### C8 — `REDACTED_FIELDS` (§4.4) names five fields that do not exist
+
+Verified against the models. A `frozenset` of nonexistent names **redacts nothing, silently** —
+and A12 still passes, because A12's scope is that same dict (§0.4).
+
+| Model | §4.4 says | Reality |
+|---|---|---|
+| `WorkOrder` | `cost`, `estimated_cost`, `actual_cost`, `invoice_number` | `estimated_cost` ✓, `actual_cost` ✓ · **`cost` ✗, `invoice_number` ✗** |
+| `Asset` | `value`, `purchase_price`, `price_entries` | `purchase_price` ✓, `price_entries` ✓ · **`value` ✗** · **missed: `replacement_cost_estimate`** |
+| `Consumable` | `unit_price`, `last_order_cost` | `unit_price` ✓ · **`last_order_cost` ✗** |
+| `Contract` | `cost`, `billing_frequency` | ✓ ✓ |
+| `Vendor` | `insurance_info`, `license_number`, `notes`, `ratings` | ✓ ✓ ✓ · `ratings` = verify relationship name at G8 |
+| `Task` | `estimated_cost` | **✗ — `Task` has no money column at all** (`estimated_hours` is `Float` hours) |
+
+**Correction:** drop `Task` from `REDACTED_FIELDS` rather than inventing a field to match the
+spec; add `Asset.replacement_cost_estimate`. Gate **G-exists** (§0.4) makes this class of error
+impossible to reintroduce.
+
+### C9 — the `Money` census: 15 columns, §4.4 covers 6 of them
+
+```
+Asset.purchase_price            Asset.replacement_cost_estimate   PriceEntry.price
+Budget.amount                   Transaction.amount (budget.py:83) Consumable.unit_price
+ConsumablePriceEntry.price      Contract.cost                     Event.budget
+Insurance.coverage_limit        Insurance.deductible              Insurance.annual_premium
+RecurringExpense.amount         WorkOrder.estimated_cost          WorkOrder.actual_cost
+```
+
+**`Event.budget` is the sharp one.** §4.1 classifies `event` as **property-scoped** — staff *may
+see the row* — and it carries a money column §4.4 never mentions. That is F4's exact shape
+(*"money lives inside rows staff are permitted to see"*), missed by the very table written to
+close it. `Insurance` is money-bearing, property-scoped, and **absent from §4.1 entirely** (C10).
+
+Columns on models staff never reach at all (`Budget`, `Transaction`, `RecurringExpense`) still
+require an explicit `MONEY_VISIBLE_TO_STAFF` entry or a row-level denial recorded in the entity
+classification — **G-census fails on unclassified, not on unredacted.** Silence is the bug.
+
+### C10 — §4.1's entity classification is incomplete, and N4 forbids that
+
+N4: *"Every model must land in one §4.1 class."* Thirteen mapped models appear in no class:
+
+```
+insurance      alert        vendor_rating   staff_pto     ai_conversation
+tag            template     property        account       membership
+invite         audit_log    session
+```
+
+`insurance` (money-bearing, property-scoped) and `vendor_rating` (D12 denies staff ratings
+explicitly, yet the model is unclassified) are the two that can leak. **Step 1 gets a test that
+enumerates every `Base` subclass and asserts each lands in exactly one class — fail-closed on
+unclassified.**
+
+**Also corrected:** §4.1's *rationale* for the account-level class is wrong even where its
+*outcome* is right. `budget`, `contract`, and `recurring_expense` **do** carry `property_id`, so
+"no property to scope by" is false for all three. Deny-for-staff stays; the reason changes to a
+policy decision, and the classification test must not infer class from the presence of
+`property_id`.
+
+### C11 — `Document` has no `property_id`; D13/Step 9 assumes one
+
+`models/document.py` carries `entity_type` / `entity_id` (polymorphic) and **no `property_id`**.
+Step 9 says staff queries filter on `staff_visible` *and* property scope — there is no column to
+scope by. The spec never anticipated this. **Assumption, stated rather than silently chosen:**
+
+> **Resolve scope through `entity_type`/`entity_id` to the parent row's `property_id`. A document
+> with `entity_id IS NULL` is account-level and is invisible to staff regardless of
+> `staff_visible`.** Fail-closed, consistent with D3 and D13's "default false", and it needs no
+> schema change beyond `staff_visible`.
+
+Rejected alternative: adding `documents.property_id`. It denormalises, needs a backfill, and
+leaves the two sources of truth to drift. Revisit only if a document must be property-scoped
+without a parent entity.
+
+### C12 — HIDDEN PREREQUISITE: nothing binds tenant context to a web request
+
+**This is the finding that changes the DAG, and it is absent from §6's step list.**
+
+`require_permission(user, current_account, action, target_property)` (§5) needs a request-scoped
+user and account. Measured:
+
+- `web/deps.py` defines **only `get_db`** — no auth dependency.
+- `account_context()` is entered in exactly two places: `cli/__init__.py:81` and the **test
+  fixtures** (`tests/conftest.py:174, 360, 411).
+- `lookup_session()` has exactly **one** call site in `src/`: `web/routes/auth.py:191`, inside
+  `signout_everywhere`. No ordinary route resolves the session cookie.
+- `current_account` / `current_user` are `ContextVar`s with no default; `require_account()` raises
+  `LookupError` when unset — by design (SPEC-002 §4.4, fail-closed).
+
+**Consequence:** the web app has sign-in and a session store but **no per-request binding**. Web
+tests pass because conftest binds the account around them. `require_permission` has no source for
+its first two arguments, and Steps 2, 4, 5, 7, 9, 13, and 15 are unbuildable as written until it
+exists. This is not a SPEC-002 defect — Phase 1 shipped tenant scoping and sign-in; wiring the
+authenticated request is where Phase 2 begins.
+
+**→ New group `G0`, before everything.** It carries no §8 criterion (it discharges none) and no
+§6 step, so **F.3a/F.3b must not flag it as an unmapped task** — it is recorded here as a
+pre-flight-discovered prerequisite, per conventions §3.2.
+
+### C13 — bug found during pre-flight, outside the DAG → `opportunities.md`
+
+`MembershipPropertyScope` (`models/membership.py`) assigns `__table_args__` **twice** — line 77
+(two indexes) and line 95 (one `UniqueConstraint`). The second binding wins, so
+`ix_scopes_account_membership` and `ix_scopes_account_property` were **never created**; confirmed
+absent from `0001_pg_baseline.py`, which contains only `uq_scope_membership_property`.
+
+**Severity: low — performance only, not an isolation hole.** `scoped_property_ids()` queries by
+`membership_id`, which the surviving unique constraint's leading column covers. Logged, not fixed
+here (conventions §6: *"new-scope bugs go to `opportunities.md`, never silent side-fixes"*).
+A `[BUG][low]` line is appended at G0.
+
+---
+
+## 0.7 O1 — the one open decision, and why it does not block the run
+
+Conventions §3.3: classify each `O` as **blocks-build** or **blocks-ship**; poison only on
+blocks-build. **O1 (at-rest encryption for AI provider API keys) is blocks-build for exactly one
+task and blocks-ship for nothing else.**
+
+The spec has already done the split for us — §1.3: *"**Blocks Step 15's write path only** — the
+read/masking half can proceed"*, and N11: *"Do not write secret config values to a plaintext
+column from a new web form until O1 is answered. The masking half of Step 15 proceeds."*
+
+So **G15 splits in two**: `G15.1` masking/read (build now, discharges A27) and `G15.2` the secret
+**write** path (`[!]` + `[BLOCKED]` on arrival, no attempts spent). Recorded as an unmet launch
+gate in §0.8 and the end-of-run report. **Do not route this to the user mid-run** — N11 already
+authorises the split.
+
+## 0.8 UNMET LAUNCH GATES — carried forward, not silently satisfied
+
+Conventions §3.3. Inherited from SPEC-002's report plus this phase's own.
+
+| # | What is off / unresolved | Owner |
+|---|---|---|
+| **U1** | **O1** — provider API keys stay plaintext in `configurations.value`. Step 15 masks on **display** and does not make them safe (spec §10). | founder |
+| **U2** | **Mis-declared actions.** Step 4's harness proves every route declares *something*, not the *right* thing. `task.manage` on a contract-delete route would pass (spec §10). Mitigation is human review of every **write/delete/export** route, listed in the PR — **not** a gate this loop can close. | human review |
+| **U3** | **Aggregate inference.** A15 tests direct paths; a staff member can still sometimes infer account-level facts from what they may see (spec §10). Accepted. | accepted |
+| **U4** | **Bot transport.** Step 16 scopes *answers*; the bot still polls with a token in per-account config as a supervised CLI process, not the authenticated webhook `TELEGRAM_PRD` §5 describes. Phase 4+ (spec §10, N7). | Phase 4+ |
+| **U5** | Inherited from SPEC-002: **S1 archival** (unowned, needs a retention decision), **S7 demo mode broken**, **S5 polymorphic-table drift is app-only**. | founder / accepted |
+
+---
+
+## 1. Task DAG
+
+Conventions §1.3: **one step per group by default**; the group commit is the resume point. Format
+is conventions §4: `checkbox + ID · spec-ref · criteria · imperative · verify:`.
+
+**Ordering departure from §6, stated once:** the spec numbers the scope primitive **Step 6**, but
+`require_permission` (**Step 2**) must deny an out-of-scope target, which *is* `scoped_property_ids()`.
+Building Step 2 first would mean either a second scope implementation (§4.3: *"written separately
+they drift, and drift is a leak"*) or a stub. **Step 6's primitive therefore lands as G2, before
+Step 2's G3.** `redact_for_role()` is defined in the same group (pure function, no dependencies)
+and *applied* at G8, which is what §6 Step 8 actually asks for.
+
+**Migration departure:** §3's manifest names one file, `0003_phase2_rbac.py`, carrying four
+unrelated changes that land in four different groups (audit actor → G3, onboarding_state → G11,
+documents.staff_visible → G9, telegram_links → G16). One file spanning four commits is not
+resumable. **Each group ships its own revision in the chain** (`0003…`, `0004…`, `0005…`,
+`0006…`), per §6's own *"independently verifiable and separately committable."*
+
+### [ ] G0 — Request-scoped auth dependency — *pre-flight prerequisite (C12), no §6 step, no §8 criterion*
+- [ ] G0.1 · C12 · — · FastAPI dependency resolving the session cookie → `AuthenticatedSession` → binds `account_context(account_id, user_id)` for the request and yields the current `Membership`; unauthenticated → redirect/401, authenticated-without-account → account picker · verify: `tests/integration/test_request_context.py::test_request_binds_account_context`
+- [ ] G0.2 · C12 · — · a request with a revoked membership resolves to **no** membership (D8 — fresh from the DB every request, never cached in the session) · verify: `tests/integration/test_request_context.py::test_revoked_membership_not_resolved`
+- [ ] G0.3 · C13 · — · append the `__table_args__` bug + the C1/C2/C8/C9/C10 corrections to `opportunities.md` · verify: file contains a `[BUG][low]` line for `membership.py`
+
+### [ ] G1 — Step 1: action vocabulary + the matrix as data — *dep: none*
+- [ ] G1.1 · §6 Step 1 · A1 · `authz/actions.py`: 21 keys covering all 20 `ONBOARDING` §9.2 rows, `Grant`/`Access`/`ActionSpec` per §4.1 verbatim · verify: `tests/unit/test_matrix.py::test_all_twenty_rows_covered`
+- [ ] G1.2 · §6 Step 1 · A2 · R1 — an admin may change neither the active owner's role nor their own; the owner may change anyone's except their own (D2) · verify: `tests/unit/test_matrix.py::test_rule_change_role`
+- [ ] G1.3 · §6 Step 1 · A3 · R2 — linking a gateway grants no additional data access; link is self-only for every role · verify: `tests/unit/test_matrix.py::test_rule_link_self`
+- [ ] G1.4 · §6 Step 1 · C10 · entity classification covering **every** `Base` subclass incl. the 13 unclassified (§0.6 C10); fail-closed on unclassified; class is **not** inferred from `property_id` · verify: `tests/unit/test_matrix.py::test_every_model_is_classified`
+
+### [ ] G2 — Step 6: the scope primitive + `redact_for_role` — *dep: G1 — moved ahead of Step 2, see above*
+- [ ] G2.1 · §6 Step 6 · A10 · `authz/scope.py::scoped_property_ids(membership)`; staff with zero scope rows → `frozenset()` (D3, fail closed) · verify: `tests/unit/test_scope.py::test_empty_scope_is_empty`
+- [ ] G2.2 · §6 Step 6 · A11 · owner/admin → every property in the account, **even with scope rows present** (`ONBOARDING:44`) · verify: `tests/unit/test_scope.py::test_privileged_ignores_scope_rows`
+- [ ] G2.3 · §6 Step 6 · — · `authz/redact.py::redact_for_role` + `REDACTED_FIELDS` **as corrected by C8** (drop `Task`, add `Asset.replacement_cost_estimate`) · verify: `tests/unit/test_redaction.py::test_redact_is_identity_for_privileged`
+- [ ] G2.4 · §0.4 · — · **G-exists**: every name in `REDACTED_FIELDS` resolves to a real mapped attribute/relationship · verify: `tests/unit/test_redaction.py::test_every_redacted_field_exists`
+- [ ] G2.5 · §0.4 · — · **G-census**: every `Money` column is in `REDACTED_FIELDS` or `MONEY_VISIBLE_TO_STAFF` with a reason; unclassified → fail · verify: `tests/unit/test_redaction.py::test_money_census_is_complete`
+
+### [ ] G3 — Step 2: `require_permission` + audit + the two route classes — *dep: G0, G2*
+- [ ] G3.1 · §6 Step 2 · A6 · §9.4's five ordered steps; a `SCOPED` **item** route with `target_property=None` denies · verify: `tests/integration/test_permissions.py::test_item_route_requires_target`
+- [ ] G3.2 · §6 Step 2 · A7 · a `SCOPED` **collection** route returns filtered rows, **not 403** (N5) · verify: `tests/integration/test_permissions.py::test_collection_route_filters`
+- [ ] G3.3 · §6 Step 2 · A8 · a cross-account target yields **404**, never 403 (D9 — do not reveal existence) · verify: `tests/integration/test_permissions.py::test_cross_account_is_404`
+- [ ] G3.4 · §6 Step 2 · A9 · revoking a membership denies on the **next** request (D8/N10 — no session cache) · verify: `tests/integration/test_permissions.py::test_revocation_immediate`
+- [ ] G3.5 · §6 Step 2 · A33 · `authz/audit.py::audit_write` over the existing `AuditLog`; **every deny is an audit event**; real actor, never the `"admin"` default (F6) · verify: `tests/integration/test_audit.py::test_denies_and_actor`
+- [ ] G3.6 · §6 Step 2 · A33 · migration `0003`: widen/repurpose `audit_log.actor` to carry a real actor reference · verify: `alembic upgrade head` → `downgrade` → `upgrade` clean; `alembic revision --autogenerate` empty
+
+### [ ] G4 — Step 3: entitlements service — *dep: G1*
+- [ ] G4.1 · §6 Step 3 · A25 · `entitlements/limits.py` (one source of truth, rule 1) + `can()` per `PRICING` §3.2 rules 1–5; every `Denied` names an `upgrade_target` (rule 4) · verify: `tests/unit/test_entitlements.py::test_denied_names_target`
+- [ ] G4.2 · §6 Step 3 · A26 · RBAC and entitlements are **independent** gates, both must pass (D10) · verify: `tests/unit/test_entitlements.py::test_both_gates_required`
+- [ ] G4.3 · §6 Step 3 · — · `usage()` declared, returns `{used: 0, limit: None, resets_at: None}`, tagged `DEFERRED (Phase 3)` (P3-b, N9 — **do not build a meter**) · verify: `tests/unit/test_entitlements.py::test_usage_is_declared_only`
+- [ ] G4.4 · §6 Step 3 · — · `can()` is actually **called server-side** at invite creation and property creation · verify: `tests/unit/test_entitlements.py::test_can_is_called_at_call_sites`
+
+### [ ] G5 — Step 4: the fail-closed route harness — *dep: G3 — MUST precede G6 (N1)*
+- [ ] G5.1 · §6 Step 4 · A4 · a test walking the FastAPI router table, failing on any endpoint lacking `(action, route_class)` · verify: `tests/unit/test_route_declarations.py::test_no_undeclared_routes`
+- [ ] G5.2 · §6 Step 4 · A5 · two allowlists — **permanent** (unauthenticated: health, OIDC callback, webhooks, static; one-line justification each) and **shrinking** (temporary); the shrinking list only ever gets shorter · verify: `tests/unit/test_route_declarations.py::test_allowlist_monotonic`
+- [ ] G5.3 · §6 Step 4 · A4 · adding an undeclared route to a scratch module **makes the suite fail** (the harness has teeth) · verify: `tests/unit/test_route_declarations.py::test_scratch_route_is_caught`
+
+### [ ] G6 — Step 5: declare actions on 146 endpoints across 24 files — *dep: G5 — N1: chunked, never one task*
+> **24 files, not 23 (C1).** One sub-task per router file; the shrinking allowlist (G5.2) is the
+> continuous gate. **U2 stands:** this catches *undeclared*, not *mis-declared*.
+- [ ] G6.1 · §6 Step 5 · A4 · `assets.py` (18) · verify: `test_route_declarations.py` + `assets` absent from the shrinking allowlist
+- [ ] G6.2 · §6 Step 5 · A4 · `work_orders.py` (13)
+- [ ] G6.3 · §6 Step 5 · A4 · `properties.py` (10)
+- [ ] G6.4 · §6 Step 5 · A4 · `ai.py` (10) — **also delete the `mihomes ai setup` hint at `:47-48`** (§3 Modified)
+- [ ] G6.5 · §6 Step 5 · A4 · `issues.py` (9), `inventory.py` (9), `vendors.py` (9 — **not 11**, C2)
+- [ ] G6.6 · §6 Step 5 · A4 · `contracts.py` (8), `staff.py` (7), `tasks.py` (7), `recurring.py` (7)
+- [ ] G6.7 · §6 Step 5 · A4 · `calendar.py` (6), `alerts.py` (5), `auth.py` (4 — **new, C1**), `documents.py` (4), `templates_route.py` (4)
+- [ ] G6.8 · §6 Step 5 · A4 · `budget.py` (3), `books.py` (3), `playbooks_route.py` (3), `search.py` (2), `weather.py` (2), `dashboard.py` (1), `library.py` (1), `documents_download.py` (1)
+- [ ] G6.9 · §6 Step 5 · A5 · the shrinking allowlist is **empty**; list every write/delete/export route in the group commit for U2's human review · verify: `test_route_declarations.py::test_allowlist_monotonic` + allowlist length 0
+
+### [ ] G7 — Step 7: staff scoping in web queries — *dep: G6*
+- [ ] G7.1 · §6 Step 7 · — · filter at the **query layer**, never post-hoc (§9.4 step 4); a scoped staff `GET /tasks` returns only scoped rows · verify: `tests/integration/test_permissions.py::test_collection_scoped_rows_only`
+- [ ] G7.2 · §6 Step 7 · — · an explicitly requested out-of-scope `property_id` yields **404**, not an empty list · verify: `tests/integration/test_permissions.py::test_out_of_scope_explicit_is_404`
+- [ ] G7.3 · §6 Step 7 · — · owner/admin behaviour is **unchanged** (regression guard on the existing per-property filter) · verify: `tests/integration/test_permissions.py::test_privileged_unchanged`
+
+### [ ] G8 — Step 8: field-level redaction applied — *dep: G2, G7*
+- [ ] G8.1 · §6 Step 8 · A12 · redaction applied in the **web serializer**; one test per `REDACTED_FIELDS` model — absent for staff, present for admin · verify: `tests/unit/test_redaction.py::test_money_hidden_per_model`
+- [ ] G8.2 · §6 Step 8 · A13 · D12 — staff see `company_name`/`contact_name`/`phone`/`email`/`contacts` only; never `insurance_info`, `license_number`, `notes`, ratings; **no create/edit/delete** · verify: `tests/unit/test_redaction.py::test_vendor_contact_only`
+- [ ] G8.3 · §6 Step 8 · A12 · **`Event.budget` and the `Insurance` columns** (C9) are covered by the census decision, not by omission · verify: `tests/unit/test_redaction.py::test_money_census_is_complete` stays green with zero allowlist entries lacking reasons
+
+### [ ] G9 — Step 9: document visibility — *dep: G7*
+- [ ] G9.1 · §6 Step 9 · A14 · migration `0004`: `documents.staff_visible` `Boolean`, `default False`, `nullable=False` (D13, fail closed) · verify: round-trip clean + autogenerate empty
+- [ ] G9.2 · §6 Step 9 · A14 · staff queries filter on `staff_visible` **and** property scope resolved via `entity_type`/`entity_id` per **C11**; `entity_id IS NULL` → invisible to staff · verify: `tests/integration/test_documents.py::test_default_hidden`
+- [ ] G9.3 · §6 Step 9 · — · owner/admin toggle in the UI · verify: `tests/integration/test_documents.py::test_toggle_requires_privilege`
+
+### [ ] G10 — Step 10: AI scoping — **the highest-risk step; A15 is the phase's definition of done** — *dep: G2, G8*
+- [ ] G10.1 · §6 Step 10 · — · thread a **required positional** scope through `assemble_context()` — signature per **C3**, not §4.3's literal line; N2: no default, no optional · verify: `tests/integration/test_ai_scoping.py::test_scope_is_required`
+- [ ] G10.2 · §6 Step 10 · — · all **15** executors + `agent_stream()` take the scope set; enforced **at the query**, not in the prompt (§9.3) · verify: `tests/integration/test_ai_scoping.py::test_all_executors_take_scope` (parameterised over `_EXECUTORS.keys()`, **never a literal list** — §0.4)
+- [ ] G10.3 · §6 Step 10 · A15 · **the exfiltration test**: two properties with distinguishable data; for **each** executor, staff scoped to A cannot obtain B's rows by any phrasing — "all", by B's name, **and by aggregate** (§9's adversarial pattern: an aggregate passes a row filter while still leaking a total) · verify: `tests/integration/test_ai_scoping.py::test_no_cross_property_exfiltration`
+- [ ] G10.4 · §6 Step 10 · A16 · redaction holds **through the AI path**, not just the web serializer (N3 — never redact in templates) · verify: `tests/integration/test_ai_scoping.py::test_money_redacted_in_context`
+- [ ] G10.5 · §0.5 · — · migrate `tests/integration/test_smoke_all_tools.py` to the new required signature (condition D) · verify: smoke green
+
+### [ ] G11 — Step 11: onboarding flow — *dep: G3*
+- [ ] G11.1 · §6 Step 11 · — · migration `0005`: `onboarding_state` (§4.2) · verify: round-trip clean + autogenerate empty
+- [ ] G11.2 · §6 Step 11 · A17 · 6-step wizard; steps 2 (create account) + 3 (first property) the **only** hard requirements; prefill name from the Google profile, default type `household`, require only the property *name*; idempotent + resumable · verify: `tests/integration/test_onboarding.py::test_resumable`
+- [ ] G11.3 · §6 Step 11 · A18 · steps 4–5 skippable, skipping is a first-class path landing on the dashboard; **billing never blocks onboarding** (`ONBOARDING:143`) · verify: `tests/integration/test_onboarding.py::test_skip_optional`
+
+### [ ] G12 — Step 12: invites — *dep: G4, G11* — *pre-flight: confirm P4 `EmailService` before task 1*
+- [ ] G12.1 · §6 Step 12 · A20 · `invite_service`: create/resend/revoke/accept; tokens **hashed** (D5 — only the hash is stored), single-use, **7-day** expiry (B9); §6.3 mismatch-notify · verify: `tests/integration/test_invites.py::test_token_lifecycle`
+- [ ] G12.2 · §6 Step 12 · A21 · a staff invite with **zero** `property_ids` is rejected (D3, `ONBOARDING:164`) · verify: `tests/integration/test_invites.py::test_staff_needs_scope`
+- [ ] G12.3 · §6 Step 12 · A19 · seat re-check **inside** the acceptance transaction; two concurrent acceptances at the cap → exactly one succeeds (`PRICING` §3.2 rule 5; D6 — seat = active memberships + pending invites) · verify: `tests/integration/test_invites.py::test_seat_race`
+- [ ] G12.4 · §6 Step 12 · — · email types `welcome`, `staff_invite`, `invite_accepted` on the SPEC-001 `EmailService` · verify: `tests/integration/test_invites.py::test_emails_sent`
+
+### [ ] G13 — Step 13: account switcher — *dep: G0* — *conventions §4.3: O1 blocks **Step 15**, not this step*
+- [ ] G13.1 · §6 Step 13 · — · D11 — updates `sessions.current_account_id` **server-side**, persists `last_used_account`; switching changes every subsequent request's data · verify: `tests/integration/test_switcher.py::test_switch_changes_data`
+- [ ] G13.2 · §6 Step 13 · A24 · the control is **absent** (not merely disabled) for single-membership users · verify: `tests/integration/test_switcher.py::test_hidden_when_single`
+
+### [ ] G14 — Step 14: owner transfer + member offboarding — *dep: G3*
+- [ ] G14.1 · §6 Step 14 · A22 · last-owner invariant — the last owner can be neither removed nor demoted · verify: `tests/integration/test_membership.py::test_last_owner_protected`
+- [ ] G14.2 · §6 Step 14 · A23 · `transfer_ownership` against `memberships` + its partial unique index (SPEC-002 D4), **never** `accounts.owner_user_id` (B2 — the column does not exist); leaves exactly one active owner · verify: `tests/integration/test_membership.py::test_transfer_invariant`
+- [ ] G14.3 · §6 Step 14 · — · on offboarding, tasks/notes/issues/uploads stay with the **account** (`ONBOARDING:225`) · verify: `tests/integration/test_membership.py::test_content_stays_with_account`
+
+### [ ] G15 — Step 15: per-tenant config UI — *dep: G3* — **split by O1 (§0.7)**
+- [ ] G15.1 · §6 Step 15 · A27 · settings form over the existing `config_service`; **owner/admin only**, staff 403 · verify: `tests/integration/test_settings.py::test_staff_denied`
+- [ ] G15.2 · §6 Step 15 · A27 · secrets masked on read **everywhere** — web UI **and** `mihomes config list` (`cli/config.py:39-50` prints them raw today) · verify: `tests/integration/test_settings.py::test_secrets_masked`
+- [ ] G15.3 · §6 Step 15 · — · **[BLOCKED on O1]** the secret **write** path. N11 authorises deferral; mark `[!]` on arrival, append `[BLOCKED]`, spend no attempts · verify: n/a — deferred by decision, recorded in U1
+
+### [ ] G16 — Step 16: Telegram bot scoping — *dep: G2, G10*
+- [ ] G16.1 · §6 Step 16 · A32 · migration `0006` + `models/telegram_link.py` per §4.2 — keyed on **`membership_id`** with `ondelete=CASCADE` (D19, N6 — never `Staff`); `UNIQUE(account_id, telegram_user_id)` · verify: `tests/integration/test_telegram_scope.py::test_revocation_cascades`
+- [ ] G16.2 · §6 Step 16 · — · `/link <code>` flow — short-lived, single-use, **hashed** codes bound to `(user_id, account_id, membership_id)` · verify: `tests/integration/test_telegram_scope.py::test_link_flow`
+- [ ] G16.3 · §6 Step 16 · A28 · resolve the sender from `message["sender"]` (`client.py:158`); **unlinked → staff-level, not denied** (D16, a deliberate departure from `TELEGRAM_PRD:158`) · verify: `tests/integration/test_telegram_scope.py::test_unlinked_is_staff`
+- [ ] G16.4 · §6 Step 16 · A31 · scope **both** DB paths — `orchestrator.ask`/`assemble_context` **and** `review.py:120` `_build_estate_context`; missing either leaves a hole (F5) · verify: `tests/integration/test_telegram_scope.py::test_both_paths_scoped`
+- [ ] G16.5 · §6 Step 16 · A29 · a staff sender's financial question is **refused** · verify: `tests/integration/test_telegram_scope.py::test_staff_financial_refused`
+- [ ] G16.6 · §6 Step 16 · A30 · D17 — a financial answer is **never** posted into a staff-containing group; the bot offers a DM · verify: `tests/integration/test_telegram_scope.py::test_group_dm_offer`
+- [ ] G16.7 · §6 Step 16 · — · `_resolve_reporter` (`responder.py:340-347`) prefers the **resolved sender** over the LLM's fuzzy `Staff.name ILIKE` guess · verify: `tests/integration/test_telegram_scope.py::test_reporter_from_sender`
+
+### [ ] G17 — Step 17: cross-cutting adversarial leak matrix — *dep: all*
+- [ ] G17.1 · §6 Step 17 · — · the leak matrix — for each entity class in §4.1 (as corrected by C10), assert staff reach is exactly what the classification says, across **web + AI + bot** · verify: `tests/integration/test_leak_matrix.py::test_staff_reach_matches_classification`
+
+### [ ] G-Final — Compound-stop verification (conventions §4.1)
+- [ ] F.1  · full-suite `pytest -q` green with the §0 env (condition C)
+- [ ] F.2  · every §8 criterion green **by the test named in its own row**, run by node id with `-rs`, requiring `passed` — never a green suite (condition E)
+- [ ] F.3a · walk §6 Steps 1–17 top-to-bottom: every step has a task (condition B, steps)
+- [ ] F.3b · walk §8 A1–A33 top-to-bottom: every criterion has a gate (condition B, criteria)
+- [ ] F.4  · `alembic upgrade head` → `downgrade` → `upgrade` clean; `alembic revision --autogenerate` **empty**; single head
+- [ ] F.5  · write `tasks/build-loop-spec003-report.md` (conventions §5)
+
+---
+
+## 2. Group-specific gates (conventions §2)
+
+> *"Add a custom gate when a group's failure mode is (a) damage to state rather than code, so a
+> passing test does not prove safety, and (b) load-bearing for a later group."*
+
+Four groups qualify. **The failure mode here is not corruption — it is a silent allow**, which a
+passing test proves nothing about.
+
+| Group | Gate | Failure class |
+|---|---|---|
+| **G2** | **G-census** + **G-exists** (§0.4) | a redaction dict that redacts nothing, silently |
+| **G5/G6** | shrinking allowlist is monotonic and reaches **0**; scratch-route probe fails the suite | a harness with no teeth |
+| **G10** | executors enumerated from `_EXECUTORS` at test time; the aggregate arm, not just the row arm | the leak that looks like the feature working |
+| **G3, G9, G11, G16** | migration round-trip (`upgrade`→`downgrade`→`upgrade`) + `autogenerate` empty | reversibility, convergence |
+
+**Mutation-test the security gates before believing them.** SPEC-002's G17 found *two of four
+arms had no teeth* and its G12 verified 8 controls by mutation. For G10 in particular: break the
+scope filter deliberately and confirm A15 goes **red**. A security test that cannot fail is
+conventions §0's *"gate that cannot fail is not a gate"*, and this phase is made of them.
+
+---
+
+## 3. Circuit breaker (conventions §3)
+
+Halt and write the report with status `HALTED` if: **>5** tasks poison; **G2, G3, G5, or G10**
+poisons (each is load-bearing for everything after it — G10 is the definition of done); or **two
+consecutive groups** fail their full-suite gate.
+
+`G15.3` is `[!]` **by decision, not by failure** (§0.7) and does **not** count toward the ceiling.

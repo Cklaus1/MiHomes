@@ -162,7 +162,7 @@ does not exist. The rule it encodes — **required, positional, no default** (N2
 preserved, not the literal line. Scope is inserted as a required positional; a call site that
 forgets it raises `TypeError` at call time rather than silently receiving full-account access.
 
-### C8 — `REDACTED_FIELDS` (§4.4) names five fields that do not exist
+### C8 — `REDACTED_FIELDS` (§4.4) names **six** fields that do not exist
 
 Verified against the models. A `frozenset` of nonexistent names **redacts nothing, silently** —
 and A12 still passes, because A12's scope is that same dict (§0.4).
@@ -173,12 +173,19 @@ and A12 still passes, because A12's scope is that same dict (§0.4).
 | `Asset` | `value`, `purchase_price`, `price_entries` | `purchase_price` ✓, `price_entries` ✓ · **`value` ✗** · **missed: `replacement_cost_estimate`** |
 | `Consumable` | `unit_price`, `last_order_cost` | `unit_price` ✓ · **`last_order_cost` ✗** |
 | `Contract` | `cost`, `billing_frequency` | ✓ ✓ |
-| `Vendor` | `insurance_info`, `license_number`, `notes`, `ratings` | ✓ ✓ ✓ · `ratings` = verify relationship name at G8 |
+| `Vendor` | `insurance_info`, `license_number`, `notes`, `ratings` | ✓ ✓ ✓ · **`ratings` ✗** — `VendorRating.vendor` carries no `back_populates`, so the reverse attribute was never created |
 | `Task` | `estimated_cost` | **✗ — `Task` has no money column at all** (`estimated_hours` is `Float` hours) |
 
 **Correction:** drop `Task` from `REDACTED_FIELDS` rather than inventing a field to match the
 spec; add `Asset.replacement_cost_estimate`. Gate **G-exists** (§0.4) makes this class of error
 impossible to reintroduce.
+
+**`Vendor.ratings` was found at G2, not at pre-flight** — the earlier pass flagged it "verify at
+G8" rather than measuring it, and it turned out to be the sixth missing name. Recording the miss
+because it is the same mistake in miniature: a name deferred is a name unchecked. **D12's ratings
+clause is still enforced**, but by *row-denial* — `VendorRating` is `ACCOUNT_LEVEL`, so staff
+never receive the row — not by field redaction. "The field is absent from the list" and "the data
+is protected" are different claims and only the second is true here.
 
 ### C9 — the `Money` census: 15 columns, §4.4 covers 6 of them
 
@@ -274,6 +281,45 @@ authenticated request is where Phase 2 begins.
 §6 step, so **F.3a/F.3b must not flag it as an unmapped task** — it is recorded here as a
 pre-flight-discovered prerequisite, per conventions §3.2.
 
+### C14 — `require_permission`'s signature, and whether it re-reads the role (decided at G2, blocks G3)
+
+§5 writes `require_permission(user, current_account, action, target_property=None)`. That
+argument list cannot reach `scoped_property_ids(session, membership)`: it has neither a session
+nor a membership. Same situation as C3 — **the rule §5 encodes is the five ordered steps, the
+404-not-403 outcome (D9), and the route-class behaviour; the argument list is not the rule.**
+
+```python
+def require_permission(session, principal: RequestPrincipal, action: str,
+                       target_property: Property | UUID | None = None) -> None
+```
+
+`RequestPrincipal` (G0) already carries `user_id`, `account_id`, `membership_id`, and `role`, so
+it supplies both of §5's first two arguments and the membership the scope primitive needs.
+
+**Does it re-read the `Membership` row per call?** No — and the reason must be written down,
+because a later reader will "fix" it in one direction or the other. D8/N10 requires the role be
+loaded **fresh from the DB every request**, never cached in the session. `_resolve_authenticated`
+does exactly that, once per request, and `test_revoked_membership_not_resolved` proves it.
+Re-reading inside `require_permission` would be fresh-per-*call* — stricter than D8 asks, and a
+database round trip on every authorization check, of which a single page render performs many.
+Trusting the principal is correct **because the dependency resolved it this request**; that
+conditional is the whole justification, so any future call site that constructs a
+`RequestPrincipal` from anything other than a live request breaks D8.
+
+### C15 — A5's "the allowlist only ever shrinks" needs a mechanism (blocks G5)
+
+A5 is a claim about **history**, and a test sees only the current tree. Two mechanisms exist:
+pin a committed ceiling as a literal and assert `len(SHRINKING_ALLOWLIST) <= CEILING`, or diff
+against the merge-base with git. **Take the ceiling**: it is self-contained, works in a shallow
+CI checkout, and lowering it is a visible act in the diff rather than an invisible property of
+the environment.
+
+**Consequence for the DAG:** G5.2's assertion only becomes meaningful once G6 starts lowering the
+ceiling, so **G5.2 and G6.9 are two halves of one gate**. G6.9 must assert `CEILING == 0` **and**
+`len(SHRINKING_ALLOWLIST) == 0` together — otherwise the list can be emptied while the ceiling
+sits at its starting value, and the monotonic test passes forever without ever having constrained
+anything.
+
 ### C13 — bug found during pre-flight, outside the DAG → `opportunities.md`
 
 `MembershipPropertyScope` (`models/membership.py`) assigns `__table_args__` **twice** — line 77
@@ -367,12 +413,41 @@ resumable. **Each group ships its own revision in the chain** (`0003…`, `0004�
 > filter still covers ≥42 models — otherwise a refactor moving models out of that package would
 > silently shrink the gate to nothing while every test still passed.
 
-### [ ] G2 — Step 6: the scope primitive + `redact_for_role` — *dep: G1 — moved ahead of Step 2, see above*
-- [ ] G2.1 · §6 Step 6 · A10 · `authz/scope.py::scoped_property_ids(membership)`; staff with zero scope rows → `frozenset()` (D3, fail closed) · verify: `tests/unit/test_scope.py::test_empty_scope_is_empty`
-- [ ] G2.2 · §6 Step 6 · A11 · owner/admin → every property in the account, **even with scope rows present** (`ONBOARDING:44`) · verify: `tests/unit/test_scope.py::test_privileged_ignores_scope_rows`
-- [ ] G2.3 · §6 Step 6 · — · `authz/redact.py::redact_for_role` + `REDACTED_FIELDS` **as corrected by C8** (drop `Task`, add `Asset.replacement_cost_estimate`) · verify: `tests/unit/test_redaction.py::test_redact_is_identity_for_privileged`
-- [ ] G2.4 · §0.4 · — · **G-exists**: every name in `REDACTED_FIELDS` resolves to a real mapped attribute/relationship · verify: `tests/unit/test_redaction.py::test_every_redacted_field_exists`
-- [ ] G2.5 · §0.4 · — · **G-census**: every `Money` column is in `REDACTED_FIELDS` or `MONEY_VISIBLE_TO_STAFF` with a reason; unclassified → fail · verify: `tests/unit/test_redaction.py::test_money_census_is_complete`
+### [x] G2 — Step 6: the scope primitive + `redact_for_role` — *dep: G1 — moved ahead of Step 2, see above* — *24 tests; 3 arms mutation-verified*
+- [x] G2.1 · §6 Step 6 · A10 · `authz/scope.py::scoped_property_ids(session, membership)`; staff with zero scope rows → `frozenset()` (D3, fail closed) · verify: `tests/unit/test_scope.py::test_empty_scope_is_empty` ✓
+- [x] G2.2 · §6 Step 6 · A11 · owner/admin → every property in the account, **even with scope rows present** (`ONBOARDING:44`) · verify: `tests/unit/test_scope.py::test_privileged_ignores_scope_rows` ✓ (owner + admin)
+- [x] G2.3 · §6 Step 6 · — · `authz/redact.py::redact_for_role` + `REDACTED_FIELDS` **as corrected by C8** · verify: `tests/unit/test_redaction.py::test_redact_is_identity_for_privileged` ✓
+- [x] G2.4 · §0.4 · — · **G-exists**: every name in `REDACTED_FIELDS` resolves to a real mapped attribute/relationship · verify: `tests/unit/test_redaction.py::test_every_redacted_field_exists` ✓
+- [x] G2.5 · §0.4 · — · **G-census**: every `Money` column is redacted, **row-denied by its entity class**, or allowlisted with a reason; unclassified → fail · verify: `tests/unit/test_redaction.py::test_money_census_is_complete` ✓
+
+> **The census's third arm is derived, not hand-listed.** A money column is admissible if it is
+> redacted, *or* if `ENTITY_CLASSES` puts its model in a class staff never receive rows from, *or*
+> if `MONEY_VISIBLE_TO_STAFF` names it with a reason. Deriving the row-denied arm from the
+> classification is what stops the two tables drifting apart — and
+> `test_property_scoped_money_is_actually_redacted` closes the obvious escape, which is to silence
+> the census by reclassifying a model instead of redacting its money.
+>
+> **Mutation-verified:** removing `Event.budget` from `REDACTED_FIELDS` — i.e. implementing §4.4
+> exactly as written — fails both the census and the property-scoped gate. That is the A12
+> circularity closing: the spec's own dict ships the leak, and the derived gate catches it.
+> Adding a nonexistent `WorkOrder.invoice_number` fails G-exists; deleting the `status != active`
+> check fails both revocation tests.
+>
+> **`RedactedView` is a wrapper, not in-place nulling.** Setting the attributes to `None` on the
+> ORM object would enqueue an UPDATE and the next flush would write those nulls to the database —
+> a display concern turned into permanent data loss. It also refuses writes, so a staff-facing
+> view can never become a path back onto the row. An **unrecognised role is treated as staff**,
+> which D16 relies on directly.
+>
+> **Redaction is transitive, and that is not gold-plating — a flat proxy leaks through the exact
+> call shape Step 10 is built on.** `_query_work_orders` (`services/ai/tools.py:530`) renders
+> `wo.vendor.company_name` and `wo.property.name`. A proxy redacting only the work order returns
+> a **raw** `Vendor` from `wo.vendor`, carrying the `insurance_info` and `license_number` D12
+> denies staff. Mutation-verified: disabling the transitive wrap fails
+> `test_related_object_is_redacted_too`, and the assertion output is the leak itself —
+> `<Redacted WorkOrder>.vendor` → `license_number = 'LIC-9'`. `_has_redactable_relationships`
+> extends the same reasoning to models with no money of their own: `Issue` is not in
+> `REDACTED_FIELDS`, but `Issue.work_order.actual_cost` must not be reachable in the clear.
 
 ### [ ] G3 — Step 2: `require_permission` + audit + the two route classes — *dep: G0, G2*
 - [ ] G3.1 · §6 Step 2 · A6 · §9.4's five ordered steps; a `SCOPED` **item** route with `target_property=None` denies · verify: `tests/integration/test_permissions.py::test_item_route_requires_target`

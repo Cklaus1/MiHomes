@@ -18,13 +18,25 @@ from mihomes.authz.actions import (
     EntityClass,
     Grant,
 )
+from mihomes.authz.redact import (
+    MONEY_VISIBLE_TO_STAFF,
+    REDACTED_FIELDS,
+    money_columns,
+    redact_for_role,
+)
+from mihomes.authz.scope import scoped_property_ids
 
 __all__ = [
     "ENTITY_CLASSES",
     "EXTRA_RULES",
     "MATRIX",
+    "MONEY_VISIBLE_TO_STAFF",
+    "REDACTED_FIELDS",
     "Access",
     "ActionSpec",
     "EntityClass",
     "Grant",
+    "money_columns",
+    "redact_for_role",
+    "scoped_property_ids",
 ]

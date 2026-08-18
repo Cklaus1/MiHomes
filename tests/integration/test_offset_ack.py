@@ -11,27 +11,38 @@ quarantined so the offset can advance past it (no hot-loop). A successfully
 processed id is cleared so its counter never leaks.
 """
 
+import os
+
 import pytest
 
 from mihomes import db
 from mihomes.services.gateways.dedup import PoisonGuard
+from mihomes.tenancy import account_context
 
 
 @pytest.fixture
-def isolated_db(tmp_path, monkeypatch):
-    from mihomes import config
+def isolated_db(account_a):
+    """Real Postgres (SPEC-002 §6 Step 15), scoped to a fresh account.
 
-    db_path = tmp_path / "poison.db"
-    monkeypatch.setattr(config, "DB_PATH", db_path)
-    monkeypatch.setattr(config, "DB_URL", f"sqlite:///{db_path}")
-    prev = (db._engine, db._SessionLocal)
-    db._engine = db._SessionLocal = None
-    db.init_db(url=f"sqlite:///{db_path}")
+    See `test_dedup.py`'s identical fixture for why: `PoisonGuard` goes through `get_config`/
+    `set_config`, and `Configuration` is `TenantOwned`. This fixture used to build its own
+    throwaway SQLite file and call `db.init_db()` directly, which `init_db()` now refuses
+    outright (`UnsupportedBackendError`, G6.2).
+
+    Explicitly rebinds `mihomes.db`'s global engine to `TEST_DATABASE_URL` rather than trusting
+    the ambient `DATABASE_URL` — see `test_dedup.py`'s fixture for the full explanation (in short:
+    `cli_database` repoints `DATABASE_URL` at a different database for the rest of the session the
+    moment any of its five consumer modules runs, several of which collect before this file).
+    """
+    test_url = os.environ["TEST_DATABASE_URL"]
+    prev_engine, prev_factory = db._engine, db._SessionLocal
+    my_engine = db.get_engine(test_url)
     try:
-        yield
+        with account_context(account_a):
+            yield
     finally:
-        db.dispose_engine()
-        db._engine, db._SessionLocal = prev
+        my_engine.dispose()
+        db._engine, db._SessionLocal = prev_engine, prev_factory
 
 
 def test_crash_no_loss_no_hotloop(isolated_db):

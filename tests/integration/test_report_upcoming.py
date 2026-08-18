@@ -4,23 +4,20 @@
 — so any contract-renewal row raised AttributeError, taking down the whole
 `report upcoming` command whenever a contract was expiring in the window.
 
-Isolation note: `mihomes.config.DB_URL` is frozen at import time, so setting
-`MIHOMES_DIR` here has no effect once any sibling module has imported the
-package. This fixture instead rebinds the *global* engine to an explicit
-temp-file URL and restores the previous engine on teardown, leaving the
-engines other integration modules depend on untouched (and never writing to
-the developer's real ``~/.mihomes`` database).
+**Migrated off its own private SQLite file to the shared `cli_database` (SPEC-002 §6 Step 15).**
+`conftest.py`'s `cli_database` docstring already listed this module among the five sharing that
+database — G15 never actually reconciled the file with that plan, and it kept its own throwaway
+`sqlite:///...` engine plus a raw `db.init_db(url=...)` call, which `init_db()` now refuses
+outright (`UnsupportedBackendError`, G6.2). Fixed to match `test_dashboard.py`'s established
+pattern exactly: `cli_database` + `account_context` + a real `get_session()`.
 """
 
 import os
 import tempfile
 from datetime import date, timedelta
 
-# Freeze config paths to a throwaway dir BEFORE importing mihomes — matches the
-# convention in test_cli.py / test_demo_boot.py. `config.DB_URL` is captured at
-# import time, so a module that imports the package first (e.g. when this file
-# collects before test_cli.py) must not let it point at the real ~/.mihomes DB.
-os.environ.setdefault("MIHOMES_DIR", tempfile.mkdtemp())
+_test_dir = tempfile.mkdtemp()
+os.environ["MIHOMES_DIR"] = _test_dir
 
 
 # Imports are deliberately below the MIHOMES_DIR assignment: mihomes.config binds its
@@ -28,34 +25,34 @@ os.environ.setdefault("MIHOMES_DIR", tempfile.mkdtemp())
 import pytest  # noqa: E402
 from typer.testing import CliRunner  # noqa: E402
 
-from mihomes import db  # noqa: E402
 from mihomes.cli import app  # noqa: E402
+from mihomes.db import get_session, init_db  # noqa: E402
+from mihomes.tenancy import account_context  # noqa: E402
 
 runner = CliRunner()
 
 
-@pytest.fixture
-def report_db(tmp_path, monkeypatch):
-    """Isolated, migrated DB bound to a fresh temp-file engine for this test."""
-    db_path = tmp_path / "report.db"
-    url = f"sqlite:///{db_path}"
-    # `is_initialized()` (and the CLI's guard) read config.DB_PATH at call time;
-    # point it (and DB_URL) at our temp file so the guard passes and every query
-    # hits the same isolated DB. monkeypatch restores both on teardown.
-    from mihomes import config
+@pytest.fixture(scope="module", autouse=True)
+def report_db(cli_database):
+    """Seed one contract due for renewal, once, in the account `cli_database` bootstraps.
 
-    monkeypatch.setattr(config, "DB_PATH", db_path)
-    monkeypatch.setattr(config, "DB_URL", url)
-    prev_engine, prev_factory = db._engine, db._SessionLocal
-    db._engine = None
-    db._SessionLocal = None
-    db.init_db(url=url)  # migrate temp file; binds the global engine to `url`
-    try:
-        with db.get_session() as session:
-            from mihomes.services.contract import create_contract
-            from mihomes.services.property import create_property
-            from mihomes.services.vendor import create_vendor
+    Module-scoped and idempotent (checks for the vendor before creating it) for the same reason
+    as `test_dashboard.py`'s `setup_db`: several modules share one Postgres database and process,
+    so collection order must not matter and a second collection pass must not re-insert.
+    """
+    from mihomes.db import get_engine
+    from mihomes.tenancy.bootstrap import ensure_default_account
 
+    init_db()
+    account_id = ensure_default_account(get_engine())
+
+    with account_context(account_id), get_session() as session:
+        from mihomes.models.property import Property
+        from mihomes.services.contract import create_contract
+        from mihomes.services.property import create_property
+        from mihomes.services.vendor import create_vendor
+
+        if not session.query(Property).filter_by(slug="belle-estate").first():
             create_property(session, "Belle Estate")
             create_vendor(session, "Orkin Pest Control")
             create_contract(
@@ -66,13 +63,23 @@ def report_db(tmp_path, monkeypatch):
                 end_date=date.today() + timedelta(days=10),
                 service_category="pest_control",
             )
-        yield
-    finally:
-        db.dispose_engine()
-        db._engine, db._SessionLocal = prev_engine, prev_factory
+    yield
 
 
-def test_upcoming_report_renders_contract_renewal(report_db):
+def test_upcoming_report_renders_contract_renewal(monkeypatch):
+    """`COLUMNS=200`, not the CliRunner default.
+
+    `report upcoming` shares one table across tasks/events/contracts/insurance, and by the time
+    this runs `cli_database`'s demo data (long task titles, seeded by the other four modules
+    sharing this database) is already loaded — so at Rich's default non-terminal width (80,
+    `COLUMNS` unset) the Title column is squeezed and even a short vendor name like "Orkin Pest
+    Control" wraps across rows. That happens to depend on collection order (this file runs last
+    of the five, alphabetically, so demo data is always present by the time it does) — not
+    flaky, just order-sensitive, and the real bug is the assertion assuming a wrap point rather
+    than the fixed-but-inadequate default width. Rich re-reads `COLUMNS` per render, so setting
+    it before the CLI call is enough; no `Console` needs rebuilding.
+    """
+    monkeypatch.setenv("COLUMNS", "200")
     result = runner.invoke(app, ["report", "upcoming", "--days", "30"])
     assert result.exit_code == 0, result.output
     assert "Orkin Pest Control" in result.output

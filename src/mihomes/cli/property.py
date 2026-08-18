@@ -1,17 +1,25 @@
 """Property CLI commands."""
 
-from datetime import date
+import logging
 from typing import Optional
 
 import typer
 from rich.table import Table
 
-from mihomes.cli.formatters import cli_date, console, esc, format_enum, format_panel, format_success, format_error, status_icon
+from mihomes.cli.formatters import (
+    cli_date,
+    console,
+    esc,
+    format_enum,
+    format_error,
+    format_panel,
+    format_success,
+    status_icon,
+)
 from mihomes.db import get_session
 from mihomes.models.property import PropertyStatus, PropertyType
 from mihomes.services import property as prop_svc
 from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +52,7 @@ def add_property(
             format_success(f"Property '{prop.name}' created (slug: {prop.slug})")
         except ValueError as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
 
 
 @app.command("list")
@@ -59,7 +67,6 @@ def list_properties(
             console.print("[dim]No properties found.[/dim]")
             return
         table = Table(title="Properties")
-        table.add_column("ID", style="dim")
         table.add_column("Name", style="bold")
         table.add_column("Slug", style="dim")
         table.add_column("Type")
@@ -68,7 +75,6 @@ def list_properties(
         table.add_column("Occupied")
         for p in props:
             table.add_row(
-                str(p.id),
                 esc(p.name),
                 p.slug,
                 format_enum(p.property_type),
@@ -89,7 +95,7 @@ def show_property(
             prop = prop_svc.get_property(session, id_or_slug)
         except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
 
         content = {
             "ID": str(prop.id),
@@ -116,9 +122,9 @@ def show_property(
             console.print(table)
 
         # Show related entities
-        from mihomes.models.task import Task, TaskStatus
-        from mihomes.models.issue import Issue, IssueStatus
         from mihomes.models.asset import Asset
+        from mihomes.models.issue import Issue, IssueStatus
+        from mihomes.models.task import Task, TaskStatus
 
         open_tasks = session.query(Task).filter(
             Task.property_id == prop.id,
@@ -220,7 +226,7 @@ def edit_property(
             format_success(f"Property '{prop.name}' updated")
         except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
 
 
 @app.command("delete")
@@ -234,7 +240,7 @@ def delete_property(
             prop = prop_svc.get_property(session, id_or_slug)
         except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
 
         if not force:
             typer.confirm(f"Delete property '{prop.name}' and all its spaces?", abort=True)
@@ -258,7 +264,7 @@ def occupy_property(
             format_success(f"Property '{prop.name}' marked as occupied")
         except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
 
 
 @app.command("vacate")
@@ -272,7 +278,7 @@ def vacate_property(
             format_success(f"Property '{prop.name}' marked as unoccupied")
         except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
 
 
 @app.command("status")

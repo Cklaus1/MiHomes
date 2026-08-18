@@ -201,13 +201,27 @@ classification — **G-census fails on unclassified, not on unredacted.** Silenc
 
 ### C10 — §4.1's entity classification is incomplete, and N4 forbids that
 
-N4: *"Every model must land in one §4.1 class."* Thirteen mapped models appear in no class:
+N4: *"Every model must land in one §4.1 class."* **The tree has 42 mapped classes**
+(`Base.registry.mappers`); §4.1 names about 22. Twenty appear in no class:
 
 ```
-insurance      alert        vendor_rating   staff_pto     ai_conversation
-tag            template     property        account       membership
-invite         audit_log    session
+InsurancePolicy  Alert      VendorRating   StaffPTORequest  AIConversation
+Tag              Template   Property       Account          Membership
+Invite           AuditLog   Session        TagAssignment    TemplateItem
+PriceEntry       ConsumablePriceEntry       Guest           EventGuest
+MembershipPropertyScope
 ```
+
+*(Counted as **mapped classes**, not model files — an earlier pass of this pre-flight said
+"thirteen" by counting files, which undercounts every module holding more than one class:
+`budget.py` alone carries `Budget` and `Transaction`. The classification test enumerates
+mappers, so mappers are the unit that matters.)*
+
+**`PriceEntry` and `ConsumablePriceEntry` are the two that bite.** Both carry a `Money` column
+(C9) and both are children of a property-scoped parent staff may see, so an unclassified child is
+a money leak reached one relationship hop from a permitted row — `Asset.price_entries` is in
+§4.4's redaction list precisely because that hop exists, yet the entry model itself is nowhere in
+§4.1.
 
 `insurance` (money-bearing, property-scoped) and `vendor_rating` (D12 denies staff ratings
 explicitly, yet the model is unclassified) are the two that can leak. **Step 1 gets a test that
@@ -321,10 +335,18 @@ documents.staff_visible → G9, telegram_links → G16). One file spanning four 
 resumable. **Each group ships its own revision in the chain** (`0003…`, `0004…`, `0005…`,
 `0006…`), per §6's own *"independently verifiable and separately committable."*
 
-### [ ] G0 — Request-scoped auth dependency — *pre-flight prerequisite (C12), no §6 step, no §8 criterion*
-- [ ] G0.1 · C12 · — · FastAPI dependency resolving the session cookie → `AuthenticatedSession` → binds `account_context(account_id, user_id)` for the request and yields the current `Membership`; unauthenticated → redirect/401, authenticated-without-account → account picker · verify: `tests/integration/test_request_context.py::test_request_binds_account_context`
-- [ ] G0.2 · C12 · — · a request with a revoked membership resolves to **no** membership (D8 — fresh from the DB every request, never cached in the session) · verify: `tests/integration/test_request_context.py::test_revoked_membership_not_resolved`
-- [ ] G0.3 · C13 · — · append the `__table_args__` bug + the C1/C2/C8/C9/C10 corrections to `opportunities.md` · verify: file contains a `[BUG][low]` line for `membership.py`
+### [x] G0 — Request-scoped auth dependency — *pre-flight prerequisite (C12), no §6 step, no §8 criterion* — *`1565 passed, 3 skipped, 2 xfailed` (1562 → 1565, +3); commit `<G0>`*
+- [x] G0.1 · C12 · — · FastAPI dependency resolving the session cookie → `AuthenticatedSession` → binds `account_context(account_id, user_id)` for the request and yields `RequestPrincipal` (user, account, **membership_id**, role); unauthenticated → 401, authenticated-without-account → 403 (G13 turns it into the picker redirect) · verify: `tests/integration/test_request_context.py::test_request_binds_account_context` ✓
+- [x] G0.2 · C12 · — · a request with a revoked membership resolves to **no** membership (D8 — fresh from the DB every request, never cached in the session) · verify: `tests/integration/test_request_context.py::test_revoked_membership_not_resolved` ✓
+- [x] G0.3 · C13 · — · append the `__table_args__` bug + the C8/C9/C10 corrections to `opportunities.md` · verify: file contains a `[BUG][low]` line for `membership.py` ✓ 7 entries
+
+> **The dependency must be `async`, and this is load-bearing rather than stylistic.** FastAPI runs
+> a *sync* dependency's body in a threadpool (`contextmanager_in_threadpool`), so a
+> `ContextVar.set()` inside one applies to the worker thread's copy of the context and is
+> discarded before the endpoint runs. **Mutation-verified:** changing `async def` to `def` turns
+> `test_request_binds_account_context` from green to a 500 — `LookupError` on an unset
+> `current_account`, raised inside the route. The end-to-end probe exists because the sync
+> version fails only at runtime and only on paths that touch tenant data.
 
 ### [ ] G1 — Step 1: action vocabulary + the matrix as data — *dep: none*
 - [ ] G1.1 · §6 Step 1 · A1 · `authz/actions.py`: 21 keys covering all 20 `ONBOARDING` §9.2 rows, `Grant`/`Access`/`ActionSpec` per §4.1 verbatim · verify: `tests/unit/test_matrix.py::test_all_twenty_rows_covered`

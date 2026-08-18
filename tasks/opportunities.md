@@ -624,3 +624,52 @@
   content is UI/frontend polish that main's G-Web pass rewrote in the same files (3 conflicts:
   `scripts/watchdog.py`, `web/routes/vendors.py`, `web/templates/dashboard.html`). Resolving this
   is also what unblocks SPEC-006 P2 above.
+
+## SPEC-003 pre-flight (2026-08-18) — surfaced during G0
+
+- [BUG][low] `src/mihomes/models/membership.py:77,95` — `MembershipPropertyScope` assigns
+  `__table_args__` **twice**; the second binding wins, so `ix_scopes_account_membership` and
+  `ix_scopes_account_property` were never created. Confirmed absent from `0001_pg_baseline.py`,
+  which carries only `uq_scope_membership_property`. **Performance only, not an isolation hole** —
+  `scoped_property_ids()` queries by `membership_id`, which the surviving unique constraint's
+  leading column covers. Fix: merge the two tuples, then autogenerate the missing indexes.
+  (surfaced during SPEC-003 G0 pre-flight)
+
+- [OPT] `src/mihomes/models/` — a class-level lint for a second `__table_args__` assignment would
+  make the above impossible to reintroduce. Six other model files declare it more than once, but
+  each of those has more than one class in the file, so only `membership.py` is a real collision.
+  A test that walks every mapper and asserts its declared constraints/indexes all appear in the
+  live schema would catch this class of silent loss generally. (surfaced during SPEC-003 G0)
+
+- [BUG][medium] SPEC-003 §4.4's `REDACTED_FIELDS` names **five fields that do not exist**:
+  `WorkOrder.cost`, `WorkOrder.invoice_number`, `Asset.value`, `Consumable.last_order_cost`,
+  `Task.estimated_cost` (Task has no money column at all — `estimated_hours` is Float hours). A
+  frozenset of nonexistent names redacts nothing, silently, **and A12 still passes** because
+  A12's scope is that same dict. Corrected in `build-loop-spec003.md` C8; closed by the G-exists
+  and G-census gates rather than by editing the spec. (surfaced during SPEC-003 pre-flight)
+
+- [BUG][medium] SPEC-003 §4.4 misses 9 of the 15 `Money` columns in the tree. **`Event.budget` is
+  the sharp one**: §4.1 classifies `event` as property-scoped, so staff may see the row, and it
+  carries money §4.4 never mentions — F4's exact shape, missed by the table written to close it.
+  `Insurance` is money-bearing, property-scoped, and absent from §4.1 entirely. Corrected in
+  `build-loop-spec003.md` C9. (surfaced during SPEC-003 pre-flight)
+
+- [BUG][low] SPEC-003 §4.1's entity classification omits 13 mapped models (`insurance`, `alert`,
+  `vendor_rating`, `staff_pto`, `ai_conversation`, `tag`, `template`, `property`, `account`,
+  `membership`, `invite`, `audit_log`, `session`), which N4 explicitly forbids. Its *rationale*
+  for the account-level class is also wrong: `budget`, `contract`, and `recurring_expense` all
+  carry `property_id`, so "no property to scope by" is false for all three — the outcome
+  (deny-for-staff) stands as a policy decision, the stated reason does not. Corrected in C10.
+  (surfaced during SPEC-003 pre-flight)
+
+- [OPT] `tests/conftest.py:360` — `web_client_factory` enters `account_context(account_a)` for the
+  whole test, which is what hid C12 (no web request binds tenant context) through all of SPEC-002.
+  Once every route carries `require_authenticated`, this ambient binding should be **removed** so
+  web tests exercise the real binding path rather than the fixture's. Removing it before then
+  would redden the whole web suite at once. (surfaced during SPEC-003 G0)
+
+- [DEFER][SPEC-002 harness] `tasks/build-loop-spec002.md` never recorded that
+  `LANDING_TEST_DATABASE_URL` must point at a **separate** database. Its reported
+  `1562 passed, 0 failed` is only reproducible with it set; under a single database the same tree
+  reports `4 failed, 1558 passed`. Documented in `build-loop-spec003.md` §0.2 rather than
+  back-edited into a completed run's harness. (surfaced during SPEC-003 pre-flight)

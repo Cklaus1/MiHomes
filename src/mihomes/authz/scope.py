@@ -25,7 +25,26 @@ from sqlalchemy.orm import Session
 from mihomes.models.membership import Membership, MembershipPropertyScope
 from mihomes.models.property import Property
 
-__all__ = ["current_property_scope", "property_scope", "scoped_property_ids"]
+__all__ = [
+    "authz_context",
+    "current_property_scope",
+    "current_role",
+    "property_scope",
+    "scoped_property_ids",
+]
+
+
+# The acting role for the current request, or None outside one.
+#
+# **This is not a cached role and does not violate D8/N10.** D8 forbids storing the role *in the
+# session*, so that revocation takes effect on the next request. This is re-derived from the
+# database on every request by `_resolve_authenticated` and lives only for that request's
+# duration — which is what D8 asks for, not what it prohibits.
+#
+# It exists because redaction needs the role at a point where the principal is not in scope: the
+# template renderer. Threading a principal through every route's context dict would be the
+# alternative, and forgetting one route would silently unredact its page.
+current_role: ContextVar[str | None] = ContextVar("current_role", default=None)
 
 
 # The set of properties the current request may see, or **None meaning "unrestricted"**.
@@ -38,6 +57,25 @@ __all__ = ["current_property_scope", "property_scope", "scoped_property_ids"]
 current_property_scope: ContextVar[frozenset[uuid.UUID] | None] = ContextVar(
     "current_property_scope", default=None
 )
+
+
+@contextmanager
+def authz_context(role: str | None, scope: frozenset[uuid.UUID] | None):
+    """Bind both the acting role and the property scope for a request.
+
+    One contextmanager rather than two nested ones so the two cannot get out of step — a request
+    with a scope bound but no role would redact nothing while filtering rows, which reads as
+    "redaction is broken" rather than "the role was never set".
+    """
+    role_token = current_role.set(role)
+    scope_token = current_property_scope.set(scope)
+    try:
+        yield
+    finally:
+        # Reverse order, in a finally: a scope or role leaking past a raised request would apply
+        # someone else's permissions to whatever runs next on this thread.
+        current_property_scope.reset(scope_token)
+        current_role.reset(role_token)
 
 
 @contextmanager

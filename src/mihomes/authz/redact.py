@@ -35,6 +35,7 @@ __all__ = [
     "REDACTED_FIELDS",
     "RedactedView",
     "money_columns",
+    "redact_context",
     "redact_for_role",
 ]
 
@@ -154,6 +155,27 @@ class RedactedView:
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"<Redacted {type(object.__getattribute__(self, '_obj')).__name__}>"
+
+
+def redact_context(context: dict[str, Any], role: str | None) -> dict[str, Any]:
+    """Redact every mapped instance in a template context.
+
+    **This is the "web serializer" half of §4.4's "applied in BOTH surfaces".** This application
+    renders Jinja templates rather than serialising JSON, so the context dict handed to the
+    renderer *is* the serialization boundary — the last place a row exists as an object before it
+    becomes markup.
+
+    Doing it here rather than in the templates is N3: *"Do not redact in templates. The AI path
+    renders no templates, so template-level redaction leaves it unprotected."* This calls the same
+    `redact_for_role` the AI context builder will call at Step 10, so a field added to one surface
+    cannot be forgotten on the other.
+
+    `role=None` means no request context (the CLI, a background job) and passes through
+    unchanged — those paths have no user to redact for, and are already tenant-scoped.
+    """
+    if role is None or role in _PRIVILEGED_ROLES:
+        return context
+    return {key: _redact_value(value, role) for key, value in context.items()}
 
 
 def _is_mapped_instance(value: Any) -> bool:

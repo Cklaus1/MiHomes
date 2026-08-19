@@ -28,13 +28,51 @@ from mihomes.authz.actions import Grant
 from mihomes.authz.declare import declared_action
 from mihomes.authz.permissions import require_action_gate
 from mihomes.authz.query_scope import install_property_scope_listener
-from mihomes.authz.scope import property_scope, scoped_property_ids
+from mihomes.authz.redact import redact_context
+from mihomes.authz.scope import authz_context, current_role, scoped_property_ids
 from mihomes.db import get_session
 from mihomes.models.membership import Membership
 from mihomes.tenancy import account_context
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+
+class RedactingTemplates(Jinja2Templates):
+    """Jinja2Templates that redacts the context before rendering (SPEC-003 §6 Step 8).
+
+    **This is redaction at the serialization boundary, not in the templates — N3.** The
+    distinction matters: a Jinja filter would leave the AI path unprotected, because it renders no
+    templates, which is F3's exact shape. The context dict is the last place a row exists as an
+    object, so redacting it here covers every page written so far *and* every page written later,
+    without a single template knowing about roles.
+
+    Every route in the app already imports this module's `templates` singleton, so wrapping it is
+    one edit rather than 142 — the same reasoning as G7's single enforcement dependency.
+    """
+
+    def TemplateResponse(self, *args, **kwargs):
+        role = current_role.get()
+
+        # Starlette's signature moved: the modern form is
+        # `TemplateResponse(request, name, context=None, ...)`, the legacy one
+        # `TemplateResponse(name, context, ...)`. Handle the context wherever it actually is
+        # rather than assuming a position — guessing wrong would silently skip redaction on
+        # whichever form the codebase does not use today, and it uses both shapes across 24
+        # router files.
+        if "context" in kwargs:
+            kwargs["context"] = redact_context(kwargs["context"], role)
+        else:
+            args = list(args)
+            for index, value in enumerate(args):
+                if isinstance(value, dict):
+                    args[index] = redact_context(value, role)
+                    break
+            args = tuple(args)
+
+        return super().TemplateResponse(*args, **kwargs)
+
+
+templates = RedactingTemplates(directory=str(TEMPLATES_DIR))
 
 
 def _time_label(t) -> str:
@@ -174,7 +212,10 @@ async def enforce_declared_action(
             membership = db.get(Membership, principal.membership_id)
             scope = scoped_property_ids(db, membership) if membership else frozenset()
 
-        with property_scope(scope):
+        # Role and scope bind together: a request with a scope but no role would filter rows
+        # while redacting nothing, which reads as "redaction is broken" rather than "the role
+        # was never set".
+        with authz_context(principal.role, scope):
             yield principal
 
 

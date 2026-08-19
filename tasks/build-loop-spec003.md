@@ -616,10 +616,36 @@ resumable. **Each group ships its own revision in the chain** (`0003…`, `0004�
 > instead of quietly becoming authorization tests — and role-specific coverage lives in
 > `web_client_as`.
 
-### [ ] G8 — Step 8: field-level redaction applied — *dep: G2, G7*
-- [ ] G8.1 · §6 Step 8 · A12 · redaction applied in the **web serializer**; one test per `REDACTED_FIELDS` model — absent for staff, present for admin · verify: `tests/unit/test_redaction.py::test_money_hidden_per_model`
-- [ ] G8.2 · §6 Step 8 · A13 · D12 — staff see `company_name`/`contact_name`/`phone`/`email`/`contacts` only; never `insurance_info`, `license_number`, `notes`, ratings; **no create/edit/delete** · verify: `tests/unit/test_redaction.py::test_vendor_contact_only`
-- [ ] G8.3 · §6 Step 8 · A12 · **`Event.budget` and the `Insurance` columns** (C9) are covered by the census decision, not by omission · verify: `tests/unit/test_redaction.py::test_money_census_is_complete` stays green with zero allowlist entries lacking reasons
+### [x] G8 — Step 8: field-level redaction applied — *dep: G2, G7* — *5 end-to-end tests; 1681 passed*
+- [x] G8.1 · §6 Step 8 · A12 · redaction applied at the **serialization boundary**; absent for staff, present for admin · verify: `tests/unit/test_redaction.py::test_money_hidden_per_model` (unit) **+ `tests/integration/test_redaction_applied.py::test_staff_cannot_see_work_order_costs`** (applied) ✓
+- [x] G8.2 · §6 Step 8 · A13 · D12 — staff see contact fields only; never `insurance_info`, `license_number`, `notes`; ratings denied by row-classification (C8) · verify: `tests/unit/test_redaction.py::test_vendor_contact_only` **+ `test_redaction_applied.py::test_staff_see_contact_fields_but_not_the_sensitive_ones`** ✓
+- [x] G8.3 · §6 Step 8 · A12 · **`Event.budget` and the `Insurance` columns** (C9) covered by the census decision, not by omission · verify: `tests/unit/test_redaction.py::test_money_census_is_complete` ✓
+
+> **The unit tests could not have caught this, and that is why G8 has its own end-to-end file.**
+> `test_redaction.py` proved `redact_for_role` strips the right fields at G2 — and it kept passing
+> for two whole groups while **nothing called it**. Before this group, a staff member's
+> `/vendors/` page rendered `LIC-SECRET-9` in plain markup. The red-before-green run shows exactly
+> that. A phase can pass every unit test in this area while the page still shows the money.
+>
+> **Redaction lands at the serialization boundary, not in templates (N3).** This app renders Jinja
+> rather than serialising JSON, so the *context dict* is its serializer: the last point a row
+> exists as an object. `RedactingTemplates` wraps the one `templates` singleton every route
+> already imports — one edit, not 142, and it covers pages written later by someone who has never
+> read this file. A Jinja filter would have left the AI path unprotected, which is F3's shape.
+>
+> **`current_role` is not a cached role and does not violate D8/N10.** D8 forbids storing the role
+> *in the session* so revocation takes effect next request; this is re-derived from the database
+> every request by `_resolve_authenticated` and lives only for that request. It exists because the
+> renderer needs the role where the principal is not in scope — the alternative, threading a
+> principal through every route's context dict, fails silently on the one route someone forgets.
+>
+> **`authz_context` binds role and scope together** so they cannot get out of step: a request with
+> a scope bound but no role would filter rows while redacting nothing, and that reads as
+> "redaction is broken" rather than "the role was never set".
+>
+> **The negative controls are not decoration.** `test_admin_still_sees_the_costs` is what stops
+> "hide it from everybody" being a passing implementation — an over-broad redactor satisfies every
+> staff assertion in this file and breaks the product for the people who run it.
 
 ### [ ] G9 — Step 9: document visibility — *dep: G7*
 - [ ] G9.1 · §6 Step 9 · A14 · migration `0004`: `documents.staff_visible` `Boolean`, `default False`, `nullable=False` (D13, fail closed) · verify: round-trip clean + autogenerate empty
@@ -704,18 +730,21 @@ conventions §0's *"gate that cannot fail is not a gate"*, and this phase is mad
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**Landed:** G0–G7. Suite: **1676 passed, 3 skipped, 2 xfailed, 0 failed** (1562 baseline → 1676,
-+114 tests).
+**Landed:** G0–G8. Suite: **1681 passed, 3 skipped, 2 xfailed, 0 failed** (1562 baseline → 1681,
++119 tests).
 
-**Resume at G8.1** — apply `redact_for_role` in the web serializer (the function and its census
-gates landed at G2; nothing calls it yet).
+**Resume at G9** — `documents.staff_visible` (D13), which needs migration `0004` and C11's
+`entity_type`/`entity_id` scope resolution.
 
-**RBAC is now live for roles and rows, not yet for fields.** As of G7 an anonymous request is
-401, every one of the 142 declared routes goes through the capability matrix, and staff queries
-are constrained to their whitelist at the query layer. **Still not enforced: field-level
-redaction** — `redact_for_role` exists, is mutation-verified, and **no serializer or AI path
-calls it**, so a scoped staff member currently sees the *costs* on rows they are legitimately
-allowed to see. That is G8, and it is F4's whole point.
+**RBAC is live on the web surface: roles, rows, and fields.** An anonymous request is 401; all
+142 declared routes go through the capability matrix; staff queries are constrained to their
+whitelist at the query layer; and money and vendor-sensitive fields are stripped at the
+serialization boundary.
+
+**The AI surface is still completely unscoped, and it is the definition of done.** `assemble_context()`
+and all 15 executors take no scope, so a staff member scoped to one property can still ask the
+assistant about another and be answered. That is A15, that is G10, and the spec is explicit that
+without it Phase 2 is not finished regardless of what else works.
 
 **A15 — the phase's definition of done — is not green.** G10 has not started. The spec's own
 words: *"Roles enforced in the UI while the AI answers freely is not a partial success — it is

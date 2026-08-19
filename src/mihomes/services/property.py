@@ -6,9 +6,50 @@ from sqlalchemy.orm import Session
 
 from mihomes.models.property import Property, PropertyStatus, PropertyType
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
-from mihomes.services.update_helpers import safe_update
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
+from mihomes.services.update_helpers import safe_update
 from mihomes.services.validators import validate_name
+
+
+def _check_home_entitlement(session: Session) -> None:
+    """`can("property.add")` — server-side, inside the caller's transaction (`PRICING` rule 5).
+
+    **In Phase 2 this never denies**, and that is correct rather than pointless: D7 makes every
+    account `free` and D18 defers the gates, so the limits table says "free, unlimited" (§7's
+    deferred table). What the call buys now is the *call site* — `SAAS_PRD:144`: shipping the
+    service in Phase 2 is what *"prevents Phase 2 secretly depending on Phase 3."* Phase 3 swaps
+    which table is active and this gate comes alive without touching this file.
+
+    The count is taken here, in the same transaction as the insert, because rule 5 requires it:
+    counting outside the transaction reintroduces the race the check exists to prevent.
+    """
+    from sqlalchemy import func, select
+
+    from mihomes.entitlements import Denied, can
+    from mihomes.models.account import Account
+    from mihomes.tenancy import require_account
+
+    account_id = require_account()
+    account = session.get(Account, account_id)
+    if account is None:  # pragma: no cover - a bound account always exists
+        return
+
+    current = session.execute(
+        select(func.count()).select_from(Property).where(Property.account_id == account_id)
+    ).scalar_one()
+
+    decision = can(account, "property.add", {"current_homes": current})
+    if isinstance(decision, Denied):
+        raise EntitlementError(decision)
+
+
+class EntitlementError(Exception):
+    """A plan limit refused the action. Carries the `Denied` so the UI can render rule 4's
+    upgrade prompt rather than a bare error string."""
+
+    def __init__(self, decision):
+        self.decision = decision
+        super().__init__(decision.reason)
 
 
 def create_property(
@@ -25,6 +66,7 @@ def create_property(
     slug: str | None = None,
 ) -> Property:
     name = validate_name(name, "property")
+    _check_home_entitlement(session)
     slug = ensure_unique_slug(session, Property, slug or generate_slug(name))
     prop = Property(
         name=name,
@@ -82,10 +124,10 @@ def update_property(session: Session, id_or_slug: str, **kwargs) -> Property:
 
 
 def delete_property(session: Session, id_or_slug: str) -> str:
-    from mihomes.models.task import Task
-    from mihomes.models.issue import Issue
-    from mihomes.models.budget import Budget, Transaction
     from mihomes.models.asset import Asset
+    from mihomes.models.budget import Budget, Transaction
+    from mihomes.models.issue import Issue
+    from mihomes.models.task import Task
 
     prop = resolve_identifier(session, Property, id_or_slug)
     name = prop.name

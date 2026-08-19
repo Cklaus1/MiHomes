@@ -720,10 +720,39 @@ resumable. **Each group ships its own revision in the chain** (`0003…`, `0004�
 > bind "unrestricted" explicitly. Logged in `opportunities.md`; **G16 must bind a role explicitly
 > for the bot** (D16: an unlinked sender is staff-level, never unrestricted).
 
-### [ ] G11 — Step 11: onboarding flow — *dep: G3*
-- [ ] G11.1 · §6 Step 11 · — · migration `0005`: `onboarding_state` (§4.2) · verify: round-trip clean + autogenerate empty
-- [ ] G11.2 · §6 Step 11 · A17 · 6-step wizard; steps 2 (create account) + 3 (first property) the **only** hard requirements; prefill name from the Google profile, default type `household`, require only the property *name*; idempotent + resumable · verify: `tests/integration/test_onboarding.py::test_resumable`
-- [ ] G11.3 · §6 Step 11 · A18 · steps 4–5 skippable, skipping is a first-class path landing on the dashboard; **billing never blocks onboarding** (`ONBOARDING:143`) · verify: `tests/integration/test_onboarding.py::test_skip_optional`
+### [x] G11 — Step 11: onboarding flow — *dep: G3* — *11 tests; 1726 passed* — **service layer only, see G11.4**
+- [x] G11.1 · §6 Step 11 · — · migration **`0004_onboarding_state`** (§4.2) · verify: full-chain `base → head → base → head` clean + `alembic check` empty ✓
+- [x] G11.2 · §6 Step 11 · A17 · steps 2 + 3 the **only** hard requirements; prefill from the Google profile, default `household`, require only the property *name*; idempotent + resumable · verify: `tests/integration/test_onboarding.py::test_resumable` ✓
+- [x] G11.3 · §6 Step 11 · A18 · steps 4–5 skippable, skipping is a first-class path; **billing never blocks** (`ONBOARDING:143`) · verify: `tests/integration/test_onboarding.py::test_skip_optional` ✓
+- [ ] G11.4 · §6 Step 11 · — · **the web wizard itself** (`web/routes/onboarding.py` + templates) — **deferred, logged**: it needs a dependency for a signed-in user *without* an account, and §4.1's `Access` vocabulary (`ITEM`/`COLLECTION`/`ACCOUNT`) has no route class for a pre-account screen. The flow is fully covered at the service layer without it.
+
+> **Resumption is derived from the world for mandatory steps and from the record for optional
+> ones**, and the split is the design. Whether an account exists, and whether it has a property,
+> are ground truth a crash or a second tab cannot desynchronise. But steps 4 and 5 are *skippable*,
+> so "no spaces yet" is ambiguous between *not yet asked* and *asked and declined* — inferring
+> would re-prompt someone who already skipped, on every sign-in. That is why the table exists at
+> all, and why `finished_at` is separate from "all steps completed": a user who skips 4 and 5
+> finishes without completing them.
+>
+> **`OnboardingState` is `TenantOwned` with `account_id` as its primary key**, per §4.2. It was
+> briefly classified `GLOBAL` — the tenancy registry rejected it, correctly, because a table with
+> an `account_id` that nothing scopes is the shape of a leak. Being tenant-filtered means the
+> service binds `account_context(account_id)` explicitly around every read: onboarding runs
+> precisely when the session has *not* selected an account, and it always knows which account it
+> is asking about.
+>
+> **A real migration bug, found by a gate and worth the general rule.** `0002_rls` generates
+> policy DDL from the **live** `TENANT_TABLES`, so registering a table created two revisions later
+> made it `ALTER TABLE` something that did not exist — **82 errors** on the CLI database, which is
+> rebuilt by migrations every run. The main suite's `create_all()` path hid it entirely. A
+> migration must be a fixed point in history; one that imports a mutable registry is not. Now
+> filtered to tables actually present, with each later migration applying RLS for the table it
+> creates.
+>
+> Three pinned counts moved deliberately in this commit — the tenant registry (40 → 41), the
+> baseline table count (44 → 45), and `EXPECTED_TENANT_TABLE_COUNT` — each with the reason written
+> beside it. They exist so that *forgetting* fails loudly, which only works if raising them is a
+> conscious act.
 
 ### [ ] G12 — Step 12: invites — *dep: G4, G11* — *pre-flight: confirm P4 `EmailService` before task 1*
 - [ ] G12.1 · §6 Step 12 · A20 · `invite_service`: create/resend/revoke/accept; tokens **hashed** (D5 — only the hash is stored), single-use, **7-day** expiry (B9); §6.3 mismatch-notify · verify: `tests/integration/test_invites.py::test_token_lifecycle`
@@ -791,17 +820,18 @@ conventions §0's *"gate that cannot fail is not a gate"*, and this phase is mad
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**Landed:** G0–G10. Suite: **1711 passed, 3 skipped, 2 xfailed, 0 failed** (1562 baseline → 1711,
-+149 tests). Migration chain: `0001_pg_baseline` → `0002_rls` → `0003_documents_staff_visible`,
-round-trip clean, `alembic check` reports no drift.
+**Landed:** G0–G11 (G11.4, the web wizard, deferred and logged). Suite: **1726 passed, 3 skipped,
+2 xfailed, 0 failed** (1562 baseline → 1726, +164 tests). Migration chain: `0001_pg_baseline` →
+`0002_rls` → `0003_documents_staff_visible` → `0004_onboarding_state`; **full `base → head → base
+→ head` round-trip clean**, `alembic check` reports no drift.
 
 **A15 — the phase's definition of done — is GREEN.** Roles, rows, fields, and the AI surface are
 all enforced. Two real leaks were live until this group and are closed: the assistant returned
 the household's finances to staff, and it rendered money straight from the ORM.
 
-**Resume at G11** — the onboarding wizard. Remaining: G11 onboarding, G12 invites, G13 switcher,
-G14 transfer/offboarding, G15 config UI (G15.3 `[!]` by O1), G16 Telegram scoping, G17 leak
-matrix, G-Final.
+**Resume at G12** — invites. Remaining: G12 invites, G13 switcher, G14 transfer/offboarding,
+G15 config UI (G15.3 `[!]` by O1), G16 Telegram scoping, G17 leak matrix, G-Final — plus G11.4
+(the onboarding web wizard) carried forward.
 
 **Read the G10 deviation note before G16.** The scope travels by ContextVar rather than by
 required parameter, so **G16 must bind a role explicitly** for the bot — D16 makes an unlinked

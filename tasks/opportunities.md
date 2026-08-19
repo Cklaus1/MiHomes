@@ -769,3 +769,31 @@
   naive `secret not in output` assertion fires on the echoed *input* rather than on leaked data —
   which cost a debugging cycle here. Worth a helper that distinguishes refusal from leakage, so
   future scoping tests do not re-learn it. (surfaced during G10)
+
+## SPEC-003 G11 (2026-08-19) — onboarding
+
+- [BUG][high — FIXED IN G11] **`0002_rls` read the *live* tenant registry, so adding any new
+  tenant table broke the migration chain from scratch.** It generates policy DDL from
+  `TENANT_TABLES` at *its* point in the chain; registering `onboarding_state` (created two
+  revisions later by `0004`) made `0002` try to `ALTER TABLE` a table that did not exist yet.
+  Surfaced as **82 errors** on the CLI test database, which is dropped and rebuilt by migrations
+  every run — the main suite's `create_all()` path hid it completely.
+  **A migration must be a fixed point in history**; one that reads code which keeps changing is
+  not. Fixed by intersecting with the tables actually present, and by making each later migration
+  apply RLS for the table *it* creates. Worth a general rule: no migration should import a mutable
+  registry without pinning or filtering it. (surfaced during G11)
+
+- [OPT] `tests/unit/test_tenancy_registry.py::test_each_tenant_table_has_account_id` required an
+  explicit index on `account_id`; a **primary key** on `account_id` now also satisfies it.
+  `onboarding_state` is keyed on `accounts.id`, so Postgres already indexes it and adding a second
+  index would have made `alembic check` report drift. The invariant is unchanged — every tenant
+  query filtering on `account_id` must hit an index — only *how* it can be satisfied is wider.
+  (surfaced during G11)
+
+- [DEFER][G11] **The onboarding *web wizard* is not built** — the service, model, migration and
+  resumability logic are (A17/A18 green at the service layer), but `web/routes/onboarding.py` and
+  its templates are not. They need a dependency that requires a signed-in **user without an
+  account**, since `enforce_declared_action` resolves an account and would 403 steps 1–2. The
+  route class for pre-account screens is a genuine gap in §4.1's `Access` vocabulary
+  (`ITEM`/`COLLECTION`/`ACCOUNT` all assume an account). Deferred to keep G11's commit to one
+  coherent change; the flow is fully testable and covered without it. (surfaced during G11)

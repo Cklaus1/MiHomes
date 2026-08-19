@@ -43,12 +43,32 @@ def upgrade() -> None:
     # docstring for what a SQLite-built database consequently lacks.
     if op.get_bind().dialect.name != "postgresql":
         return
-    for stmt in rls_statements():
+    for stmt in rls_statements(tables=_tables_present()):
         op.execute(stmt)
 
 
 def downgrade() -> None:
     if op.get_bind().dialect.name != "postgresql":
         return
-    for stmt in drop_statements():
+    for stmt in drop_statements(tables=_tables_present()):
         op.execute(stmt)
+
+
+def _tables_present() -> set[str]:
+    """Registry tables that exist **at this point in the chain**.
+
+    This migration reads the live registry, and the registry keeps growing: SPEC-003's `0004`
+    adds `onboarding_state` two revisions later. Without this filter, `0002` would try to
+    `ALTER TABLE onboarding_state` before `0004` creates it, and a from-scratch upgrade would
+    fail — which is exactly how it was caught, as 82 errors on a clean CLI database.
+
+    A migration must be a fixed point in history; intersecting with what is actually there is
+    what keeps this one true no matter what later revisions add. **Each later migration applies
+    RLS for the table it creates**, which is where that responsibility belongs anyway.
+    """
+    import sqlalchemy as sa
+
+    from mihomes.tenancy.registry import TENANT_TABLES
+
+    live = set(sa.inspect(op.get_bind()).get_table_names())
+    return set(TENANT_TABLES) & live

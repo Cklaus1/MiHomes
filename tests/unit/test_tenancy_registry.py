@@ -67,8 +67,19 @@ def test_each_tenant_table_has_account_id(table_name):
 
     col = table.c.account_id
     assert col.nullable is False, f"{table_name}.account_id must be NOT NULL"
-    assert col.index is True or any(
-        list(ix.columns)[0].name == "account_id" for ix in table.indexes
+    # A leading primary-key position counts as indexed: Postgres backs every primary key with a
+    # unique index, so `WHERE account_id = ?` is served by it. `onboarding_state` (SPEC-003 A17)
+    # is keyed *on* `accounts.id`, so demanding a second explicit index would add a redundant
+    # one — and `alembic check` would then report drift, because the model declares none.
+    #
+    # The invariant is unchanged: every tenant query filtering on `account_id` must hit an index.
+    # This widens *how* that can be satisfied, not *whether* it must be.
+    pk_columns = list(table.primary_key.columns)
+    indexed_by_pk = bool(pk_columns) and pk_columns[0].name == "account_id"
+    assert (
+        col.index is True
+        or indexed_by_pk
+        or any(list(ix.columns)[0].name == "account_id" for ix in table.indexes)
     ), f"{table_name}.account_id must be indexed — every tenant query filters on it"
 
     fks = {fk.target_fullname for fk in col.foreign_keys}
@@ -139,8 +150,13 @@ def test_registry_size_is_asserted_explicitly():
     40, not SPEC-002's 37: the spec predates Phase 0 and counts only the domain
     tables, omitting `invites`, `memberships` and `membership_property_scopes`,
     which its own Step 1 adds.
+
+    **41 as of SPEC-003 G11:** `onboarding_state` (A17) records which onboarding steps an account
+    has completed, so a user who drops off after step 2 resumes at step 3. Raised deliberately in
+    the same commit as migration `0004` — the count exists so that *forgetting* to register a
+    table fails loudly, which only works if raising it is a conscious act.
     """
-    assert len(TENANT_TABLES) == 40, (
-        f"expected 40 tenant-owned tables, registry has {len(TENANT_TABLES)} — "
+    assert len(TENANT_TABLES) == 41, (
+        f"expected 41 tenant-owned tables, registry has {len(TENANT_TABLES)} — "
         "if a table was legitimately added or removed, update this number and say why"
     )

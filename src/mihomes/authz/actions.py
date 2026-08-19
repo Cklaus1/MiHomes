@@ -197,6 +197,7 @@ def _entity_classes() -> dict[type, EntityClass]:
     from mihomes.models.issue import Issue
     from mihomes.models.membership import Membership, MembershipPropertyScope
     from mihomes.models.note import Note
+    from mihomes.models.onboarding_state import OnboardingState
     from mihomes.models.property import Property
     from mihomes.models.recurring_expense import RecurringExpense
     from mihomes.models.session import Session
@@ -262,6 +263,9 @@ def _entity_classes() -> dict[type, EntityClass]:
         Membership: account,
         MembershipPropertyScope: account,
         Invite: account,
+        # Onboarding progress is account configuration, not property data — staff never see it,
+        # and the only reader is the wizard resolving the signed-in owner's own account.
+        OnboardingState: account,
 
         Staff: EntityClass.PERSONNEL,
         StaffPTORequest: EntityClass.PERSONNEL,

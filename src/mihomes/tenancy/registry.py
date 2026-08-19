@@ -93,6 +93,12 @@ TENANT_TABLES = frozenset({
     "vendors",
     "work_orders",
     "zones",
+    # --- onboarding, added by SPEC-003 Step 11 (A17) ---------------------
+    # Keyed *on* `accounts.id` as its primary key rather than carrying a separate `account_id`,
+    # so "one row per account" is a schema fact. Still tenant-owned and still filtered: it was
+    # briefly classified GLOBAL during G11 and this registry rejected it, correctly — a table
+    # with an `account_id` that nothing scopes is the shape of a leak.
+    "onboarding_state",
     # --- identity, added by Step 1 --------------------------------------
     "invites",
     "membership_property_scopes",

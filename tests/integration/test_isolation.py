@@ -49,7 +49,12 @@ from mihomes.tenancy.registry import ASSOCIATION_TABLES, GLOBAL_TABLES, TENANT_T
 
 # The tables A21 must cover, hardcoded as a count rather than derived from the thing under test.
 # If this number changes, the change was deliberate and this line is where it is acknowledged.
-EXPECTED_TENANT_TABLE_COUNT = 40
+#
+# 40 at the SPEC-002 baseline → **41** with SPEC-003 G11's `onboarding_state` (A17), which records
+# which onboarding steps an account has completed so a user who drops off at step 2 resumes at
+# step 3. Acknowledged here, in the same commit as migration `0004`, which is the whole point of
+# writing it as a literal.
+EXPECTED_TENANT_TABLE_COUNT = 41
 
 
 # --------------------------------------------------------------------------------------

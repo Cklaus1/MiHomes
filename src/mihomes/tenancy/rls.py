@@ -103,24 +103,35 @@ def policy_statements(table: str) -> list[str]:
     return stmts
 
 
-def rls_statements() -> list[str]:
-    """Policy DDL for every table in the registry.
+def rls_statements(tables: set[str] | None = None) -> list[str]:
+    """Policy DDL for every table in the registry, or for an explicit subset.
 
     Generated from `TENANT_TABLES` rather than from `TenantOwned.__subclasses__()`, which is
     the whole reason the registry is explicit: the two Core `Table` association tables are
     not subclasses, so a derived list would leave `staff_properties` and `vendor_properties`
     with **no policy at all** while A8's "every table has a policy" test passed.
+
+    **`tables` exists because a migration must not depend on live code that keeps changing.**
+    `0002_rls` reads this function at *its* point in the chain, so a tenant table added by a
+    later migration — `onboarding_state` in SPEC-003's `0004` — would make `0002` try to
+    `ALTER TABLE` something that does not exist yet, and the whole chain would fail from a clean
+    database. Passing the tables that actually exist keeps `0002` correct forever; each later
+    migration applies its own policy when it creates its own table.
     """
     from mihomes.tenancy.registry import TENANT_TABLES
 
+    names = TENANT_TABLES if tables is None else tables
     stmts: list[str] = []
-    for table in sorted(TENANT_TABLES):
+    for table in sorted(names):
         stmts.extend(policy_statements(table))
     return stmts
 
 
-def drop_statements() -> list[str]:
+def drop_statements(tables: set[str] | None = None) -> list[str]:
     from mihomes.tenancy.registry import TENANT_TABLES
+
+    if tables is not None:
+        TENANT_TABLES = tables  # noqa: N806 - shadow deliberately; see rls_statements
 
     stmts: list[str] = []
     for table in sorted(TENANT_TABLES):

@@ -527,9 +527,13 @@ resumable. **Each group ships its own revision in the chain** (`0003…`, `0004�
 > declare → drop from the allowlist → lower the ceiling → still green, and red the moment the
 > declaration is removed. CEILING 23 → 22.
 
-### [ ] G6 — Step 5: declare actions on 146 endpoints across 24 files — *dep: G5 — N1: chunked, never one task*
-> **24 files, not 23 (C1).** One sub-task per router file; the shrinking allowlist (G5.2) is the
-> continuous gate. **U2 stands:** this catches *undeclared*, not *mis-declared*.
+### [ ] G6 — Step 5: declare actions on the remaining router modules — *dep: G5 — N1: chunked, never one task*
+> **The real scope is 142 decorators across 23 modules, not 146 across 24.** Pre-flight measured
+> 146/24 *including* `auth.py`, which is now `PERMANENT_ALLOWLIST` (4 routes) — so it is not a G6
+> target. **8 routes done** (`dashboard` 1 at G5, `tasks` 7), **134 across 21 modules remain**.
+> **`CEILING` in `tests/unit/test_route_declarations.py` is the progress counter** — currently
+> **21**, and it must reach 0 at G6.9. One sub-task per router module; the temporary allowlist is
+> the continuous gate. **U2 stands:** this catches *undeclared*, not *mis-declared*.
 - [ ] G6.1 · §6 Step 5 · A4 · `assets.py` (18) · verify: `test_route_declarations.py` + `assets` absent from the shrinking allowlist
 - [ ] G6.2 · §6 Step 5 · A4 · `work_orders.py` (13)
 - [ ] G6.3 · §6 Step 5 · A4 · `properties.py` (10)
@@ -628,6 +632,30 @@ passing test proves nothing about.
 arms had no teeth* and its G12 verified 8 controls by mutation. For G10 in particular: break the
 scope filter deliberately and confirm A15 goes **red**. A security test that cannot fail is
 conventions §0's *"gate that cannot fail is not a gate"*, and this phase is made of them.
+
+---
+
+## 2.1 RUN STATE — where a resuming session picks up
+
+**Landed:** G0, G1, G2, G3, G4, G5 (commits `4af3090`, `5425dba`, `cee00a3`, `03d8ddd`,
+`4fdf211`, `9453798`). Suite on HEAD: **1668 passed, 3 skipped, 2 xfailed, 0 failed**
+(1562 baseline → 1668, +106 tests).
+
+**Resume at G6.1** (`assets.py`, 18 routes). `CEILING` in `tests/unit/test_route_declarations.py`
+is the progress counter: **21 → 0**.
+
+**Nothing is enforced yet, and that is the honest state of the phase.** G3 built
+`require_permission` and **no route calls it**; G2 built `redact_for_role` and **no serializer
+calls it**. The primitives and their gates exist and are mutation-verified; G6 (declare), G7
+(query-layer scoping), and G8 (apply redaction) are where they become behaviour. A reader
+skimming the commit titles could reasonably conclude RBAC is live. **It is not.**
+
+**A15 — the phase's definition of done — is not green.** G10 has not started. The spec's own
+words: *"Roles enforced in the UI while the AI answers freely is not a partial success — it is
+the leak wearing the feature's clothes."*
+
+**Poison ceiling: 0 of 5 used.** `G15.3` will be `[!]` **by decision** (O1/N11) and does not
+count.
 
 ---
 

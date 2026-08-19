@@ -450,3 +450,12 @@ Review this at the start of each session.
   before reading a traceback. The cost of guessing wrong here is high in both directions: triaging
   a real regression as "flaky infra" hides a bug, and debugging a deadlock as a code fault burns
   an hour. The runtime is the cheap discriminator.
+
+- **One gate at a time, and no source edits between launching a gate and reading its result.**
+  The deadlock above was the symptom; this was the cause. I launched a full-suite gate, kept
+  editing files, launched a second gate, and then read results that measured a tree neither run
+  had actually tested — four wasted runs across ~12 minutes, and two of them looked like real
+  regressions. Recognising a deadlock after the fact is the weaker guard. **Rule:** a gate
+  measures the tree as of its launch, so treat the working tree as frozen until it reports. If
+  something needs editing while a gate runs, write it down instead and apply it after — and if a
+  gate's result arrives after the tree has moved, it is stale, not evidence.

@@ -24,16 +24,12 @@ end-to-end request proves the value is visible where queries actually run.
 
 from __future__ import annotations
 
-import contextlib
 import uuid
 from datetime import datetime, timedelta, timezone
 
-import pytest
 from sqlalchemy import text
-from sqlalchemy.orm import sessionmaker
 
 from mihomes.auth.sessions import SESSION_COOKIE, hash_session_id
-from mihomes.tenancy import require_account, require_user
 
 
 def _make_user(conn, *, email: str = "owner@example.com") -> uuid.UUID:
@@ -100,64 +96,6 @@ def _make_session_row(
         },
     )
     return raw
-
-
-@pytest.fixture
-def unbound_client(_pg_engine, account_a):
-    """A TestClient with **no** ambient account context.
-
-    Yields `(make, connection)` where `make()` returns the client and the
-    connection is exposed so a test can seed rows inside the same transaction.
-    """
-    from fastapi.testclient import TestClient
-
-    from mihomes.web.app import create_app
-    from mihomes.web.deps import get_db
-
-    stack = contextlib.ExitStack()
-    connection = stack.enter_context(_pg_engine.connect())
-    transaction = connection.begin()
-    stack.callback(transaction.rollback)
-
-    SessionLocal = sessionmaker(
-        bind=connection, future=True, join_transaction_mode="create_savepoint"
-    )
-
-    def override_get_db():
-        s = SessionLocal()
-        try:
-            yield s
-            s.commit()
-        except Exception:
-            s.rollback()
-            raise
-        finally:
-            s.close()
-
-    def make():
-        from mihomes.web.deps import require_authenticated
-
-        app = create_app()
-
-        # The probe reads the ContextVars the scoped session actually consults.
-        # `require_account()` raises LookupError when unset, so an application
-        # that never binds the tenant fails here rather than returning wrong data.
-        @app.get("/__probe__/context")
-        def _probe(auth=require_authenticated()):
-            return {
-                "account_id": str(require_account()),
-                "user_id": str(require_user()),
-            }
-
-        app.dependency_overrides[get_db] = override_get_db
-        return stack.enter_context(
-            TestClient(app, base_url="http://localhost", raise_server_exceptions=False)
-        )
-
-    try:
-        yield make, connection
-    finally:
-        stack.close()
 
 
 def test_request_binds_account_context(unbound_client, account_a):

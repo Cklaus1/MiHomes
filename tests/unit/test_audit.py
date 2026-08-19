@@ -89,10 +89,37 @@ class TestRecordChange:
         assert entries[0].changes["name"]["new"] == "Beach House"
 
     def test_default_actor(self, session):
+        """Unattended writes are labelled `"system"`, never `"admin"` (SPEC-003 F6).
+
+        **This assertion was inverted, deliberately.** It previously asserted `== "admin"`, which
+        is precisely the defect F6 names: *"`AuditLog.actor` defaults to `"admin"`, which the bot
+        never overrides, so every current call site writes a fictional actor."* The old
+        expectation encoded the bug, so leaving it would have made the fix look like a regression.
+
+        `"system"` is chosen over `"admin"` because it is *true* where `"admin"` was a guess, and
+        because it is visibly not a user id — an unattributed write cannot be mistaken for a
+        human one when reading the log.
+        """
         record_change(session, "task", _ENTITY_1, "update")
         session.flush()
         entry = session.query(AuditLog).first()
-        assert entry.actor == "admin"
+        assert entry.actor == "system"
+        assert entry.actor != "admin"
+
+    def test_default_actor_is_the_request_user_when_there_is_one(self, session, account_a):
+        """The other half: inside a request, the default is the *real* actor.
+
+        Without this, `resolve_actor` returning the constant `"system"` would satisfy the test
+        above and leave all 73 call sites just as fictional as before.
+        """
+        from mihomes.tenancy import account_context
+
+        acting = uuid.uuid4()
+        with account_context(account_a, acting):
+            record_change(session, "task", uuid.uuid4(), "update")
+        session.flush()
+        entry = session.query(AuditLog).order_by(AuditLog.timestamp.desc()).first()
+        assert entry.actor == str(acting)
 
     def test_custom_actor(self, session):
         record_change(session, "issue", uuid.uuid4(), "create", actor="whatsapp:Sarah")

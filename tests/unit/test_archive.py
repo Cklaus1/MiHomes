@@ -34,6 +34,10 @@ def _make_audit(session, timestamp=None):
     entry = AuditLog(
         entity_type="task", entity_id=_ENTITY_1, action="create",
         timestamp=timestamp or _old_dt(),
+        # `actor` lost its `"admin"` default in SPEC-003 G3 (F6: the default recorded a principal
+        # that had not acted). It is NOT NULL, so a direct construction must name someone; this
+        # fixture is an unattended path, hence the same honest label `record_change` falls back to.
+        actor="system",
     )
     session.add(entry)
     session.flush()

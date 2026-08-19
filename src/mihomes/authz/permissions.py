@@ -32,6 +32,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from mihomes.authz.actions import MATRIX, Access, Grant
+from mihomes.authz.audit import audit_deny
 from mihomes.authz.scope import scoped_property_ids
 from mihomes.models.membership import Membership
 from mihomes.models.property import Property
@@ -55,6 +56,8 @@ def require_permission(
     principal: RequestPrincipal,
     action: str,
     target_property: Property | uuid.UUID | None = None,
+    *,
+    audit_session_factory=None,
 ) -> None:
     """Authorize `action` for `principal`, or raise.
 
@@ -67,16 +70,37 @@ def require_permission(
     - `Access.COLLECTION` — no target; the *query* is constrained by `scoped_property_ids()`.
       Returning normally here is what makes Step 7 reachable (N5).
     - `Access.ACCOUNT` — no property target exists.
+
+    **Every refusal is audited** (A33, §9.4's closing paragraph), in its own transaction — see
+    `authz/audit.py` for why the request's session cannot carry it.
     """
+    target_id = _target_property_id(target_property)
+
+    def _deny(status: int, reason: str) -> HTTPException:
+        """Audit the refusal, then build the exception for the caller to raise.
+
+        Returning rather than raising keeps every denial a single `raise _deny(...)` at the call
+        site, so a path that forgets to audit is visibly different from one that does.
+        """
+        audit_deny(
+            account_id=principal.account_id,
+            actor=str(principal.user_id),
+            action=action,
+            role=principal.role,
+            reason=reason,
+            target_id=target_id,
+            session_factory=audit_session_factory,
+        )
+        return HTTPException(status_code=status, detail=reason)
+
     # ---- Step 0: the action must be declared. §9.2's footnote: "an undeclared action is a
     # deploy-time error, not a silent allow." A typo'd key must not reach a permissive default.
     spec = MATRIX.get(action)
     if spec is None:
-        raise HTTPException(status_code=403, detail=f"Unknown action {action!r}")
+        raise _deny(403, f"Unknown action {action!r}")
 
     # ---- Step 1: resolve the target. Before the role check, so existence is never revealed by
     # the difference between 403 and 404 (D9).
-    target_id = _target_property_id(target_property)
     if target_id is not None:
         in_account = session.execute(
             select(Property.id).where(
@@ -87,7 +111,7 @@ def require_permission(
         if in_account is None:
             # Covers both "belongs to another account" and "does not exist". The two must be
             # indistinguishable: if only one were 404, the *pair* of responses would still leak.
-            raise HTTPException(status_code=404, detail="Not found")
+            raise _deny(404, "Not found")
 
     # ---- Step 2: the role. Loaded fresh this request by the dependency; see the module
     # docstring for why it is not re-read here.
@@ -99,7 +123,7 @@ def require_permission(
 
     # ---- Step 3: apply the grant.
     if grant is Grant.DENY:
-        raise HTTPException(status_code=403, detail=f"{principal.role} may not {action}")
+        raise _deny(403, f"{principal.role} may not {action}")
 
     if grant is Grant.ALLOW:
         return
@@ -114,25 +138,20 @@ def require_permission(
         # A SCOPED grant on an account-class action has nothing to scope by, so it could only be
         # resolved by ignoring the scope — i.e. by silently granting. The matrix forbids this
         # combination; reaching it means MATRIX was edited past its own test.
-        raise HTTPException(
-            status_code=403,
-            detail=f"{action} is account-class and cannot carry a scoped grant",
-        )
+        raise _deny(403, f"{action} is account-class and cannot carry a scoped grant")
 
     # Access.ITEM
     if target_id is None:
         # Nothing to check the scope against. The permissive alternative would authorize every
         # record in the account (A6).
-        raise HTTPException(
-            status_code=403, detail=f"{action} requires a target property"
-        )
+        raise _deny(403, f"{action} requires a target property")
 
     membership = session.get(Membership, principal.membership_id)
     if membership is None:
-        raise HTTPException(status_code=403, detail="No active membership")
+        raise _deny(403, "No active membership")
 
     if target_id not in scoped_property_ids(session, membership):
         # Same status as a cross-account target: an out-of-scope property must not be
         # distinguishable from one that does not exist (D9, and §6 Step 7's explicit wording —
         # "yields 404, not an empty list").
-        raise HTTPException(status_code=404, detail="Not found")
+        raise _deny(404, "Not found")

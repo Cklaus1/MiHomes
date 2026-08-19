@@ -30,4 +30,11 @@ class AuditLog(Base, TenantOwned):
     entity_id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
     action: Mapped[str] = mapped_column(String(10), nullable=False)  # create, update, delete
     changes: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    actor: Mapped[str] = mapped_column(String(100), default="admin")
+    # No default. `"admin"` was a fiction every call site inherited (SPEC-003 F6): the column
+    # recorded a principal that had not acted. `services.audit.record_change` and
+    # `authz.audit.audit_write` both set it explicitly — from `current_user` where there is one,
+    # and from the honest label `"system"` where there is not. Removing the default means a new
+    # call site that forgets fails closed (NOT NULL) instead of writing a plausible lie.
+    #
+    # Python-side default only, so removing it is not a schema change: `autogenerate` stays empty.
+    actor: Mapped[str] = mapped_column(String(100))

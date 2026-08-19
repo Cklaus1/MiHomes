@@ -6,8 +6,10 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
+from mihomes.authz.actions import Access
+from mihomes.authz.declare import declares
 from mihomes.services import property as prop_svc
-from mihomes.services.playbook import list_playbooks, get_playbook, run_playbook
+from mihomes.services.playbook import get_playbook, list_playbooks, run_playbook
 from mihomes.web.deps import get_db, templates
 
 router = APIRouter()
@@ -84,6 +86,7 @@ def _inline(text: str) -> str:
 
 
 @router.get("/")
+@declares("task.manage", Access.COLLECTION)
 def playbooks_list(request: Request, db: Session = Depends(get_db)):
     playbooks = list_playbooks()
     # Count checklist items per playbook
@@ -101,6 +104,7 @@ def playbooks_list(request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/{slug}")
+@declares("task.manage", Access.COLLECTION)
 def playbook_detail(request: Request, slug: str, db: Session = Depends(get_db)):
     pb = get_playbook(slug)
     if not pb:
@@ -116,6 +120,7 @@ def playbook_detail(request: Request, slug: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{slug}/run", response_class=HTMLResponse)
+@declares("task.manage", Access.ITEM)
 def playbook_run(
     request: Request,
     slug: str,

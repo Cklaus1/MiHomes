@@ -7,6 +7,8 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
+from mihomes.authz.actions import Access
+from mihomes.authz.declare import declares
 from mihomes.models.document import DocumentType
 from mihomes.services import document as doc_svc
 from mihomes.services import issue as issue_svc
@@ -39,11 +41,13 @@ def _ctx(db: Session, status: str | None = None) -> dict:
 
 
 @router.get("/")
+@declares("issue.manage", Access.COLLECTION)
 def list_work_orders(request: Request, status: str | None = None, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "work_orders.html", _ctx(db, status))
 
 
 @router.post("/", response_class=HTMLResponse)
+@declares("issue.manage", Access.ITEM)
 def create_work_order(
     request: Request,
     title: str = Form(...),
@@ -75,6 +79,7 @@ def create_work_order(
 
 
 @router.post("/{slug}/notes", response_class=HTMLResponse)
+@declares("issue.manage", Access.ITEM)
 def add_note(request: Request, slug: str, content: str = Form(...), db: Session = Depends(get_db)):
     note_svc.add_note(db, f"workorder:{slug}", content)
     wo = wo_svc.get_work_order(db, slug)
@@ -87,6 +92,7 @@ def add_note(request: Request, slug: str, content: str = Form(...), db: Session 
 
 
 @router.delete("/{slug}/notes/{note_id}", response_class=HTMLResponse)
+@declares("issue.manage", Access.ITEM)
 def delete_note(request: Request, slug: str, note_id: UUID, db: Session = Depends(get_db)):
     note_svc.delete_note(db, note_id)
     wo = wo_svc.get_work_order(db, slug)
@@ -99,6 +105,7 @@ def delete_note(request: Request, slug: str, note_id: UUID, db: Session = Depend
 
 
 @router.post("/{slug}/edit", response_class=HTMLResponse)
+@declares("issue.manage", Access.ITEM)
 def edit_work_order(
     request: Request,
     slug: str,
@@ -144,18 +151,21 @@ def edit_work_order(
 
 
 @router.post("/{slug}/delete", response_class=HTMLResponse)
+@declares("issue.manage", Access.ITEM)
 def delete_work_order(request: Request, slug: str, db: Session = Depends(get_db)):
     wo_svc.delete_work_order(db, slug)
     return templates.TemplateResponse(request, "work_orders.html", _ctx(db))
 
 
 @router.post("/{slug}/approve", response_class=HTMLResponse)
+@declares("issue.manage", Access.ITEM)
 def approve_work_order(request: Request, slug: str, db: Session = Depends(get_db)):
     wo_svc.approve(db, slug)
     return templates.TemplateResponse(request, "work_orders.html", _ctx(db))
 
 
 @router.post("/{slug}/start", response_class=HTMLResponse)
+@declares("issue.manage", Access.ITEM)
 def start_work_order(request: Request, slug: str, db: Session = Depends(get_db)):
     from mihomes.models.work_order import WorkOrderStatus
     wo_svc.transition_status(db, slug, WorkOrderStatus.IN_PROGRESS)
@@ -163,6 +173,7 @@ def start_work_order(request: Request, slug: str, db: Session = Depends(get_db))
 
 
 @router.post("/{slug}/complete", response_class=HTMLResponse)
+@declares("issue.manage", Access.ITEM)
 def complete_work_order(
     request: Request,
     slug: str,
@@ -191,12 +202,14 @@ def complete_work_order(
 
 
 @router.post("/{slug}/verify", response_class=HTMLResponse)
+@declares("issue.manage", Access.ITEM)
 def verify_work_order(request: Request, slug: str, db: Session = Depends(get_db)):
     wo_svc.verify(db, slug)
     return templates.TemplateResponse(request, "work_orders.html", _ctx(db))
 
 
 @router.post("/{slug}/cancel", response_class=HTMLResponse)
+@declares("issue.manage", Access.ITEM)
 def cancel_work_order(
     request: Request,
     slug: str,
@@ -208,6 +221,7 @@ def cancel_work_order(
 
 
 @router.post("/{slug}/documents", response_class=HTMLResponse)
+@declares("inventory.manage", Access.ITEM)
 async def add_document(
     request: Request,
     slug: str,
@@ -237,6 +251,7 @@ async def add_document(
 
 
 @router.delete("/{slug}/documents/{doc_id}", response_class=HTMLResponse)
+@declares("inventory.manage", Access.ITEM)
 def delete_document(request: Request, slug: str, doc_id: str, db: Session = Depends(get_db)):
     doc_svc.delete_document(db, doc_id)
     wo = wo_svc.get_work_order(db, slug)

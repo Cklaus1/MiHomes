@@ -7,6 +7,8 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
+from mihomes.authz.actions import Access
+from mihomes.authz.declare import declares
 from mihomes.models.budget import BudgetPeriod
 from mihomes.models.recurring_expense import ExpenseFrequency
 from mihomes.services import budget as budget_svc
@@ -143,6 +145,7 @@ def _ctx(
 
 
 @router.get("/")
+@declares("finance.view", Access.ACCOUNT)
 def budget_overview(
     request: Request,
     tab: str = "overview",
@@ -162,6 +165,7 @@ def budget_overview(
 
 
 @router.post("/transactions", response_class=HTMLResponse)
+@declares("finance.view", Access.ACCOUNT)
 def add_transaction(
     request: Request,
     property_id: str = Form(...),
@@ -191,6 +195,7 @@ def add_transaction(
 
 
 @router.post("/set", response_class=HTMLResponse)
+@declares("finance.view", Access.ACCOUNT)
 def set_budget(
     request: Request,
     property_id: str = Form(...),

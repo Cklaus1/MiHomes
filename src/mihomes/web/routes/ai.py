@@ -9,6 +9,8 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
+from mihomes.authz.actions import Access
+from mihomes.authz.declare import declares
 from mihomes.models.document import DocumentType
 from mihomes.services import document as doc_svc
 from mihomes.services import property as prop_svc
@@ -175,6 +177,7 @@ def _ai_error(msg: str) -> str:
 
 
 @router.get("/")
+@declares("ai.use", Access.COLLECTION)
 def ai_page(request: Request, db: Session = Depends(get_db)):
     from mihomes.models.work_order import WorkOrder, WorkOrderStatus
 
@@ -199,6 +202,7 @@ def ai_page(request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/sessions-panel", response_class=HTMLResponse)
+@declares("ai.use", Access.COLLECTION)
 def ai_sessions_panel(request: Request, db: Session = Depends(get_db)):
     sessions = _list_sessions(db)
     session_groups = _group_sessions(sessions)
@@ -208,6 +212,7 @@ def ai_sessions_panel(request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/sessions/{session_id}", response_class=JSONResponse)
+@declares("ai.use", Access.COLLECTION)
 def ai_session_messages(session_id: str, db: Session = Depends(get_db)):
     from mihomes.models.ai_conversation import AIConversation
 
@@ -224,6 +229,7 @@ def ai_session_messages(session_id: str, db: Session = Depends(get_db)):
 
 
 @router.delete("/sessions/{session_id}", response_class=JSONResponse)
+@declares("ai.use", Access.COLLECTION)
 def ai_delete_session(session_id: str, db: Session = Depends(get_db)):
     from mihomes.models.ai_conversation import AIConversation
 
@@ -233,6 +239,7 @@ def ai_delete_session(session_id: str, db: Session = Depends(get_db)):
 
 
 @router.patch("/sessions/{session_id}/name", response_class=JSONResponse)
+@declares("ai.use", Access.COLLECTION)
 async def ai_rename_session(session_id: str, request: Request, db: Session = Depends(get_db)):
     from mihomes.models.ai_conversation import AIConversation
 
@@ -251,6 +258,7 @@ async def ai_rename_session(session_id: str, request: Request, db: Session = Dep
 
 
 @router.post("/ask", response_class=HTMLResponse)
+@declares("ai.use", Access.COLLECTION)
 async def ai_ask(
     request: Request,
     query: str = Form(...),
@@ -282,6 +290,7 @@ async def ai_ask(
 
 
 @router.post("/situation-report", response_class=HTMLResponse)
+@declares("ai.use", Access.COLLECTION)
 async def situation_report(
     request: Request,
     subject: str = Form(""),
@@ -319,6 +328,7 @@ async def situation_report(
 
 
 @router.post("/estate-digest", response_class=HTMLResponse)
+@declares("ai.use", Access.COLLECTION)
 async def estate_digest(
     request: Request,
     period: str = Form("this_week"),
@@ -369,6 +379,7 @@ async def estate_digest(
 
 
 @router.post("/ask-stream")
+@declares("ai.use", Access.COLLECTION)
 async def ai_ask_stream(
     request: Request,
     query: str = Form(...),
@@ -501,6 +512,7 @@ async def ai_ask_stream(
 
 
 @router.post("/save-report", response_class=HTMLResponse)
+@declares("ai.use", Access.COLLECTION)
 async def save_report(
     request: Request,
     report_type: str = Form(...),

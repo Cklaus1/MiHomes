@@ -1,5 +1,6 @@
 """Weather routes — widget and AI-powered alert/task generation."""
 
+import logging
 import re
 from collections import defaultdict
 
@@ -7,8 +8,9 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
+from mihomes.authz.actions import Access
+from mihomes.authz.declare import declares
 from mihomes.web.deps import get_db, templates
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +53,7 @@ def _group_by_zip(properties) -> list[dict]:
 
 
 @router.get("", response_class=HTMLResponse)
+@declares("property.view", Access.COLLECTION)
 def weather_widget(request: Request, db: Session = Depends(get_db)):
     """Return the weather widget partial — loaded lazily by the dashboard."""
     from mihomes.models.property import Property
@@ -83,11 +86,12 @@ def weather_widget(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/analyze", response_class=HTMLResponse)
+@declares("property.view", Access.COLLECTION)
 def weather_analyze(request: Request, db: Session = Depends(get_db)):
     """Run weather alert generation + AI task suggestions for all properties."""
     from mihomes.models.property import Property
-    from mihomes.services.weather import get_forecast_for_property, generate_weather_alerts
-    from mihomes.services.weather_tasks import suggest_tasks_for_weather, create_tasks_from_suggestions
+    from mihomes.services.weather import generate_weather_alerts, get_forecast_for_property
+    from mihomes.services.weather_tasks import create_tasks_from_suggestions, suggest_tasks_for_weather
 
     properties = db.query(Property).all()
     groups = []

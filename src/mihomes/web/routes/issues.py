@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
+from mihomes.authz.actions import Access
+from mihomes.authz.declare import declares
 from mihomes.models.document import DocumentType
 from mihomes.models.issue import IssueSeverity, IssueStatus
 from mihomes.services import document as doc_svc
@@ -48,6 +50,7 @@ def _ctx(db: Session, property_id=None, active_tab: str = "current") -> dict:
 
 
 @router.get("/")
+@declares("issue.manage", Access.COLLECTION)
 def list_issues(
     request: Request,
     property_id: str | None = None,
@@ -58,6 +61,7 @@ def list_issues(
 
 
 @router.post("/", response_class=HTMLResponse)
+@declares("issue.manage", Access.ITEM)
 def create_issue(
     request: Request,
     title: str = Form(...),
@@ -81,6 +85,7 @@ def create_issue(
 
 
 @router.post("/{slug}/resolve", response_class=HTMLResponse)
+@declares("issue.manage", Access.ITEM)
 def resolve_issue(
     request: Request,
     slug: str,
@@ -92,6 +97,7 @@ def resolve_issue(
 
 
 @router.post("/{slug}/edit", response_class=HTMLResponse)
+@declares("issue.manage", Access.ITEM)
 def edit_issue(
     request: Request,
     slug: str,
@@ -122,12 +128,14 @@ def edit_issue(
 
 
 @router.post("/{slug}/delete", response_class=HTMLResponse)
+@declares("issue.manage", Access.ITEM)
 def delete_issue(request: Request, slug: str, db: Session = Depends(get_db)):
     issue_svc.delete_issue(db, slug)
     return templates.TemplateResponse(request, "issues.html", _ctx(db, active_tab="current"))
 
 
 @router.post("/{slug}/notes", response_class=HTMLResponse)
+@declares("issue.manage", Access.ITEM)
 def add_note(request: Request, slug: str, content: str = Form(...), db: Session = Depends(get_db)):
     issue = issue_svc.get_issue(db, slug)
     note_svc.add_note(db, f"issue:{issue.id}", content)
@@ -140,6 +148,7 @@ def add_note(request: Request, slug: str, content: str = Form(...), db: Session 
 
 
 @router.delete("/{slug}/notes/{note_id}", response_class=HTMLResponse)
+@declares("issue.manage", Access.ITEM)
 def delete_note(request: Request, slug: str, note_id: UUID, db: Session = Depends(get_db)):
     note_svc.delete_note(db, note_id)
     issue = issue_svc.get_issue(db, slug)
@@ -152,6 +161,7 @@ def delete_note(request: Request, slug: str, note_id: UUID, db: Session = Depend
 
 
 @router.post("/{slug}/documents", response_class=HTMLResponse)
+@declares("inventory.manage", Access.ITEM)
 async def add_document(
     request: Request,
     slug: str,
@@ -181,6 +191,7 @@ async def add_document(
 
 
 @router.delete("/{slug}/documents/{doc_id}", response_class=HTMLResponse)
+@declares("inventory.manage", Access.ITEM)
 def delete_document(request: Request, slug: str, doc_id: str, db: Session = Depends(get_db)):
     doc_svc.delete_document(db, doc_id)
     issue = issue_svc.get_issue(db, slug)

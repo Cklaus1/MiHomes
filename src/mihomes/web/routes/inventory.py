@@ -7,6 +7,8 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
+from mihomes.authz.actions import Access
+from mihomes.authz.declare import declares
 from mihomes.models.consumable import Consumable, ConsumableStatus
 from mihomes.services import property as prop_svc
 from mihomes.services.consumable import (
@@ -58,6 +60,7 @@ def _ctx(db: Session, property_slug: str | None = None, category: str | None = N
 
 
 @router.post("/", response_class=HTMLResponse)
+@declares("inventory.manage", Access.ITEM)
 def add_item(
     request: Request,
     name: str = Form(...),
@@ -99,6 +102,7 @@ def add_item(
 
 
 @router.get("/")
+@declares("inventory.manage", Access.COLLECTION)
 def inventory_index(
     request: Request,
     property_slug: str | None = None,
@@ -109,6 +113,7 @@ def inventory_index(
 
 
 @router.post("/{slug}/stock", response_class=HTMLResponse)
+@declares("inventory.manage", Access.ITEM)
 def set_stock(
     request: Request,
     slug: str,
@@ -128,6 +133,7 @@ def set_stock(
 
 
 @router.post("/{slug}/settings", response_class=HTMLResponse)
+@declares("inventory.manage", Access.ITEM)
 def update_settings(
     request: Request,
     slug: str,
@@ -151,6 +157,7 @@ def update_settings(
 
 
 @router.post("/{slug}/ordered", response_class=HTMLResponse)
+@declares("inventory.manage", Access.ITEM)
 def set_ordered(
     request: Request,
     slug: str,
@@ -175,6 +182,7 @@ def set_ordered(
 
 
 @router.post("/{slug}/restock", response_class=HTMLResponse)
+@declares("inventory.manage", Access.ITEM)
 def restock(
     request: Request,
     slug: str,
@@ -191,6 +199,7 @@ def restock(
 
 
 @router.post("/{slug}/price-entries/{entry_id}/delete", response_class=HTMLResponse)
+@declares("finance.view", Access.ITEM)
 def delete_item_price(
     request: Request,
     slug: str,
@@ -206,6 +215,7 @@ def delete_item_price(
 
 
 @router.post("/{slug}/price-entries/{entry_id}/edit", response_class=HTMLResponse)
+@declares("finance.view", Access.ITEM)
 def edit_item_price(
     request: Request,
     slug: str,
@@ -234,6 +244,7 @@ def edit_item_price(
 
 
 @router.post("/{slug}/price-entries", response_class=HTMLResponse)
+@declares("finance.view", Access.ITEM)
 def add_item_price(
     request: Request,
     slug: str,

@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
+from mihomes.authz.actions import Access
+from mihomes.authz.declare import declares
 from mihomes.models.asset import AssetCondition, AssetType
 from mihomes.models.book import BookCondition
 from mihomes.models.document import DocumentType
@@ -128,11 +130,13 @@ def _list_ctx(db: Session, property_slug: str, space_slug: str, asset_type: str 
 # ── Level 1: property selector ────────────────────────────────────────────────
 
 @router.get("/")
+@declares("inventory.manage", Access.COLLECTION)
 def asset_properties(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "assets_properties.html", _properties_ctx(db))
 
 
 @router.post("/{property_slug}/{space_slug}/edit-room", response_class=HTMLResponse)
+@declares("inventory.manage", Access.ITEM)
 def edit_room(
     request: Request,
     property_slug: str,
@@ -146,6 +150,7 @@ def edit_room(
 
 
 @router.post("/{property_slug}/{space_slug}/delete-room", response_class=HTMLResponse)
+@declares("inventory.manage", Access.ITEM)
 def delete_room(
     request: Request,
     property_slug: str,
@@ -157,6 +162,7 @@ def delete_room(
 
 
 @router.post("/create-room", response_class=HTMLResponse)
+@declares("inventory.manage", Access.ITEM)
 def create_room(
     request: Request,
     name: str = Form(...),
@@ -171,6 +177,7 @@ def create_room(
 # ── Level 2: space selector ───────────────────────────────────────────────────
 
 @router.get("/{property_slug}")
+@declares("inventory.manage", Access.COLLECTION)
 def asset_spaces(request: Request, property_slug: str, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "assets_spaces.html", _spaces_ctx(db, property_slug))
 
@@ -178,6 +185,7 @@ def asset_spaces(request: Request, property_slug: str, db: Session = Depends(get
 # ── Level 3: asset list ───────────────────────────────────────────────────────
 
 @router.get("/{property_slug}/{space_slug}")
+@declares("inventory.manage", Access.COLLECTION)
 def asset_list(request: Request, property_slug: str, space_slug: str,
                asset_type: str | None = None, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "assets.html", _list_ctx(db, property_slug, space_slug, asset_type))
@@ -186,6 +194,7 @@ def asset_list(request: Request, property_slug: str, space_slug: str,
 # ── Mutations ─────────────────────────────────────────────────────────────────
 
 @router.post("/", response_class=HTMLResponse)
+@declares("inventory.manage", Access.ITEM)
 def create_asset(
     request: Request,
     name: str = Form(...),
@@ -237,6 +246,7 @@ def _scan_review_ctx(property_slug: str, space_slug: str, room_name: str,
 
 
 @router.post("/scan", response_class=HTMLResponse)
+@declares("inventory.manage", Access.ITEM)
 async def scan_room(
     request: Request,
     property_slug: str = Form(...),
@@ -269,6 +279,7 @@ async def scan_room(
 
 
 @router.post("/scan/confirm", response_class=HTMLResponse)
+@declares("inventory.manage", Access.ITEM)
 def scan_confirm(
     request: Request,
     property_slug: str = Form(...),
@@ -332,6 +343,7 @@ def scan_confirm(
 
 
 @router.post("/{slug}/notes", response_class=HTMLResponse)
+@declares("inventory.manage", Access.ITEM)
 def add_note(request: Request, slug: str, content: str = Form(...), db: Session = Depends(get_db)):
     note_svc.add_note(db, f"asset:{slug}", content)
     asset = asset_svc.get_asset(db, slug)
@@ -344,6 +356,7 @@ def add_note(request: Request, slug: str, content: str = Form(...), db: Session 
 
 
 @router.delete("/{slug}/notes/{note_id}", response_class=HTMLResponse)
+@declares("inventory.manage", Access.ITEM)
 def delete_note(request: Request, slug: str, note_id: uuid.UUID, db: Session = Depends(get_db)):
     note_svc.delete_note(db, note_id)
     asset = asset_svc.get_asset(db, slug)
@@ -356,6 +369,7 @@ def delete_note(request: Request, slug: str, note_id: uuid.UUID, db: Session = D
 
 
 @router.post("/{slug}/edit", response_class=HTMLResponse)
+@declares("inventory.manage", Access.ITEM)
 def edit_asset(
     request: Request,
     slug: str,
@@ -396,6 +410,7 @@ def edit_asset(
 
 
 @router.post("/{slug}/price-entries", response_class=HTMLResponse)
+@declares("finance.view", Access.ITEM)
 def add_price_entry(
     request: Request,
     slug: str,
@@ -426,6 +441,7 @@ def add_price_entry(
 
 
 @router.post("/{slug}/documents", response_class=HTMLResponse)
+@declares("inventory.manage", Access.ITEM)
 async def add_asset_document(
     request: Request,
     slug: str,
@@ -457,6 +473,7 @@ async def add_asset_document(
 
 
 @router.delete("/{slug}/documents/{doc_id}", response_class=HTMLResponse)
+@declares("inventory.manage", Access.ITEM)
 def delete_asset_document(
     request: Request,
     slug: str,
@@ -474,6 +491,7 @@ def delete_asset_document(
 
 
 @router.post("/{property_slug}/{space_slug}/notes", response_class=HTMLResponse)
+@declares("inventory.manage", Access.ITEM)
 def add_space_note(
     request: Request,
     property_slug: str,
@@ -492,6 +510,7 @@ def add_space_note(
 
 
 @router.delete("/{property_slug}/{space_slug}/notes/{note_id}", response_class=HTMLResponse)
+@declares("inventory.manage", Access.ITEM)
 def delete_space_note(
     request: Request,
     property_slug: str,
@@ -510,6 +529,7 @@ def delete_space_note(
 
 
 @router.post("/{slug}/delete", response_class=HTMLResponse)
+@declares("inventory.manage", Access.ITEM)
 def delete_asset(
     request: Request,
     slug: str,

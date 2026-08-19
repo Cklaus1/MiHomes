@@ -24,6 +24,8 @@ import mimetypes
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import RedirectResponse, Response
 
+from mihomes.authz.actions import Access
+from mihomes.authz.declare import declares
 from mihomes.storage import ObjectNotFound, get_storage, key_account
 from mihomes.tenancy import require_account
 
@@ -43,6 +45,7 @@ _INLINE_TYPES = {
 
 
 @router.get("/documents/file/{key:path}")
+@declares("inventory.manage", Access.ITEM)
 def download(key: str):
     """Stream an object, but only to the account that owns it."""
     try:

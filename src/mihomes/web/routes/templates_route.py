@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
+from mihomes.authz.actions import Access
+from mihomes.authz.declare import declares
 from mihomes.models.task import TaskPriority
 from mihomes.services import property as prop_svc
 from mihomes.services import template as tmpl_svc
@@ -25,11 +27,13 @@ def _ctx(db: Session, flash: str | None = None) -> dict:
 
 
 @router.get("/")
+@declares("task.manage", Access.COLLECTION)
 def list_templates(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "templates.html", _ctx(db))
 
 
 @router.post("/", response_class=HTMLResponse)
+@declares("task.manage", Access.ITEM)
 def create_template(
     request: Request,
     name: str = Form(...),
@@ -47,6 +51,7 @@ def create_template(
 
 
 @router.post("/{slug}/run", response_class=HTMLResponse)
+@declares("task.manage", Access.ITEM)
 def run_template(
     request: Request,
     slug: str,
@@ -66,6 +71,7 @@ def run_template(
 
 
 @router.post("/{slug}/delete", response_class=HTMLResponse)
+@declares("task.manage", Access.ITEM)
 def delete_template(
     request: Request,
     slug: str,

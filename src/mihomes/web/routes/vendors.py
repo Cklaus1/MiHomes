@@ -7,6 +7,8 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
+from mihomes.authz.actions import Access
+from mihomes.authz.declare import declares
 from mihomes.services import note as note_svc
 from mihomes.services import vendor as vendor_svc
 from mihomes.web.deps import get_db, templates
@@ -55,11 +57,13 @@ def _ctx(db: Session) -> dict:
 
 
 @router.get("/")
+@declares("vendor.view_contact", Access.COLLECTION)
 def list_vendors(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "vendors.html", _ctx(db))
 
 
 @router.post("/", response_class=HTMLResponse)
+@declares("vendor.manage", Access.ITEM)
 def create_vendor(
     request: Request,
     company_name: str = Form(...),
@@ -85,18 +89,21 @@ def create_vendor(
 
 
 @router.post("/categories/delete", response_class=HTMLResponse)
+@declares("vendor.manage", Access.ACCOUNT)
 def delete_category(request: Request, category: str = Form(...), db: Session = Depends(get_db)):
     vendor_svc.delete_category(db, category)
     return templates.TemplateResponse(request, "vendors.html", _ctx(db))
 
 
 @router.post("/categories/rename", response_class=HTMLResponse)
+@declares("vendor.manage", Access.ACCOUNT)
 def rename_category(request: Request, old_name: str = Form(...), new_name: str = Form(...), db: Session = Depends(get_db)):
     vendor_svc.rename_category(db, old_name.strip(), new_name.strip())
     return templates.TemplateResponse(request, "vendors.html", _ctx(db))
 
 
 @router.post("/{slug}/rate", response_class=HTMLResponse)
+@declares("vendor.manage", Access.ITEM)
 def rate_vendor(
     request: Request,
     slug: str,
@@ -120,6 +127,7 @@ def rate_vendor(
 
 
 @router.post("/{slug}/edit", response_class=HTMLResponse)
+@declares("vendor.manage", Access.ITEM)
 def edit_vendor(
     request: Request,
     slug: str,
@@ -183,12 +191,14 @@ def edit_vendor(
 
 
 @router.post("/{slug}/delete", response_class=HTMLResponse)
+@declares("vendor.manage", Access.ITEM)
 def delete_vendor(request: Request, slug: str, db: Session = Depends(get_db)):
     vendor_svc.delete_vendor(db, slug)
     return templates.TemplateResponse(request, "vendors.html", _ctx(db))
 
 
 @router.post("/{slug}/notes", response_class=HTMLResponse)
+@declares("vendor.manage", Access.ITEM)
 def add_note(request: Request, slug: str, content: str = Form(...), db: Session = Depends(get_db)):
     vendor = vendor_svc.get_vendor(db, slug)
     note_svc.add_note(db, f"vendor:{vendor.id}", content)
@@ -201,6 +211,7 @@ def add_note(request: Request, slug: str, content: str = Form(...), db: Session 
 
 
 @router.delete("/{slug}/notes/{note_id}", response_class=HTMLResponse)
+@declares("vendor.manage", Access.ITEM)
 def delete_note(request: Request, slug: str, note_id: UUID, db: Session = Depends(get_db)):
     note_svc.delete_note(db, note_id)
     vendor = vendor_svc.get_vendor(db, slug)

@@ -673,3 +673,42 @@
   `1562 passed, 0 failed` is only reproducible with it set; under a single database the same tree
   reports `4 failed, 1558 passed`. Documented in `build-loop-spec003.md` §0.2 rather than
   back-edited into a completed run's harness. (surfaced during SPEC-003 pre-flight)
+
+## SPEC-003 G6 (2026-08-19) — action declarations on 142 routes
+
+- [BUG][medium] **SPEC-003's 21-key action vocabulary does not cover four existing features.**
+  Step 5 is mechanical declaration, but four router modules have no honest key to declare:
+  - `staff.py` (7 routes) — these manage the **`Staff` HR model**, and F2d is explicit that row 10
+    "Manage staff" governs **memberships, not HR data**. §4.1 classifies `staff` as `PERSONNEL`
+    with the rule *"Staff may see their own record; never others'"* — **no matrix key expresses
+    that**. Declared `member.manage` (staff denied outright), which is fail-closed but stricter
+    than §4.1 describes: a housekeeper cannot see their own record.
+  - `books.py` + `library.py` (4) — §4.1 classifies `book` `ACCOUNT_LEVEL` (denied to staff), but
+    C10 showed that rationale is wrong for `Book` (it carries `property_id`) and the library is
+    functionally inventory. Declared `inventory.manage`, i.e. **by function, against the
+    classification**.
+  - `templates_route.py` (4) + `playbooks_route.py` (3) — both models are `ACCOUNT_LEVEL`; both
+    generate tasks. Declared `task.manage`. No key expresses "account-level operational config".
+  **Fix:** either add keys in a Step-1 follow-up (`staff.view_own`, `library.manage`,
+  `automation.manage`) or reconcile §4.1's classification with the declarations. Until then these
+  four are the concrete instances of the residual §10 already admits — *"the harness proves every
+  route declares something, not that it declared the right thing."* (surfaced during G6)
+
+- [BUG][low] **Staff can write money they are not allowed to read.** `complete_work_order` writes
+  `WorkOrder.actual_cost` and is declared `issue.manage`, which is `SCOPED` for staff — because
+  declaring `finance.view` instead would deny staff the ability to complete work at all, which
+  D14 explicitly rejects (*"redaction honours both without removing records staff need to do
+  their jobs"*). So a housekeeper may set a cost that redaction then hides from them. D14 covers
+  **reads**; the spec never addresses money **writes** by staff. Needs a product decision: either
+  a cost-entry sub-permission, or accept it. (surfaced during G6)
+
+- [OPT] The three price-entry route groups (`assets.add_price_entry`,
+  `inventory.{add,edit,delete}_item_price`) were declared `finance.view` rather than
+  `inventory.manage` precisely to avoid the above — `inventory.manage` is `SCOPED` for staff and
+  would have handed price history to the role row 9 denies finances to. Worth a regression test
+  at G7/G8 asserting no `Money`-writing route carries a staff-`SCOPED` action. (surfaced during G6)
+
+- [DEFER][G15] `web/routes/ai.py` still returns *"Run `mihomes ai setup` in the CLI"* to the
+  browser (`_AI_ERROR_HINT`, `:48-49` — §3 cites `:47-48`, line drift). §3 lists deleting it under
+  this phase, but its replacement is Step 15's settings UI. Deleting it at G6 would leave a worse
+  message than the wrong one; it moves with G15. (surfaced during G6.4)

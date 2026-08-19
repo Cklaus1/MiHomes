@@ -4,9 +4,10 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
+from mihomes.authz.actions import Access
+from mihomes.authz.declare import declares
 from mihomes.models.book import BookCondition
 from mihomes.services import book as book_svc
-from mihomes.services import property as prop_svc
 from mihomes.services import space as space_svc
 from mihomes.web.deps import get_db, templates
 
@@ -22,6 +23,7 @@ def _return_space_view(request: Request, db: Session, from_property: str, from_s
 
 
 @router.post("/", response_class=HTMLResponse)
+@declares("inventory.manage", Access.ITEM)
 def create_book(
     request: Request,
     title: str = Form(...),
@@ -51,6 +53,7 @@ def create_book(
 
 
 @router.post("/{slug}/edit", response_class=HTMLResponse)
+@declares("inventory.manage", Access.ITEM)
 def edit_book(
     request: Request,
     slug: str,
@@ -78,6 +81,7 @@ def edit_book(
 
 
 @router.post("/{slug}/delete", response_class=HTMLResponse)
+@declares("inventory.manage", Access.ITEM)
 def delete_book(
     request: Request,
     slug: str,

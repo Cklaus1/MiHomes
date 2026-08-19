@@ -7,6 +7,8 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
+from mihomes.authz.actions import Access
+from mihomes.authz.declare import declares
 from mihomes.models.document import DocumentType
 from mihomes.services import contract as contract_svc
 from mihomes.services import document as doc_svc
@@ -43,11 +45,13 @@ def _ctx(db: Session, auto_renew: bool | None = None) -> dict:
 
 
 @router.get("/")
+@declares("finance.view", Access.ACCOUNT)
 def list_contracts(request: Request, auto_renew: bool | None = None, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "contracts.html", _ctx(db, auto_renew))
 
 
 @router.post("/", response_class=HTMLResponse)
+@declares("finance.view", Access.ACCOUNT)
 def create_contract(
     request: Request,
     vendor_slug: str = Form(...),
@@ -79,6 +83,7 @@ def create_contract(
 
 
 @router.post("/{contract_id}/notes", response_class=HTMLResponse)
+@declares("finance.view", Access.ACCOUNT)
 def add_note(request: Request, contract_id: str, content: str = Form(...), db: Session = Depends(get_db)):
     note_svc.add_note(db, f"contract:{contract_id}", content)
     notes = note_svc.list_notes(db, f"contract:{contract_id}")
@@ -90,6 +95,7 @@ def add_note(request: Request, contract_id: str, content: str = Form(...), db: S
 
 
 @router.delete("/{contract_id}/notes/{note_id}", response_class=HTMLResponse)
+@declares("finance.view", Access.ACCOUNT)
 def delete_note(request: Request, contract_id: str, note_id: UUID, db: Session = Depends(get_db)):
     note_svc.delete_note(db, note_id)
     notes = note_svc.list_notes(db, f"contract:{contract_id}")
@@ -101,6 +107,7 @@ def delete_note(request: Request, contract_id: str, note_id: UUID, db: Session =
 
 
 @router.post("/{contract_id}/documents", response_class=HTMLResponse)
+@declares("finance.view", Access.ACCOUNT)
 async def add_document(
     request: Request,
     contract_id: str,
@@ -129,6 +136,7 @@ async def add_document(
 
 
 @router.delete("/{contract_id}/documents/{doc_id}", response_class=HTMLResponse)
+@declares("finance.view", Access.ACCOUNT)
 def delete_document(request: Request, contract_id: str, doc_id: str, db: Session = Depends(get_db)):
     doc_svc.delete_document(db, doc_id)
     docs = doc_svc.list_documents(db, entity_type="contract", entity_id=contract_id)
@@ -140,6 +148,7 @@ def delete_document(request: Request, contract_id: str, doc_id: str, db: Session
 
 
 @router.post("/{contract_id}/edit", response_class=HTMLResponse)
+@declares("finance.view", Access.ACCOUNT)
 def edit_contract(
     request: Request,
     contract_id: str,
@@ -165,6 +174,7 @@ def edit_contract(
 
 
 @router.post("/{contract_id}/delete", response_class=HTMLResponse)
+@declares("finance.view", Access.ACCOUNT)
 def delete_contract(request: Request, contract_id: str, db: Session = Depends(get_db)):
     contract_svc.delete_contract(db, contract_id)
     return templates.TemplateResponse(request, "contracts.html", _ctx(db))

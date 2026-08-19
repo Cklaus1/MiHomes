@@ -7,6 +7,8 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
+from mihomes.authz.actions import Access
+from mihomes.authz.declare import declares
 from mihomes.models.recurring_expense import ExpenseFrequency
 from mihomes.services import note as note_svc
 from mihomes.services import recurring as recurring_svc
@@ -22,11 +24,13 @@ def _ctx(db: Session) -> dict:
 
 
 @router.get("/")
+@declares("finance.view", Access.ACCOUNT)
 def list_recurring(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "budget.html", _ctx(db))
 
 
 @router.post("/", response_class=HTMLResponse)
+@declares("finance.view", Access.ACCOUNT)
 def create_recurring(
     request: Request,
     name: str = Form(...),
@@ -58,6 +62,7 @@ def create_recurring(
 
 
 @router.post("/{expense_id}/edit", response_class=HTMLResponse)
+@declares("finance.view", Access.ACCOUNT)
 def edit_recurring(
     request: Request,
     expense_id: str,
@@ -93,6 +98,7 @@ def edit_recurring(
 
 
 @router.post("/generate", response_class=HTMLResponse)
+@declares("finance.view", Access.ACCOUNT)
 def generate_transactions(request: Request, db: Session = Depends(get_db)):
     recurring_svc.generate_transactions(db)
     recurring_svc.generate_upcoming_appointments(db)
@@ -100,6 +106,7 @@ def generate_transactions(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/{expense_id}/notes", response_class=HTMLResponse)
+@declares("finance.view", Access.ACCOUNT)
 def add_note(request: Request, expense_id: str, content: str = Form(...), db: Session = Depends(get_db)):
     note_svc.add_note(db, f"recurring:{expense_id}", content)
     notes = note_svc.list_notes(db, f"recurring:{expense_id}")
@@ -111,6 +118,7 @@ def add_note(request: Request, expense_id: str, content: str = Form(...), db: Se
 
 
 @router.delete("/{expense_id}/notes/{note_id}", response_class=HTMLResponse)
+@declares("finance.view", Access.ACCOUNT)
 def delete_note(request: Request, expense_id: str, note_id: UUID, db: Session = Depends(get_db)):
     note_svc.delete_note(db, note_id)
     notes = note_svc.list_notes(db, f"recurring:{expense_id}")
@@ -122,6 +130,7 @@ def delete_note(request: Request, expense_id: str, note_id: UUID, db: Session = 
 
 
 @router.post("/{expense_id}/delete", response_class=HTMLResponse)
+@declares("finance.view", Access.ACCOUNT)
 def delete_recurring(request: Request, expense_id: str, db: Session = Depends(get_db)):
     recurring_svc.update_recurring_expense(db, expense_id, end_date=date.today())
     return templates.TemplateResponse(request, "budget.html", _ctx(db))

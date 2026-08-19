@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
+from mihomes.authz.actions import Access
+from mihomes.authz.declare import declares
 from mihomes.models.appointment import AppointmentType
 from mihomes.services import appointment as appt_svc
 from mihomes.services import contract as contract_svc
@@ -185,6 +187,7 @@ def _ctx(db: Session, month_date: date, property_id: str | None = None) -> dict:
 
 
 @router.get("/")
+@declares("task.manage", Access.COLLECTION)
 def calendar_view(
     request: Request,
     month: str | None = None,
@@ -202,6 +205,7 @@ def calendar_view(
 
 
 @router.post("/appointments/", response_class=HTMLResponse)
+@declares("task.manage", Access.ITEM)
 def create_appointment(
     request: Request,
     title: str = Form(...),
@@ -241,6 +245,7 @@ def create_appointment(
 
 
 @router.post("/appointments/{appointment_id}/edit", response_class=HTMLResponse)
+@declares("task.manage", Access.ITEM)
 def edit_appointment(
     request: Request,
     appointment_id: UUID,
@@ -276,6 +281,7 @@ def edit_appointment(
 
 
 @router.post("/appointments/{appointment_id}/mark-serviced", response_class=HTMLResponse)
+@declares("task.manage", Access.ITEM)
 def mark_appointment_serviced(
     request: Request,
     appointment_id: UUID,
@@ -298,6 +304,7 @@ def mark_appointment_serviced(
 
 
 @router.post("/appointments/{appointment_id}/delete", response_class=HTMLResponse)
+@declares("task.manage", Access.ITEM)
 def delete_appointment(
     request: Request,
     appointment_id: UUID,
@@ -313,6 +320,7 @@ def delete_appointment(
 
 
 @router.post("/events/{event_id}/delete", response_class=HTMLResponse)
+@declares("task.manage", Access.ITEM)
 def delete_event_from_calendar(
     request: Request,
     event_id: UUID,

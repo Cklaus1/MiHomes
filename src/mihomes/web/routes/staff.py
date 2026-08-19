@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
+from mihomes.authz.actions import Access
+from mihomes.authz.declare import declares
 from mihomes.models.staff import CATEGORY_ORDER, StaffRole, category_for_role, is_staff_role
 from mihomes.services import note as note_svc
 from mihomes.services import property as prop_svc
@@ -40,11 +42,13 @@ def _ctx(db: Session) -> dict:
 
 
 @router.get("/")
+@declares("member.manage", Access.ACCOUNT)
 def list_staff(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "staff.html", _ctx(db))
 
 
 @router.post("/", response_class=HTMLResponse)
+@declares("member.manage", Access.ACCOUNT)
 def create_staff(
     request: Request,
     name: str = Form(...),
@@ -67,6 +71,7 @@ def create_staff(
 
 
 @router.post("/{slug}/assign", response_class=HTMLResponse)
+@declares("member.manage", Access.ACCOUNT)
 def assign_property(
     request: Request,
     slug: str,
@@ -78,6 +83,7 @@ def assign_property(
 
 
 @router.post("/{slug}/edit", response_class=HTMLResponse)
+@declares("member.manage", Access.ACCOUNT)
 def edit_staff(
     request: Request,
     slug: str,
@@ -111,12 +117,14 @@ def edit_staff(
 
 
 @router.post("/{slug}/delete", response_class=HTMLResponse)
+@declares("member.manage", Access.ACCOUNT)
 def delete_staff(request: Request, slug: str, db: Session = Depends(get_db)):
     staff_svc.delete_staff(db, slug)
     return templates.TemplateResponse(request, "staff.html", _ctx(db))
 
 
 @router.post("/{slug}/notes", response_class=HTMLResponse)
+@declares("member.manage", Access.ACCOUNT)
 def add_note(request: Request, slug: str, content: str = Form(...), db: Session = Depends(get_db)):
     member = staff_svc.get_staff(db, slug)
     note_svc.add_note(db, f"staff:{member.id}", content)
@@ -129,6 +137,7 @@ def add_note(request: Request, slug: str, content: str = Form(...), db: Session 
 
 
 @router.delete("/{slug}/notes/{note_id}", response_class=HTMLResponse)
+@declares("member.manage", Access.ACCOUNT)
 def delete_note(request: Request, slug: str, note_id: UUID, db: Session = Depends(get_db)):
     note_svc.delete_note(db, note_id)
     member = staff_svc.get_staff(db, slug)

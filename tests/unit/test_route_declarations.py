@@ -44,35 +44,16 @@ PERMANENT_ALLOWLIST: dict[str, str] = {
 }
 
 #: Router modules whose endpoints have not been declared yet. **Only ever shrinks** (A5).
-#: Each entry is removed by its own G6 sub-task.
-UNDECLARED_MODULES: set[str] = {
-    "mihomes.web.routes.alerts",
-    "mihomes.web.routes.ai",
-    "mihomes.web.routes.assets",
-    "mihomes.web.routes.books",
-    "mihomes.web.routes.budget",
-    "mihomes.web.routes.calendar",
-    "mihomes.web.routes.contracts",
-    "mihomes.web.routes.documents",
-    "mihomes.web.routes.documents_download",
-    "mihomes.web.routes.inventory",
-    "mihomes.web.routes.issues",
-    "mihomes.web.routes.library",
-    "mihomes.web.routes.playbooks_route",
-    "mihomes.web.routes.properties",
-    "mihomes.web.routes.recurring",
-    "mihomes.web.routes.search",
-    "mihomes.web.routes.staff",
-    "mihomes.web.routes.templates_route",
-    "mihomes.web.routes.vendors",
-    "mihomes.web.routes.weather",
-    "mihomes.web.routes.work_orders",
-}
+#: Each entry was removed by its own G6 sub-task. **Now empty — G6 is complete.**
+UNDECLARED_MODULES: set[str] = set()
 
-#: The committed high-water mark. **Lower this as G6 lands; never raise it.**
-#: 23 at G5 (every router but `auth`), 22 once `dashboard` was declared as the mechanism's
-#: end-to-end proof, 21 with `tasks`. Reaches 0 at G6.9.
-CEILING = 21
+#: The committed high-water mark. **Never raise it.**
+#: 23 at G5 (every router but `auth`), 22 once `dashboard` proved the mechanism end to end, then
+#: 21 `tasks`, 20 `assets`, 19 `work_orders`, 18 `properties`, 17 `ai`, and down to **0** at G6.9.
+#: From here the temporary allowlist is a closed door: `test_ceiling_is_not_slack` pins the two
+#: together, so re-opening it requires raising the ceiling in the same diff — which this comment
+#: forbids and a reviewer can see.
+CEILING = 0
 
 
 # ---------------------------------------------------------------------------------------

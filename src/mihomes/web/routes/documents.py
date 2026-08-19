@@ -5,6 +5,8 @@ from datetime import date
 from fastapi import APIRouter, Depends, Form, Request
 from sqlalchemy.orm import Session
 
+from mihomes.authz.actions import Access
+from mihomes.authz.declare import declares
 from mihomes.models.document import DocumentType
 from mihomes.services import document as doc_svc
 from mihomes.services import property as prop_svc
@@ -56,11 +58,13 @@ def _ctx(db: Session, type_filter: str = "", **kwargs) -> dict:
 
 
 @router.get("/")
+@declares("inventory.manage", Access.COLLECTION)
 def list_documents(request: Request, type: str = "", db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "documents.html", _ctx(db, type_filter=type))
 
 
 @router.post("/")
+@declares("inventory.manage", Access.ITEM)
 def create_document(
     request: Request,
     title: str = Form(...),
@@ -85,6 +89,7 @@ def create_document(
 
 
 @router.post("/{slug}/edit")
+@declares("inventory.manage", Access.ITEM)
 def edit_document(
     request: Request,
     slug: str,
@@ -110,6 +115,7 @@ def edit_document(
 
 
 @router.post("/{slug}/delete")
+@declares("inventory.manage", Access.ITEM)
 def delete_document(
     request: Request,
     slug: str,

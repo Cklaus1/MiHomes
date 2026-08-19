@@ -534,15 +534,42 @@ resumable. **Each group ships its own revision in the chain** (`0003…`, `0004�
 > **`CEILING` in `tests/unit/test_route_declarations.py` is the progress counter** — currently
 > **21**, and it must reach 0 at G6.9. One sub-task per router module; the temporary allowlist is
 > the continuous gate. **U2 stands:** this catches *undeclared*, not *mis-declared*.
-- [ ] G6.1 · §6 Step 5 · A4 · `assets.py` (18) · verify: `test_route_declarations.py` + `assets` absent from the shrinking allowlist
-- [ ] G6.2 · §6 Step 5 · A4 · `work_orders.py` (13)
-- [ ] G6.3 · §6 Step 5 · A4 · `properties.py` (10)
-- [ ] G6.4 · §6 Step 5 · A4 · `ai.py` (10) — **also delete the `mihomes ai setup` hint at `:47-48`** (§3 Modified)
-- [ ] G6.5 · §6 Step 5 · A4 · `issues.py` (9), `inventory.py` (9), `vendors.py` (9 — **not 11**, C2)
-- [ ] G6.6 · §6 Step 5 · A4 · `contracts.py` (8), `staff.py` (7), ~~`tasks.py` (7)~~ ✓, `recurring.py` (7)
-- [ ] G6.7 · §6 Step 5 · A4 · `calendar.py` (6), `alerts.py` (5), `documents.py` (4), `templates_route.py` (4) — **`auth.py` is `PERMANENT_ALLOWLIST`, not a G6 target**: sign-in and the OIDC callback run *before* an identity exists, so requiring a declared action would make authentication depend on being authenticated
-- [ ] G6.8 · §6 Step 5 · A4 · `budget.py` (3), `books.py` (3), `playbooks_route.py` (3), `search.py` (2), `weather.py` (2), ~~`dashboard.py` (1)~~ ✓ *(declared at G5 as the mechanism's proof)*, `library.py` (1), `documents_download.py` (1)
-- [ ] G6.9 · §6 Step 5 · A5 · the shrinking allowlist is **empty**; list every write/delete/export route in the group commit for U2's human review · verify: `test_route_declarations.py::test_allowlist_monotonic` + allowlist length 0
+- [x] G6.1 · §6 Step 5 · A4 · `assets.py` (18) ✓
+- [x] G6.2 · §6 Step 5 · A4 · `work_orders.py` (13) ✓
+- [x] G6.3 · §6 Step 5 · A4 · `properties.py` (10) ✓
+- [x] G6.4 · §6 Step 5 · A4 · `ai.py` (10) ✓ — **the `mihomes ai setup` hint moves to G15**, not deleted here: §3 lists it under this phase but its replacement *is* Step 15's settings UI, and removing it now would leave a worse message than the wrong one. (Also `:48-49`, not §3's `:47-48` — line drift.)
+- [x] G6.5 · §6 Step 5 · A4 · `issues.py` (9), `inventory.py` (9), `vendors.py` (9 — **not 11**, C2) ✓
+- [x] G6.6 · §6 Step 5 · A4 · `contracts.py` (8), `staff.py` (7), `tasks.py` (7), `recurring.py` (7) ✓
+- [x] G6.7 · §6 Step 5 · A4 · `calendar.py` (6), `alerts.py` (5), `documents.py` (4), `templates_route.py` (4) ✓ — **`auth.py` is `PERMANENT_ALLOWLIST`, not a G6 target**: sign-in and the OIDC callback run *before* an identity exists, so requiring a declared action would make authentication depend on being authenticated
+- [x] G6.8 · §6 Step 5 · A4 · `budget.py` (3), `books.py` (3), `playbooks_route.py` (3), `search.py` (2), `weather.py` (2), `dashboard.py` (1), `library.py` (1), `documents_download.py` (1) ✓
+- [x] G6.9 · §6 Step 5 · A5 · allowlist **empty**, `CEILING = 0` ✓ · verify: `test_route_declarations.py::test_allowlist_monotonic` + `test_ceiling_is_not_slack`
+
+> **Census on the real router table: 146 `APIRoute`s, 142 declared, 4 undeclared — and the 4 are
+> exactly `auth.py`'s.** That is the corrected C1/C2 arithmetic confirmed from the code rather
+> than from the spec's prose.
+>
+> Distribution: `inventory.manage` 38, `issue.manage` 23, `finance.view` 22, `task.manage` 20,
+> `ai.use` 10, `vendor.manage` 8, `property.view` 7, `member.manage` 7, `property.edit` 3,
+> `property.add` 2, `property.delete` 1, `vendor.view_contact` 1. **111 write/delete routes** —
+> that list is U2's human-review scope and is reproducible from `authz/declare.py`'s attributes.
+>
+> **Only one route carries `vendor.view_contact`, and that is D12 working.** Row 8 was split in
+> two precisely so staff read the vendor *index* and write nothing; every other vendor route is
+> `vendor.manage`, which is `DENY` for staff.
+>
+> **Three declarations are approximations, logged rather than hidden** (`opportunities.md`): the
+> 21-key vocabulary has no key for HR records (`staff.py` — F2d says row 10 governs *memberships*,
+> not HR data, and §4.1's `PERSONNEL` "own record only" rule is unexpressible), for the library
+> (`books`/`library` — §4.1 says account-level, but `Book` carries `property_id` and the library
+> is functionally inventory), or for account-level operational config
+> (`templates`/`playbooks`). These are the concrete instances of the residual §10 already admits.
+>
+> **And one real gap found by declaring carefully:** `complete_work_order` *writes*
+> `WorkOrder.actual_cost` under `issue.manage`, which is `SCOPED` for staff — so a housekeeper can
+> set a cost that redaction then hides from them. Declaring `finance.view` instead would deny
+> staff the ability to complete work at all, which D14 explicitly rejects. **D14 covers reads; the
+> spec never addresses money *writes* by staff.** The three price-entry route groups were
+> deliberately declared `finance.view` for exactly this reason.
 
 ### [ ] G7 — Step 7: staff scoping in web queries — *dep: G6*
 - [ ] G7.1 · §6 Step 7 · — · filter at the **query layer**, never post-hoc (§9.4 step 4); a scoped staff `GET /tasks` returns only scoped rows · verify: `tests/integration/test_permissions.py::test_collection_scoped_rows_only`
@@ -637,12 +664,13 @@ conventions §0's *"gate that cannot fail is not a gate"*, and this phase is mad
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**Landed:** G0, G1, G2, G3, G4, G5 (commits `4af3090`, `5425dba`, `cee00a3`, `03d8ddd`,
-`4fdf211`, `9453798`). Suite on HEAD: **1668 passed, 3 skipped, 2 xfailed, 0 failed**
+**Landed:** G0, G1, G2, G3, G4, G5, **G6**. Suite: **1668 passed, 3 skipped, 2 xfailed, 0 failed**
 (1562 baseline → 1668, +106 tests).
 
-**Resume at G6.1** (`assets.py`, 18 routes). `CEILING` in `tests/unit/test_route_declarations.py`
-is the progress counter: **21 → 0**.
+**Resume at G7.1** — staff scoping in web queries. G6 declared the actions; **G7 is where they
+start being enforced**, by constraining queries with `scoped_property_ids()`. `CEILING` is now 0
+and the temporary allowlist is empty, so any route added from here must declare or the suite
+fails.
 
 **Nothing is enforced yet, and that is the honest state of the phase.** G3 built
 `require_permission` and **no route calls it**; G2 built `redact_for_role` and **no serializer

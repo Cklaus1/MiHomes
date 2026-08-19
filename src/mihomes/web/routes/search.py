@@ -3,6 +3,8 @@
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
+from mihomes.authz.actions import Access
+from mihomes.authz.declare import declares
 from mihomes.services import search as search_svc
 from mihomes.web.deps import get_db, templates
 
@@ -40,6 +42,7 @@ ENTITY_URLS = {
 
 
 @router.get("/dropdown")
+@declares("property.view", Access.COLLECTION)
 def search_dropdown(request: Request, q: str = "", db: Session = Depends(get_db)):
     results = []
     if q.strip():
@@ -52,6 +55,7 @@ def search_dropdown(request: Request, q: str = "", db: Session = Depends(get_db)
 
 
 @router.get("/")
+@declares("property.view", Access.COLLECTION)
 def search(
     request: Request,
     q: str = "",

@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
+from mihomes.authz.actions import Access
+from mihomes.authz.declare import declares
 from mihomes.models.property import PropertyStatus, PropertyType
 from mihomes.models.task import TaskStatus
 from mihomes.services import issue as issue_svc
@@ -18,6 +20,7 @@ router = APIRouter()
 
 
 @router.get("/")
+@declares("property.view", Access.COLLECTION)
 def list_properties(request: Request, db: Session = Depends(get_db)):
     properties = prop_svc.list_properties(db)
     return templates.TemplateResponse(
@@ -28,6 +31,7 @@ def list_properties(request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/new")
+@declares("property.add", Access.ACCOUNT)
 def new_property_form(request: Request):
     return templates.TemplateResponse(
         request,
@@ -42,6 +46,7 @@ def new_property_form(request: Request):
 
 
 @router.post("/", response_class=HTMLResponse)
+@declares("property.add", Access.ACCOUNT)
 def create_property(
     request: Request,
     name: str = Form(...),
@@ -69,6 +74,7 @@ def create_property(
 
 
 @router.get("/{slug}")
+@declares("property.view", Access.ITEM)
 def property_detail(request: Request, slug: str, db: Session = Depends(get_db)):
     prop = prop_svc.get_property(db, slug)
     health = compute_property_health(db, prop.id)
@@ -95,6 +101,7 @@ def property_detail(request: Request, slug: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{slug}/occupy", response_class=HTMLResponse)
+@declares("property.edit", Access.ITEM)
 def occupy(request: Request, slug: str, db: Session = Depends(get_db)):
     prop = prop_svc.occupy_property(db, slug)
     return templates.TemplateResponse(
@@ -105,6 +112,7 @@ def occupy(request: Request, slug: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{slug}/vacate", response_class=HTMLResponse)
+@declares("property.edit", Access.ITEM)
 def vacate(request: Request, slug: str, db: Session = Depends(get_db)):
     prop = prop_svc.vacate_property(db, slug)
     return templates.TemplateResponse(
@@ -115,6 +123,7 @@ def vacate(request: Request, slug: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{slug}/edit", response_class=HTMLResponse)
+@declares("property.edit", Access.ITEM)
 def edit_property(
     request: Request,
     slug: str,
@@ -143,6 +152,7 @@ def edit_property(
 
 
 @router.post("/{slug}/delete", response_class=HTMLResponse)
+@declares("property.delete", Access.ITEM)
 def delete_property(request: Request, slug: str, db: Session = Depends(get_db)):
     prop_svc.delete_property(db, slug)
     properties = prop_svc.list_properties(db)
@@ -163,6 +173,7 @@ def _rooms_ctx(db, slug: str) -> dict:
 
 
 @router.post("/{slug}/spaces", response_class=HTMLResponse)
+@declares("inventory.manage", Access.ITEM)
 def create_space(
     request: Request,
     slug: str,
@@ -175,6 +186,7 @@ def create_space(
 
 
 @router.post("/{slug}/spaces/{space_slug}/delete", response_class=HTMLResponse)
+@declares("inventory.manage", Access.ITEM)
 def delete_space(request: Request, slug: str, space_slug: str, db: Session = Depends(get_db)):
     space_svc.delete_space(db, space_slug)
     return templates.TemplateResponse(request, "partials/rooms_list.html", _rooms_ctx(db, slug))

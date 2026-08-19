@@ -24,7 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from mihomes.auth.sessions import SESSION_COOKIE, lookup_session
-from mihomes.authz.actions import Grant
+from mihomes.authz.actions import Access, Grant
 from mihomes.authz.declare import declared_action
 from mihomes.authz.permissions import require_action_gate
 from mihomes.authz.query_scope import install_property_scope_listener
@@ -32,7 +32,7 @@ from mihomes.authz.redact import redact_context
 from mihomes.authz.scope import authz_context, current_role, scoped_property_ids
 from mihomes.db import get_session
 from mihomes.models.membership import Membership
-from mihomes.tenancy import account_context
+from mihomes.tenancy import account_context, current_user
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
@@ -129,6 +129,19 @@ class RequestPrincipal:
     role: str
 
 
+def session_user_id(request: Request, db: Session) -> uuid.UUID:
+    """The signed-in user, **without requiring an account** (`Access.SESSION`).
+
+    `lookup_session` refuses an expired or revoked session, so this is not a weaker
+    authentication check — only a narrower one: it stops before asking *which account*, because
+    the routes that use it are the ones deciding that.
+    """
+    auth = lookup_session(db, request.cookies.get(SESSION_COOKIE))
+    if auth is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return auth.user_id
+
+
 def resolve_principal(request: Request, db: Session) -> RequestPrincipal:
     """Cookie → `RequestPrincipal`, or raise. **Does not bind context** — callers do that.
 
@@ -194,7 +207,25 @@ async def enforce_declared_action(
         yield None
         return
 
-    action, _access = declared
+    action, access = declared
+
+    if access is Access.SESSION:
+        # Authorised by being signed in, not by a role within an account (G13.5). The account is
+        # what these routes are about to establish, accept an invitation into, or change — so
+        # resolving one first would 403 every screen that needs to run before it exists.
+        #
+        # `current_user` is still bound, so audit rows made here name the real actor and the
+        # onboarding service can find the person it is onboarding. `current_account` is
+        # deliberately left **unset**: `require_account()` then raises rather than silently
+        # scoping to whatever was ambient, which is the fail-closed direction.
+        user_id = session_user_id(request, db)
+        token = current_user.set(user_id)
+        try:
+            yield None
+        finally:
+            current_user.reset(token)
+        return
+
     principal = resolve_principal(request, db)
     with account_context(principal.account_id, principal.user_id):
         grant = require_action_gate(db, principal, action)

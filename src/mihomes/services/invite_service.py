@@ -36,6 +36,7 @@ __all__ = [
     "SeatLimitReached",
     "accept_invite",
     "create_invite",
+    "find_pending",
     "hash_token",
     "revoke_invite",
     "seats_used",
@@ -158,6 +159,27 @@ def _check_seat_capacity(session: Session, account_id: uuid.UUID) -> None:
         raise SeatLimitReached(
             "this account has no seats left; revoke a pending invite or upgrade"
         )
+
+
+def find_pending(session: Session, token: str) -> Invite | None:
+    """The pending, unexpired invite this token names — or `None`.
+
+    Read-only, for the screen that shows what an invitation grants before it is redeemed.
+    Returns `None` rather than raising for every failure, so the page renders one "this
+    invitation is no longer valid" state instead of distinguishing unknown from used from
+    expired — the same reasoning as `accept_invite`, on a surface reachable before sign-in.
+    """
+    invite = session.execute(
+        select(Invite).where(Invite.token_hash == hash_token(token))
+    ).scalar_one_or_none()
+
+    if invite is None or invite.status != "pending":
+        return None
+
+    expires = invite.expires_at
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    return None if expires <= datetime.now(timezone.utc) else invite
 
 
 def revoke_invite(session: Session, invite: Invite) -> Invite:

@@ -21,12 +21,14 @@ from mihomes.web.routes import (
     documents,
     documents_download,  # noqa: E402
     issues,
+    onboarding,
     playbooks_route,
     properties,
     recurring,
     search,
     staff,
     tasks,
+    team,
     templates_route,
     vendors,
     work_orders,
@@ -101,6 +103,11 @@ def create_app() -> FastAPI:
     # Sign-in / sign-out (G12). No prefix: these paths are fixed by the OAuth redirect URI
     # registered with Google, so they cannot move without reconfiguring the provider.
     app.include_router(auth_route.router)
+    # SPEC-003 Steps 11-13. No prefix on `team`: it owns `/invite/{token}` and
+    # `/accounts/switch` alongside `/team`, because those are the same feature seen from either
+    # side of account membership.
+    app.include_router(onboarding.router, prefix="/onboarding")
+    app.include_router(team.router)
     app.include_router(books.router, prefix="/books")
     app.include_router(ai_route.router, prefix="/ai")
     app.include_router(weather_route.router, prefix="/weather")

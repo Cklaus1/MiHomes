@@ -878,18 +878,38 @@ conventions §0's *"gate that cannot fail is not a gate"*, and this phase is mad
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**Landed:** G0–G13 (G11.4, the web wizard, deferred and logged). Suite: **1757 passed, 3 skipped,
-2 xfailed, 0 failed** (1562 baseline → 1757, +195 tests). Migration chain: `0001_pg_baseline` →
+**Landed:** G0–G13 **plus G13.5** (which discharges G11.4 and the G12/G13 UI). Suite:
+**1763 passed, 3 skipped, 2 xfailed, 0 failed** (1562 baseline → 1763, +201 tests). Migration chain: `0001_pg_baseline` →
 `0002_rls` → `0003_documents_staff_visible` → `0004_onboarding_state` →
 `0005_invite_property_ids` → `0006_user_last_used_account`; **full `base → head → base → head`
 round-trip clean**, `alembic check` reports no drift.
 
-**Web-layer gap carried across G11–G13.** Three groups now ship a working service layer whose
-**routes and templates are not built**: the onboarding wizard (G11.4), the invite accept/manage
-screens (G12), and the switcher control itself (G13). All three need the same missing piece — a
-route class for screens that run *before or across* account selection, which §4.1's
-`ITEM`/`COLLECTION`/`ACCOUNT` vocabulary cannot express. **Resolve that once, then wire all
-three**, rather than inventing a fourth `Access` value three times.
+### [x] G13.5 — `Access.SESSION`, and the three surfaces it unblocks — *founder-approved, 2026-08-19*
+
+The web-layer gap carried across G11–G13 is **closed**. Three groups had a working service layer
+and no routes, all blocked on the same thing: §4.1's `ITEM`/`COLLECTION`/`ACCOUNT` vocabulary
+presupposes an account, and onboarding steps 1–2, invite acceptance, and the switcher each run
+*before or across* account selection.
+
+- [x] G13.5a · — · `Access.SESSION` + `@declares_session(reason)` + the branch in `enforce_declared_action` that resolves the **user** but not the account · verify: `tests/integration/test_session_routes.py` ✓
+- [x] G13.5b · §6 Step 11 · A17/A18 · `web/routes/onboarding.py` + templates — **G11.4 discharged**
+- [x] G13.5c · §6 Step 12 · — · invite acceptance screens in `web/routes/team.py` — **G12's UI discharged**
+- [x] G13.5d · §6 Step 13 · A24 · the switcher control, rendered only above two accounts — **G13's UI discharged**; also closes the G13 note that `last_used_account` was *written but never read*
+
+> **The proof the class was needed, not merely convenient:** under `Access.ACCOUNT`, `/onboarding/`
+> is a 403 — `resolve_principal` raises "No account selected" before the route runs — so a new
+> signup is locked out of the one screen that would give them an account. A perfect deadlock, and
+> one that appears *only* for a genuinely new user, which is the population least able to report it.
+>
+> **Three properties stop it becoming a loophole**, because a class that skips the matrix is
+> exactly the kind of thing that spreads:
+> 1. **Narrower than `ACCOUNT`, not weaker than authenticated** — no cookie is still a 401.
+> 2. **`SESSION_ACTION` is deliberately not a `MATRIX` key.** A 21st key would break A1's "rows
+>    1–20 exactly" *and* misdescribe these routes, which are not authorised by a role in an
+>    account at all.
+> 3. **The exemption is pinned by a census**, listing the exact 8 paths, and every one must carry
+>    a ≥20-character justification — `declares_session("because")` raises at import. Same
+>    discipline as the permanent allowlist, for the same reason: an exemption nobody counts grows.
 
 **A15 — the phase's definition of done — is GREEN.** Roles, rows, fields, and the AI surface are
 all enforced. Two real leaks were live until this group and are closed: the assistant returned

@@ -24,10 +24,24 @@ from typing import TypeVar
 
 from mihomes.authz.actions import MATRIX, Access
 
-__all__ = ["ACTION_ATTR", "ACCESS_ATTR", "declared_action", "declares"]
+__all__ = [
+    "ACCESS_ATTR",
+    "ACTION_ATTR",
+    "SESSION_ACTION",
+    "declared_action",
+    "declares",
+    "declares_session",
+]
 
 ACTION_ATTR = "__mihomes_action__"
 ACCESS_ATTR = "__mihomes_access__"
+
+#: The pseudo-action carried by `Access.SESSION` routes.
+#:
+#: Deliberately **not** a `MATRIX` key. Adding a 21st key would break A1, which asserts the matrix
+#: covers `ONBOARDING` §9.2's rows 1-20 exactly — and it would be a lie besides: these routes are
+#: not authorised by a role within an account, which is the only thing the matrix describes.
+SESSION_ACTION = "session.self"
 
 F = TypeVar("F", bound=Callable)
 
@@ -55,9 +69,39 @@ def declares(action: str, access: Access | None = None) -> Callable[[F], F]:
     return decorator
 
 
+def declares_session(reason: str) -> Callable[[F], F]:
+    """Declare a route as authorised by **being signed in**, not by a role in an account.
+
+    `reason` is required and is not decorative: `Access.SESSION` opts a route out of the
+    capability matrix, so every use is a small hole in the thing Step 4 exists to guarantee. A
+    one-line justification at the site is what keeps the set reviewable — the same discipline the
+    permanent allowlist carries, and for the same reason.
+
+    **This is not "unauthenticated".** The route still requires a signed-in user; what it skips is
+    the account resolution and the matrix lookup, because the account is what it is about to
+    establish, accept an invitation into, or change.
+    """
+    if not reason or len(reason) < 20:
+        raise ValueError(
+            "@declares_session needs a real justification — it opts a route out of the "
+            "capability matrix, and an unreviewable exemption is how that guarantee erodes"
+        )
+
+    def decorator(fn: F) -> F:
+        setattr(fn, ACTION_ATTR, SESSION_ACTION)
+        setattr(fn, ACCESS_ATTR, Access.SESSION)
+        fn.__mihomes_session_reason__ = reason
+        return fn
+
+    return decorator
+
+
 def declared_action(endpoint) -> tuple[str, Access] | None:
     """`(action, access)` for an endpoint, or `None` if it carries no declaration."""
     action = getattr(endpoint, ACTION_ATTR, None)
     if action is None:
         return None
+    if action == SESSION_ACTION:
+        # Not a MATRIX key by design — do not look it up.
+        return action, Access.SESSION
     return action, getattr(endpoint, ACCESS_ATTR, MATRIX[action].access)

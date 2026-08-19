@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Add your first home — MiHomes{% endblock %}
+{% block content %}
+<div class="max-w-lg mx-auto py-12">
+  <h1 class="text-2xl font-semibold mb-2">Add your first home</h1>
+  {# Only the NAME is required. ONBOARDING §5: "require only the home name (address and type are
+     editable later)" — this is the second and last mandatory step. #}
+  <p class="text-gray-600 mb-6">Just a name for now — you can fill in the rest later.</p>
+  <form method="post" action="/onboarding/property" class="space-y-4">
+    <input name="name" placeholder="Belle Estate" required
+           class="w-full border rounded px-3 py-2" autofocus />
+    <input name="address" placeholder="Address (optional)"
+           class="w-full border rounded px-3 py-2" />
+    <button class="bg-brand-600 text-white rounded px-4 py-2">Continue</button>
+  </form>
+</div>
+{% endblock %}

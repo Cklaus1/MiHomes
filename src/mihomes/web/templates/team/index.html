@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Team — MiHomes{% endblock %}
+{% block content %}
+<div class="max-w-2xl mx-auto py-10">
+  <h1 class="text-2xl font-semibold mb-6">Team</h1>
+
+  {% if error %}
+    <p class="mb-4 rounded border border-red-300 bg-red-50 px-3 py-2 text-red-800">{{ error }}</p>
+  {% endif %}
+
+  {# A24 — the switcher is ABSENT below two accounts, not disabled. A greyed-out control still
+     occupies space and still invites the question of what it would do, and almost every user of
+     this product will only ever have one account. #}
+  {% if accounts and accounts | length > 1 %}
+    <form method="post" action="/accounts/switch" class="mb-8 flex gap-2 items-center">
+      <label class="text-sm text-gray-600">Current account</label>
+      <select name="account_id" class="border rounded px-3 py-2">
+        {% for account in accounts %}
+          <option value="{{ account.id }}"
+                  {% if account.id == current_account_id %}selected{% endif %}>
+            {{ account.name }}
+          </option>
+        {% endfor %}
+      </select>
+      <button class="border rounded px-4 py-2">Switch</button>
+    </form>
+  {% endif %}
+
+  <h2 class="text-lg font-medium mb-3">Invite someone</h2>
+  <form method="post" action="/team/invites" class="space-y-3">
+    <input name="email" type="email" placeholder="their@email.com" required
+           class="w-full border rounded px-3 py-2" />
+    <select name="role" class="w-full border rounded px-3 py-2">
+      <option value="admin">Admin — sees everything</option>
+      <option value="staff">Staff — only the properties you choose</option>
+    </select>
+    {# D3/A21: a staff invite with zero properties is refused server-side. The form cannot be
+       trusted to enforce it, so the service does — this select is a convenience, not the gate. #}
+    <button class="bg-brand-600 text-white rounded px-4 py-2">Send invitation</button>
+  </form>
+</div>
+{% endblock %}

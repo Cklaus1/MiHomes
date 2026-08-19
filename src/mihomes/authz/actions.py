@@ -51,6 +51,22 @@ class Access(StrEnum):
     ITEM = "item"              # operates on one record; target_property REQUIRED when SCOPED
     COLLECTION = "collection"  # list/index; authorized by scoped_property_ids() at the query
     ACCOUNT = "account"        # account-level; no property target exists
+    # **Added by SPEC-003 G13.5 — a class §4.1 does not have, and needs.**
+    #
+    # `ITEM`, `COLLECTION` and `ACCOUNT` all presuppose an account: they differ only in whether a
+    # *property* target exists. Three screens in this phase run **before or across** account
+    # selection and fit none of them:
+    #
+    #   onboarding steps 1-2  the account does not exist yet
+    #   invite acceptance     the invitee is not a member of anything yet
+    #   the account switcher  the target is an account other than the current one
+    #
+    # Forcing them into `ACCOUNT` would 403 every one, because the enforcement dependency resolves
+    # an account before consulting the matrix. `SESSION` means "authorised by being a signed-in
+    # **user**, not by a role within an account" — so the matrix is not consulted at all, and the
+    # route is responsible for whatever authorisation it does need (a valid invite token, a
+    # membership in the account being switched to).
+    SESSION = "session"
 
 
 @dataclass(frozen=True)

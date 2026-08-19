@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Set up your account — MiHomes{% endblock %}
+{% block content %}
+<div class="max-w-lg mx-auto py-12">
+  <h1 class="text-2xl font-semibold mb-2">Name your household</h1>
+  <p class="text-gray-600 mb-6">You can change this later.</p>
+  {# ONBOARDING §5: prefill from the Google profile, default type to household, and keep the
+     screen completable in "one tap plus at most one text field" — this is one of only two
+     steps nobody can skip, so every extra field is friction on the mandatory path. #}
+  <form method="post" action="/onboarding/account" class="space-y-4">
+    <input name="name" value="{{ suggested_name }}"
+           class="w-full border rounded px-3 py-2" autofocus />
+    <select name="account_type" class="w-full border rounded px-3 py-2">
+      <option value="household" selected>Household</option>
+      <option value="estate">Estate</option>
+    </select>
+    <button class="bg-brand-600 text-white rounded px-4 py-2">Continue</button>
+  </form>
+</div>
+{% endblock %}

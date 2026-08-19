@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Add rooms — MiHomes{% endblock %}
+{% block content %}
+<div class="max-w-lg mx-auto py-12">
+  <h1 class="text-2xl font-semibold mb-2">Add a few rooms</h1>
+  <p class="text-gray-600 mb-6">Optional — you can do this any time.</p>
+
+  {# A18: skipping is a FIRST-CLASS PATH, so Skip is a real button of equal weight, not a
+     greyed-out escape hatch tucked under the primary action. #}
+  <div class="flex gap-3">
+    <a href="/assets" class="bg-brand-600 text-white rounded px-4 py-2">Add rooms</a>
+    <form method="post" action="/onboarding/skip">
+      <input type="hidden" name="step" value="{{ step }}" />
+      <button class="border rounded px-4 py-2">Skip for now</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

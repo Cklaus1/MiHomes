@@ -13,7 +13,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -35,6 +35,17 @@ class User(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # A3
+    # D11 — "persists `last_used_account`". `sessions.current_account_id` is per-session, so a
+    # *new* session (a new device, a cleared cookie) has no account to open at. This is that
+    # default, and it is the difference between signing in and landing where you were, versus
+    # signing in and being asked which of your accounts you meant.
+    #
+    # `ON DELETE SET NULL`, not CASCADE: deleting an account must not delete the people in it.
+    last_used_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("accounts.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"<User {self.email}>"

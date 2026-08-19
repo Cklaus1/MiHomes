@@ -794,9 +794,33 @@ resumable. **Each group ships its own revision in the chain** (`0003…`, `0004�
 > reachable *before* authentication, so differing errors would let a caller enumerate which tokens
 > once existed — D9's reasoning applied where there is no membership check standing in front of it.
 
-### [ ] G13 — Step 13: account switcher — *dep: G0* — *conventions §4.3: O1 blocks **Step 15**, not this step*
-- [ ] G13.1 · §6 Step 13 · — · D11 — updates `sessions.current_account_id` **server-side**, persists `last_used_account`; switching changes every subsequent request's data · verify: `tests/integration/test_switcher.py::test_switch_changes_data`
-- [ ] G13.2 · §6 Step 13 · A24 · the control is **absent** (not merely disabled) for single-membership users · verify: `tests/integration/test_switcher.py::test_hidden_when_single`
+### [x] G13 — Step 13: account switcher — *dep: G0* — *9 tests; 2 arms mutation-verified; 1757 passed* — *conventions §4.3: O1 blocks **Step 15**, not this step*
+- [x] G13.1 · §6 Step 13 · — · D11 — updates `sessions.current_account_id` **server-side**, persists `last_used_account` · verify: `tests/integration/test_switcher.py::test_switch_changes_data` ✓
+- [x] G13.2 · §6 Step 13 · A24 · the control is **absent** (not merely disabled) for single-membership users · verify: `test_hidden_when_single` ✓
+- [x] G13.3 · **C17** · — · migration `0006_user_last_used_account` — `sessions.current_account_id` is *per session*, so a **new** session has no account to open at; D11's "persists `last_used_account`" needs a column `users` did not have · verify: full-chain round-trip + `alembic check` empty ✓
+
+> **The security half was already built.** `set_current_account` (SPEC-002 G12) validates the
+> membership server-side, because *"the account arrives from a form the user controls."* G13
+> deliberately does **not** duplicate that check in `switch_account` — two places to get it right
+> means the one that runs first is the one that matters, and the other rots.
+>
+> **`available_accounts` reads across the tenant boundary on purpose, and that is the bug it is
+> shaped to avoid.** `Membership` is `TenantOwned`, so an ORM read under the ambient context
+> returns only the account the user is currently *in* — the one they are trying to leave. A
+> switcher built that way lists exactly one option, always, and looks like it is working.
+> `test_listing_is_not_filtered_to_the_current_account` is that assertion.
+>
+> **Mutation-verified:** `> 1` → `>= 1` fails `test_hidden_when_single`; dropping the
+> `status == "active"` filter fails `test_hidden_when_the_second_membership_is_revoked` — an
+> offboarded contractor would otherwise keep a visible door to an account they can no longer open.
+>
+> **A rejected switch does not update `last_used_account`.** Otherwise a mistyped or probed
+> account id sets where the *next* sign-in lands, and the failure surfaces one session later,
+> where nobody connects it to the cause.
+>
+> D11's known limitation is inherited, not solved: one browser = one current account. The spec
+> records it as **reversible**, with the revisit trigger being the first customer who is staff on
+> two accounts — and notes that *"neither choice affects isolation."*
 
 ### [ ] G14 — Step 14: owner transfer + member offboarding — *dep: G3*
 - [ ] G14.1 · §6 Step 14 · A22 · last-owner invariant — the last owner can be neither removed nor demoted · verify: `tests/integration/test_membership.py::test_last_owner_protected`
@@ -854,19 +878,25 @@ conventions §0's *"gate that cannot fail is not a gate"*, and this phase is mad
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**Landed:** G0–G12 (G11.4, the web wizard, deferred and logged). Suite: **1748 passed, 3 skipped,
-2 xfailed, 0 failed** (1562 baseline → 1748, +186 tests). Migration chain: `0001_pg_baseline` →
+**Landed:** G0–G13 (G11.4, the web wizard, deferred and logged). Suite: **1757 passed, 3 skipped,
+2 xfailed, 0 failed** (1562 baseline → 1757, +195 tests). Migration chain: `0001_pg_baseline` →
 `0002_rls` → `0003_documents_staff_visible` → `0004_onboarding_state` →
-`0005_invite_property_ids`; **full `base → head → base → head` round-trip clean**, `alembic check`
-reports no drift.
+`0005_invite_property_ids` → `0006_user_last_used_account`; **full `base → head → base → head`
+round-trip clean**, `alembic check` reports no drift.
+
+**Web-layer gap carried across G11–G13.** Three groups now ship a working service layer whose
+**routes and templates are not built**: the onboarding wizard (G11.4), the invite accept/manage
+screens (G12), and the switcher control itself (G13). All three need the same missing piece — a
+route class for screens that run *before or across* account selection, which §4.1's
+`ITEM`/`COLLECTION`/`ACCOUNT` vocabulary cannot express. **Resolve that once, then wire all
+three**, rather than inventing a fourth `Access` value three times.
 
 **A15 — the phase's definition of done — is GREEN.** Roles, rows, fields, and the AI surface are
 all enforced. Two real leaks were live until this group and are closed: the assistant returned
 the household's finances to staff, and it rendered money straight from the ORM.
 
-**Resume at G13** — the account switcher. Remaining: G13 switcher, G14 transfer/offboarding,
-G15 config UI (G15.3 `[!]` by O1), G16 Telegram scoping, G17 leak matrix, G-Final — plus G11.4
-(the onboarding web wizard) carried forward.
+**Resume at G14** — owner transfer + member offboarding. Remaining: G14, G15 config UI (G15.3
+`[!]` by O1), G16 Telegram scoping, G17 leak matrix, G-Final — plus the web-layer gap above.
 
 **Read the G10 deviation note before G16.** The scope travels by ContextVar rather than by
 required parameter, so **G16 must bind a role explicitly** for the bot — D16 makes an unlinked

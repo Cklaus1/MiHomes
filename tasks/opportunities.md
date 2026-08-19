@@ -797,3 +797,23 @@
   route class for pre-account screens is a genuine gap in §4.1's `Access` vocabulary
   (`ITEM`/`COLLECTION`/`ACCOUNT` all assume an account). Deferred to keep G11's commit to one
   coherent change; the flow is fully testable and covered without it. (surfaced during G11)
+
+## SPEC-003 G13 (2026-08-19) — account switcher
+
+- [DEFER][web-layer] **Three groups now have a complete service layer and no UI**: the onboarding
+  wizard (G11.4), the invite accept/manage screens (G12), and the switcher control (G13). They
+  share one blocker — §4.1's `Access` vocabulary (`ITEM`/`COLLECTION`/`ACCOUNT`) has **no route
+  class for a screen that runs before or across account selection**. Onboarding steps 1–2 have no
+  account yet; invite acceptance happens before the invitee is a member of anything; switching
+  targets an account other than the current one. `enforce_declared_action` resolves an account and
+  would 403 all three.
+  **Resolve the vocabulary once, then wire all three** — inventing a fourth `Access` value
+  separately in three groups is how the two halves drift. Candidate: `Access.SESSION` for routes
+  authorised by a signed-in *user* rather than by a role within an account, enforced by
+  `require_authenticated`-without-account. (surfaced during G13)
+
+- [OPT] `users.last_used_account_id` is written on every successful switch but **nothing reads it
+  yet** — the sign-in path (`web/routes/auth.py`) still leaves `current_account_id` unset for a
+  new session. Wiring it is a two-line change in the callback and belongs with the web-layer work
+  above; until then D11's "persists last_used_account" is half-implemented: it persists, and
+  nothing resumes from it. (surfaced during G13)

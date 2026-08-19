@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block subject %}{{ inviter_name or "Someone" }} invited you to {{ account_name }} on MiHomes{% endblock %}
+
+{% block content %}
+  <p style="margin:0 0 16px;">Hi,</p>
+
+  <p style="margin:0 0 24px;">
+    {% if inviter_name %}{{ inviter_name }} has{% else %}You have been{% endif %}
+    invited you to join <strong>{{ account_name }}</strong> on MiHomes as
+    {% if role == "admin" %}an administrator{% else %}a team member{% endif %}.
+  </p>
+
+  <p style="margin:0 0 28px;">
+    <a href="{{ accept_url }}"
+       style="display:inline-block;background:#1c1c1a;color:#ffffff;
+              text-decoration:none;padding:12px 22px;border-radius:6px;
+              font-weight:500;">
+      Accept invitation
+    </a>
+  </p>
+
+  {# B9 — 7 days, the locked value that replaced ONBOARDING:167's PLACEHOLDER.
+     Stated in the email because an invitation with an invisible deadline is one
+     people discover has expired, which reads as the product being broken. #}
+  <p style="margin:0 0 24px;">
+    This invitation expires in 7 days.
+  </p>
+
+  <p style="margin:0;font-size:14px;color:#6b6b66;">
+    If the button doesn't work, paste this into your browser:<br>
+    <span style="word-break:break-all;">{{ accept_url }}</span>
+  </p>
+{% endblock %}
+
+{% block footer_extra %}
+  If you weren't expecting this, you can ignore this email — the invitation
+  will expire on its own and nothing will be shared with you.
+{% endblock %}

@@ -18,7 +18,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, func, text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -41,6 +41,19 @@ class Invite(Base, TenantOwned):
     # it (account_id, token_hash) would also let two accounts mint the same
     # hash. Do not "fix" this in a leads-with-account_id sweep.
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    # The property scopes this invite will grant on acceptance (SPEC-003 D3/A21).
+    #
+    # **Added by SPEC-003 G12, because §5's `create_invite(..., property_ids)` had nowhere to put
+    # them.** A staff invite is rejected outright with zero properties (D3: "fail closed, never
+    # 'all'"), so the set has to survive from creation until acceptance — the invitee may not sign
+    # up for days, and the inviter is not present to re-state it. On acceptance these become
+    # `membership_property_scopes` rows and this column stops being the authority.
+    #
+    # JSON rather than a join table: an invite is short-lived (7 days) and its scopes are never
+    # queried across invites — only read once, by the acceptance that consumes them.
+    property_ids: Mapped[list] = mapped_column(
+        JSON, nullable=False, server_default=text("'[]'::json")
+    )
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="pending")
     # pending | accepted | revoked | expired

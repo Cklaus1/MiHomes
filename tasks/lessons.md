@@ -459,3 +459,23 @@ Review this at the start of each session.
   measures the tree as of its launch, so treat the working tree as frozen until it reports. If
   something needs editing while a gate runs, write it down instead and apply it after — and if a
   gate's result arrives after the tree has moved, it is stale, not evidence.
+
+- **A concurrency test that hangs is usually blocked on its own fixture, not on the code.** Two
+  attempts at A19's "two concurrent acceptances" race stalled the suite for five minutes each. The
+  cause was not the threads: the `session` fixture holds an open transaction, and inserting any
+  tenant row inside it makes Postgres take a `FOR KEY SHARE` lock on the referenced `accounts` row
+  — which conflicts with the `SELECT ... FOR UPDATE` the code under test takes. **Tell:** a test
+  that hangs rather than fails is waiting on a lock; `SELECT pid, state, wait_event, query FROM
+  pg_stat_activity` names the holder in one query, and "idle in transaction" is the fixture.
+  **Rule:** a test that asserts on row locking must not share a transaction with any fixture that
+  touches the same rows — create and commit its own, and clean up in a `finally`.
+
+- **Prefer testing the *mechanism* over staging the race.** The thread-and-barrier version of A19
+  was not just slow to debug, it was the weaker assertion: a race test **fails to fail** whenever
+  the first thread finishes before the second starts, so a broken implementation passes on a fast
+  machine and the test becomes flaky in CI — where it gets retried rather than read. Asserting the
+  two properties that *make* the race safe — that the lock is exclusive, and that the check under
+  it refuses — is deterministic, runs in two seconds, and additionally pins **which row** is
+  locked, which the racing version never checked. **Rule:** when a guarantee rests on a lock or an
+  ordering, assert the lock and the ordering; stage the race only when there is no mechanism to
+  point at.

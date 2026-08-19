@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block subject %}Welcome to MiHomes{% endblock %}
+
+{% block content %}
+  <p style="margin:0 0 16px;">
+    {% if name %}Hi {{ name }},{% else %}Hi,{% endif %}
+  </p>
+
+  <p style="margin:0 0 24px;">
+    Your account <strong>{{ account_name }}</strong> is set up and ready. You can
+    add properties, track tasks and issues, and invite the people who help you
+    run them.
+  </p>
+
+  <p style="margin:0 0 28px;">
+    <a href="{{ dashboard_url }}"
+       style="display:inline-block;background:#1c1c1a;color:#ffffff;
+              text-decoration:none;padding:12px 22px;border-radius:6px;
+              font-weight:500;">
+      Open your dashboard
+    </a>
+  </p>
+
+  {# ONBOARDING:143 — billing never blocks onboarding, and D7 makes every Phase 2
+     account free. Saying so here avoids the "when do I get charged" email. #}
+  <p style="margin:0;font-size:14px;color:#6b6b66;">
+    Nothing to pay and no card needed.
+  </p>
+{% endblock %}

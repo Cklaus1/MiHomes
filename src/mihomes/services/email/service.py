@@ -59,3 +59,59 @@ class EmailService:
             "waitlist_confirmation",
             {"confirm_url": confirm_url, "position": position},
         )
+
+    # ── SPEC-003 §6 Step 12 — the three Phase 2 mail types ────────────────────
+
+    def send_welcome(self, to: str, *, account_name: str, dashboard_url: str,
+                     name: str | None = None) -> None:
+        """Sent once, when onboarding creates the account (Step 11)."""
+        self._send(
+            to,
+            "welcome",
+            {"account_name": account_name, "dashboard_url": dashboard_url, "name": name},
+        )
+
+    def send_staff_invite(
+        self, to: str, *, account_name: str, accept_url: str, role: str,
+        inviter_name: str | None = None,
+    ) -> None:
+        """The invitation itself — **carries the only copy of the plaintext token**.
+
+        `accept_url` embeds it, and nothing else in the system can reproduce it: only the hash is
+        stored (D5). A failure to send is therefore not merely a delivery problem, it strands the
+        invitation — which is why `_send` logs rather than swallowing silently, and why the UI
+        offers resend.
+        """
+        self._send(
+            to,
+            "staff_invite",
+            {
+                "account_name": account_name,
+                "accept_url": accept_url,
+                "role": role,
+                "inviter_name": inviter_name,
+            },
+        )
+
+    def send_invite_accepted(
+        self, to: str, *, account_name: str, member_email: str, role: str,
+        invited_email: str | None = None,
+    ) -> None:
+        """Notify the inviter — and carry §6.3's **mismatch notice**.
+
+        D5 makes the token the authority, so an invitation accepted from a different address is
+        allowed rather than blocked; forwarding one to the address you actually sign in with is
+        legitimate. Passing `invited_email` lets the template say so when the two differ, which
+        is what turns a stolen invitation from silent into visible. Omitting it would leave the
+        mitigation §6.3 pairs with D5 unimplemented while the feature looked complete.
+        """
+        self._send(
+            to,
+            "invite_accepted",
+            {
+                "account_name": account_name,
+                "member_email": member_email,
+                "role": role,
+                "invited_email": invited_email,
+            },
+        )

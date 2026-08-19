@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block subject %}{{ member_email }} joined {{ account_name }}{% endblock %}
+
+{% block content %}
+  <p style="margin:0 0 16px;">Hi,</p>
+
+  <p style="margin:0 0 24px;">
+    <strong>{{ member_email }}</strong> accepted your invitation and joined
+    <strong>{{ account_name }}</strong> as
+    {% if role == "admin" %}an administrator{% else %}a team member{% endif %}.
+  </p>
+
+  {# ONBOARDING §6.3's mismatch-notify mitigation. D5 makes the TOKEN the
+     authority, so a different address is accepted rather than blocked —
+     forwarding an invite to the address you actually sign in with is legitimate.
+     Telling the account is what turns a stolen invitation from silent into
+     visible, which is the whole point of choosing notification over a check. #}
+  {% if invited_email and invited_email != member_email %}
+    <p style="margin:0 0 24px;padding:12px 14px;background:#fdf6e3;
+              border-left:3px solid #b58900;font-size:14px;">
+      This invitation was sent to <strong>{{ invited_email }}</strong> but was
+      accepted by <strong>{{ member_email }}</strong>. If that isn't who you
+      expected, remove their access from your team settings.
+    </p>
+  {% endif %}
+
+  <p style="margin:0;font-size:14px;color:#6b6b66;">
+    You can review and change what they can see at any time in your team
+    settings.
+  </p>
+{% endblock %}

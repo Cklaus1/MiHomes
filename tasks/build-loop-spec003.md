@@ -754,11 +754,45 @@ resumable. **Each group ships its own revision in the chain** (`0003…`, `0004�
 > beside it. They exist so that *forgetting* fails loudly, which only works if raising them is a
 > conscious act.
 
-### [ ] G12 — Step 12: invites — *dep: G4, G11* — *pre-flight: confirm P4 `EmailService` before task 1*
-- [ ] G12.1 · §6 Step 12 · A20 · `invite_service`: create/resend/revoke/accept; tokens **hashed** (D5 — only the hash is stored), single-use, **7-day** expiry (B9); §6.3 mismatch-notify · verify: `tests/integration/test_invites.py::test_token_lifecycle`
-- [ ] G12.2 · §6 Step 12 · A21 · a staff invite with **zero** `property_ids` is rejected (D3, `ONBOARDING:164`) · verify: `tests/integration/test_invites.py::test_staff_needs_scope`
-- [ ] G12.3 · §6 Step 12 · A19 · seat re-check **inside** the acceptance transaction; two concurrent acceptances at the cap → exactly one succeeds (`PRICING` §3.2 rule 5; D6 — seat = active memberships + pending invites) · verify: `tests/integration/test_invites.py::test_seat_race`
-- [ ] G12.4 · §6 Step 12 · — · email types `welcome`, `staff_invite`, `invite_accepted` on the SPEC-001 `EmailService` · verify: `tests/integration/test_invites.py::test_emails_sent`
+### [x] G12 — Step 12: invites — *dep: G4, G11* — *22 tests; 1748 passed* — **P4 confirmed: `EmailService` exists (SPEC-001)**
+- [x] G12.1 · §6 Step 12 · A20 · `invite_service`: create/revoke/accept; tokens **hashed** (D5), single-use, **7-day** expiry (B9); §6.3 mismatch-notify · verify: `tests/integration/test_invites.py::test_token_lifecycle` ✓
+- [x] G12.2 · §6 Step 12 · A21 · a staff invite with **zero** `property_ids` is rejected (D3) · verify: `test_staff_needs_scope` ✓ (+ `test_owner_cannot_be_invited` — D2, an invite is an assignment)
+- [x] G12.3 · §6 Step 12 · A19 · seat re-check **inside** the acceptance transaction, serialised per account · verify: `TestSeatRace` ✓ — **rewritten as a deterministic mechanism test, see below**
+- [x] G12.4 · §6 Step 12 · — · `welcome`, `staff_invite`, `invite_accepted` on the SPEC-001 `EmailService` · verify: `TestInviteEmails` ✓
+- [x] G12.5 · **C16** · A21 · migration `0005_invite_property_ids` — §5's `create_invite(..., property_ids)` had **nowhere to store them**; SPEC-002's `invites` table has no such column · verify: full-chain round-trip + `alembic check` empty ✓
+
+> **C16 — a schema gap §5 assumes away.** `create_invite(session, account, inviter, email, role,
+> property_ids)` and A21's "zero properties is rejected" both require the scope set to survive
+> from creation until acceptance — days later, with the inviter long gone — but `invites` had no
+> column for it. Added as JSON rather than a join table: an invite lives 7 days and its scopes are
+> read exactly once, by the acceptance that consumes them.
+>
+> ### A19 was rewritten, and the first version is the more useful story
+>
+> The obvious test — two threads, a barrier, racing acceptances — **hung the suite for five
+> minutes, twice**. The cause was not the threads: the `session` fixture holds an open
+> transaction, and inserting any tenant row inside it makes Postgres take a `FOR KEY SHARE` lock
+> on the referenced `accounts` row, which conflicts with `accept_invite`'s `FOR UPDATE`. The test
+> blocked on its own fixture.
+>
+> It is also the weaker test even when it runs: a thread race **fails to fail** whenever the first
+> thread finishes before the second starts, so a broken implementation passes on a fast machine
+> and the test turns flaky in CI — where it gets retried rather than read.
+>
+> Replaced by two deterministic halves that are together *stronger*: (1) a second connection with
+> `lock_timeout = 1s` **cannot** acquire the account row while an acceptance holds it — which also
+> proves the lock is on the **account**, not the invite, since two people accepting two *different*
+> invites would never contend on the latter; and (2) the seat check refuses at the cap under that
+> lock. The lock test deliberately takes neither `session` nor `account_a`, creating and
+> committing its own account, for exactly the reason the first version failed.
+>
+> **Seats are counted across two tables** (D6): active memberships **plus** pending invites, with
+> expiry excluded *by date* rather than by status — nothing sweeps expired invites, so a
+> status-only count would leak a seat permanently on every unaccepted invitation.
+>
+> **Unknown, revoked, accepted, and expired all return the same message.** This surface is
+> reachable *before* authentication, so differing errors would let a caller enumerate which tokens
+> once existed — D9's reasoning applied where there is no membership check standing in front of it.
 
 ### [ ] G13 — Step 13: account switcher — *dep: G0* — *conventions §4.3: O1 blocks **Step 15**, not this step*
 - [ ] G13.1 · §6 Step 13 · — · D11 — updates `sessions.current_account_id` **server-side**, persists `last_used_account`; switching changes every subsequent request's data · verify: `tests/integration/test_switcher.py::test_switch_changes_data`
@@ -820,16 +854,17 @@ conventions §0's *"gate that cannot fail is not a gate"*, and this phase is mad
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**Landed:** G0–G11 (G11.4, the web wizard, deferred and logged). Suite: **1726 passed, 3 skipped,
-2 xfailed, 0 failed** (1562 baseline → 1726, +164 tests). Migration chain: `0001_pg_baseline` →
-`0002_rls` → `0003_documents_staff_visible` → `0004_onboarding_state`; **full `base → head → base
-→ head` round-trip clean**, `alembic check` reports no drift.
+**Landed:** G0–G12 (G11.4, the web wizard, deferred and logged). Suite: **1748 passed, 3 skipped,
+2 xfailed, 0 failed** (1562 baseline → 1748, +186 tests). Migration chain: `0001_pg_baseline` →
+`0002_rls` → `0003_documents_staff_visible` → `0004_onboarding_state` →
+`0005_invite_property_ids`; **full `base → head → base → head` round-trip clean**, `alembic check`
+reports no drift.
 
 **A15 — the phase's definition of done — is GREEN.** Roles, rows, fields, and the AI surface are
 all enforced. Two real leaks were live until this group and are closed: the assistant returned
 the household's finances to staff, and it rendered money straight from the ORM.
 
-**Resume at G12** — invites. Remaining: G12 invites, G13 switcher, G14 transfer/offboarding,
+**Resume at G13** — the account switcher. Remaining: G13 switcher, G14 transfer/offboarding,
 G15 config UI (G15.3 `[!]` by O1), G16 Telegram scoping, G17 leak matrix, G-Final — plus G11.4
 (the onboarding web wizard) carried forward.
 

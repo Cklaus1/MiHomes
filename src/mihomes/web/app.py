@@ -2,13 +2,14 @@
 
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from mihomes.config import ensure_dirs
 from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
+from mihomes.web.deps import enforce_declared_action
 from mihomes.web.routes import ai as ai_route
 from mihomes.web.routes import (
     alerts,
@@ -44,7 +45,20 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="MiHomes", docs_url=None, redoc_url=None)
+    # `enforce_declared_action` is where SPEC-003's 142 route declarations become enforcement
+    # (§6 Step 7). Applied app-wide rather than per-route so there is exactly one place to
+    # forget — and Step 4's harness guarantees every route carries a declaration for it to read.
+    # Together they close N1: the declarations are verified, and the verification is consulted.
+    #
+    # Routes with no declaration are passed through untouched. That is safe only because the
+    # temporary allowlist is empty (CEILING = 0), so `auth` is the sole undeclared module — and
+    # it must stay reachable to callers who are not yet authenticated.
+    app = FastAPI(
+        title="MiHomes",
+        docs_url=None,
+        redoc_url=None,
+        dependencies=[Depends(enforce_declared_action)],
+    )
 
     # Reject cross-site state-changing requests and non-loopback Host headers
     # (H30): defends the localhost app against browser CSRF and DNS rebinding.

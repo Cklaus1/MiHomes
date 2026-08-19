@@ -40,7 +40,59 @@ from mihomes.models.property import Property
 if TYPE_CHECKING:  # pragma: no cover
     from mihomes.web.deps import RequestPrincipal
 
-__all__ = ["require_permission"]
+__all__ = ["require_action_gate", "require_permission"]
+
+
+def require_action_gate(session: Session, principal: RequestPrincipal, action: str) -> Grant:
+    """§9.4 steps 0–3 only: the action must be declared, and the role must not be `DENY`.
+
+    Returns the resolved `Grant` so the caller knows whether scope filtering still applies.
+    **This is deliberately not the whole of `require_permission`.**
+
+    A `SCOPED` grant cannot be settled here, because settling it needs a *target*, and a target
+    only exists once the route has resolved its slug to a row. §9.4 step 4 says scoped access is
+    *"filtered to scoped homes at the query layer, not post-hoc"* — so the query layer is where
+    `SCOPED` is answered, and this function's job is to reject the role outright when the matrix
+    says `DENY` and otherwise get out of the way.
+
+    Splitting it this way is what lets **one** app-level dependency enforce all 142 declarations
+    instead of 142 hand-edits. Calling `require_permission` there instead would 403 every staff
+    request to an item route, because `target_property` is still `None` at dependency time (A6) —
+    which is exactly the unreachable-code failure N5 warns about.
+    """
+    spec = MATRIX.get(action)
+    if spec is None:
+        raise _audited_denial(
+            principal, action, 403, f"Unknown action {action!r}", None
+        )
+
+    grant = {
+        "owner": spec.owner,
+        "admin": spec.admin,
+        "staff": spec.staff,
+    }.get(principal.role, Grant.DENY)  # an unrecognised role fails closed
+
+    if grant is Grant.DENY:
+        raise _audited_denial(
+            principal, action, 403, f"{principal.role} may not {action}", None
+        )
+
+    return grant
+
+
+def _audited_denial(
+    principal: RequestPrincipal, action: str, status: int, reason: str, target_id
+) -> HTTPException:
+    """Audit a refusal and build the exception, so no denial path can forget the audit (A33)."""
+    audit_deny(
+        account_id=principal.account_id,
+        actor=str(principal.user_id),
+        action=action,
+        role=principal.role,
+        reason=reason,
+        target_id=target_id,
+    )
+    return HTTPException(status_code=status, detail=reason)
 
 
 def _target_property_id(target: Property | uuid.UUID | None) -> uuid.UUID | None:

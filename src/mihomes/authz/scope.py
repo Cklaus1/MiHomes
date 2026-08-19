@@ -16,6 +16,8 @@ is not, because it cannot be implemented.
 from __future__ import annotations
 
 import uuid
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -23,7 +25,34 @@ from sqlalchemy.orm import Session
 from mihomes.models.membership import Membership, MembershipPropertyScope
 from mihomes.models.property import Property
 
-__all__ = ["scoped_property_ids"]
+__all__ = ["current_property_scope", "property_scope", "scoped_property_ids"]
+
+
+# The set of properties the current request may see, or **None meaning "unrestricted"**.
+#
+# `None` and `frozenset()` are deliberately different: `None` is owner/admin (and the CLI, and
+# background jobs) where no property restriction applies, while `frozenset()` is a staff member
+# with zero scope rows who must see *nothing* (D3). Collapsing the two — a nullable set where
+# "empty" doubles as "unset" — is the single most likely way this layer fails open, so the
+# distinction is load-bearing rather than stylistic.
+current_property_scope: ContextVar[frozenset[uuid.UUID] | None] = ContextVar(
+    "current_property_scope", default=None
+)
+
+
+@contextmanager
+def property_scope(scope: frozenset[uuid.UUID] | None):
+    """Bind the property scope for a block, restoring the previous value on exit.
+
+    Token/reset rather than save-and-assign, for the same reason `account_context` uses it: it
+    restores "unset" as distinct from "set to the previous value", and it is exception-safe — a
+    scope leaking past a raised request would apply someone else's whitelist to the next one.
+    """
+    token = current_property_scope.set(scope)
+    try:
+        yield
+    finally:
+        current_property_scope.reset(token)
 
 # Roles whose scope rows are ignored (`ONBOARDING:44`). Kept as a set rather than an `in
 # ("owner", "admin")` literal at the comparison site so there is exactly one place to change if a

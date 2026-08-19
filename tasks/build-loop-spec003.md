@@ -571,10 +571,50 @@ resumable. **Each group ships its own revision in the chain** (`0003…`, `0004�
 > spec never addresses money *writes* by staff.** The three price-entry route groups were
 > deliberately declared `finance.view` for exactly this reason.
 
-### [ ] G7 — Step 7: staff scoping in web queries — *dep: G6*
-- [ ] G7.1 · §6 Step 7 · — · filter at the **query layer**, never post-hoc (§9.4 step 4); a scoped staff `GET /tasks` returns only scoped rows · verify: `tests/integration/test_permissions.py::test_collection_scoped_rows_only`
-- [ ] G7.2 · §6 Step 7 · — · an explicitly requested out-of-scope `property_id` yields **404**, not an empty list · verify: `tests/integration/test_permissions.py::test_out_of_scope_explicit_is_404`
-- [ ] G7.3 · §6 Step 7 · — · owner/admin behaviour is **unchanged** (regression guard on the existing per-property filter) · verify: `tests/integration/test_permissions.py::test_privileged_unchanged`
+### [x] G7 — Step 7: staff scoping in web queries — *dep: G6* — **enforcement goes live here** — *8 tests; 1676 passed*
+- [x] G7.1 · §6 Step 7 · — · filter at the **query layer**, never post-hoc (§9.4 step 4); a scoped staff `GET /tasks` returns only scoped rows · verify: `tests/integration/test_query_scope.py::test_collection_scoped_rows_only` ✓
+- [x] G7.2 · §6 Step 7 · — · an explicitly requested out-of-scope `property_id` yields **404**, not an empty list · verify: `tests/integration/test_query_scope.py::test_out_of_scope_explicit_is_404` ✓
+- [x] G7.3 · §6 Step 7 · — · owner/admin behaviour is **unchanged** · verify: `tests/integration/test_query_scope.py::test_privileged_unchanged` ✓ (+ `test_privileged_with_scope_rows_still_sees_everything` — A11 end to end)
+- [x] G7.4 · §6 Step 7 · — · **one app-level dependency enforces all 142 declarations** (`enforce_declared_action`), rather than 142 hand-edits · verify: the whole web suite runs authenticated; an anonymous request is 401
+
+> **Enforcement is one dependency, not 142 edits — and that is what makes G6's harness pay off.**
+> Step 4's harness guarantees every route *carries* a declaration; `enforce_declared_action`
+> guarantees every declaration is *consulted*. Neither alone answers N1's warning that "the edits
+> are hopeful rather than verified"; together they do.
+>
+> **`require_action_gate` is deliberately not `require_permission`.** A `SCOPED` grant cannot be
+> settled at dependency time because `target_property` is still `None` there — calling the full
+> check would 403 every staff request to an item route, the exact unreachable-code failure N5
+> names. So the gate rejects `DENY` outright and returns the grant; `SCOPED` is answered by the
+> query layer, per §9.4 step 4.
+>
+> **The 404 for an out-of-scope `property_id` falls out of scoping `Property` itself.** No route
+> code was touched: `resolve_identifier` finds nothing, raises `EntityNotFoundError`, and W.3's
+> app-level handler turns it into a 404. An empty list would have confirmed the property exists.
+>
+> **`None` ≠ `frozenset()` in `current_property_scope`, and the distinction is load-bearing.**
+> `None` is "unrestricted" (owner/admin, the CLI, background jobs); `frozenset()` is a staff
+> member with zero scope rows who must see nothing (D3). A nullable set where "empty" doubled as
+> "unset" is the single most likely way this layer fails open. Privileged roles bind `None`
+> rather than "every property id" on purpose: a snapshot taken at request start would exclude a
+> property created during the request, and that failure would read as a caching bug rather than
+> an authorization one.
+>
+> **The scoped-model list is derived from `ENTITY_CLASSES`**, so N4 is enforceable rather than
+> aspirational — a new property-scoped model is scoped the moment it is classified, and G1's
+> `test_every_model_is_classified` refuses to let it go unclassified. `Property` is scoped by its
+> own `id`; everything else by `property_id`.
+>
+> **`test_scoping_is_not_a_tasks_only_patch` is the test that proves the architecture.** The
+> dashboard aggregates across properties and takes no `property_id` at all, so a per-route filter
+> would have missed it entirely. It passes for free because the filtering is in the query layer —
+> and it is what fails if someone later "simplifies" this into a per-route argument.
+>
+> **`conftest.web_client_factory` now signs in as an owner.** Before G7 the app enforced nothing,
+> so an anonymous `TestClient` reached every route; ~500 web tests would otherwise have become
+> 401 assertions. Owner is the right default — it keeps those tests testing their own subject
+> instead of quietly becoming authorization tests — and role-specific coverage lives in
+> `web_client_as`.
 
 ### [ ] G8 — Step 8: field-level redaction applied — *dep: G2, G7*
 - [ ] G8.1 · §6 Step 8 · A12 · redaction applied in the **web serializer**; one test per `REDACTED_FIELDS` model — absent for staff, present for admin · verify: `tests/unit/test_redaction.py::test_money_hidden_per_model`
@@ -664,19 +704,18 @@ conventions §0's *"gate that cannot fail is not a gate"*, and this phase is mad
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**Landed:** G0, G1, G2, G3, G4, G5, **G6**. Suite: **1668 passed, 3 skipped, 2 xfailed, 0 failed**
-(1562 baseline → 1668, +106 tests).
+**Landed:** G0–G7. Suite: **1676 passed, 3 skipped, 2 xfailed, 0 failed** (1562 baseline → 1676,
++114 tests).
 
-**Resume at G7.1** — staff scoping in web queries. G6 declared the actions; **G7 is where they
-start being enforced**, by constraining queries with `scoped_property_ids()`. `CEILING` is now 0
-and the temporary allowlist is empty, so any route added from here must declare or the suite
-fails.
+**Resume at G8.1** — apply `redact_for_role` in the web serializer (the function and its census
+gates landed at G2; nothing calls it yet).
 
-**Nothing is enforced yet, and that is the honest state of the phase.** G3 built
-`require_permission` and **no route calls it**; G2 built `redact_for_role` and **no serializer
-calls it**. The primitives and their gates exist and are mutation-verified; G6 (declare), G7
-(query-layer scoping), and G8 (apply redaction) are where they become behaviour. A reader
-skimming the commit titles could reasonably conclude RBAC is live. **It is not.**
+**RBAC is now live for roles and rows, not yet for fields.** As of G7 an anonymous request is
+401, every one of the 142 declared routes goes through the capability matrix, and staff queries
+are constrained to their whitelist at the query layer. **Still not enforced: field-level
+redaction** — `redact_for_role` exists, is mutation-verified, and **no serializer or AI path
+calls it**, so a scoped staff member currently sees the *costs* on rows they are legitimately
+allowed to see. That is G8, and it is F4's whole point.
 
 **A15 — the phase's definition of done — is not green.** G10 has not started. The spec's own
 words: *"Roles enforced in the UI while the AI answers freely is not a partial success — it is

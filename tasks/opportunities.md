@@ -712,3 +712,29 @@
   browser (`_AI_ERROR_HINT`, `:48-49` — §3 cites `:47-48`, line drift). §3 lists deleting it under
   this phase, but its replacement is Step 15's settings UI. Deleting it at G6 would leave a worse
   message than the wrong one; it moves with G15. (surfaced during G6.4)
+
+## SPEC-003 G7 (2026-08-19) — query-layer scoping
+
+- [BUG][low] **Child tables of property-scoped models carry no `property_id`, so a *direct* query
+  on them is unscoped.** `PriceEntry`, `ConsumablePriceEntry`, `TaskSchedule`, `EventGuest`, and
+  `Guest` are all `PROPERTY_SCOPED` by classification but have no column for
+  `authz/query_scope.py` to filter on. Loading them **through their parent** is protected by the
+  parent's filter; a query that starts at the child is not. The two price-entry models are
+  additionally covered by field redaction (§4.4), so the live exposure is `TaskSchedule`,
+  `EventGuest`, and `Guest` — none of which any current route queries directly. **Fix options:**
+  scope via a parent join in the listener, or denormalise `property_id` onto the children. Worth
+  a test that asserts no route reaches a child model without its parent. (surfaced during G7)
+
+- [OPT] The scope listener adds a `with_loader_criteria` option per property-scoped model to
+  **every** ORM statement in a staff request (currently 16 options). SQLAlchemy ignores the ones
+  whose entity is absent, so it is correct, but it is more work per query than necessary.
+  Restricting the options to entities actually present in the statement would cut that; measure
+  before optimising, since the criteria are cheap to construct and this has not been profiled.
+  (surfaced during G7)
+
+- [OPT] `tests/conftest.py::web_client_factory` now signs its client in as an **owner** so the
+  ~500 pre-existing web tests keep testing their own subject rather than becoming authorization
+  tests. That is the right default, but it means those tests exercise exactly one role. The
+  role-specific coverage lives in `tests/integration/test_query_scope.py` via `web_client_as`;
+  worth reviewing at G17 whether any pre-existing web test *should* be parameterised across
+  roles. (surfaced during G7)

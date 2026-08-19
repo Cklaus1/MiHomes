@@ -24,6 +24,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from mihomes.auth.sessions import SESSION_COOKIE, lookup_session
+from mihomes.authz.actions import Grant
+from mihomes.authz.declare import declared_action
+from mihomes.authz.permissions import require_action_gate
+from mihomes.authz.query_scope import install_property_scope_listener
+from mihomes.authz.scope import property_scope, scoped_property_ids
 from mihomes.db import get_session
 from mihomes.models.membership import Membership
 from mihomes.tenancy import account_context
@@ -61,6 +66,11 @@ def get_db() -> Generator[Session, None, None]:
 # path of every request.
 _MEMBERSHIPS = Membership.__table__
 
+# Explicit, rather than relying on the import above having a side effect: the query-scope
+# listener must be installed before any request runs, and a linter that removes an
+# "unused" import would otherwise silently disable staff scoping.
+install_property_scope_listener()
+
 
 @dataclass(frozen=True)
 class RequestPrincipal:
@@ -79,6 +89,93 @@ class RequestPrincipal:
     account_id: uuid.UUID
     membership_id: uuid.UUID
     role: str
+
+
+def resolve_principal(request: Request, db: Session) -> RequestPrincipal:
+    """Cookie → `RequestPrincipal`, or raise. **Does not bind context** — callers do that.
+
+    Factored out of the dependency so the app-level enforcement gate can call it *conditionally*.
+    A sub-dependency cannot be conditional: it runs before the gate can look at whether the route
+    is declared, so an undeclared-but-allowlisted route (sign-in, the OIDC callback) would 401
+    before reaching its own handler — authentication depending on being authenticated.
+    """
+    auth = lookup_session(db, request.cookies.get(SESSION_COOKIE))
+    if auth is None:
+        # One outcome for every failure — no cookie, expired, unknown, or membership revoked.
+        # `lookup_session` collapses them deliberately so a caller cannot treat a revoked session
+        # as merely account-less.
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    if not auth.has_account or auth.account_id is None:
+        # Signed in, no account chosen yet: the picker state. G13 turns this into a redirect to
+        # the account picker; until then it is a distinct status so the two are never conflated.
+        raise HTTPException(status_code=403, detail="No account selected")
+
+    membership = db.execute(
+        select(_MEMBERSHIPS.c.id, _MEMBERSHIPS.c.role).where(
+            _MEMBERSHIPS.c.user_id == auth.user_id,
+            _MEMBERSHIPS.c.account_id == auth.account_id,
+            _MEMBERSHIPS.c.status == "active",
+        )
+    ).one_or_none()
+    if membership is None:
+        # `lookup_session` already rejects a revoked membership; this is the narrow race where it
+        # is revoked between the two reads. Failing closed costs one refused request.
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    return RequestPrincipal(
+        user_id=auth.user_id,
+        account_id=auth.account_id,
+        membership_id=membership.id,
+        role=membership.role,
+    )
+
+
+async def enforce_declared_action(
+    request: Request, db: Session = Depends(get_db)
+) -> AsyncIterator[RequestPrincipal | None]:
+    """**The single place all 142 route declarations are enforced.**
+
+    Reads the matched route's `@declares(...)` attributes and applies the role gate. One
+    dependency instead of 142 hand-edits — and, more importantly, one place that cannot be
+    forgotten: Step 4's harness guarantees every route carries a declaration, and this guarantees
+    every declaration is consulted. N1's warning ("the edits are hopeful rather than verified")
+    is answered by the pair, not by either alone.
+
+    **Undeclared routes are left alone**, which is safe only because `test_no_undeclared_routes`
+    has an empty temporary allowlist: the sole undeclared module is `auth`, which must stay
+    reachable to unauthenticated callers.
+
+    **`SCOPED` is not settled here** — see `require_action_gate`. Resolving it needs a target,
+    which needs the route's slug lookup, so scope is enforced at the query layer (§9.4 step 4).
+    """
+    route = request.scope.get("route")
+    declared = declared_action(route.endpoint) if route is not None else None
+
+    if declared is None:
+        yield None
+        return
+
+    action, _access = declared
+    principal = resolve_principal(request, db)
+    with account_context(principal.account_id, principal.user_id):
+        grant = require_action_gate(db, principal, action)
+
+        # `SCOPED` is answered here, by binding the whitelist the query layer reads (§9.4
+        # step 4) — never by refusing the request, which would 403 every list page for staff
+        # and make this code unreachable (N5).
+        #
+        # **`None` for privileged roles, not "all property ids".** Enumerating every property
+        # into a set would be equivalent today and wrong tomorrow: a property created during
+        # the request would fall outside a snapshot taken at its start, and the failure would
+        # look like a caching bug rather than an authorization one.
+        scope = None
+        if grant is Grant.SCOPED:
+            membership = db.get(Membership, principal.membership_id)
+            scope = scoped_property_ids(db, membership) if membership else frozenset()
+
+        with property_scope(scope):
+            yield principal
 
 
 async def _resolve_authenticated(

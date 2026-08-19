@@ -322,6 +322,51 @@ def seed_estate():
     return _seed
 
 
+def _sign_in_owner(conn, account_id: uuid.UUID) -> str:
+    """Seed user + active owner membership + session; return the raw cookie value.
+
+    Raw SQL, like `_make_account`, so the fixture does not depend on the tenant machinery it
+    exists to exercise. Only the session *hash* is stored (SPEC-002 G12), so the raw value has to
+    be minted here — exactly as `create_session` does in production.
+    """
+    from mihomes.auth.sessions import hash_session_id
+
+    user_id = uuid.uuid4()
+    conn.execute(
+        text(
+            "INSERT INTO users (id, google_sub, email, name, created_at) "
+            "VALUES (:id, :sub, :email, 'Web Test Owner', now())"
+        ),
+        {
+            "id": user_id,
+            "sub": f"sub-{user_id.hex[:12]}",
+            "email": f"owner-{user_id.hex[:6]}@example.com",
+        },
+    )
+    conn.execute(
+        text(
+            "INSERT INTO memberships (id, account_id, user_id, role, status, created_at) "
+            "VALUES (:id, :account_id, :user_id, 'owner', 'active', now())"
+        ),
+        {"id": uuid.uuid4(), "account_id": account_id, "user_id": user_id},
+    )
+    raw = f"web-session-{uuid.uuid4().hex}"
+    conn.execute(
+        text(
+            "INSERT INTO sessions "
+            "(id, session_id_hash, user_id, current_account_id, created_at, expires_at) "
+            "VALUES (:id, :hash, :user_id, :account_id, now(), now() + interval '1 day')"
+        ),
+        {
+            "id": uuid.uuid4(),
+            "hash": hash_session_id(raw),
+            "user_id": user_id,
+            "account_id": account_id,
+        },
+    )
+    return raw
+
+
 @pytest.fixture
 def web_client_factory(_pg_engine, account_a):
     """Build account-scoped FastAPI `TestClient`s over Postgres.
@@ -341,6 +386,7 @@ def web_client_factory(_pg_engine, account_a):
     # web tests need FastAPI.
     from fastapi.testclient import TestClient
 
+    from mihomes.auth.sessions import SESSION_COOKIE
     from mihomes.web.app import create_app
     from mihomes.web.deps import get_db
 
@@ -386,6 +432,15 @@ def web_client_factory(_pg_engine, account_a):
                 raise_server_exceptions=raise_server_exceptions,
             )
         )
+        # **Sign the client in as an owner (SPEC-003 G7).** Until G7 the app enforced nothing, so
+        # an anonymous TestClient reached every route; `enforce_declared_action` now applies the
+        # capability matrix to all 142 declared routes, and an unauthenticated request is a 401.
+        #
+        # Owner is the right default: it is the role these tests were written against, so they
+        # keep asserting what they were written to assert rather than quietly becoming
+        # authorization tests. Role-specific behaviour gets its own explicit fixtures — this one
+        # exists so the *rest* of the suite keeps testing its own subject.
+        client.cookies.set(SESSION_COOKIE, _sign_in_owner(connection, account_a))
         client._SessionLocal = SessionLocal
         return client
 

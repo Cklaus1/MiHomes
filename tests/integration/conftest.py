@@ -101,6 +101,83 @@ def auth_seed():
 
 
 @pytest.fixture
+def web_client_as(_pg_engine, account_a):
+    """`web_client_as(role="staff", scoped_to=[prop]) -> TestClient` — the real app, signed in.
+
+    The §9 manifest asks for `owner_a` / `admin_a` / `staff_a` (scoped to one property) and
+    `staff_a_unscoped` (zero scope rows — the fail-closed case). A factory rather than four
+    fixtures, because the interesting tests need *two* clients in one test to compare what each
+    role sees, and fixtures cannot be parameterised per use.
+
+    Deliberately **no ambient `account_context`**: the application binds the tenant itself via
+    `enforce_declared_action`. Seeding rows is done on the raw connection for the same reason.
+    """
+    from fastapi.testclient import TestClient
+
+    from mihomes.auth.sessions import SESSION_COOKIE
+    from mihomes.tenancy import account_context
+    from mihomes.web.app import create_app
+    from mihomes.web.deps import get_db
+
+    stack = contextlib.ExitStack()
+    connection = stack.enter_context(_pg_engine.connect())
+    transaction = connection.begin()
+    stack.callback(transaction.rollback)
+
+    SessionLocal = sessionmaker(
+        bind=connection, future=True, join_transaction_mode="create_savepoint"
+    )
+
+    def override_get_db():
+        s = SessionLocal()
+        try:
+            yield s
+            s.commit()
+        except Exception:
+            s.rollback()
+            raise
+        finally:
+            s.close()
+
+    def seed(fn):
+        """Run `fn(session)` inside the account context, for building fixtures data."""
+        with account_context(account_a), SessionLocal() as s:
+            fn(s)
+            s.commit()
+
+    def make(role: str = "owner", scoped_to=()):
+        user_id = _insert_user(connection, email=f"{role}-{uuid.uuid4().hex[:6]}@example.com")
+        membership_id = _insert_membership(
+            connection, account_id=account_a, user_id=user_id, role=role
+        )
+        for prop_id in scoped_to:
+            connection.execute(
+                text(
+                    "INSERT INTO membership_property_scopes "
+                    "(id, account_id, membership_id, property_id, created_at) "
+                    "VALUES (:id, :a, :m, :p, now())"
+                ),
+                {"id": uuid.uuid4(), "a": account_a, "m": membership_id, "p": prop_id},
+            )
+        raw = _insert_session(connection, user_id=user_id, account_id=account_a)
+
+        app = create_app()
+        app.dependency_overrides[get_db] = override_get_db
+        client = stack.enter_context(
+            TestClient(app, base_url="http://localhost", raise_server_exceptions=False)
+        )
+        client.cookies.set(SESSION_COOKIE, raw)
+        return client
+
+    make.seed = seed
+    make.connection = connection
+    try:
+        yield make
+    finally:
+        stack.close()
+
+
+@pytest.fixture
 def unbound_client(_pg_engine, account_a):
     """A `TestClient` with **no** ambient account context.
 

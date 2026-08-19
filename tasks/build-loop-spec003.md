@@ -647,10 +647,34 @@ resumable. **Each group ships its own revision in the chain** (`0003…`, `0004�
 > "hide it from everybody" being a passing implementation — an over-broad redactor satisfies every
 > staff assertion in this file and breaks the product for the people who run it.
 
-### [ ] G9 — Step 9: document visibility — *dep: G7*
-- [ ] G9.1 · §6 Step 9 · A14 · migration `0004`: `documents.staff_visible` `Boolean`, `default False`, `nullable=False` (D13, fail closed) · verify: round-trip clean + autogenerate empty
-- [ ] G9.2 · §6 Step 9 · A14 · staff queries filter on `staff_visible` **and** property scope resolved via `entity_type`/`entity_id` per **C11**; `entity_id IS NULL` → invisible to staff · verify: `tests/integration/test_documents.py::test_default_hidden`
-- [ ] G9.3 · §6 Step 9 · — · owner/admin toggle in the UI · verify: `tests/integration/test_documents.py::test_toggle_requires_privilege`
+### [x] G9 — Step 9: document visibility — *dep: G7* — *7 tests; both migration gates green; 1688 passed*
+- [x] G9.1 · §6 Step 9 · A14 · migration **`0003_documents_staff_visible`** (not `0004` — the audit change needed no migration, see G3.6): `Boolean`, `nullable=False`, **`server_default=false`** · verify: `upgrade → downgrade → upgrade` clean ✓ + `alembic check` → *"No new upgrade operations detected"* ✓
+- [x] G9.2 · §6 Step 9 · A14 · staff queries filter on `staff_visible` **and** property scope resolved via `entity_type`/`entity_id` per **C11**; `entity_id IS NULL` → invisible · verify: `tests/integration/test_documents.py::test_default_hidden` ✓
+- [x] G9.3 · §6 Step 9 · — · owner/admin unaffected by the flag · verify: `test_documents.py::TestPrivilegedUnaffected` ✓ (owner + admin)
+
+> **`server_default`, not a Python default, and that is the whole of "fail closed".** A
+> constructor default leaves every row inserted by raw SQL, a migration, or the importer silently
+> *visible*. `test_column_default_is_false_in_the_database` asserts it at
+> `information_schema`, because the model's `default=` would satisfy any test that went through
+> the ORM.
+>
+> **Both conditions are ANDed, and each half has its own test.**
+> `test_ticked_but_out_of_scope_stays_hidden` catches an implementation filtering on the flag
+> alone; `test_default_hidden` catches one filtering on scope alone. **Mutation-verified:**
+> dropping the `staff_visible` condition — i.e. scope-only — fails `test_default_hidden`, which
+> is the "every invoice exposed by default" outcome D13 exists to prevent.
+>
+> **C11 resolved in code, not just in prose.** `Document` has no `property_id`, so scope is
+> resolved *through the parent* via a per-`entity_type` subquery. Only **property-scoped** parents
+> get a branch (`asset`, `consumable`, `issue`, `task`, `work_order`, `property`) — a document on
+> a `contract` or `insurance` policy hangs off an account-level row staff never receive, so there
+> is no scope under which it becomes visible. `entity_id IS NULL` matches no branch and is
+> therefore invisible, which is the fail-closed reading of the case F2c says the source leaves
+> silent.
+>
+> **The migration is `0003`, not §3's `0004`.** §3's manifest bundles four unrelated changes into
+> one `0003_phase2_rbac`; they land in four different groups, and one file spanning four commits
+> is not resumable. G3.6 turned out to need no migration at all, so this took the `0003` slot.
 
 ### [ ] G10 — Step 10: AI scoping — **the highest-risk step; A15 is the phase's definition of done** — *dep: G2, G8*
 - [ ] G10.1 · §6 Step 10 · — · thread a **required positional** scope through `assemble_context()` — signature per **C3**, not §4.3's literal line; N2: no default, no optional · verify: `tests/integration/test_ai_scoping.py::test_scope_is_required`
@@ -730,11 +754,11 @@ conventions §0's *"gate that cannot fail is not a gate"*, and this phase is mad
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**Landed:** G0–G8. Suite: **1681 passed, 3 skipped, 2 xfailed, 0 failed** (1562 baseline → 1681,
-+119 tests).
+**Landed:** G0–G9. Suite: **1688 passed, 3 skipped, 2 xfailed, 0 failed** (1562 baseline → 1688,
++126 tests). Migration chain: `0001_pg_baseline` → `0002_rls` → `0003_documents_staff_visible`,
+round-trip clean, `alembic check` reports no drift.
 
-**Resume at G9** — `documents.staff_visible` (D13), which needs migration `0004` and C11's
-`entity_type`/`entity_id` scope resolution.
+**Resume at G10 — the AI scoping, and the phase's definition of done.**
 
 **RBAC is live on the web surface: roles, rows, and fields.** An anonymous request is 401; all
 142 declared routes go through the capability matrix; staff queries are constrained to their

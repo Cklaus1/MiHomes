@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import date
 
-from sqlalchemy import Date, Enum, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, Enum, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -42,3 +42,12 @@ class Document(Base, TimestampMixin, SlugMixin, TenantOwned):
     entity_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     expires_at: Mapped[date | None] = mapped_column(Date, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # D13 — owner/admin controlled, **default false, fail closed**: "a housekeeper sees an
+    # appliance manual once it is ticked; a newly uploaded invoice is never exposed by default."
+    #
+    # `server_default` rather than a Python-side default on purpose. A constructor default would
+    # leave rows inserted by raw SQL, a migration, or the importer silently visible — and D13's
+    # posture is that a document is hidden unless something positively authorises it.
+    staff_visible: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )

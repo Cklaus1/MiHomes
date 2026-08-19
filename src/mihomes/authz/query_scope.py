@@ -85,6 +85,66 @@ def _apply_property_scope(execute_state) -> None:
             )
         )
 
+    execute_state.statement = execute_state.statement.options(
+        with_loader_criteria(_Document(), _document_criteria(allowed), include_aliases=True)
+    )
+
+
+def _Document():  # noqa: N802 - reads as the class it stands in for
+    from mihomes.models.document import Document
+
+    return Document
+
+
+#: `entity_type` → the parent model, for the polymorphic link. Only **property-scoped** parents
+#: appear: a document on a `contract` or an `insurance` policy hangs off an account-level row that
+#: staff never receive, so there is no scope under which it becomes visible.
+def _document_parents() -> dict[str, type]:
+    from mihomes.models.asset import Asset
+    from mihomes.models.consumable import Consumable
+    from mihomes.models.issue import Issue
+    from mihomes.models.property import Property
+    from mihomes.models.task import Task
+    from mihomes.models.work_order import WorkOrder
+
+    return {
+        "asset": Asset,
+        "consumable": Consumable,
+        "issue": Issue,
+        "task": Task,
+        "work_order": WorkOrder,
+        "property": Property,
+    }
+
+
+def _document_criteria(allowed):
+    """D13 + C11 — `staff_visible` **and** a parent inside the scope.
+
+    Both conditions, ANDed. Filtering on the flag alone would let a ticked document on another
+    property through; filtering on scope alone would expose every invoice by default. D13 is the
+    first condition and G7's scoping is the second, and the document layer is the one place they
+    have to be spelled out together because `Document` carries no `property_id` of its own (C11).
+
+    A document with `entity_id IS NULL` matches no branch and is therefore invisible: an
+    account-level document has no parent whose scope could authorise it. That is the fail-closed
+    reading of a case the source never resolves (F2c).
+    """
+    from sqlalchemy import and_, or_, select
+
+    from mihomes.models.document import Document
+
+    branches = []
+    for entity_type, parent in _document_parents().items():
+        column = parent.id if parent.__name__ == "Property" else parent.property_id
+        branches.append(
+            and_(
+                Document.entity_type == entity_type,
+                Document.entity_id.in_(select(parent.id).where(column.in_(allowed))),
+            )
+        )
+
+    return and_(Document.staff_visible.is_(True), or_(*branches))
+
 
 def install_property_scope_listener() -> None:
     """Idempotent — the module is imported from several places and must not stack listeners."""

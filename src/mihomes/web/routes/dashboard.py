@@ -3,6 +3,8 @@
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
+from mihomes.authz.actions import Access
+from mihomes.authz.declare import declares
 from mihomes.models.alert import AlertStatus
 from mihomes.models.work_order import WorkOrder, WorkOrderStatus
 from mihomes.services import alerts as alert_svc
@@ -14,7 +16,13 @@ from mihomes.web.deps import get_db, templates
 router = APIRouter()
 
 
+# The portfolio overview is a collection view: it has no single target property, and for staff it
+# must render *their* properties rather than 403 (N5). `property.view` is row 1 of the matrix,
+# `SCOPED` for staff — the enforcement arrives at Step 7, which constrains the queries below by
+# `scoped_property_ids()`. Declaring it now is what lets Step 4's harness verify coverage before
+# any of that exists.
 @router.get("/")
+@declares("property.view", Access.COLLECTION)
 def dashboard(request: Request, db: Session = Depends(get_db)):
     properties = prop_svc.list_properties(db)
     property_ids = [p.id for p in properties]

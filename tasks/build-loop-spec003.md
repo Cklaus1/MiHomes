@@ -449,13 +449,51 @@ resumable. **Each group ships its own revision in the chain** (`0003…`, `0004�
 > extends the same reasoning to models with no money of their own: `Issue` is not in
 > `REDACTED_FIELDS`, but `Issue.work_order.actual_cost` must not be reachable in the clear.
 
-### [ ] G3 — Step 2: `require_permission` + audit + the two route classes — *dep: G0, G2*
-- [ ] G3.1 · §6 Step 2 · A6 · §9.4's five ordered steps; a `SCOPED` **item** route with `target_property=None` denies · verify: `tests/integration/test_permissions.py::test_item_route_requires_target`
-- [ ] G3.2 · §6 Step 2 · A7 · a `SCOPED` **collection** route returns filtered rows, **not 403** (N5) · verify: `tests/integration/test_permissions.py::test_collection_route_filters`
-- [ ] G3.3 · §6 Step 2 · A8 · a cross-account target yields **404**, never 403 (D9 — do not reveal existence) · verify: `tests/integration/test_permissions.py::test_cross_account_is_404`
-- [ ] G3.4 · §6 Step 2 · A9 · revoking a membership denies on the **next** request (D8/N10 — no session cache) · verify: `tests/integration/test_permissions.py::test_revocation_immediate`
-- [ ] G3.5 · §6 Step 2 · A33 · `authz/audit.py::audit_write` over the existing `AuditLog`; **every deny is an audit event**; real actor, never the `"admin"` default (F6) · verify: `tests/integration/test_audit.py::test_denies_and_actor`
-- [ ] G3.6 · §6 Step 2 · A33 · migration `0003`: widen/repurpose `audit_log.actor` to carry a real actor reference · verify: `alembic upgrade head` → `downgrade` → `upgrade` clean; `alembic revision --autogenerate` empty
+### [x] G3 — Step 2: `require_permission` + audit + the two route classes — *dep: G0, G2* — *29 tests; 3 arms mutation-verified*
+- [x] G3.1 · §6 Step 2 · A6 · §9.4's five ordered steps; a `SCOPED` **item** route with `target_property=None` denies · verify: `tests/integration/test_permissions.py::test_item_route_requires_target` ✓
+- [x] G3.2 · §6 Step 2 · A7 · a `SCOPED` **collection** route returns filtered rows, **not 403** (N5) · verify: `tests/integration/test_permissions.py::test_collection_route_filters` ✓
+- [x] G3.3 · §6 Step 2 · A8 · a cross-account target yields **404**, never 403 (D9 — do not reveal existence) · verify: `tests/integration/test_permissions.py::test_cross_account_is_404` ✓ (+ `test_nonexistent_target_is_also_404` — if only one were 404 the *pair* would still leak)
+- [x] G3.4 · §6 Step 2 · A9 · revoking a membership denies on the **next request** (D8/N10 — no session cache) · verify: `tests/integration/test_permissions.py::test_revocation_immediate` ✓ **request-level by design, see C14**
+- [x] G3.5 · §6 Step 2 · A33 · `authz/audit.py`; **every deny is an audit event**; real actor, never the `"admin"` default (F6) · verify: `tests/integration/test_audit.py::test_denies_and_actor` ✓
+- [x] G3.6 · §6 Step 2 · A33 · **no migration needed — §3's manifest is wrong here.** `audit_log.actor` is already `String(100)` with a *Python-side* default, so removing it emits no DDL (`server_default is None`, verified). "Widening" was unnecessary; the fix was behavioural. · verify: column inspection ✓
+
+> **The deny audit needed its own transaction, and finding that out took writing the test twice.**
+> FastAPI's `get_db` does `except Exception: s.rollback(); raise`, and `HTTPException` **is** an
+> `Exception` — so a deny audit written through the request session is destroyed by the very
+> mechanism that reports the denial. A33's *"every deny writes a row"* would be false in
+> production while passing any in-transaction test. Denies now commit on an independent
+> connection; **successes** stay in the caller's session, so an audit row can never describe a
+> change that did not land.
+>
+> **The first version of that durability test passed against broken code and failed against
+> correct code.** It bound the "independent" factory to the test's own connection, so the write
+> landed in a savepoint inside the transaction it was supposed to survive. A fixture that makes a
+> correct implementation look wrong is worse than no test — it argues for removing the
+> independence that makes A33 true.
+>
+> **A33's other half was one function, not 73 edits.** F6: all 73 `record_change` call sites
+> across 20 services write the fictional `"admin"`. Those services do not know who is acting and
+> should not have to — the request does, and `current_user` is already bound per request by G0
+> and per command by the CLI. `resolve_actor()` reads it, fixing all 73 without touching one.
+> Unattended paths log `"system"`: true where `"admin"` was a guess, and visibly not a user id.
+
+### [x] G4 — Step 3: entitlements service — *dep: G1* — *25 tests*
+- [x] G4.1 · §6 Step 3 · A25 · `entitlements/limits.py` (one source of truth, rule 1) + `can()` per `PRICING` §3.2 rules 1–5; every `Denied` names an `upgrade_target` (rule 4) · verify: `tests/unit/test_entitlements.py::test_denied_names_target` ✓
+- [x] G4.2 · §6 Step 3 · A26 · RBAC and entitlements are **independent** gates, both must pass (D10) · verify: `tests/unit/test_entitlements.py::test_both_gates_required` ✓ (both directions, + `can()` structurally cannot see a role)
+- [x] G4.3 · §6 Step 3 · — · `usage()` declared, returns `{used: 0, limit: None, resets_at: None}`, tagged `DEFERRED (Phase 3)` (P3-b, N9) · verify: `tests/unit/test_entitlements.py::test_usage_is_declared_only` ✓
+- [x] G4.4 · §6 Step 3 · — · `can()` **called server-side** at property creation, with the count taken inside the caller's transaction (rule 5) · verify: `tests/unit/test_entitlements.py::TestCanIsActuallyCalled` ✓ — **the invite half lands with G12**, where `invite_service` and A19's seat race live
+
+> **Two limits tables, and the second one is the whole of D18.** `PRICING` §3.1 is the *Phase 3*
+> table (`max_homes: 1`, `staff_invites_allowed: false`). Phase 2 makes every account `free` (D7),
+> so shipping those as active would gate the product for **everyone** with no paid tier to upgrade
+> to — §7's deferred table says the config *"simply says free, unlimited."* So `PLAN_LIMITS` is
+> permissive, `PLAN_LIMITS_PHASE3` carries the real numbers inert, and a test asserts the two
+> declare identical key sets so Phase 3's swap is one line and cannot silently drop a key.
+>
+> **This is also what makes A25 testable without breaking D18.** With the active table `can()`
+> never denies — correct, and required by N8 — so testing rule 4 against it would be vacuous. The
+> denial machinery is exercised against the Phase 3 table instead, and a separate test pins that
+> the *active* table still gates nothing.
 
 ### [ ] G4 — Step 3: entitlements service — *dep: G1*
 - [ ] G4.1 · §6 Step 3 · A25 · `entitlements/limits.py` (one source of truth, rule 1) + `can()` per `PRICING` §3.2 rules 1–5; every `Denied` names an `upgrade_target` (rule 4) · verify: `tests/unit/test_entitlements.py::test_denied_names_target`
@@ -463,10 +501,31 @@ resumable. **Each group ships its own revision in the chain** (`0003…`, `0004�
 - [ ] G4.3 · §6 Step 3 · — · `usage()` declared, returns `{used: 0, limit: None, resets_at: None}`, tagged `DEFERRED (Phase 3)` (P3-b, N9 — **do not build a meter**) · verify: `tests/unit/test_entitlements.py::test_usage_is_declared_only`
 - [ ] G4.4 · §6 Step 3 · — · `can()` is actually **called server-side** at invite creation and property creation · verify: `tests/unit/test_entitlements.py::test_can_is_called_at_call_sites`
 
-### [ ] G5 — Step 4: the fail-closed route harness — *dep: G3 — MUST precede G6 (N1)*
-- [ ] G5.1 · §6 Step 4 · A4 · a test walking the FastAPI router table, failing on any endpoint lacking `(action, route_class)` · verify: `tests/unit/test_route_declarations.py::test_no_undeclared_routes`
-- [ ] G5.2 · §6 Step 4 · A5 · two allowlists — **permanent** (unauthenticated: health, OIDC callback, webhooks, static; one-line justification each) and **shrinking** (temporary); the shrinking list only ever gets shorter · verify: `tests/unit/test_route_declarations.py::test_allowlist_monotonic`
-- [ ] G5.3 · §6 Step 4 · A4 · adding an undeclared route to a scratch module **makes the suite fail** (the harness has teeth) · verify: `tests/unit/test_route_declarations.py::test_scratch_route_is_caught`
+### [x] G5 — Step 4: the fail-closed route harness — *dep: G3 — MUST precede G6 (N1)* — *9 tests; teeth mutation-verified*
+- [x] G5.1 · §6 Step 4 · A4 · `authz/declare.py::@declares(action, access)` + a test walking the FastAPI router table, failing on any endpoint lacking `(action, route_class)` · verify: `tests/unit/test_route_declarations.py::test_no_undeclared_routes` ✓
+- [x] G5.2 · §6 Step 4 · A5 · two allowlists — **permanent** (`auth` only, justified) and **temporary** (per-module, C15); ceiling pinned and asserted equal to the list length · verify: `tests/unit/test_route_declarations.py::test_allowlist_monotonic` ✓
+- [x] G5.3 · §6 Step 4 · A4 · an undeclared route **makes the suite fail** (the harness has teeth) · verify: `tests/unit/test_route_declarations.py::test_scratch_route_is_caught` ✓ — and mutation-verified end-to-end: removing `@declares` from `dashboard.py` fails `test_no_undeclared_routes`, naming `GET /  (mihomes.web.routes.dashboard)`
+
+> **The declaration lives on the endpoint, not in a central registry.** A registry keyed on
+> `(method, path)` drifts the moment a path is edited, and fails in the *worst* direction when it
+> does: the renamed route sails through unmapped while the harness reports a missing declaration
+> for a route that has one. An attribute set by a decorator cannot desynchronise from its
+> function. Unknown action keys raise at **import time**, which is the literal content of §9.2's
+> *"deploy-time error, not a silent allow"*.
+>
+> **The temporary allowlist is per-module, not per-route (C15).** G6 works file by file, so the
+> module is the unit of work: 24 entries going to 0 rather than 146. Partial work *within* a
+> module still fails — a half-declared router is not a safe state — and a 24-line literal stays
+> readable in a diff where a 146-line one would not.
+>
+> **`test_the_harness_sees_the_whole_router_table` is a guard on the guard.** Every other test
+> here would pass against an empty route list, so the walk asserts it finds ≥140 routes. Same
+> shape as G1's model-count floor and G2's `money_columns()` floor: a derived gate needs a check
+> that it is still deriving from something.
+>
+> **`dashboard.py` was declared here rather than in G6**, as the mechanism's end-to-end proof:
+> declare → drop from the allowlist → lower the ceiling → still green, and red the moment the
+> declaration is removed. CEILING 23 → 22.
 
 ### [ ] G6 — Step 5: declare actions on 146 endpoints across 24 files — *dep: G5 — N1: chunked, never one task*
 > **24 files, not 23 (C1).** One sub-task per router file; the shrinking allowlist (G5.2) is the
@@ -476,9 +535,9 @@ resumable. **Each group ships its own revision in the chain** (`0003…`, `0004�
 - [ ] G6.3 · §6 Step 5 · A4 · `properties.py` (10)
 - [ ] G6.4 · §6 Step 5 · A4 · `ai.py` (10) — **also delete the `mihomes ai setup` hint at `:47-48`** (§3 Modified)
 - [ ] G6.5 · §6 Step 5 · A4 · `issues.py` (9), `inventory.py` (9), `vendors.py` (9 — **not 11**, C2)
-- [ ] G6.6 · §6 Step 5 · A4 · `contracts.py` (8), `staff.py` (7), `tasks.py` (7), `recurring.py` (7)
-- [ ] G6.7 · §6 Step 5 · A4 · `calendar.py` (6), `alerts.py` (5), `auth.py` (4 — **new, C1**), `documents.py` (4), `templates_route.py` (4)
-- [ ] G6.8 · §6 Step 5 · A4 · `budget.py` (3), `books.py` (3), `playbooks_route.py` (3), `search.py` (2), `weather.py` (2), `dashboard.py` (1), `library.py` (1), `documents_download.py` (1)
+- [ ] G6.6 · §6 Step 5 · A4 · `contracts.py` (8), `staff.py` (7), ~~`tasks.py` (7)~~ ✓, `recurring.py` (7)
+- [ ] G6.7 · §6 Step 5 · A4 · `calendar.py` (6), `alerts.py` (5), `documents.py` (4), `templates_route.py` (4) — **`auth.py` is `PERMANENT_ALLOWLIST`, not a G6 target**: sign-in and the OIDC callback run *before* an identity exists, so requiring a declared action would make authentication depend on being authenticated
+- [ ] G6.8 · §6 Step 5 · A4 · `budget.py` (3), `books.py` (3), `playbooks_route.py` (3), `search.py` (2), `weather.py` (2), ~~`dashboard.py` (1)~~ ✓ *(declared at G5 as the mechanism's proof)*, `library.py` (1), `documents_download.py` (1)
 - [ ] G6.9 · §6 Step 5 · A5 · the shrinking allowlist is **empty**; list every write/delete/export route in the group commit for U2's human review · verify: `test_route_declarations.py::test_allowlist_monotonic` + allowlist length 0
 
 ### [ ] G7 — Step 7: staff scoping in web queries — *dep: G6*

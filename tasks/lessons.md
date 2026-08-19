@@ -440,3 +440,13 @@ Review this at the start of each session.
   entire web suite passed against an application that never bound a tenant to a request. **Rule:**
   when a test fixture supplies something production must supply, at least one test must build its
   own client *without* the fixture's help — otherwise the suite is testing the harness.
+
+- **Never run two full pytest suites concurrently against one Postgres.** Doing it produced
+  `37 failed, 788 errors`, every one a `psycopg.errors.DeadlockDetected`, and the run finished in
+  83s instead of the usual ~190s. Nothing was wrong with the code: the session-scoped schema
+  fixture in `conftest.py` takes locks that two runs contend over. **Tell:** a mass failure whose
+  errors are all the *same* infrastructure exception, with a wall-clock time far shorter than a
+  normal run, is an environment collision rather than a regression — check what else is running
+  before reading a traceback. The cost of guessing wrong here is high in both directions: triaging
+  a real regression as "flaky infra" hides a bug, and debugging a deadlock as a code fault burns
+  an hour. The runtime is the cheap discriminator.

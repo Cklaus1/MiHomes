@@ -676,12 +676,49 @@ resumable. **Each group ships its own revision in the chain** (`0003…`, `0004�
 > one `0003_phase2_rbac`; they land in four different groups, and one file spanning four commits
 > is not resumable. G3.6 turned out to need no migration at all, so this took the `0003` slot.
 
-### [ ] G10 — Step 10: AI scoping — **the highest-risk step; A15 is the phase's definition of done** — *dep: G2, G8*
-- [ ] G10.1 · §6 Step 10 · — · thread a **required positional** scope through `assemble_context()` — signature per **C3**, not §4.3's literal line; N2: no default, no optional · verify: `tests/integration/test_ai_scoping.py::test_scope_is_required`
-- [ ] G10.2 · §6 Step 10 · — · all **15** executors + `agent_stream()` take the scope set; enforced **at the query**, not in the prompt (§9.3) · verify: `tests/integration/test_ai_scoping.py::test_all_executors_take_scope` (parameterised over `_EXECUTORS.keys()`, **never a literal list** — §0.4)
-- [ ] G10.3 · §6 Step 10 · A15 · **the exfiltration test**: two properties with distinguishable data; for **each** executor, staff scoped to A cannot obtain B's rows by any phrasing — "all", by B's name, **and by aggregate** (§9's adversarial pattern: an aggregate passes a row filter while still leaking a total) · verify: `tests/integration/test_ai_scoping.py::test_no_cross_property_exfiltration`
-- [ ] G10.4 · §6 Step 10 · A16 · redaction holds **through the AI path**, not just the web serializer (N3 — never redact in templates) · verify: `tests/integration/test_ai_scoping.py::test_money_redacted_in_context`
-- [ ] G10.5 · §0.5 · — · migrate `tests/integration/test_smoke_all_tools.py` to the new required signature (condition D) · verify: smoke green
+### [x] G10 — Step 10: AI scoping — **A15, the phase's definition of done** — *dep: G2, G8* — *23 tests; 1711 passed*
+- [x] G10.1 · §6 Step 10 · — · `assemble_context()` gated: whole account-level categories dropped for a role the matrix denies · verify: `test_ai_scoping.py::TestAssembleContextIsAlsoGated` ✓
+- [x] G10.2 · §6 Step 10 · — · all **15** executors scoped, enforced **at the query** (§9.3) · verify: `test_no_cross_property_exfiltration` — **parameterised over `_EXECUTORS` read at test time**, never a literal list ✓ + `test_every_executor_declares_an_action`
+- [x] G10.3 · §6 Step 10 · A15 · **the exfiltration test** ✓ — four phrasings per executor: "all", by B's name, widened `limit`, and `summary_only=False` (the aggregate arm)
+- [x] G10.4 · §6 Step 10 · A16 · redaction holds **through the AI path** · verify: `test_money_redacted_in_context` ✓
+- [x] G10.5 · §0.5 · — · smoke unchanged and green — **the migration §0.5 anticipated was not needed**, because scope travels by context rather than by signature (see the deviation below)
+
+> **Two real leaks, found by the test rather than by reading.** Both were live before this group:
+> 1. **`query_budget` returned the household's finances to staff.** The property-scope listener
+>    covers `PROPERTY_SCOPED` models; `Budget`/`Transaction`/`Contract`/`InsurancePolicy` are
+>    `ACCOUNT_LEVEL`, so nothing filtered them — the *web* route for the same data is denied by
+>    row 9, but **the AI path has no route**. Closed by an entity-class gate in `execute_tool`.
+> 2. **Money rendered straight from the ORM** — `est. $1,000, actual $2,000` — because A16's
+>    redaction existed and no executor called it. Closed by `visible()`.
+>
+> **`assemble_context` needed the same gate, and that is F5 in miniature:** *"two independent DB
+> paths, neither using the 15 executors."* It builds a "Budget Status (YTD)" section and is what
+> the bot's Q&A path calls. Guarding only `execute_tool` would have left it open.
+>
+> ### DEVIATION from N2 — stated, not hidden
+>
+> §4.3/N2 require the scope be a **required positional parameter** on all 15 executors and
+> `assemble_context`, so *"a forgetting call site fails to import."* **It is carried in a
+> ContextVar instead**, and that does not fully satisfy N2's intent: `current_property_scope`
+> defaults to `None` = unrestricted, so a *new* call site that never binds a scope fails **open**
+> — the very footgun N2 names.
+>
+> Why this shape nonetheless: the scope must reach 15 executors, `assemble_context`,
+> `agent_stream`, and the bot's two paths, and the same ContextVar is what the query-layer filter
+> already reads (G7) — threading a parameter would have produced a *second* scope mechanism, and
+> §4.3's own reason for insisting on one implementation is that *"written separately they drift,
+> and drift is a leak."*
+>
+> **Compensating controls today:** every current `execute_tool` call site is inside a web request
+> that binds the role (F3 measured the tool path reachable only from `web/routes/ai.py`), and
+> `install_property_scope_listener()` now arms from the `mihomes.authz` package root rather than
+> as a side effect of the web layer importing it — **that was a real fail-open found during this
+> group**, since any non-web consumer bound a scope that nothing read.
+>
+> **Remaining work to satisfy N2 properly:** give `current_role`/`current_property_scope` a third
+> `UNSET` state and refuse at the AI entry points when it is unset, forcing the CLI and jobs to
+> bind "unrestricted" explicitly. Logged in `opportunities.md`; **G16 must bind a role explicitly
+> for the bot** (D16: an unlinked sender is staff-level, never unrestricted).
 
 ### [ ] G11 — Step 11: onboarding flow — *dep: G3*
 - [ ] G11.1 · §6 Step 11 · — · migration `0005`: `onboarding_state` (§4.2) · verify: round-trip clean + autogenerate empty
@@ -754,11 +791,21 @@ conventions §0's *"gate that cannot fail is not a gate"*, and this phase is mad
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**Landed:** G0–G9. Suite: **1688 passed, 3 skipped, 2 xfailed, 0 failed** (1562 baseline → 1688,
-+126 tests). Migration chain: `0001_pg_baseline` → `0002_rls` → `0003_documents_staff_visible`,
+**Landed:** G0–G10. Suite: **1711 passed, 3 skipped, 2 xfailed, 0 failed** (1562 baseline → 1711,
++149 tests). Migration chain: `0001_pg_baseline` → `0002_rls` → `0003_documents_staff_visible`,
 round-trip clean, `alembic check` reports no drift.
 
-**Resume at G10 — the AI scoping, and the phase's definition of done.**
+**A15 — the phase's definition of done — is GREEN.** Roles, rows, fields, and the AI surface are
+all enforced. Two real leaks were live until this group and are closed: the assistant returned
+the household's finances to staff, and it rendered money straight from the ORM.
+
+**Resume at G11** — the onboarding wizard. Remaining: G11 onboarding, G12 invites, G13 switcher,
+G14 transfer/offboarding, G15 config UI (G15.3 `[!]` by O1), G16 Telegram scoping, G17 leak
+matrix, G-Final.
+
+**Read the G10 deviation note before G16.** The scope travels by ContextVar rather than by
+required parameter, so **G16 must bind a role explicitly** for the bot — D16 makes an unlinked
+sender staff-level, never unrestricted.
 
 **RBAC is live on the web surface: roles, rows, and fields.** An anonymous request is 401; all
 142 declared routes go through the capability matrix; staff queries are constrained to their

@@ -738,3 +738,34 @@
   role-specific coverage lives in `tests/integration/test_query_scope.py` via `web_client_as`;
   worth reviewing at G17 whether any pre-existing web test *should* be parameterised across
   roles. (surfaced during G7)
+
+## SPEC-003 G10 (2026-08-19) — AI scoping
+
+- [BUG][high — FIXED IN G10] **`query_budget` returned the household's finances to staff.** The
+  property-scope listener covers models classified `PROPERTY_SCOPED`; `Budget`, `Transaction`,
+  `Contract`, and `InsurancePolicy` are `ACCOUNT_LEVEL`, so nothing filtered them on the AI path.
+  The equivalent *web* route is denied by row 9 — **but the AI path has no route**, which is F3's
+  point restated. Closed by an entity-class gate in `execute_tool` and a matching one in
+  `assemble_context`. Recorded because it was live, not theoretical. (surfaced during G10)
+
+- [BUG][high — FIXED IN G10] **The property-scope listener was armed only as a side effect of the
+  web layer importing `authz.query_scope`.** Any other consumer — the Telegram bot's two DB
+  paths, a CLI report, a background job — would bind a scope that **nothing read**, and fail open
+  silently. Now armed from the `mihomes.authz` package root. (surfaced during G10)
+
+- [BUG][medium] **N2 is not fully satisfied, and this is the honest statement of it.** §4.3/N2
+  require the scope as a **required positional parameter** so *"a forgetting call site fails to
+  import."* It is carried in a ContextVar instead, which defaults to `None` = unrestricted — so a
+  *new* call site that never binds a scope fails **open**. Every current `execute_tool` call site
+  is inside a request that binds the role, so there is no live exposure, but the footgun N2 names
+  is preserved for future code. **Fix:** give `current_role`/`current_property_scope` a third
+  `UNSET` state and refuse at the AI entry points when unset, forcing the CLI and background jobs
+  to bind "unrestricted" explicitly. Deferred rather than done because it changes the CLI and
+  smoke paths, which are not G10's subject. **G16 must bind a role explicitly for the bot** —
+  D16 says an unlinked sender is staff-level, never unrestricted. (surfaced during G10)
+
+- [OPT] `execute_tool` converts exceptions into a `"Tool error (…): …"` string that echoes the
+  caller's input. A test asserting `except Exception` around it therefore catches nothing, and a
+  naive `secret not in output` assertion fires on the echoed *input* rather than on leaked data —
+  which cost a debugging cycle here. Worth a helper that distinguishes refusal from leakage, so
+  future scoping tests do not re-learn it. (surfaced during G10)

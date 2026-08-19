@@ -18,13 +18,30 @@ from mihomes.authz.actions import (
     EntityClass,
     Grant,
 )
+from mihomes.authz.query_scope import install_property_scope_listener
 from mihomes.authz.redact import (
     MONEY_VISIBLE_TO_STAFF,
     REDACTED_FIELDS,
     money_columns,
     redact_for_role,
 )
-from mihomes.authz.scope import scoped_property_ids
+from mihomes.authz.scope import (
+    authz_context,
+    current_property_scope,
+    current_role,
+    property_scope,
+    scoped_property_ids,
+)
+
+# **Installed here, not only in `web/deps.py`.** The listener was previously armed as a side
+# effect of importing `authz.query_scope`, which the web layer does and nothing else did — so any
+# other consumer of the scope (the Telegram bot's two DB paths, a CLI report, a background job)
+# would bind a scope that **nothing read**, and fail open silently.
+#
+# That is F3's footgun wearing different clothes, and it is exactly why N2 insists the scope be
+# impossible to forget. Arming it from the package root means reaching for `mihomes.authz` at all
+# is enough.
+install_property_scope_listener()
 
 __all__ = [
     "ENTITY_CLASSES",
@@ -36,7 +53,11 @@ __all__ = [
     "ActionSpec",
     "EntityClass",
     "Grant",
+    "authz_context",
+    "current_property_scope",
+    "current_role",
     "money_columns",
+    "property_scope",
     "redact_for_role",
     "scoped_property_ids",
 ]

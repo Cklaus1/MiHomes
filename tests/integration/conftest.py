@@ -169,8 +169,26 @@ def web_client_as(_pg_engine, account_a):
         client.cookies.set(SESSION_COOKIE, raw)
         return client
 
+    def session_for_scope(scoped_to=()):
+        """A plain ORM session on the test's connection, for exercising service-layer code.
+
+        The AI executors take a `Session` directly rather than going through HTTP, so testing
+        them means calling them the way `web/routes/ai.py` does — with the authz context bound by
+        the caller. `scoped_to` is accepted for symmetry and to document intent at the call site;
+        the scope itself is bound by the test via `authz_context`, because that is the seam the
+        production code reads.
+
+        The **account** context is bound here rather than by the test, because it is Phase 1's
+        concern and not what these tests are about: without it every `TenantOwned` query raises
+        `LookupError`, and the test would be measuring the tenant layer instead of the property
+        one.
+        """
+        stack.enter_context(account_context(account_a))
+        return stack.enter_context(SessionLocal())
+
     make.seed = seed
     make.connection = connection
+    make.session_for_scope = session_for_scope
     try:
         yield make
     finally:

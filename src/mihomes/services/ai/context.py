@@ -7,6 +7,42 @@ from sqlalchemy.orm import Session
 from mihomes.models.ai_conversation import AIConversation
 from mihomes.services.ai.roles import AIRole
 
+#: context category → the MATRIX action that authorises it. Only categories backed by
+#: **account-level** entities appear: the property-scoped ones are filtered row-by-row by
+#: `authz/query_scope.py`, so dropping their whole section would hide the staff member's own work.
+_CATEGORY_ACTIONS = {
+    "budgets": "finance.view",
+    "contracts": "finance.view",
+    "insurance": "finance.view",
+    "staff": "member.manage",
+}
+
+
+def _denied_categories() -> set[str]:
+    """Categories the acting role may not see. Empty when no role is bound.
+
+    No role bound means the CLI or a background job, which are already tenant-scoped and have no
+    user to restrict — the same convention `current_property_scope` uses. **D16 depends on this
+    being explicit at the bot:** an unlinked Telegram sender is *staff-level*, never unrestricted,
+    so Step 16 binds a role rather than leaving it unset.
+    """
+    from mihomes.authz.actions import MATRIX, Grant
+    from mihomes.authz.scope import current_role
+
+    role = current_role.get()
+    if role is None:
+        return set()
+
+    denied = set()
+    for category, action in _CATEGORY_ACTIONS.items():
+        spec = MATRIX[action]
+        grant = {"owner": spec.owner, "admin": spec.admin, "staff": spec.staff}.get(
+            role, Grant.DENY
+        )
+        if grant is Grant.DENY:
+            denied.add(category)
+    return denied
+
 
 def assemble_context(
     session: Session,
@@ -22,6 +58,18 @@ def assemble_context(
     categories = set()
     for role in roles:
         categories.update(role.data_categories)
+
+    # SPEC-003 §6 Step 10 — the entity-class gate, applied to the *other* AI path.
+    #
+    # `execute_tool` guards the 15 executors, but this builder is a second, independent route to
+    # the same data — F5 measured exactly that: "two independent DB paths, neither using the 15
+    # executors." It assembles a "Budget Status (YTD)" section with real money, and it is what
+    # the Telegram bot's Q&A path calls. Property scoping reaches the property-scoped models
+    # through the query listener; the *account-level* categories need this.
+    #
+    # Row filtering happens below in each `_fetch_*`; this drops whole sections the acting role
+    # may not see at all, which is both cheaper and the only correct answer for finances.
+    categories -= _denied_categories()
 
     sections = []
     token_est = 0

@@ -905,7 +905,16 @@ def upgrade() -> None:
     # against a schema with no tenant enforcement — they are not evidence for A21.
     if op.get_bind().dialect.name == "postgresql":
         op.execute(DRIFT_GUARD_FUNCTION)
-        for stmt in trigger_ddl_statements(Base.metadata):
+        # Scoped to the tables **this** migration created. `Base.metadata` keeps growing —
+        # SPEC-003's `0007` adds `telegram_links`, whose `membership_id` is a guarded link — and
+        # an unscoped call tried to `CREATE TRIGGER` on it six revisions early, failing a
+        # from-scratch upgrade with `UndefinedTable`. Each later migration emits the guard for the
+        # table it creates. Same correction as `0002_rls` at G11, for the same reason: a migration
+        # is a fixed point in history.
+        import sqlalchemy as _sa
+
+        created = set(_sa.inspect(op.get_bind()).get_table_names())
+        for stmt in trigger_ddl_statements(Base.metadata, only_tables=created):
             op.execute(stmt)
 
 

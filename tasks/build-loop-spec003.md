@@ -893,14 +893,14 @@ resumable. **Each group ships its own revision in the chain** (`0003…`, `0004�
 > §10 says masking does not make them safe and an operator is better served by the truth than by
 > the mask.
 
-### [ ] G16 — Step 16: Telegram bot scoping — *dep: G2, G10*
-- [ ] G16.1 · §6 Step 16 · A32 · migration `0006` + `models/telegram_link.py` per §4.2 — keyed on **`membership_id`** with `ondelete=CASCADE` (D19, N6 — never `Staff`); `UNIQUE(account_id, telegram_user_id)` · verify: `tests/integration/test_telegram_scope.py::test_revocation_cascades`
-- [ ] G16.2 · §6 Step 16 · — · `/link <code>` flow — short-lived, single-use, **hashed** codes bound to `(user_id, account_id, membership_id)` · verify: `tests/integration/test_telegram_scope.py::test_link_flow`
-- [ ] G16.3 · §6 Step 16 · A28 · resolve the sender from `message["sender"]` (`client.py:158`); **unlinked → staff-level, not denied** (D16, a deliberate departure from `TELEGRAM_PRD:158`) · verify: `tests/integration/test_telegram_scope.py::test_unlinked_is_staff`
-- [ ] G16.4 · §6 Step 16 · A31 · scope **both** DB paths — `orchestrator.ask`/`assemble_context` **and** `review.py:120` `_build_estate_context`; missing either leaves a hole (F5) · verify: `tests/integration/test_telegram_scope.py::test_both_paths_scoped`
-- [ ] G16.5 · §6 Step 16 · A29 · a staff sender's financial question is **refused** · verify: `tests/integration/test_telegram_scope.py::test_staff_financial_refused`
-- [ ] G16.6 · §6 Step 16 · A30 · D17 — a financial answer is **never** posted into a staff-containing group; the bot offers a DM · verify: `tests/integration/test_telegram_scope.py::test_group_dm_offer`
-- [ ] G16.7 · §6 Step 16 · — · `_resolve_reporter` (`responder.py:340-347`) prefers the **resolved sender** over the LLM's fuzzy `Staff.name ILIKE` guess · verify: `tests/integration/test_telegram_scope.py::test_reporter_from_sender`
+### [x] G16 — Step 16: Telegram bot scoping — *dep: G2, G10* — *23 tests; 1830 passed*
+- [x] G16.1 · §6 Step 16 · A32 · migration `0006` + `models/telegram_link.py` per §4.2 — keyed on **`membership_id`** with `ondelete=CASCADE` (D19, N6 — never `Staff`); `UNIQUE(account_id, telegram_user_id)` · verify: `tests/integration/test_telegram_scope.py::test_revocation_cascades`
+- [x] G16.2 · §6 Step 16 · — · `/link <code>` flow — short-lived, single-use, **hashed** codes bound to `(user_id, account_id, membership_id)` · verify: `tests/integration/test_telegram_scope.py::test_link_flow`
+- [x] G16.3 · §6 Step 16 · A28 · resolve the sender from `message["sender"]` (`client.py:158`); **unlinked → staff-level, not denied** (D16, a deliberate departure from `TELEGRAM_PRD:158`) · verify: `tests/integration/test_telegram_scope.py::test_unlinked_is_staff`
+- [x] G16.4 · §6 Step 16 · A31 · scope **both** DB paths — `orchestrator.ask`/`assemble_context` **and** `review.py:120` `_build_estate_context`; missing either leaves a hole (F5) · verify: `tests/integration/test_telegram_scope.py::test_both_paths_scoped`
+- [x] G16.5 · §6 Step 16 · A29 · a staff sender's financial question is **refused** · verify: `tests/integration/test_telegram_scope.py::test_staff_financial_refused`
+- [x] G16.6 · §6 Step 16 · A30 · D17 — a financial answer is **never** posted into a staff-containing group; the bot offers a DM · verify: `tests/integration/test_telegram_scope.py::test_group_dm_offer`
+- [x] G16.7 · §6 Step 16 · — · `_resolve_reporter` (`responder.py:340-347`) prefers the **resolved sender** over the LLM's fuzzy `Staff.name ILIKE` guess · verify: `tests/integration/test_telegram_scope.py::test_reporter_from_sender`
 
 ### [ ] G17 — Step 17: cross-cutting adversarial leak matrix — *dep: all*
 - [ ] G17.1 · §6 Step 17 · — · the leak matrix — for each entity class in §4.1 (as corrected by C10), assert staff reach is exactly what the classification says, across **web + AI + bot** · verify: `tests/integration/test_leak_matrix.py::test_staff_reach_matches_classification`
@@ -939,12 +939,12 @@ conventions §0's *"gate that cannot fail is not a gate"*, and this phase is mad
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**Landed:** G0–G15, **including G13.5** (which discharged G11.4 and the G12/G13 UI). Suite:
-**1803 passed, 3 skipped, 2 xfailed, 0 failed** (1562 baseline → 1803, +241 tests).
+**Landed:** G0–G16, **including G13.5** (which discharged G11.4 and the G12/G13 UI). Suite:
+**1830 passed, 3 skipped, 2 xfailed, 0 failed** (1562 baseline → 1830, +268 tests).
 **Poison ceiling: 0 of 5 used** — G15.3 closed by refusal rather than deferral. Migration chain: `0001_pg_baseline` →
 `0002_rls` → `0003_documents_staff_visible` → `0004_onboarding_state` →
-`0005_invite_property_ids` → `0006_user_last_used_account`; **full `base → head → base → head`
-round-trip clean**, `alembic check` reports no drift.
+`0005_invite_property_ids` → `0006_user_last_used_account` → `0007_telegram_links`; **full
+`base → head → base → head` round-trip clean**, `alembic check` reports no drift.
 
 ### [x] G13.5 — `Access.SESSION`, and the three surfaces it unblocks — *founder-approved, 2026-08-19*
 
@@ -977,32 +977,32 @@ presupposes an account, and onboarding steps 1–2, invite acceptance, and the s
 all enforced. Two real leaks were live until this group and are closed: the assistant returned
 the household's finances to staff, and it rendered money straight from the ORM.
 
-**Resume at G16** — Telegram bot scoping. Remaining: G16, G17 leak matrix, G-Final.
+### [x] G16 — Telegram bot scoping (2026-08-20)
 
-**G16 must bind a role explicitly** — see G10's deviation note. The scope travels by ContextVar
-and defaults to *unrestricted*, so a bot path that binds nothing fails **open**. D16 makes an
-unlinked sender **staff-level**, never unrestricted.
+**Landed.** Suite: **1830 passed, 3 skipped, 2 xfailed, 0 failed** (+27 since G15). Migration
+chain now runs to `0007_telegram_links`; full `base → head → base → head` round-trip clean and
+`alembic check` reports no drift.
 
-**Read the G10 deviation note before G16.** The scope travels by ContextVar rather than by
-required parameter, so **G16 must bind a role explicitly** for the bot — D16 makes an unlinked
-sender staff-level, never unrestricted.
+The bot binds a role **on every path**, including the unlinked one. `sender_authz` is a
+contextmanager that *always* binds — an unlinked sender gets `("staff", frozenset())` per D16, not
+"unrestricted" and not a refusal. That was the specific trap flagged before this group started:
+the scope travels by ContextVar and defaults to unrestricted, so a bot path that binds nothing
+fails **open**. Making the binding unconditional in the contextmanager is what removes the
+possibility rather than merely avoiding it.
 
-**RBAC is live on the web surface: roles, rows, and fields.** An anonymous request is 401; all
-142 declared routes go through the capability matrix; staff queries are constrained to their
-whitelist at the query layer; and money and vendor-sensitive fields are stripped at the
-serialization boundary.
+Both DB paths are scoped (F5): `orchestrator.ask`/`assemble_context` **and**
+`review_common.build_estate_context` — note the spec's `review.py:120` citation has drifted, see
+`opportunities.md`. The two financial gates are separate and both apply: D15 screens the *asker*,
+D17 screens the *audience*, so an owner asking a money question in a group containing staff gets
+a DM offer rather than an answer in-channel.
 
-**The AI surface is still completely unscoped, and it is the definition of done.** `assemble_context()`
-and all 15 executors take no scope, so a staff member scoped to one property can still ask the
-assistant about another and be answered. That is A15, that is G10, and the spec is explicit that
-without it Phase 2 is not finished regardless of what else works.
+**Three migrations in this spec have now read mutable application state**, `0001_pg_baseline`
+being the third. A migration is a fixed point in history; one that imports state later migrations
+change is not. Recorded in `opportunities.md` with a proposed mechanical guard.
 
-**A15 — the phase's definition of done — is not green.** G10 has not started. The spec's own
-words: *"Roles enforced in the UI while the AI answers freely is not a partial success — it is
-the leak wearing the feature's clothes."*
+**Resume at G17** — the cross-cutting adversarial leak matrix. Remaining: G17, G-Final.
 
-**Poison ceiling: 0 of 5 used.** `G15.3` will be `[!]` **by decision** (O1/N11) and does not
-count.
+**Poison ceiling: 0 of 5 used.** `G15.3` is `[!]` **by decision** (O1/N11) and does not count.
 
 ---
 

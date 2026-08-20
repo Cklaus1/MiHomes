@@ -99,6 +99,11 @@ TENANT_TABLES = frozenset({
     # briefly classified GLOBAL during G11 and this registry rejected it, correctly — a table
     # with an `account_id` that nothing scopes is the shape of a leak.
     "onboarding_state",
+    # --- chat identity, added by SPEC-003 Step 16 (D19, A32) -------------
+    # Keyed on `memberships` so that revoking a membership CASCADEs the link away — which is what
+    # makes TELEGRAM_PRD:158's "revoking a membership implicitly revokes the link" structural
+    # rather than remembered. Never keyed on `Staff` (N6): that is a job enum with its own OWNER.
+    "telegram_links",
     # --- identity, added by Step 1 --------------------------------------
     "invites",
     "membership_property_scopes",

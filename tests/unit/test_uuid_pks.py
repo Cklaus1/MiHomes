@@ -150,11 +150,27 @@ def test_polymorphic_entity_ids_are_uuid():
         )
 
 
+#: `(table, column)` pairs that are integers **because another system chose the value**.
+#:
+#: The UUID conversion (SPEC-002 G6.1) is about *MiHomes* keys: ours are UUIDv7, app-side, no
+#: DB-side default. An id minted by Telegram, Stripe or Google is a foreign key into someone
+#: else's namespace, and rewriting it as a UUID would mean it no longer matched the thing it
+#: identifies. Listed explicitly, with the reason, so the catch-all keeps its teeth for the case
+#: it was written for — one of *our* ids left behind.
+FOREIGN_SYSTEM_IDS = {
+    # SPEC-003 G16 / D19. Telegram's own user id, BigInteger because it exceeds 2^31 and keeps
+    # growing — a plain Integer would start silently rejecting new accounts at signup.
+    ("telegram_links", "telegram_user_id"),
+}
+
+
 def test_no_integer_id_columns_remain():
     """Nothing named like an id is still an integer.
 
     A catch-all so the next polymorphic or denormalized id column cannot slip
     through the way these five did.
+
+    Ids owned by *other* systems are exempt via `FOREIGN_SYSTEM_IDS` — see the note there.
     """
     # `isinstance` against sqlalchemy.Integer, NOT a name comparison. The first
     # version of this test checked `type(col.type).__name__ == "INTEGER"` and
@@ -166,6 +182,8 @@ def test_no_integer_id_columns_remain():
         if name in TEST_ONLY_TABLES:
             continue
         for col in table.columns:
+            if (name, col.name) in FOREIGN_SYSTEM_IDS:
+                continue
             looks_like_id = col.name == "id" or col.name.endswith("_id")
             if looks_like_id and isinstance(col.type, Integer):
                 stragglers.append(f"{name}.{col.name} ({col.type!r})")

@@ -137,11 +137,24 @@ def parent_links(metadata: MetaData) -> list[tuple[str, str, str]]:
     return sorted(set(links))
 
 
-def trigger_ddl_statements(metadata: MetaData) -> list[str]:
+def trigger_ddl_statements(
+    metadata: MetaData, only_tables: set[str] | None = None
+) -> list[str]:
     """`CREATE TRIGGER` for every guarded link.
 
     `BEFORE INSERT OR UPDATE OF account_id, <fk>` — the `OF` clause applies only to the
     UPDATE event, so an unrelated column update does not pay for the lookup.
+
+    **`only_tables` exists because a migration must not depend on live model metadata.**
+    `0001_pg_baseline` calls this with `Base.metadata`, which keeps growing: SPEC-003's `0007`
+    adds `telegram_links`, whose `membership_id` is a guarded link — so `0001` tried to
+    `CREATE TRIGGER ... ON telegram_links` six revisions before that table exists, and a
+    from-scratch upgrade died with `UndefinedTable`. The same failure `0002_rls` had at G11,
+    from the same cause: **a migration is a fixed point in history, and one that imports a
+    mutable registry is not.**
+
+    Each later migration emits the guard for the table it creates; `0001` emits it only for the
+    tables `0001` itself creates.
     """
     return [
         f"CREATE TRIGGER {trigger_name(child, fk_col)} "
@@ -149,6 +162,7 @@ def trigger_ddl_statements(metadata: MetaData) -> list[str]:
         f"FOR EACH ROW EXECUTE FUNCTION "
         f"mihomes_assert_account_matches_parent('{parent}', '{fk_col}')"
         for child, fk_col, parent in parent_links(metadata)
+        if only_tables is None or child in only_tables
     ]
 
 

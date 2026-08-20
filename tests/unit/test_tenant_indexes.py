@@ -34,6 +34,14 @@ EXPECTED_NON_LEADING = {
         "to any account, so the lookup cannot supply one. A composite index would also "
         "let two accounts mint the same token hash."
     ),
+    "ix_telegram_links_lookup": (
+        "SPEC-003 G16. The bot resolves a sender before it knows which account they belong to — "
+        "that resolution IS how the account is discovered (TELEGRAM_PRD:129, "
+        "telegram_user_id -> membership -> account). Leading with account_id would leave the "
+        "only query this table exists to serve unindexed. Isolation is unaffected: the row still "
+        "carries account_id, RLS still applies, and UNIQUE (account_id, telegram_user_id) keeps "
+        "one link per sender per account."
+    ),
 }
 
 

@@ -127,10 +127,11 @@ def test_upgrade_then_downgrade_is_clean(scratch_db):
     command.upgrade(cfg, "head")
     first = _counts(scratch_db)
     # 43 domain tables + alembic_version = 44 at the SPEC-002 baseline.
-    # SPEC-003 adds `onboarding_state` (0004, A17) → 45. The count is pinned deliberately: it is
-    # what makes an *accidental* table addition visible, so raising it is a decision recorded in
-    # the same commit as the migration, never a silent adjustment to make a run go green.
-    assert len(first["tables"]) == 45, first["tables"]
+    # SPEC-003 adds two: `onboarding_state` (0004, A17) → 45, `telegram_links` (0007, A32) → 46.
+    # The count is pinned deliberately: it is what makes an *accidental* table addition visible,
+    # so raising it is a decision recorded in the same commit as the migration, never a silent
+    # adjustment to make a run go green.
+    assert len(first["tables"]) == 46, first["tables"]
     assert len(first["enums"]) == 22
     assert first["guard_fns"] == ["mihomes_assert_account_matches_parent"]
 

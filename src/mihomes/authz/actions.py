@@ -222,6 +222,7 @@ def _entity_classes() -> dict[type, EntityClass]:
     from mihomes.models.staff_pto import StaffPTORequest
     from mihomes.models.tag import Tag, TagAssignment
     from mihomes.models.task import Task, TaskSchedule
+    from mihomes.models.telegram_link import TelegramLink
     from mihomes.models.template import Template, TemplateItem
     from mihomes.models.user import User
     from mihomes.models.vendor import Vendor
@@ -282,6 +283,10 @@ def _entity_classes() -> dict[type, EntityClass]:
         # Onboarding progress is account configuration, not property data — staff never see it,
         # and the only reader is the wizard resolving the signed-in owner's own account.
         OnboardingState: account,
+        # A chat link is identity plumbing, not estate data. Row 20 (`gateway.link_self`) lets a
+        # staff member create *their own*, but nobody reads the table as content — so
+        # account-level, and never surfaced to a staff query.
+        TelegramLink: account,
 
         Staff: EntityClass.PERSONNEL,
         StaffPTORequest: EntityClass.PERSONNEL,

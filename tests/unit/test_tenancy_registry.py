@@ -151,12 +151,17 @@ def test_registry_size_is_asserted_explicitly():
     tables, omitting `invites`, `memberships` and `membership_property_scopes`,
     which its own Step 1 adds.
 
-    **41 as of SPEC-003 G11:** `onboarding_state` (A17) records which onboarding steps an account
-    has completed, so a user who drops off after step 2 resumes at step 3. Raised deliberately in
-    the same commit as migration `0004` — the count exists so that *forgetting* to register a
-    table fails loudly, which only works if raising it is a conscious act.
+    SPEC-003 adds two:
+
+    - **41** `onboarding_state` (G11/A17) — which steps an account has completed, so a user who
+      drops off after step 2 resumes at step 3.
+    - **42** `telegram_links` (G16/A32) — sender → membership, keyed so that revoking a membership
+      CASCADEs the chat link away.
+
+    Each raise happened in the same commit as its migration. The count exists so that *forgetting*
+    to register a table fails loudly, which only works if raising it is a conscious act.
     """
-    assert len(TENANT_TABLES) == 41, (
-        f"expected 41 tenant-owned tables, registry has {len(TENANT_TABLES)} — "
+    assert len(TENANT_TABLES) == 42, (
+        f"expected 42 tenant-owned tables, registry has {len(TENANT_TABLES)} — "
         "if a table was legitimately added or removed, update this number and say why"
     )

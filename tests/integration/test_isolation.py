@@ -50,11 +50,14 @@ from mihomes.tenancy.registry import ASSOCIATION_TABLES, GLOBAL_TABLES, TENANT_T
 # The tables A21 must cover, hardcoded as a count rather than derived from the thing under test.
 # If this number changes, the change was deliberate and this line is where it is acknowledged.
 #
-# 40 at the SPEC-002 baseline → **41** with SPEC-003 G11's `onboarding_state` (A17), which records
-# which onboarding steps an account has completed so a user who drops off at step 2 resumes at
-# step 3. Acknowledged here, in the same commit as migration `0004`, which is the whole point of
-# writing it as a literal.
-EXPECTED_TENANT_TABLE_COUNT = 41
+# 40 at the SPEC-002 baseline. SPEC-003 adds two:
+#   41  `onboarding_state`  (G11, A17) — which steps an account has completed, so a user who drops
+#                                        off at step 2 resumes at step 3
+#   42  `telegram_links`     (G16, A32) — sender → membership, so revoking a membership CASCADEs
+#                                        the chat link away
+# Each raise is acknowledged here in the same commit as its migration, which is the whole point of
+# writing the number as a literal: it makes an *accidental* addition visible.
+EXPECTED_TENANT_TABLE_COUNT = 42
 
 
 # --------------------------------------------------------------------------------------

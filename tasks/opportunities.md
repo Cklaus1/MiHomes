@@ -817,3 +817,35 @@
   new session. Wiring it is a two-line change in the callback and belongs with the web-layer work
   above; until then D11's "persists last_used_account" is half-implemented: it persists, and
   nothing resumes from it. (surfaced during G13)
+
+## SPEC-003 G16 (2026-08-20) — Telegram bot scoping
+
+- [OPT] **F5's cited line reference is stale.** The harness (and SPEC-003 §6 Step 16) name
+  `review.py:120 _build_estate_context` as the second DB path that must be scoped. That function
+  no longer lives there — it is `review_common.build_estate_context`, reached from both
+  `review.py` and the responder. Both paths *are* scoped (G16.4 verifies it), but the spec's
+  pointer would send the next reader to the wrong file. Worth a line-reference sweep across §6
+  before the report: three of the citations checked so far have drifted.
+
+- [PATTERN] **Third instance: a migration that imports mutable application state is not a fixed
+  point in history.** `0001_pg_baseline` built its drift-guard triggers from live
+  `Base.metadata`, so adding `telegram_links` in `0007` made the *baseline* migration try to
+  create a trigger on a table that would not exist for six more revisions — `UndefinedTable`,
+  raised from a migration nobody touched. Same shape as `0002_rls` reading live `TENANT_TABLES`
+  (fixed in G11) and `0004` creating an index the model does not declare.
+  **Fix applied:** `trigger_ddl_statements(metadata, only_tables=...)`, with `0001` scoped to the
+  tables present at its own point in the chain and `0007` emitting its own policy and trigger.
+  **The general rule** — already in `lessons.md` — is that a migration may read application
+  *code* but never application *state that later migrations change*. Three instances in one spec
+  suggests the guard should be mechanical: a test that runs `upgrade` one revision at a time and
+  fails if any revision's DDL references a table not yet created. Cheap, and it would have caught
+  all three at the revision that introduced them rather than six revisions later.
+
+- [OPT] **Two SPEC-002 gates needed declared exceptions for a legitimately-different table**, and
+  both were the right shape to absorb it (a dict keyed by name, one written reason per entry):
+  `ix_telegram_links_lookup` cannot lead with `account_id` because sender resolution is *how* the
+  account is discovered, and `telegram_links.telegram_user_id` is an integer because Telegram
+  minted it. The second required a new bucket, `FOREIGN_SYSTEM_IDS`, distinguishing ids owned by
+  *other* systems from one of ours left behind — the case the catch-all was written for. No rule
+  was loosened. Noting it because three consecutive groups (G11, G16 x2) have had a pre-existing
+  gate correctly refuse a new model: the fail-closed-on-new-model discipline is paying for itself.

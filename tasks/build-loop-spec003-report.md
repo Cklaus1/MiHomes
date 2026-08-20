@@ -1,7 +1,8 @@
 # SPEC-003 Build Loop — End-of-Run Report
 
 > **Generated:** 2026-08-20 · **Branch:** `worktree-spec-build-harness` → `origin/spec-build`
-> **Baseline:** `c09c54d` (SPEC-002 complete) · **Head:** `becd5cf`
+> **Baseline:** `c09c54d` (SPEC-002 complete) · **Last code commit:** `becd5cf` (G17)
+> **Commits:** 21 (`c09c54d`..`becd5cf`), plus this report
 > **Spec:** `docs/specs/SPEC-003-phase2-onboarding-team-rbac.md`
 > **Invocation:** `/loop tasks/build-loop-spec003.md`, driven group-by-group across several sessions
 
@@ -201,7 +202,7 @@ as blocked (`G15.3`, on O1) turned out to be closable by refusal rather than def
 F.1  full suite    1852 passed, 3 skipped, 2 xfailed, 4 warnings in 257.50s
 F.2  criteria      50 passed, 2 warnings in 10.75s        (35 node ids, 0 skipped)
 F.3a steps         17/17 §6 steps have a task
-F.3b criteria      33/33 §8 criteria referenced and gated
+F.3b criteria      33/33 §8 criteria carry a gate in the DAG (and F.2 proves each one green)
 F.4  migrations    base → head → base → head clean; single head 0007_telegram_links
                    alembic check: "No new upgrade operations detected."
 ```

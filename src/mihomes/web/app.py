@@ -26,6 +26,7 @@ from mihomes.web.routes import (
     properties,
     recurring,
     search,
+    settings,
     staff,
     tasks,
     team,
@@ -108,6 +109,8 @@ def create_app() -> FastAPI:
     # side of account membership.
     app.include_router(onboarding.router, prefix="/onboarding")
     app.include_router(team.router)
+    # Step 15's config UI. No prefix: it owns `/settings` outright.
+    app.include_router(settings.router)
     app.include_router(books.router, prefix="/books")
     app.include_router(ai_route.router, prefix="/ai")
     app.include_router(weather_route.router, prefix="/weather")

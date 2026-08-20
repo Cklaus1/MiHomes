@@ -854,10 +854,44 @@ resumable. **Each group ships its own revision in the chain** (`0003…`, `0004�
 > outgoing owner becomes an `admin`, not revoked — handing over ownership is not the same act as
 > leaving, and conflating them removes someone's access as a side effect of a handover.
 
-### [ ] G15 — Step 15: per-tenant config UI — *dep: G3* — **split by O1 (§0.7)**
-- [ ] G15.1 · §6 Step 15 · A27 · settings form over the existing `config_service`; **owner/admin only**, staff 403 · verify: `tests/integration/test_settings.py::test_staff_denied`
-- [ ] G15.2 · §6 Step 15 · A27 · secrets masked on read **everywhere** — web UI **and** `mihomes config list` (`cli/config.py:39-50` prints them raw today) · verify: `tests/integration/test_settings.py::test_secrets_masked`
-- [ ] G15.3 · §6 Step 15 · — · **[BLOCKED on O1]** the secret **write** path. N11 authorises deferral; mark `[!]` on arrival, append `[BLOCKED]`, spend no attempts · verify: n/a — deferred by decision, recorded in U1
+### [x] G15 — Step 15: per-tenant config UI — *dep: G3* — *24 tests; 1803 passed*
+- [x] G15.1 · §6 Step 15 · A27 · settings form over the existing `config_service`; **owner/admin only**, staff 403 · verify: `tests/integration/test_settings.py::test_staff_denied` ✓
+- [x] G15.2 · §6 Step 15 · A27 · secrets masked on read **everywhere** — web UI **and** both `mihomes config list` *and* `config get` · verify: `::test_secrets_masked` + `::test_the_page_never_renders_a_raw_secret` ✓
+- [x] G15.3 · §6 Step 15 · — · **CLOSED BY REFUSAL, not deferred.** N11 does not merely permit deferral, it *specifies the behaviour*: the write path exists and **refuses secret keys with a message naming O1**. Same shape as SPEC-002's `UnsupportedBackendError` on SQLite — closing a hole by declining to open it. · verify: `::TestO1SecretWriteRefused` ✓
+- [x] G15.4 · §3 / G6.4 · — · the `mihomes ai setup` hint replaced with a pointer to Settings
+
+> **The poison ceiling stays at 0 used.** G15.3 was pencilled in as `[!]` blocked on O1; it turned
+> out N11 states the Phase 2 behaviour outright, so refusing *is* the implementation. A refusal
+> that names its reason is a decision the user can act on; a deferral is a gap someone else
+> discovers.
+>
+> **Masking is display-only, and the negative test is the load-bearing one.** `get_config` must
+> keep returning the real value — it is how the AI provider gets its key. A mask there would look
+> like better security and would break every AI call, surfacing *in production* as a provider auth
+> error rather than as a test failure.
+>
+> **Two named functions, not a flag.** `list_config` stays unmasked for app paths;
+> `list_config_for_display` masks. A boolean defaulting to "unmasked" is exactly how
+> `mihomes config list` came to print raw API keys, so the caller now has to choose.
+>
+> **Secret detection is a substring deny-list, not an allow-list of known keys.**
+> `configurations` is a free-form KV store, so an allow-list would silently fail to mask
+> `ai.anthropic_api_key_backup` the day someone adds it. Over-masking a harmless key is cosmetic;
+> under-masking a credential is the bug.
+>
+> **`test_the_page_never_renders_a_raw_secret` asserts on rendered HTML**, because G8 taught the
+> difference: `redact_for_role` passed every unit test for two whole groups while nothing called
+> it.
+>
+> **Action key: `member.manage`, not row 2.** §6 Step 15 says "owner/admin only (matrix row 2)",
+> but row 2 is `property.edit` — ITEM-class, about properties. What the spec cites is row 2's
+> *grant pattern* (owner ✓, admin ✓, staff ✗); `member.manage` is the ACCOUNT-class key with
+> exactly that pattern and the nearest subject. Another instance of the G6 vocabulary gap — the 21
+> keys have no entry for "account configuration" — recorded rather than papered over.
+>
+> **U1 stands:** the keys are still plaintext in `configurations.value`. The UI says so, because
+> §10 says masking does not make them safe and an operator is better served by the truth than by
+> the mask.
 
 ### [ ] G16 — Step 16: Telegram bot scoping — *dep: G2, G10*
 - [ ] G16.1 · §6 Step 16 · A32 · migration `0006` + `models/telegram_link.py` per §4.2 — keyed on **`membership_id`** with `ondelete=CASCADE` (D19, N6 — never `Staff`); `UNIQUE(account_id, telegram_user_id)` · verify: `tests/integration/test_telegram_scope.py::test_revocation_cascades`
@@ -905,8 +939,9 @@ conventions §0's *"gate that cannot fail is not a gate"*, and this phase is mad
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**Landed:** G0–G14, **including G13.5** (which discharged G11.4 and the G12/G13 UI). Suite:
-**1779 passed, 3 skipped, 2 xfailed, 0 failed** (1562 baseline → 1779, +217 tests). Migration chain: `0001_pg_baseline` →
+**Landed:** G0–G15, **including G13.5** (which discharged G11.4 and the G12/G13 UI). Suite:
+**1803 passed, 3 skipped, 2 xfailed, 0 failed** (1562 baseline → 1803, +241 tests).
+**Poison ceiling: 0 of 5 used** — G15.3 closed by refusal rather than deferral. Migration chain: `0001_pg_baseline` →
 `0002_rls` → `0003_documents_staff_visible` → `0004_onboarding_state` →
 `0005_invite_property_ids` → `0006_user_last_used_account`; **full `base → head → base → head`
 round-trip clean**, `alembic check` reports no drift.
@@ -942,8 +977,11 @@ presupposes an account, and onboarding steps 1–2, invite acceptance, and the s
 all enforced. Two real leaks were live until this group and are closed: the assistant returned
 the household's finances to staff, and it rendered money straight from the ORM.
 
-**Resume at G15** — the per-tenant config UI. Remaining: G15 (G15.3 `[!]` by O1), G16 Telegram
-scoping, G17 leak matrix, G-Final.
+**Resume at G16** — Telegram bot scoping. Remaining: G16, G17 leak matrix, G-Final.
+
+**G16 must bind a role explicitly** — see G10's deviation note. The scope travels by ContextVar
+and defaults to *unrestricted*, so a bot path that binds nothing fails **open**. D16 makes an
+unlinked sender **staff-level**, never unrestricted.
 
 **Read the G10 deviation note before G16.** The scope travels by ContextVar rather than by
 required parameter, so **G16 must bind a role explicitly** for the bot — D16 makes an unlinked

@@ -47,8 +47,19 @@ ROLE_DISPLAY = {
     "security": "Security",
 }
 
-_AI_ERROR_HINT = "AI provider not configured. Run `mihomes ai setup` in the CLI to set your API key."
-_AI_INVALID_KEY_HINT = "API key is invalid or rejected. Run `mihomes ai setup` in the CLI to update your API key."
+# SPEC-003 §3/Step 15 — these told a *browser* user to "run `mihomes ai setup` in the CLI",
+# which SPEC-002 D1 had already made impossible: the CLI is an operator tool and there is no
+# user-facing one. The advice was not merely unhelpful, it was unfollowable. Now that Step 15's
+# settings page exists, point at it.
+#
+# G6.4 deferred this deliberately rather than deleting it early: removing the wrong advice before
+# the right destination existed would have left a worse message than the wrong one.
+_AI_ERROR_HINT = (
+    "AI provider not configured. An owner or admin can set the API key in Settings."
+)
+_AI_INVALID_KEY_HINT = (
+    "API key is invalid or rejected. An owner or admin can update it in Settings."
+)
 
 
 def _session_property_slug(context_summary: str | None) -> str:

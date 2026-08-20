@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Settings — MiHomes{% endblock %}
+{% block content %}
+<div class="max-w-2xl mx-auto py-10">
+  <h1 class="text-2xl font-semibold mb-6">Settings</h1>
+
+  {% if error %}
+    <p class="mb-4 rounded border border-red-300 bg-red-50 px-3 py-2 text-red-800">{{ error }}</p>
+  {% endif %}
+
+  <table class="w-full text-sm mb-8">
+    <thead class="text-left text-gray-500">
+      <tr><th class="py-2">Key</th><th class="py-2">Value</th><th class="py-2">Source</th></tr>
+    </thead>
+    <tbody>
+      {% for c in configs %}
+        <tr class="border-t">
+          <td class="py-2 font-mono">{{ c.key }}</td>
+          {# Already masked by list_config_for_display — the template never sees a raw secret,
+             so it cannot leak one by forgetting a filter (N3's reasoning applied to config). #}
+          <td class="py-2 font-mono">
+            {{ c.value or "—" }}
+            {% if c.secret %}
+              <span class="ml-2 text-xs text-gray-500">(hidden)</span>
+            {% endif %}
+          </td>
+          <td class="py-2 text-gray-500">{{ c.source }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2 class="text-lg font-medium mb-3">Change a setting</h2>
+  <form method="post" action="/settings" class="space-y-3">
+    <input name="key" placeholder="currency.default" required
+           class="w-full border rounded px-3 py-2 font-mono" />
+    <input name="value" placeholder="USD" required
+           class="w-full border rounded px-3 py-2 font-mono" />
+    <button class="bg-brand-600 text-white rounded px-4 py-2">Save</button>
+  </form>
+
+  {# §10 states this plainly and so does the UI: masking is not protection at rest. Telling the
+     operator the truth is worth more than the mask itself. #}
+  <p class="mt-6 text-xs text-gray-500">
+    API keys and tokens are hidden here, but are stored unencrypted. Set them with
+    <code>mihomes config set</code> until at-rest encryption ships.
+  </p>
+</div>
+{% endblock %}

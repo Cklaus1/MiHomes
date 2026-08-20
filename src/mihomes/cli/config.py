@@ -1,11 +1,10 @@
 """Configuration CLI commands."""
 
-from typing import Optional
 
 import typer
 from rich.table import Table
 
-from mihomes.cli.formatters import console, esc, format_error, format_success
+from mihomes.cli.formatters import console, esc, format_success
 from mihomes.db import get_session
 from mihomes.services import config_service as config_svc
 
@@ -27,20 +26,26 @@ def set_config(
 def get_config(
     key: str = typer.Argument(..., help="Configuration key"),
 ):
-    """Get a configuration value."""
+    """Get a configuration value. Secrets are masked."""
     with get_session() as session:
         value = config_svc.get_config(session, key)
         if value is not None:
-            console.print(f"{esc(key)} = {esc(value)}")
+            # SPEC-003 Step 15 — masked on read, here as well as in the web UI. This command
+            # printed API keys in full, which is how they end up in terminal scrollback,
+            # screenshots and pasted bug reports.
+            console.print(f"{esc(key)} = {esc(config_svc.mask_value(key, value))}")
         else:
             console.print(f"[dim]{esc(key)} is not set[/dim]")
 
 
 @app.command("list")
 def list_config():
-    """List all configuration values."""
+    """List all configuration values. Secrets are masked."""
     with get_session() as session:
-        configs = config_svc.list_config(session)
+        # `list_config_for_display`, not `list_config`: the unmasked variant still exists for the
+        # app paths that need real values, and calling the wrong one here is exactly the mistake
+        # this command used to make.
+        configs = config_svc.list_config_for_display(session)
         table = Table(title="Configuration")
         table.add_column("Key", style="bold")
         table.add_column("Value")

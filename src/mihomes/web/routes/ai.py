@@ -76,16 +76,36 @@ def _session_property_slug(context_summary: str | None) -> str:
 
 
 def _list_sessions(db: Session) -> list[dict]:
-    """Return the most recent 50 sessions, one entry per session_id."""
+    """Return the most recent 50 sessions, one entry per session_id.
+
+    **Grouped on `created_at`, not on `id`, and that is not a substitution.** This function used to
+    take `func.min(AIConversation.id)` to find each session's first message — which worked only
+    because `id` was a sequential integer, making "smallest id in the group" accidentally mean
+    "earliest row". SPEC-002 G6.1 converted every primary key to UUIDv7 and Postgres has no
+    `min(uuid)`, so `/ai/` and `/ai/sessions-panel` returned 500 to **every** role, owners
+    included, from that conversion until this fix.
+
+    `created_at` is the column that carried the ordering intent the whole time. UUIDv7 is
+    time-ordered as well, so a v7-aware aggregate could answer the same question — but relying on
+    that would re-encode the same accident that broke this once already.
+
+    The join is on `(session_id, created_at)` rather than on the id, because the id is precisely
+    what the aggregate can no longer produce. A session with two messages sharing a `created_at`
+    to the microsecond would yield two rows; `DISTINCT ON` would be the airtight form, but it is
+    Postgres-specific syntax for a collision that requires two inserts in the same transaction at
+    identical timestamps, and the duplicate would be cosmetic (one sidebar entry twice) rather
+    than wrong.
+    """
     from sqlalchemy import func
 
     from mihomes.models.ai_conversation import AIConversation
 
-    # Subquery: for each session_id get min(id), max(created_at), count
+    # Per session_id: when it started (identifies the first message), when it was last touched
+    # (sort key), and how many messages it holds.
     sub = (
         db.query(
-            AIConversation.session_id,
-            func.min(AIConversation.id).label("first_id"),
+            AIConversation.session_id.label("session_id"),
+            func.min(AIConversation.created_at).label("first_at"),
             func.max(AIConversation.created_at).label("last_at"),
             func.count(AIConversation.id).label("msg_count"),
         )
@@ -95,7 +115,11 @@ def _list_sessions(db: Session) -> list[dict]:
 
     rows = (
         db.query(AIConversation, sub.c.last_at, sub.c.msg_count)
-        .join(sub, AIConversation.id == sub.c.first_id)
+        .join(
+            sub,
+            (AIConversation.session_id == sub.c.session_id)
+            & (AIConversation.created_at == sub.c.first_at),
+        )
         .order_by(sub.c.last_at.desc())
         .limit(50)
         .all()

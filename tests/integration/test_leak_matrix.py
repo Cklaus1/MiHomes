@@ -582,27 +582,12 @@ class TestAITranscriptStore:
         assert "OWNERVISIBLENEEDLE" in response.text
 
 
-class TestKnownBrokenCells:
-    """Cells that return non-200 for reasons that are **not** authorization.
-
-    A matrix that books these as passes is the `/playbooks/` mistake — an incidental non-leak
-    read as enforcement. Asserted explicitly, with the real cause, so nobody mistakes either for
-    a control.
-    """
-
-    def test_ai_index_is_broken_for_every_role_not_just_staff(self, web_client_as, two_estates):
-        """`/ai/` and `/ai/sessions-panel` 500 for **owners too** — a SPEC-002 UUID casualty.
-
-        `_list_sessions` calls `func.min(AIConversation.id)`, and Postgres has no `min(uuid)`:
-        `UndefinedFunction: function min(uuid) does not exist`. The column became a UUID in
-        SPEC-002 G6.1 and this aggregate was never revisited.
-
-        Out of scope for SPEC-003 — it is not an RBAC defect — but pinned here because a 500 is
-        indistinguishable from a denial at the HTTP layer, and this file must not count it as one.
-        Logged in `opportunities.md`.
-        """
-        owner = web_client_as("owner")
-        assert owner.get("/ai/").status_code == 500, (
-            "/ai/ no longer 500s for owners — if min(uuid) was fixed, delete this test and the "
-            "opportunities.md entry with it. This is good news, not a failure."
-        )
+# `TestKnownBrokenCells` lived here, asserting that `/ai/` and `/ai/sessions-panel` returned 500
+# for **every** role — `func.min(AIConversation.id)`, and Postgres has no `min(uuid)`. It existed
+# because a 500 is indistinguishable from a denial at the HTTP layer, so this file must never book
+# one as enforcement.
+#
+# **The bug is fixed, so the test is gone**, exactly as its own docstring instructed. Its
+# replacement is `tests/integration/test_ai_sessions.py`, which asserts the page returns 200 and
+# groups correctly. The lesson it encoded is worth keeping even without a cell to apply it to: a
+# non-200 proves nothing about authorization until you know *why* it is not 200.

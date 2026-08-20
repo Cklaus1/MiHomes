@@ -876,14 +876,17 @@
   `audit.view` is **approximate**: the right answer is a `transcript.view` key or an author column
   so a member can read their own history. Fifth instance of the G6 approximate-declaration class.
 
-- [BUG][medium] **`/ai/` and `/ai/sessions-panel` return HTTP 500 for every role, including
-  owners.** `_list_sessions` (`web/routes/ai.py:88`) calls `func.min(AIConversation.id)` and
-  Postgres has no `min(uuid)`: `UndefinedFunction: function min(uuid) does not exist`. The column
-  became UUID in SPEC-002 G6.1 and this aggregate was never revisited — so the AI page's session
-  history has been dead since that conversion, on every role. **Not an RBAC defect and out of
-  SPEC-003's scope**, but pinned by `TestKnownBrokenCells` because a 500 is indistinguishable from
-  a denial at the HTTP layer, and a leak matrix that books it as a pass is the `/playbooks/`
-  mistake. Fix is a `min(created_at)`-based subquery or a cast; small, and worth its own commit.
+- [FIXED 2026-08-20][BUG][medium] **`/ai/` and `/ai/sessions-panel` returned HTTP 500 for every
+  role, including owners.** `_list_sessions` (`web/routes/ai.py:88`) called
+  `func.min(AIConversation.id)` and Postgres has no `min(uuid)`. The column became UUID in
+  SPEC-002 G6.1 and this aggregate was never revisited — so the AI page's session history had
+  been dead since that conversion, on every role, and nothing caught it: the AI tests mock
+  `get_ai_api_key` and never render the page.
+  **Fixed** by grouping on `min(created_at)`/`max(created_at)` and joining back on
+  `(session_id, first_at)`. That is not a substitution: `created_at` carried the ordering intent
+  all along, and `min(id)` only expressed it *incidentally* while ids were sequential integers.
+  Regression coverage in `tests/integration/test_ai_sessions.py` — including the assertion whose
+  absence let it live, somebody asking for a 200.
 
 - [PATTERN] **Only ONE of the six entity classes is read by any code.** Grep `EntityClass.<VALUE>`
   across `src/`: `PROPERTY_SCOPED` is read by `query_scope.scoped_models()`, `FLAGGED` and

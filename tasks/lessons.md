@@ -514,3 +514,31 @@ Review this at the start of each session.
   do not leak, reads do. **Rule:** a static gate that cannot state the difference between the
   thing it forbids and the thing it permits will be turned off by the next person who reads it —
   and note the residual (a read via a service function is invisible; the runtime probe covers it).
+
+- **A group's own gate proves its tests pass; nothing re-reads its checkboxes.** Twice in a row now
+  — SPEC-002's G-Final found three groups with ticked headers and unflipped sub-items, SPEC-003's
+  found six stale boxes across three groups (G4, G6, and G11.4 still `[ ]` after G13.5b discharged
+  it). The DAG drifts from the code in the one direction that *looks* like progress, and the
+  per-group loop has no step that would notice. **Rule:** G-Final walks every checkbox
+  programmatically — `[ln for ln in dag if ln.startswith("- [ ] ")]` — and verifies each against
+  the code before ticking. Not diligence: a list comprehension. It is also what caught G4.4's row
+  naming a test that does not exist (`test_can_is_called_at_call_sites`), whose real coverage
+  turned out to be two tests with a deviation worth recording.
+
+- **A node id that matches nothing reads as success.** SPEC-003 §8 writes its test references as
+  `file::name`, but most of those tests live in classes, so the bare form matches nothing: pytest
+  prints `ERROR: not found` per id and then `no tests ran`. Skim that and it looks like a clean
+  run — no failures, no red. **The specific trap for condition E**, which exists precisely to stop
+  a green *suite* standing in for a green *criterion*: a mis-specified node id turns condition E
+  into a check on nothing. **Rule:** resolve node ids to real `file::Class::name` by AST walk and
+  assert the collected count is what you expected, before reading pass/fail. Two of the 35 ids
+  additionally named tests that do not exist under those names — both documented renames, but
+  indistinguishable from a missing test until resolved.
+
+- **Never interpolate a number into a report.** The first draft of SPEC-003's per-group suite table
+  reconstructed the suite-after counts by spreading the delta across groups. It was wrong in
+  fourteen of sixteen rows — and every figure was *plausible*, monotonically increasing, roughly
+  the right size. Nobody would have checked it. The real numbers were sitting in each group's own
+  commit body the whole time (`git log --format=%b | grep passed`). **Rule:** a report states
+  measured values or says the value was not captured. A plausible number nobody can source is
+  worse than an admitted gap, because the gap invites verification and the number ends it.

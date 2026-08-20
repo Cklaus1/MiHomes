@@ -505,11 +505,18 @@ resumable. **Each group ships its own revision in the chain** (`0003…`, `0004�
 > denial machinery is exercised against the Phase 3 table instead, and a separate test pins that
 > the *active* table still gates nothing.
 
-### [ ] G4 — Step 3: entitlements service — *dep: G1*
-- [ ] G4.1 · §6 Step 3 · A25 · `entitlements/limits.py` (one source of truth, rule 1) + `can()` per `PRICING` §3.2 rules 1–5; every `Denied` names an `upgrade_target` (rule 4) · verify: `tests/unit/test_entitlements.py::test_denied_names_target`
-- [ ] G4.2 · §6 Step 3 · A26 · RBAC and entitlements are **independent** gates, both must pass (D10) · verify: `tests/unit/test_entitlements.py::test_both_gates_required`
-- [ ] G4.3 · §6 Step 3 · — · `usage()` declared, returns `{used: 0, limit: None, resets_at: None}`, tagged `DEFERRED (Phase 3)` (P3-b, N9 — **do not build a meter**) · verify: `tests/unit/test_entitlements.py::test_usage_is_declared_only`
-- [ ] G4.4 · §6 Step 3 · — · `can()` is actually **called server-side** at invite creation and property creation · verify: `tests/unit/test_entitlements.py::test_can_is_called_at_call_sites`
+### [x] G4 — Step 3: entitlements service — *dep: G1* — *9 tests; 1668 passed*
+- [x] G4.1 · §6 Step 3 · A25 · `entitlements/limits.py` (one source of truth, rule 1) + `can()` per `PRICING` §3.2 rules 1–5; every `Denied` names an `upgrade_target` (rule 4) · verify: `tests/unit/test_entitlements.py::test_denied_names_target`
+- [x] G4.2 · §6 Step 3 · A26 · RBAC and entitlements are **independent** gates, both must pass (D10) · verify: `tests/unit/test_entitlements.py::test_both_gates_required`
+- [x] G4.3 · §6 Step 3 · — · `usage()` declared, returns `{used: 0, limit: None, resets_at: None}`, tagged `DEFERRED (Phase 3)` (P3-b, N9 — **do not build a meter**) · verify: `tests/unit/test_entitlements.py::test_usage_is_declared_only`
+- [x] G4.4 · §6 Step 3 · — · `can()` is actually **called server-side** at invite creation and property creation · verify: `tests/unit/test_entitlements.py::TestCallSites::test_property_creation_consults_entitlements` ✓ + `tests/integration/test_invites.py::test_creation_is_also_capped` ✓
+  > **Two tests, not the one this row named, and the invite half does not call `can()`.** Property
+  > creation consults it directly. Invite creation goes through `_seat_limit` → `limits_for`, the
+  > same entitlements module `can()` reads, because the seat check has to happen **inside the
+  > acceptance transaction** (`PRICING` §3.2 rule 5) where a `Decision` object adds nothing a
+  > comparison does not. The requirement is that the limit is enforced server-side at both call
+  > sites, and it is; routing one of them through the module rather than the façade is recorded
+  > here rather than papered over.
 
 ### [x] G5 — Step 4: the fail-closed route harness — *dep: G3 — MUST precede G6 (N1)* — *9 tests; teeth mutation-verified*
 - [x] G5.1 · §6 Step 4 · A4 · `authz/declare.py::@declares(action, access)` + a test walking the FastAPI router table, failing on any endpoint lacking `(action, route_class)` · verify: `tests/unit/test_route_declarations.py::test_no_undeclared_routes` ✓
@@ -537,7 +544,7 @@ resumable. **Each group ships its own revision in the chain** (`0003…`, `0004�
 > declare → drop from the allowlist → lower the ceiling → still green, and red the moment the
 > declaration is removed. CEILING 23 → 22.
 
-### [ ] G6 — Step 5: declare actions on the remaining router modules — *dep: G5 — N1: chunked, never one task*
+### [x] G6 — Step 5: declare actions on the remaining router modules — *dep: G5 — N1: chunked, never one task* — *142 routes, 23 files; allowlist reached 0*
 > **The real scope is 142 decorators across 23 modules, not 146 across 24.** Pre-flight measured
 > 146/24 *including* `auth.py`, which is now `PERMANENT_ALLOWLIST` (4 routes) — so it is not a G6
 > target. **8 routes done** (`dashboard` 1 at G5, `tasks` 7), **134 across 21 modules remain**.
@@ -742,7 +749,7 @@ resumable. **Each group ships its own revision in the chain** (`0003…`, `0004�
 - [x] G11.1 · §6 Step 11 · — · migration **`0004_onboarding_state`** (§4.2) · verify: full-chain `base → head → base → head` clean + `alembic check` empty ✓
 - [x] G11.2 · §6 Step 11 · A17 · steps 2 + 3 the **only** hard requirements; prefill from the Google profile, default `household`, require only the property *name*; idempotent + resumable · verify: `tests/integration/test_onboarding.py::test_resumable` ✓
 - [x] G11.3 · §6 Step 11 · A18 · steps 4–5 skippable, skipping is a first-class path; **billing never blocks** (`ONBOARDING:143`) · verify: `tests/integration/test_onboarding.py::test_skip_optional` ✓
-- [ ] G11.4 · §6 Step 11 · — · **the web wizard itself** (`web/routes/onboarding.py` + templates) — **deferred, logged**: it needs a dependency for a signed-in user *without* an account, and §4.1's `Access` vocabulary (`ITEM`/`COLLECTION`/`ACCOUNT`) has no route class for a pre-account screen. The flow is fully covered at the service layer without it.
+- [x] G11.4 · §6 Step 11 · — · **DISCHARGED BY G13.5b**, not left deferred — see that group. The wizard exists at `web/routes/onboarding.py` with templates, on `Access.SESSION`, which is exactly the missing route class this row predicted. Original text kept for the record: **the web wizard itself** (`web/routes/onboarding.py` + templates) — **deferred, logged**: it needs a dependency for a signed-in user *without* an account, and §4.1's `Access` vocabulary (`ITEM`/`COLLECTION`/`ACCOUNT`) has no route class for a pre-account screen. The flow is fully covered at the service layer without it.
 
 > **Resumption is derived from the world for mandatory steps and from the record for optional
 > ones**, and the split is the design. Whether an account exists, and whether it has a property,
@@ -932,13 +939,25 @@ resumable. **Each group ships its own revision in the chain** (`0003…`, `0004�
 > `ConsumablePriceEntry` and `EventGuest` — both missing from the first draft of my own exception
 > dict. A transcribed matrix would have been green and wrong.
 
-### [ ] G-Final — Compound-stop verification (conventions §4.1)
-- [ ] F.1  · full-suite `pytest -q` green with the §0 env (condition C)
-- [ ] F.2  · every §8 criterion green **by the test named in its own row**, run by node id with `-rs`, requiring `passed` — never a green suite (condition E)
-- [ ] F.3a · walk §6 Steps 1–17 top-to-bottom: every step has a task (condition B, steps)
-- [ ] F.3b · walk §8 A1–A33 top-to-bottom: every criterion has a gate (condition B, criteria)
-- [ ] F.4  · `alembic upgrade head` → `downgrade` → `upgrade` clean; `alembic revision --autogenerate` **empty**; single head
-- [ ] F.5  · write `tasks/build-loop-spec003-report.md` (conventions §5)
+### [x] G-Final — Compound-stop verification (conventions §4.1) — *all five conditions hold*
+- [x] F.1  · full-suite green with the §0 env — **1852 passed**, 3 skipped, 2 xfailed, 0 failed (condition C) ✓
+- [x] F.2  · every §8 criterion green **by its own named test**, by node id with `-rs` — **50 passed, 0 skipped** from 35 ids (condition E) ✓
+- [x] F.3a · §6 Steps 1–17 walked: **17/17** have a task (condition B, steps) ✓
+- [x] F.3b · §8 A1–A33 walked: **33/33** have a gate (condition B, criteria) ✓
+- [x] F.4  · `base → head → base → head` clean on a scratch DB; single head `0007_telegram_links`; `alembic check` → *"No new upgrade operations detected"* ✓
+- [x] F.5  · `tasks/build-loop-spec003-report.md` written (conventions §5) ✓
+
+> **F.2 nearly passed for the wrong reason, and this is the lesson to carry.** §8 writes its node
+> ids as `file::name`, but most of these tests live in classes — so the bare form matches nothing,
+> and `pytest` prints `ERROR: not found` for each, then `no tests ran`. A glance at that output
+> reads as "no failures." The list was resolved to real `file::Class::name` ids by AST walk before
+> being trusted, which also surfaced two spec node ids that do not exist under the names given:
+> A12's is `test_money_hidden_for_staff`, and A19's `test_seat_race` was deliberately replaced
+> after the racing version hung the suite twice. Both documented renames, neither a gap.
+>
+> **The per-group suite counts in the report are read from each group's own commit body, not
+> interpolated.** The first draft of that table reconstructed them and was wrong in fourteen of
+> sixteen rows — plausible-looking numbers that no one would have checked.
 
 ---
 

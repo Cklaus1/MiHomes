@@ -822,10 +822,37 @@ resumable. **Each group ships its own revision in the chain** (`0003…`, `0004�
 > records it as **reversible**, with the revisit trigger being the first customer who is staff on
 > two accounts — and notes that *"neither choice affects isolation."*
 
-### [ ] G14 — Step 14: owner transfer + member offboarding — *dep: G3*
-- [ ] G14.1 · §6 Step 14 · A22 · last-owner invariant — the last owner can be neither removed nor demoted · verify: `tests/integration/test_membership.py::test_last_owner_protected`
-- [ ] G14.2 · §6 Step 14 · A23 · `transfer_ownership` against `memberships` + its partial unique index (SPEC-002 D4), **never** `accounts.owner_user_id` (B2 — the column does not exist); leaves exactly one active owner · verify: `tests/integration/test_membership.py::test_transfer_invariant`
-- [ ] G14.3 · §6 Step 14 · — · on offboarding, tasks/notes/issues/uploads stay with the **account** (`ONBOARDING:225`) · verify: `tests/integration/test_membership.py::test_content_stays_with_account`
+### [x] G14 — Step 14: owner transfer + member offboarding — *dep: G3* — *16 tests; 1779 passed*
+- [x] G14.1 · §6 Step 14 · A22 · last-owner invariant — neither removed **nor demoted** · verify: `tests/integration/test_membership.py::test_last_owner_protected` + `::test_last_owner_cannot_be_demoted` ✓
+- [x] G14.2 · §6 Step 14 · A23 · `transfer_ownership` against `memberships` + its partial unique index (SPEC-002 D4), **never** `accounts.owner_user_id` (B2) · verify: `::test_transfer_invariant` ✓
+- [x] G14.3 · §6 Step 14 · — · on offboarding, the work stays with the **account** (`ONBOARDING:225`) · verify: `::test_content_stays_with_account` ✓
+
+> **Which rule enforces A22's *demotion* arm turned out not to be the last-owner check.** Tracing
+> every actor who could reach it: the owner demoting themselves → R1 ("nobody may change their
+> own"); an admin demoting them → R1 ("not the owner's"); another owner → impossible, since two
+> active owners cannot exist under D4's partial index, so the target is not the *last* owner.
+> **R1 closes it before the last-owner check is consulted.**
+>
+> That check is kept in `change_role` as documented defence in depth: it becomes the operative
+> guard the moment R1 is relaxed — which `ONBOARDING` §11 Q2's granular staff capabilities would
+> do — and a guard added *then* is a guard added after the hole. `offboard` reaches the same
+> predicate on a path R1 does not cover, which is where it is actually exercised.
+>
+> The demotion test asserts **refusal, not a message**, deliberately: pinning R1's wording would
+> make it fail if the guarantee moved from one correct rule to another.
+>
+> **`test_the_partial_unique_index_is_what_enforces_this` is the load-bearing test.** It inserts
+> a second active owner behind the service's back and requires an `IntegrityError`. If that ever
+> succeeds, every guarantee here rests on application code remembering to check — and B2's whole
+> point is that ownership **is** that index. A companion test asserts `accounts.owner_user_id`
+> still does not exist, because `ONBOARDING` references it at :35, :43 and :220 and a reader
+> following the source rather than the spec would add it back.
+>
+> **Demote before promote**, and the order is the database's requirement rather than a preference:
+> promoting first violates the partial index mid-transaction. Demoting first leaves the account
+> momentarily ownerless *inside* the transaction, which nothing outside it can observe. The
+> outgoing owner becomes an `admin`, not revoked — handing over ownership is not the same act as
+> leaving, and conflating them removes someone's access as a side effect of a handover.
 
 ### [ ] G15 — Step 15: per-tenant config UI — *dep: G3* — **split by O1 (§0.7)**
 - [ ] G15.1 · §6 Step 15 · A27 · settings form over the existing `config_service`; **owner/admin only**, staff 403 · verify: `tests/integration/test_settings.py::test_staff_denied`
@@ -878,8 +905,8 @@ conventions §0's *"gate that cannot fail is not a gate"*, and this phase is mad
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**Landed:** G0–G13 **plus G13.5** (which discharges G11.4 and the G12/G13 UI). Suite:
-**1763 passed, 3 skipped, 2 xfailed, 0 failed** (1562 baseline → 1763, +201 tests). Migration chain: `0001_pg_baseline` →
+**Landed:** G0–G14, **including G13.5** (which discharged G11.4 and the G12/G13 UI). Suite:
+**1779 passed, 3 skipped, 2 xfailed, 0 failed** (1562 baseline → 1779, +217 tests). Migration chain: `0001_pg_baseline` →
 `0002_rls` → `0003_documents_staff_visible` → `0004_onboarding_state` →
 `0005_invite_property_ids` → `0006_user_last_used_account`; **full `base → head → base → head`
 round-trip clean**, `alembic check` reports no drift.
@@ -915,8 +942,8 @@ presupposes an account, and onboarding steps 1–2, invite acceptance, and the s
 all enforced. Two real leaks were live until this group and are closed: the assistant returned
 the household's finances to staff, and it rendered money straight from the ORM.
 
-**Resume at G14** — owner transfer + member offboarding. Remaining: G14, G15 config UI (G15.3
-`[!]` by O1), G16 Telegram scoping, G17 leak matrix, G-Final — plus the web-layer gap above.
+**Resume at G15** — the per-tenant config UI. Remaining: G15 (G15.3 `[!]` by O1), G16 Telegram
+scoping, G17 leak matrix, G-Final.
 
 **Read the G10 deviation note before G16.** The scope travels by ContextVar rather than by
 required parameter, so **G16 must bind a role explicitly** for the bot — D16 makes an unlinked

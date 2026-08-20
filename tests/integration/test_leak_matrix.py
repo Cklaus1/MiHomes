@@ -1,0 +1,608 @@
+"""G17 · §6 Step 17 — the cross-cutting adversarial leak matrix.
+
+Every other group in this phase proves its own mechanism. This one asks the question none of them
+can: **for each entity class in §4.1, is staff reach actually what the classification says?**
+
+That question is not a restatement of G7 or G10. Those tests each pick a model and prove the
+mechanism they built works on it. The classification, meanwhile, is a *promise about all 44 mapped
+models* — and a promise is only as good as the weakest model nobody probed. Two failure modes live
+in that gap, and G17 found one of each:
+
+1. **A class no mechanism reads.** `EntityClass` has six values. Grep them outside `actions.py`
+   and exactly **one** — `PROPERTY_SCOPED` — is read by anything (`query_scope.scoped_models`),
+   plus `FLAGGED` reached by name in `_document_criteria`. `ACCOUNT_LEVEL`, `PROPERTY_LINKED`,
+   `PERSONNEL` and `GLOBAL` are read by **no code at all**. They are enforced, where they are
+   enforced, by whatever action the *route* happens to declare — which means the classification
+   and the enforcement are two independent statements that nothing compares.
+
+2. **A model whose class and whose route disagree.** That is not hypothetical: it is how
+   `/library/` was returning another property's books to a scoped staff member. `Book` was
+   `ACCOUNT_LEVEL` (`✗` for staff), `library.py` declared `inventory.manage` (`SCOPED` for
+   staff), and since `ACCOUNT_LEVEL` has no query-layer enforcement the route's grant simply won.
+   G6 predicted the contradiction and filed it as a documentation inconsistency; this file is
+   where it turned out to be a live leak.
+
+**So the load-bearing test here is `test_every_entity_class_has_a_mechanism`, not a reach
+assertion.** A reach assertion on an unenforced class tells you about the one route you probed. A
+census of which classes have a mechanism at all tells you where the next leak will be.
+
+**Why the exception lists are two dicts and not one.** They record two different problems, and a
+reader resolving one needs to know they are not resolving the other:
+
+  NOT_YET_ENFORCEABLE   the class is right; no mechanism can reach the model. Fixing it is a
+                        design change (child tables need a scoping path that does not exist).
+  NO_CLASS_FITS         the model's class is wrong and none of the six is right. Fixing it is
+                        spec work (a new class, or a new matrix key).
+
+Collapsing them into one list of "not enforced" is how both stop being fixed.
+"""
+
+from __future__ import annotations
+
+import datetime
+import inspect as _inspect
+import uuid
+
+import pytest
+
+from mihomes.authz import query_scope
+from mihomes.authz.actions import ENTITY_CLASSES, MATRIX, EntityClass, Grant
+from mihomes.authz.declare import declared_action
+from mihomes.authz.scope import authz_context
+from mihomes.models.asset import Asset, AssetType, PriceEntry
+from mihomes.models.book import Book
+from mihomes.models.event import Guest
+from mihomes.models.property import Property
+from mihomes.models.template import Template
+
+# ======================================================================================
+# The two exception lists.
+# ======================================================================================
+
+#: `model_name -> reason`. The class is **correct**; no mechanism can reach the model.
+#:
+#: All three are children of a property-scoped parent that carry **no `property_id` of their
+#: own**, which `query_scope.scoped_models()` requires. A query that loads them *through* the
+#: parent is protected by the parent's filter; a direct query on the child is not.
+#: `query_scope`'s module docstring names this set, and `opportunities.md` carries the `[DEFER]`.
+#:
+#: **Verified by probe, not assumed** — a scoped staff member issuing `session.query(PriceEntry)`
+#: sees an out-of-scope property's row, while `session.query(Asset)` on the same connection
+#: correctly returns zero. The mechanism works; these models are outside its reach.
+NOT_YET_ENFORCEABLE = {
+    "PriceEntry": (
+        "Child of Asset with no property_id. Money — so the amount is separately stripped by "
+        "REDACTED_FIELDS[PriceEntry] = {'price'}, which is why this is the milder of the two: "
+        "the row is reachable, the number is not. Confirmed reachable by direct query."
+    ),
+    "Guest": (
+        "Child of Event with no property_id, and the SHARPER of the two: a guest's name is not "
+        "money, so no redaction covers it. A scoped staff member can enumerate the names of "
+        "people invited to another property's event. Confirmed reachable by direct query."
+    ),
+    "TaskSchedule": (
+        "Child of Task with no property_id — same shape as the two above and named in "
+        "query_scope's docstring, but UNVERIFIED: the probe returned zero rows because none were "
+        "seeded, not because a filter applied. Listed rather than trusted."
+    ),
+    # These two were NOT in the first draft of this dict. `test_property_scoped_models_are_
+    # enforced_or_declared` derives its model list from ENTITY_CLASSES and turned red naming
+    # both — the derivation catching its own author, which is the argument for deriving it.
+    "ConsumablePriceEntry": (
+        "Child of Consumable with no property_id. Money, so REDACTED_FIELDS strips the amount — "
+        "the same mitigation and the same residual reach as PriceEntry, whose entry explains it. "
+        "Found by the derived gate, not by hand: it was missing from this dict's first draft."
+    ),
+    "EventGuest": (
+        "The Event-to-Guest association with no property_id of its own. Reachability here is the "
+        "same exposure Guest's entry describes, reached from the other side: knowing WHICH event "
+        "an out-of-scope guest attended. Also found by the derived gate rather than by hand."
+    ),
+}
+
+#: `model_name -> reason`. The model's class is **wrong**, and none of §4.1's six is right.
+NO_CLASS_FITS = {
+    "Template": (
+        "Classified ACCOUNT_LEVEL ('X for staff') by C10 — but §4.1's own account-level list is "
+        "budget/contract/recurring_expense/transaction/configuration/note/book and does NOT "
+        "contain template, so there is no source authority behind the classification. Meanwhile "
+        "matrix row 5 (task.manage) is SCOPED for staff, and creating tasks from a template IS "
+        "task management, so templates_route declares task.manage and staff reach the rows. "
+        "Enforcing ACCOUNT_LEVEL would break a capability the matrix grants. And the sensitivity "
+        "argument runs the same way: a template's fields are name, description and checklist "
+        "items — the same class of content as a Task, which staff already see. What is missing is "
+        "a class for 'account-wide, not sensitive, staff use it'. See U6."
+    ),
+    "TemplateItem": (
+        "Same gap as Template, whose rows it belongs to. Listed separately so resolving one "
+        "cannot silently leave the other behind."
+    ),
+}
+
+_ALL_EXCEPTIONS = {**NOT_YET_ENFORCEABLE, **NO_CLASS_FITS}
+
+
+# ======================================================================================
+# 1. The census — which classes have a mechanism at all.
+# ======================================================================================
+
+#: `EntityClass -> how staff reach is actually constrained`. Written from the code, and
+#: `test_every_entity_class_has_a_mechanism` re-derives the `PROPERTY_SCOPED` entry from
+#: `query_scope` so this table cannot drift into fiction.
+CLASS_MECHANISM = {
+    EntityClass.PROPERTY_SCOPED: "query_scope.scoped_models() — with_loader_criteria per model",
+    EntityClass.FLAGGED: "query_scope._document_criteria — staff_visible AND parent in scope",
+    EntityClass.PROPERTY_LINKED: "redact.REDACTED_FIELDS[Vendor] — row allowed, fields stripped",
+    EntityClass.ACCOUNT_LEVEL: "ROUTE DECLARATION ONLY — no query-layer enforcement exists",
+    EntityClass.PERSONNEL: "ROUTE DECLARATION ONLY — no query-layer enforcement exists",
+    EntityClass.GLOBAL: "OUT OF REMIT — not tenant data; nothing to scope",
+}
+
+
+def test_every_entity_class_has_a_named_mechanism():
+    """Every one of the six classes says, in writing, how it is enforced — or that it is not.
+
+    This is the test the group exists for. It does not assert that enforcement is *adequate*; it
+    asserts that the question has been **answered for every class**, so a class enforced by
+    nothing is visible in the table rather than discovered by a probe two phases later.
+    """
+    missing = sorted(c.value for c in EntityClass if c not in CLASS_MECHANISM)
+    assert not missing, (
+        f"these entity classes have no documented enforcement mechanism: {missing}. A class the "
+        "code does not read is a classification with nothing behind it — say so explicitly."
+    )
+
+
+def test_the_classes_with_no_mechanism_are_exactly_the_ones_we_think():
+    """Pins the census. If a class *gains* enforcement, this test says so and the table updates.
+
+    Derived by grepping `EntityClass.<VALUE>` across `src/` at G17: only `PROPERTY_SCOPED` appears
+    outside `actions.py`. `FLAGGED` and `PROPERTY_LINKED` are reached by *model name* rather than
+    by class, which counts — the mechanism exists — but is worth knowing, because a newly-added
+    `FLAGGED` model would not inherit it.
+    """
+    unenforced = {c for c, how in CLASS_MECHANISM.items() if how.startswith("ROUTE DECLARATION")}
+    assert unenforced == {EntityClass.ACCOUNT_LEVEL, EntityClass.PERSONNEL}, (
+        "the set of classes enforced only by route declaration has changed. If a class gained a "
+        "mechanism, update CLASS_MECHANISM; if one lost it, that is a regression. "
+        f"Now: {sorted(c.value for c in unenforced)}"
+    )
+
+
+def test_property_scoped_models_are_enforced_or_declared():
+    """Derived from `ENTITY_CLASSES` — so a new model fails closed instead of joining the leak.
+
+    Every `PROPERTY_SCOPED` model must be either reachable by `scoped_models()` or listed in
+    `NOT_YET_ENFORCEABLE` with a reason. Adding a property-scoped child table without a
+    `property_id` and without an entry here turns this red, which is the whole point: the previous
+    state of the world was that such a model was silently unfiltered.
+    """
+    enforced = {model.__name__ for model, _ in query_scope.scoped_models()}
+    classified = {
+        model.__name__
+        for model, cls in ENTITY_CLASSES.items()
+        if cls is EntityClass.PROPERTY_SCOPED
+    }
+    gap = sorted(classified - enforced - set(NOT_YET_ENFORCEABLE))
+    assert not gap, (
+        f"these models are PROPERTY_SCOPED but no mechanism filters them, and they are not "
+        f"declared in NOT_YET_ENFORCEABLE: {gap}. Either give them a scoping path or list them "
+        "with a written reason — do not leave them silently unfiltered."
+    )
+
+
+def test_every_declared_exception_is_still_real():
+    """A stale exception is as dangerous as a missing one — the SPEC-002 lesson, applied here.
+
+    `EXPECTED_NON_LEADING` needed this test and G5 duly retired 16 entries by it. Same discipline:
+    an entry for a model that no longer exists, or that has since gained enforcement, would wave
+    through the next model to take its name.
+    """
+    all_model_names = {model.__name__ for model in ENTITY_CLASSES}
+    unknown = sorted(set(_ALL_EXCEPTIONS) - all_model_names)
+    assert not unknown, (
+        f"these exception entries name models that are not classified at all: {unknown}"
+    )
+
+    enforced = {model.__name__ for model, _ in query_scope.scoped_models()}
+    now_enforced = sorted(set(NOT_YET_ENFORCEABLE) & enforced)
+    assert not now_enforced, (
+        f"these models now HAVE a scoping mechanism — remove them from NOT_YET_ENFORCEABLE so "
+        f"the list keeps its teeth: {now_enforced}"
+    )
+
+
+def test_every_exception_reason_is_substantive():
+    """A reason short enough to be a shrug is not a reason.
+
+    Same guard as `declares_session`'s 20-character floor, for the same reason: the discipline
+    that keeps an exception list honest is that writing the entry costs something.
+    """
+    for name, reason in sorted(_ALL_EXCEPTIONS.items()):
+        assert len(reason) >= 80, f"{name}'s exception reason is too thin to review: {reason!r}"
+
+
+def test_the_two_exception_lists_are_disjoint():
+    """One model, one problem. An entry in both means nobody knows which fix applies."""
+    both = sorted(set(NOT_YET_ENFORCEABLE) & set(NO_CLASS_FITS))
+    assert not both, (
+        f"{both} appear in both exception lists. NOT_YET_ENFORCEABLE is 'class right, no "
+        "mechanism'; NO_CLASS_FITS is 'class wrong, no right class exists'. They have different "
+        "fixes and cannot both apply."
+    )
+
+
+# ======================================================================================
+# 2. Reach — the probes that turned the census into two findings.
+# ======================================================================================
+
+
+@pytest.fixture
+def two_estates(web_client_as):
+    """Belle (in scope) and Blue (out of scope), each with distinguishable content.
+
+    Distinguishable is the load-bearing word. Asserting that the in-scope row is *present* passes
+    against no filtering at all; the assertion that matters is the **absence** of the out-of-scope
+    one, which needs a needle that could only have come from Blue.
+    """
+    ids = {}
+
+    def _seed(session):
+        belle = Property(id=uuid.uuid4(), name="Belle Estate", slug=f"belle-{uuid.uuid4().hex[:6]}")
+        blue = Property(id=uuid.uuid4(), name="Blue Room", slug=f"blue-{uuid.uuid4().hex[:6]}")
+        session.add_all([belle, blue])
+        session.flush()
+        ids["belle"], ids["blue"] = belle.id, blue.id
+
+        session.add(Book(id=uuid.uuid4(), title="BLUEBOOKNEEDLE",
+                         slug=f"bk-{uuid.uuid4().hex[:8]}", property_id=blue.id))
+        session.add(Book(id=uuid.uuid4(), title="BELLEBOOKNEEDLE",
+                         slug=f"bk-{uuid.uuid4().hex[:8]}", property_id=belle.id))
+
+        blue_asset = Asset(id=uuid.uuid4(), name="Blue asset", slug=f"as-{uuid.uuid4().hex[:8]}",
+                           property_id=blue.id, asset_type=AssetType.EQUIPMENT)
+        session.add(blue_asset)
+        session.flush()
+        session.add(PriceEntry(id=uuid.uuid4(), asset_id=blue_asset.id, price=4242,
+                               date=datetime.date(2026, 1, 1)))
+        session.add(Guest(id=uuid.uuid4(), name="BLUEGUESTNEEDLE",
+                          slug=f"g-{uuid.uuid4().hex[:8]}"))
+
+    web_client_as.seed(_seed)
+    return ids
+
+
+class TestBookReclassification:
+    """The leak G17 found and closed, pinned so it cannot come back.
+
+    `Book` moved `ACCOUNT_LEVEL` → `PROPERTY_SCOPED`. Reverting that classification turns
+    `test_library_scoped_for_staff` red — verified by mutation, because a security test that
+    cannot fail is not a gate.
+    """
+
+    def test_library_scoped_for_staff(self, web_client_as, two_estates):
+        """A staff member scoped to Belle must not see Blue's books on the all-properties page.
+
+        `/library/` is the whole-estate book listing, which is exactly why it was the leak: it is
+        *designed* to cross properties, so it had no per-property filter of its own and relied
+        entirely on the query layer — which `ACCOUNT_LEVEL` never engaged.
+        """
+        client = web_client_as("staff", scoped_to=[two_estates["belle"]])
+        body = client.get("/library/").text
+
+        assert "BLUEBOOKNEEDLE" not in body, (
+            "a scoped staff member is seeing an out-of-scope property's book. This is the G17 "
+            "leak: Book must be PROPERTY_SCOPED for query_scope to filter it."
+        )
+        assert "BELLEBOOKNEEDLE" in body, (
+            "in-scope books vanished — the fix over-corrected into denying staff their own "
+            "property's library, which no rule asks for"
+        )
+
+    def test_owner_still_sees_the_whole_library(self, web_client_as, two_estates):
+        """The regression guard. Scoping that also constrained owners would 'pass' the test above
+        while breaking the feature for the person who owns the estate."""
+        client = web_client_as("owner")
+        body = client.get("/library/").text
+        assert "BLUEBOOKNEEDLE" in body
+        assert "BELLEBOOKNEEDLE" in body
+
+    def test_book_is_classified_property_scoped(self):
+        """Pins the classification itself, so the reason survives without the route test.
+
+        If `/library/` is ever rewritten with its own filter, the route test could pass while the
+        classification silently reverted — leaving every *other* Book query unfiltered.
+        """
+        assert ENTITY_CLASSES[Book] is EntityClass.PROPERTY_SCOPED, (
+            "Book was reclassified by G17 because ACCOUNT_LEVEL has no query-layer enforcement "
+            "and library.py declares inventory.manage (SCOPED for staff). Reverting this "
+            "reopens the leak."
+        )
+
+
+class TestChildTablesAreReachable:
+    """The `NOT_YET_ENFORCEABLE` entries, asserted as **currently true** rather than described.
+
+    An exception list that merely *claims* a model is unreachable-by-the-mechanism is a comment.
+    These tests prove the claim, so the day someone gives child tables a scoping path, they turn
+    red and the list gets cleaned up instead of quietly outliving the problem.
+    """
+
+    def test_the_parent_is_filtered(self, web_client_as, two_estates):
+        """Baseline — without this, the two tests below prove nothing.
+
+        If `Asset` were *also* unfiltered the child results would say nothing about child tables
+        specifically; they would just mean scoping is broken.
+        """
+        web_client_as("staff", scoped_to=[two_estates["belle"]])
+        session = web_client_as.session_for_scope()
+        with authz_context("staff", frozenset({two_estates["belle"]})):
+            assert session.query(Asset).count() == 0, (
+                "Asset carries property_id and must be filtered — if this fails, the whole "
+                "query-scope layer is broken and the child-table findings are noise"
+            )
+
+    def test_price_entry_is_reachable_but_redacted(self, web_client_as, two_estates):
+        """`PriceEntry`: row reachable, amount stripped. Both halves asserted."""
+        from mihomes.authz.redact import REDACTED_FIELDS
+
+        web_client_as("staff", scoped_to=[two_estates["belle"]])
+        session = web_client_as.session_for_scope()
+        with authz_context("staff", frozenset({two_estates["belle"]})):
+            assert session.query(PriceEntry).count() == 1, (
+                "PriceEntry is expected to be REACHABLE (it has no property_id). If it is now "
+                "filtered, remove it from NOT_YET_ENFORCEABLE."
+            )
+        assert "price" in REDACTED_FIELDS[PriceEntry], (
+            "the mitigation that makes PriceEntry the milder finding is field-level redaction; "
+            "without it the amount leaks too"
+        )
+
+    def test_guest_is_reachable_and_nothing_covers_it(self, web_client_as, two_estates):
+        """`Guest`: the sharper finding. Reachable, and no redaction applies to a name."""
+        from mihomes.authz.redact import REDACTED_FIELDS
+
+        web_client_as("staff", scoped_to=[two_estates["belle"]])
+        session = web_client_as.session_for_scope()
+        with authz_context("staff", frozenset({two_estates["belle"]})):
+            names = [g.name for g in session.query(Guest).all()]
+        assert "BLUEGUESTNEEDLE" in names, (
+            "Guest is expected to be REACHABLE. If it is now filtered, remove it from "
+            "NOT_YET_ENFORCEABLE — this is good news, not a test failure to suppress."
+        )
+        assert Guest not in REDACTED_FIELDS, (
+            "if Guest gained field redaction, the 'nothing covers it' half of the finding is "
+            "stale and the exception reason must be rewritten"
+        )
+
+
+class TestPersonnelIsDeniedNotLeaked:
+    """`PERSONNEL` has no mechanism — and staff are denied anyway, by the route's declaration.
+
+    Worth its own test because the census flags `PERSONNEL` as unenforced, and the natural
+    assumption from that is a leak. It is the opposite: `staff.py` declares `member.manage`, which
+    is `✗` for staff, so a housekeeper cannot read *any* HR record — including **their own**,
+    which §4.1 says they may. Fail-closed and stricter than the spec, exactly as G6 recorded.
+    """
+
+    def test_staff_cannot_reach_the_hr_pages(self, web_client_as, two_estates):
+        client = web_client_as("staff", scoped_to=[two_estates["belle"]])
+        response = client.get("/staff/")
+        assert response.status_code == 403, (
+            f"expected 403 from the matrix (member.manage is denied to staff), got "
+            f"{response.status_code}. A 404 would mean the route moved and this test is probing "
+            "nothing — which is the failure mode that makes a 'staff cannot reach it' assertion "
+            "worthless."
+        )
+
+    def test_the_denial_comes_from_the_matrix_not_from_a_missing_route(self):
+        """The teeth. A 403 is only meaningful if it came from the grant we think it did."""
+        assert MATRIX["member.manage"].staff is Grant.DENY, (
+            "staff.py's routes declare member.manage; if that grant ever becomes ALLOW or "
+            "SCOPED, the 403 above turns into a leak of every colleague's HR record and "
+            "PERSONNEL has no mechanism to stop it"
+        )
+
+    def test_own_record_visibility_is_a_known_gap(self):
+        """§4.1's PERSONNEL rule is *"may see their own record"* — and no key expresses it.
+
+        Asserted as a gap rather than left as prose, so the U-gate has a test to retire.
+        """
+        keys_mentioning_self = [k for k in MATRIX if "own" in k or "self" in k]
+        assert keys_mentioning_self == ["gateway.link_self"], (
+            "if a self-scoped key was added (e.g. staff.view_own), PERSONNEL's own-record rule "
+            f"may now be expressible — resolve U6 and update this test. Found: "
+            f"{keys_mentioning_self}"
+        )
+
+
+class TestAccountLevelReachIsDeclaredOrDenied:
+    """`ACCOUNT_LEVEL` is enforced only by route declaration — so pin the declarations.
+
+    This is the class the Book leak came from, and the one where a new model is most likely to
+    leak next: classifying something `ACCOUNT_LEVEL` feels like protecting it, and protects
+    nothing on its own.
+    """
+
+    def test_no_account_level_model_is_read_by_a_staff_allowed_route(self):
+        """The generalisation of the Book leak, as a static check over every route.
+
+        Book was `ACCOUNT_LEVEL` behind an `inventory.manage` (staff-`SCOPED`) route and nothing
+        compared the two. This walks every declared route and flags any `ACCOUNT_LEVEL` model
+        **read** by a route staff are granted.
+
+        **Read, not merely mentioned** — this test's first version scanned the whole *module* for
+        `import <Model>`, and flagged `/ai/ask` for *writing* a conversation row, which is the
+        assistant working exactly as designed. Module granularity cannot tell a route that serves
+        a model's rows from one that appends to them, and a gate that cannot tell them apart is
+        one somebody eventually silences. So the scan is per-endpoint and looks for a **query**:
+        `db.query(Model)` or `select(Model)`. Writes do not leak; reads do.
+
+        Residual, stated rather than discovered: a route that reads through a *service* function
+        rather than inline is invisible here — which is exactly how `/library/` hid, since it
+        called `book_svc.list_books`. The runtime probes above are what cover that shape. This
+        static arm catches the inline case cheaply and across every route at once; neither arm
+        subsumes the other.
+        """
+        from mihomes.web import app as app_module
+
+        account_level = {
+            model.__name__
+            for model, cls in ENTITY_CLASSES.items()
+            if cls is EntityClass.ACCOUNT_LEVEL and model.__name__ not in NO_CLASS_FITS
+        }
+        staff_allowed = {key for key, spec in MATRIX.items() if spec.staff is not Grant.DENY}
+
+        offenders = []
+        application = app_module.create_app()
+        for route in application.routes:
+            endpoint = getattr(route, "endpoint", None)
+            if endpoint is None:
+                continue
+            declared = declared_action(endpoint)
+            if declared is None or declared[0] not in staff_allowed:
+                continue
+            try:
+                body = _inspect.getsource(endpoint)
+            except (OSError, TypeError):  # pragma: no cover - builtins, C funcs
+                continue
+            for model_name in sorted(account_level):
+                if f"query({model_name}" in body or f"select({model_name}" in body:
+                    offenders.append(f"{route.path} ({declared[0]}) reads {model_name}")
+
+        assert not offenders, (
+            "these routes are reachable by staff and READ an ACCOUNT_LEVEL model, which has no "
+            "query-layer enforcement — the exact shape of the /library/ and /ai/sessions "
+            "leaks:\n  "
+            + "\n  ".join(sorted(set(offenders)))
+            + "\nEither reclassify the model (if the class is wrong, as Book's was), change the "
+            "declaration (as the four /ai/sessions routes did), or add it to NO_CLASS_FITS with "
+            "a written reason."
+        )
+
+    def test_template_reach_is_the_declared_exception_and_still_true(
+        self, web_client_as, two_estates
+    ):
+        """`NO_CLASS_FITS` asserted rather than described, same discipline as the child tables."""
+        def _seed(session):
+            session.add(Template(id=uuid.uuid4(), name="TEMPLATENEEDLE",
+                                 slug=f"t-{uuid.uuid4().hex[:8]}"))
+
+        web_client_as.seed(_seed)
+        client = web_client_as("staff", scoped_to=[two_estates["belle"]])
+        body = client.get("/templates/").text
+
+        assert "TEMPLATENEEDLE" in body, (
+            "Template is in NO_CLASS_FITS *because* staff reach it — templates_route declares "
+            "task.manage, which row 5 grants staff. If staff no longer reach it, the gap was "
+            "resolved and the entry must be removed."
+        )
+        assert ENTITY_CLASSES[Template] is EntityClass.ACCOUNT_LEVEL, (
+            "Template's classification changed — if a class that fits was added, resolve U6 and "
+            "drop it from NO_CLASS_FITS"
+        )
+
+
+class TestAITranscriptStore:
+    """The second leak G17 found: reading someone else's answer is not "using the assistant".
+
+    `AIConversation` is `ACCOUNT_LEVEL` — correctly, it has no `property_id` — and the four
+    `/ai/sessions*` routes declared `ai.use`, which row 18 grants staff as `SCOPED`. So a scoped
+    housekeeper could fetch an owner's saved conversation verbatim, financial answers included.
+
+    **This is the leak G10 structurally could not see.** G10 scoped the *live* AI path: it proved
+    a staff member asking about another property gets nothing. The transcript of a question an
+    *owner* already asked is a stored row on a different route, and no amount of scoping the
+    question reaches it. Two surfaces onto the same data, one of them scoped.
+    """
+
+    def test_staff_cannot_read_a_saved_conversation(self, web_client_as, two_estates):
+        from mihomes.models.ai_conversation import AIConversation
+
+        def _seed(session):
+            session.add(AIConversation(
+                id=uuid.uuid4(), session_id="owner-private",
+                session_name="Owner budget review", role="financial",
+                user_message="What is our total spend across all properties?",
+                ai_response="TOTALSPENDNEEDLE is 4.2 million euros.",
+            ))
+
+        web_client_as.seed(_seed)
+        client = web_client_as("staff", scoped_to=[two_estates["belle"]])
+        response = client.get("/ai/sessions/owner-private")
+
+        assert response.status_code == 403, (
+            f"expected 403 (audit.view is denied to staff), got {response.status_code}"
+        )
+        assert "TOTALSPENDNEEDLE" not in response.text, (
+            "the owner's saved financial answer reached a staff member — this is the G17 "
+            "transcript leak and the reason these four routes no longer declare ai.use"
+        )
+
+    def test_the_denial_comes_from_the_grant_we_think(self):
+        """Teeth. A 403 that came from somewhere else would pass the test above for free."""
+        assert MATRIX["audit.view"].staff is Grant.DENY, (
+            "the /ai/sessions* routes rely on audit.view being denied to staff; if that grant "
+            "changes, the transcript store reopens"
+        )
+        assert MATRIX["ai.use"].staff is Grant.SCOPED, (
+            "ai.use must stay SCOPED for staff — the point of the fix was to move the four "
+            "transcript routes off it, NOT to deny staff the assistant"
+        )
+
+    def test_staff_may_still_use_the_assistant(self, web_client_as, two_estates):
+        """The over-correction guard, and the reason the fix is four routes and not a module.
+
+        `/library/` taught this: a fix that denies more than the leak is its own regression.
+        """
+        client = web_client_as("staff", scoped_to=[two_estates["belle"]])
+        assert client.get("/ai/ask").status_code != 403, (
+            "staff lost access to the assistant itself — row 18 grants it, and D14's logic "
+            "rejects removing capability to achieve confidentiality"
+        )
+
+    def test_owner_can_still_read_transcripts(self, web_client_as, two_estates):
+        """Without this, a route that 500s or 404s would read as a successful denial."""
+        from mihomes.models.ai_conversation import AIConversation
+
+        def _seed(session):
+            session.add(AIConversation(
+                id=uuid.uuid4(), session_id="owner-readable", role="financial",
+                user_message="Q", ai_response="OWNERVISIBLENEEDLE",
+            ))
+
+        web_client_as.seed(_seed)
+        client = web_client_as("owner")
+        response = client.get("/ai/sessions/owner-readable")
+
+        assert response.status_code == 200, (
+            f"the owner cannot read their own transcript ({response.status_code}) — the denial "
+            "above may be a broken route rather than an authorization decision"
+        )
+        assert "OWNERVISIBLENEEDLE" in response.text
+
+
+class TestKnownBrokenCells:
+    """Cells that return non-200 for reasons that are **not** authorization.
+
+    A matrix that books these as passes is the `/playbooks/` mistake — an incidental non-leak
+    read as enforcement. Asserted explicitly, with the real cause, so nobody mistakes either for
+    a control.
+    """
+
+    def test_ai_index_is_broken_for_every_role_not_just_staff(self, web_client_as, two_estates):
+        """`/ai/` and `/ai/sessions-panel` 500 for **owners too** — a SPEC-002 UUID casualty.
+
+        `_list_sessions` calls `func.min(AIConversation.id)`, and Postgres has no `min(uuid)`:
+        `UndefinedFunction: function min(uuid) does not exist`. The column became a UUID in
+        SPEC-002 G6.1 and this aggregate was never revisited.
+
+        Out of scope for SPEC-003 — it is not an RBAC defect — but pinned here because a 500 is
+        indistinguishable from a denial at the HTTP layer, and this file must not count it as one.
+        Logged in `opportunities.md`.
+        """
+        owner = web_client_as("owner")
+        assert owner.get("/ai/").status_code == 500, (
+            "/ai/ no longer 500s for owners — if min(uuid) was fixed, delete this test and the "
+            "opportunities.md entry with it. This is good news, not a failure."
+        )

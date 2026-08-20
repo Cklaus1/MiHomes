@@ -479,3 +479,38 @@ Review this at the start of each session.
   locked, which the racing version never checked. **Rule:** when a guarantee rests on a lock or an
   ordering, assert the lock and the ordering; stage the race only when there is no mechanism to
   point at.
+
+- **Two surfaces onto the same data, and only one of them scoped.** G10 spent a whole group
+  scoping the AI's *live* path and proved a staff member asking about another property gets
+  nothing. G17 found `/ai/sessions/{id}` handing that same staff member an **owner's already-
+  answered** question verbatim, financial content included. Nothing about G10 was wrong; the
+  transcript is a *stored row on a different route*, and scoping the question cannot reach it.
+  **Tell:** any feature that persists its own output has two read paths, and the second one is
+  usually added later by someone protecting the first. **Rule:** when a surface is scoped, ask
+  what *writes* there and where else that written thing can be read — the log, the transcript, the
+  export, the cache. Scope the store, not just the query.
+
+- **"I classified it, so it's protected" is the most expensive false assumption in an authz
+  layer.** Six entity classes existed; exactly one was read by any code. `ACCOUNT_LEVEL` — the
+  strictest-sounding, `✗ for staff` — was enforced by *nothing*, and both of G17's leaks were
+  models classified `ACCOUNT_LEVEL` sitting behind routes whose declared action staff are granted.
+  A classification is a claim about intent; only a mechanism is a control. **Rule:** for every
+  enum of security classes, grep each value outside the module that defines it before trusting
+  any of them. A value no code reads belongs in a docstring, not in a class that reads as a gate.
+
+- **Grep the enum before probing the routes.** The cheapest possible first test in a
+  cross-cutting audit is not a reach assertion — it is "does any mechanism read this category at
+  all." A reach probe tells you about the one route you happened to pick; the census tells you
+  *where the next leak will be*, and it costs one grep. This one reordered the whole group: the
+  load-bearing test became `test_every_entity_class_has_a_named_mechanism`, and the leaks were
+  found by following it rather than by guessing.
+
+- **Match a static check's granularity to the claim it makes.** The first version of
+  `test_no_account_level_model_is_read_by_a_staff_allowed_route` scanned each route's whole
+  *module* for `import <Model>` and flagged `/ai/ask` — for **writing** a conversation row, which
+  is the assistant working as designed. Module granularity cannot distinguish serving a model's
+  rows from appending to them, and six false positives in a security gate is how a gate gets
+  silenced. Narrowed to the endpoint's own source and to `query(Model)`/`select(Model)`: writes
+  do not leak, reads do. **Rule:** a static gate that cannot state the difference between the
+  thing it forbids and the thing it permits will be turned off by the next person who reads it —
+  and note the residual (a read via a service function is invisible; the runtime probe covers it).

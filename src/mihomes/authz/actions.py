@@ -265,7 +265,15 @@ def _entity_classes() -> dict[type, EntityClass]:
         RecurringExpense: account,
         Configuration: account,
         Note: account,
-        Book: account,
+        # **Reclassified by G17 from ACCOUNT_LEVEL.** §4.1 listed `book` as account-level, and
+        # C10 already recorded that the rationale was wrong: `Book` carries `property_id`, the
+        # library *is* inventory, and `books.py`/`library.py` declare `inventory.manage` — which
+        # is `SCOPED` for staff. That contradiction was not academic: G17's probe found
+        # `/library/` returning another property's books to a scoped staff member, because
+        # `ACCOUNT_LEVEL` has no query-layer enforcement and the route's own grant let them in.
+        # Classifying it the way the data and the route already agree closes the leak through the
+        # existing filter, with no route change — and `test_library_scoped_for_staff` pins it.
+        Book: scoped,
         # Financial records §4.1 never classified.
         InsurancePolicy: account,
         # D12 denies staff ratings by name, yet the model was unclassified.

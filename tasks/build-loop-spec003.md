@@ -360,6 +360,16 @@ Conventions §3.3. Inherited from SPEC-002's report plus this phase's own.
 | **U3** | **Aggregate inference.** A15 tests direct paths; a staff member can still sometimes infer account-level facts from what they may see (spec §10). Accepted. | accepted |
 | **U4** | **Bot transport.** Step 16 scopes *answers*; the bot still polls with a token in per-account config as a supervised CLI process, not the authenticated webhook `TELEGRAM_PRD` §5 describes. Phase 4+ (spec §10, N7). | Phase 4+ |
 | **U5** | Inherited from SPEC-002: **S1 archival** (unowned, needs a retention decision), **S7 demo mode broken**, **S5 polymorphic-table drift is app-only**. | founder / accepted |
+| **U6** | **No entity class fits `Template`/`TemplateItem`.** C10 classified them `ACCOUNT_LEVEL`, but §4.1's own account-level list does not contain `template`, and row 5 (`task.manage`) grants staff the capability that reaches them — so enforcing the class would break a granted capability. Missing: a class for *"account-wide, not sensitive, staff use it."* Pinned in `NO_CLASS_FITS` with the reason, and `test_template_reach_is_the_declared_exception_and_still_true` asserts the reach so the entry cannot outlive the gap. Also covers `PERSONNEL`'s own-record rule, which no matrix key expresses (G6). | spec work |
+| **U7** | **Three of six entity classes are enforced by nothing.** `ACCOUNT_LEVEL`, `PERSONNEL` and `GLOBAL` are read by no code; `FLAGGED` and `PROPERTY_LINKED` are reached by model *name*, so a newly-added member of either would not inherit enforcement. Where the three are enforced it is by whatever action the *route* declares — and **both of G17's leaks were `ACCOUNT_LEVEL` models behind staff-granted routes.** `test_the_classes_with_no_mechanism_are_exactly_the_ones_we_think` pins the census so the set cannot grow silently, but giving them a mechanism (or renaming them so they read as documentation rather than as controls) is a Phase 3 design pass. | Phase 3 |
+
+> **U2 is now partly mechanical, which it was not when this table was written.** It said
+> mis-declared actions were *"not a gate this loop can close"* — and that is still true in general,
+> since nothing can tell that `task.manage` on a contract-delete route is wrong. But G17's
+> `test_no_account_level_model_is_read_by_a_staff_allowed_route` closes the **specific**
+> sub-case where the mis-declaration contradicts the entity classification, which is the shape
+> both real leaks took. The residual is narrower than stated: a mis-declaration that no
+> classification contradicts.
 
 ---
 
@@ -563,6 +573,14 @@ resumable. **Each group ships its own revision in the chain** (`0003…`, `0004�
 > (`books`/`library` — §4.1 says account-level, but `Book` carries `property_id` and the library
 > is functionally inventory), or for account-level operational config
 > (`templates`/`playbooks`). These are the concrete instances of the residual §10 already admits.
+>
+> **G17 update — the library entry was not an approximation, it was a live leak.** Declaring
+> `inventory.manage` here was *correct*; the **classification** was wrong, and because
+> `ACCOUNT_LEVEL` has no query-layer enforcement the disagreement meant `/library/` returned
+> another property's books to scoped staff. `Book` is now `PROPERTY_SCOPED` and this entry is
+> closed. Worth noting what that says about the other two: an "approximate declaration" logged
+> against a class that enforces nothing is not a documentation debt, it is an **unproven leak**.
+> `staff.py`'s is fail-closed (staff get 403, verified) and `templates`' is U6.
 >
 > **And one real gap found by declaring carefully:** `complete_work_order` *writes*
 > `WorkOrder.actual_cost` under `issue.manage`, which is `SCOPED` for staff — so a housekeeper can
@@ -902,8 +920,17 @@ resumable. **Each group ships its own revision in the chain** (`0003…`, `0004�
 - [x] G16.6 · §6 Step 16 · A30 · D17 — a financial answer is **never** posted into a staff-containing group; the bot offers a DM · verify: `tests/integration/test_telegram_scope.py::test_group_dm_offer`
 - [x] G16.7 · §6 Step 16 · — · `_resolve_reporter` (`responder.py:340-347`) prefers the **resolved sender** over the LLM's fuzzy `Staff.name ILIKE` guess · verify: `tests/integration/test_telegram_scope.py::test_reporter_from_sender`
 
-### [ ] G17 — Step 17: cross-cutting adversarial leak matrix — *dep: all*
-- [ ] G17.1 · §6 Step 17 · — · the leak matrix — for each entity class in §4.1 (as corrected by C10), assert staff reach is exactly what the classification says, across **web + AI + bot** · verify: `tests/integration/test_leak_matrix.py::test_staff_reach_matches_classification`
+### [x] G17 — Step 17: cross-cutting adversarial leak matrix — *dep: all* — *22 tests; 1852 passed; TWO leaks found and closed*
+- [x] G17.1 · §6 Step 17 · — · the leak matrix. **Reordered after one grep**: the planned test was a per-class reach assertion, but `EntityClass` has six values and only **`PROPERTY_SCOPED`** is read by any code (`FLAGGED`/`PROPERTY_LINKED` by model *name*; `ACCOUNT_LEVEL`/`PERSONNEL`/`GLOBAL` by nothing). So the load-bearing test is `test_every_entity_class_has_a_named_mechanism` — a census of which classes are enforced at all — and the reach probes follow it. · verify: `tests/integration/test_leak_matrix.py` ✓
+- [x] G17.2 · — · **LEAK FOUND AND CLOSED: `/library/`** returned another property's books to scoped staff. `Book` was `ACCOUNT_LEVEL` (no query-layer enforcement) behind an `inventory.manage` route (staff-`SCOPED`). Reclassified to `PROPERTY_SCOPED` — what the data and the declaration already agreed on. · verify: `::TestBookReclassification` ✓
+- [x] G17.3 · — · **LEAK FOUND AND CLOSED: `/ai/sessions/{id}`** returned an owner's saved AI answer to scoped staff. **The leak G10 structurally could not see** — G10 scoped the live path; a transcript is a stored row on another route, and `AIConversation` has no author column to scope by. Four routes moved to `audit.view`; `/ai/` and `/ai/ask` keep `ai.use`. · verify: `::TestAITranscriptStore` ✓
+- [x] G17.4 · — · the five child tables **proven** reachable (not assumed) and pinned in `NOT_YET_ENFORCEABLE`; `Template`/`TemplateItem` pinned in `NO_CLASS_FITS` (U6). Two dicts, not one: "class right, no mechanism" and "class wrong, no right class exists" have different fixes. · verify: `::TestChildTablesAreReachable` + `::test_the_two_exception_lists_are_disjoint` ✓
+- [x] G17.5 · §2 gate · — · **three mutations, all with teeth**: reverting `Book`'s class → red; reverting the transcript declaration → red *in both arms independently*; dropping `Asset` from `scoped_models()` → red. A security test that cannot fail is not a gate.
+
+> **The gate caught its own author.** `test_property_scoped_models_are_enforced_or_declared`
+> derives from `ENTITY_CLASSES` rather than a written list, and turned red naming
+> `ConsumablePriceEntry` and `EventGuest` — both missing from the first draft of my own exception
+> dict. A transcribed matrix would have been green and wrong.
 
 ### [ ] G-Final — Compound-stop verification (conventions §4.1)
 - [ ] F.1  · full-suite `pytest -q` green with the §0 env (condition C)
@@ -939,8 +966,8 @@ conventions §0's *"gate that cannot fail is not a gate"*, and this phase is mad
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**Landed:** G0–G16, **including G13.5** (which discharged G11.4 and the G12/G13 UI). Suite:
-**1830 passed, 3 skipped, 2 xfailed, 0 failed** (1562 baseline → 1830, +268 tests).
+**Landed:** G0–G17, **including G13.5** (which discharged G11.4 and the G12/G13 UI). Suite:
+**1852 passed, 3 skipped, 2 xfailed, 0 failed** (1562 baseline → 1852, +290 tests).
 **Poison ceiling: 0 of 5 used** — G15.3 closed by refusal rather than deferral. Migration chain: `0001_pg_baseline` →
 `0002_rls` → `0003_documents_staff_visible` → `0004_onboarding_state` →
 `0005_invite_property_ids` → `0006_user_last_used_account` → `0007_telegram_links`; **full
@@ -1000,7 +1027,9 @@ a DM offer rather than an answer in-channel.
 being the third. A migration is a fixed point in history; one that imports state later migrations
 change is not. Recorded in `opportunities.md` with a proposed mechanical guard.
 
-**Resume at G17** — the cross-cutting adversarial leak matrix. Remaining: G17, G-Final.
+**Resume at G-Final** — compound-stop verification. F.3a (17/17 steps) and F.3b (33/33
+criteria) are already green, and all 35 A-criterion node ids resolve to a real test function.
+Remaining: F.1, F.2, F.4, F.5.
 
 **Poison ceiling: 0 of 5 used.** `G15.3` is `[!]` **by decision** (O1/N11) and does not count.
 

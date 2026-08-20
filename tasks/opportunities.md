@@ -849,3 +849,74 @@
   *other* systems from one of ours left behind — the case the catch-all was written for. No rule
   was loosened. Noting it because three consecutive groups (G11, G16 x2) have had a pre-existing
   gate correctly refuse a new model: the fail-closed-on-new-model discipline is paying for itself.
+
+## SPEC-003 G17 (2026-08-20) — the cross-cutting leak matrix
+
+- [BUG][high] **FIXED — `/library/` returned another property's books to scoped staff.**
+  `Book` was `ACCOUNT_LEVEL` (which has no query-layer enforcement) behind `library.py`'s
+  `inventory.manage` declaration (which row 7 grants staff as `SCOPED`). The route is the
+  *all-properties* book listing, so it has no per-property filter of its own by design and relied
+  entirely on the query layer — which `ACCOUNT_LEVEL` never engages. **Fix:** reclassified `Book`
+  to `PROPERTY_SCOPED`, which is what the data (`Book.property_id`) and the route declaration
+  already agreed on; C10 had recorded §4.1's rationale as wrong here. No route change. Verified by
+  mutation: reverting the classification turns `test_library_scoped_for_staff` red.
+
+- [BUG][high] **FIXED — `/ai/sessions/{id}` returned an owner's saved AI answer to scoped staff.**
+  Four `/ai/sessions*` routes declared `ai.use`, which row 18 grants staff as `SCOPED`. But
+  reading a stored transcript is not "using the assistant": `AIConversation` is `ACCOUNT_LEVEL`,
+  holds every answer including owner-only financial ones, and **carries no author column at all**
+  (`role` is the AI persona — `financial`, `estate_manager` — not the member who asked), so there
+  is nothing to scope by even in principle.
+  **This is the leak G10 structurally could not see.** G10 scoped the *live* path and proved a
+  staff member asking about another property gets nothing. The transcript of a question an *owner*
+  already asked is a stored row on a different route. Two surfaces onto the same data, one scoped.
+  **Fix:** the four transcript routes now declare `audit.view` (row 17, account-level, denied to
+  staff) with `Access.ACCOUNT`. `/ai/` and `/ai/ask` keep `ai.use` — denying staff the assistant
+  to fix this would break a capability the matrix grants, the over-correction `/library/` avoided.
+  `audit.view` is **approximate**: the right answer is a `transcript.view` key or an author column
+  so a member can read their own history. Fifth instance of the G6 approximate-declaration class.
+
+- [BUG][medium] **`/ai/` and `/ai/sessions-panel` return HTTP 500 for every role, including
+  owners.** `_list_sessions` (`web/routes/ai.py:88`) calls `func.min(AIConversation.id)` and
+  Postgres has no `min(uuid)`: `UndefinedFunction: function min(uuid) does not exist`. The column
+  became UUID in SPEC-002 G6.1 and this aggregate was never revisited — so the AI page's session
+  history has been dead since that conversion, on every role. **Not an RBAC defect and out of
+  SPEC-003's scope**, but pinned by `TestKnownBrokenCells` because a 500 is indistinguishable from
+  a denial at the HTTP layer, and a leak matrix that books it as a pass is the `/playbooks/`
+  mistake. Fix is a `min(created_at)`-based subquery or a cast; small, and worth its own commit.
+
+- [PATTERN] **Only ONE of the six entity classes is read by any code.** Grep `EntityClass.<VALUE>`
+  across `src/`: `PROPERTY_SCOPED` is read by `query_scope.scoped_models()`, `FLAGGED` and
+  `PROPERTY_LINKED` are reached by *model name* rather than by class, and `ACCOUNT_LEVEL`,
+  `PERSONNEL` and `GLOBAL` are read by **nothing at all**. Where those three are enforced, it is
+  by whatever action the *route* happens to declare — two independent statements that nothing
+  compared until this group. **Both G17 leaks are that gap**, and both were `ACCOUNT_LEVEL`, the
+  class where "I classified it, so it's protected" is most tempting and least true. Worth a
+  design pass in Phase 3: either give the unenforced classes a mechanism, or rename them so they
+  read as documentation rather than as controls.
+
+- [OPT] **U6 — no class fits `Template`/`TemplateItem`.** C10 classified them `ACCOUNT_LEVEL`, but
+  §4.1's own account-level list is `budget/contract/recurring_expense/transaction/configuration/
+  note/book` and does not contain `template` — so there is no source authority behind it.
+  Meanwhile row 5 (`task.manage`) is `SCOPED` for staff and creating tasks from a template *is*
+  task management, so `templates_route` declares `task.manage` and staff reach the rows.
+  Enforcing `ACCOUNT_LEVEL` would break a capability the matrix grants. The sensitivity argument
+  runs the same way: a template's fields are name, description and checklist items — the same
+  class of content as a `Task`, which staff already see. What is missing is a class for
+  *"account-wide, not sensitive, staff use it"*. Declared in `NO_CLASS_FITS`, not silently left.
+
+- [DEFER] **Five property-scoped child tables are reachable by out-of-scope staff** — now
+  *proven*, not assumed. `PriceEntry`, `ConsumablePriceEntry`, `TaskSchedule`, `EventGuest`,
+  `Guest` are `PROPERTY_SCOPED` but carry no `property_id`, so `scoped_models()` skips them; a
+  query through the parent is protected, a direct query is not. `Guest` is the sharpest: a guest's
+  name is not money, so unlike the two price tables **no redaction covers it** — a scoped staff
+  member can enumerate the names of people invited to another property's event. Pinned in
+  `NOT_YET_ENFORCEABLE` with a reason each and asserted as currently-true, so the day child tables
+  get a scoping path the entries turn red instead of quietly outliving the problem.
+
+- [PATTERN] **The derived gate caught its own author.** `test_property_scoped_models_are_enforced_
+  or_declared` builds its model list from `ENTITY_CLASSES` rather than from a written list, and
+  immediately turned red naming `ConsumablePriceEntry` and `EventGuest` — two models missing from
+  the first draft of my own exception dict. A hand-written matrix would have been green and wrong.
+  Fourth group running where a derived-rather-than-transcribed gate found something (G2's census,
+  G11's registry, G16's two, now this).

@@ -212,8 +212,31 @@ def ai_page(request: Request, db: Session = Depends(get_db)):
     })
 
 
+# ---------------------------------------------------------------------------------------
+# The transcript store — NOT the assistant. SPEC-003 G17.
+#
+# The four routes below read, rename and delete *saved conversations*, and they used to declare
+# `ai.use` like the rest of this module. Row 18 grants `ai.use` to staff as SCOPED, so a scoped
+# housekeeper could GET /ai/sessions/{id} and read an owner's answer verbatim — including the
+# financial ones G10 spent a whole group keeping out of the live path. G10 scoped the *question*;
+# the **transcript of an already-answered question** is a stored row, and no scope reaches it:
+# `AIConversation` is ACCOUNT_LEVEL, which has no query-layer enforcement, and it carries no
+# author column at all (`role` is the AI persona — "financial", "estate_manager" — not the member
+# who asked). So there is nothing to scope *by* even in principle.
+#
+# `audit.view` (row 17) is the honest key available today: account-level, denied to staff, and
+# "read the account's historical record" is what these routes do. It is **approximate** — the
+# right answer is a `transcript.view` key, or an author column so a member can read their own
+# history. Recorded in `opportunities.md`; same shape as G6's four other approximate declarations.
+#
+# `/ai/` and `/ai/ask` deliberately keep `ai.use`: staff *may* use the assistant, and denying
+# that to fix this would break a capability the matrix grants — the over-correction /library/
+# avoided.
+# ---------------------------------------------------------------------------------------
+
+
 @router.get("/sessions-panel", response_class=HTMLResponse)
-@declares("ai.use", Access.COLLECTION)
+@declares("audit.view", Access.ACCOUNT)
 def ai_sessions_panel(request: Request, db: Session = Depends(get_db)):
     sessions = _list_sessions(db)
     session_groups = _group_sessions(sessions)
@@ -223,7 +246,7 @@ def ai_sessions_panel(request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/sessions/{session_id}", response_class=JSONResponse)
-@declares("ai.use", Access.COLLECTION)
+@declares("audit.view", Access.ACCOUNT)
 def ai_session_messages(session_id: str, db: Session = Depends(get_db)):
     from mihomes.models.ai_conversation import AIConversation
 
@@ -240,7 +263,7 @@ def ai_session_messages(session_id: str, db: Session = Depends(get_db)):
 
 
 @router.delete("/sessions/{session_id}", response_class=JSONResponse)
-@declares("ai.use", Access.COLLECTION)
+@declares("audit.view", Access.ACCOUNT)
 def ai_delete_session(session_id: str, db: Session = Depends(get_db)):
     from mihomes.models.ai_conversation import AIConversation
 
@@ -250,7 +273,7 @@ def ai_delete_session(session_id: str, db: Session = Depends(get_db)):
 
 
 @router.patch("/sessions/{session_id}/name", response_class=JSONResponse)
-@declares("ai.use", Access.COLLECTION)
+@declares("audit.view", Access.ACCOUNT)
 async def ai_rename_session(session_id: str, request: Request, db: Session = Depends(get_db)):
     from mihomes.models.ai_conversation import AIConversation
 

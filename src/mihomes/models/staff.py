@@ -96,6 +96,20 @@ class Staff(Base, TimestampMixin, SlugMixin, TenantOwned):
     role: Mapped[StaffRole] = mapped_column(Enum(StaffRole), default=StaffRole.OTHER)
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
     email: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    #: The MiHomes login this HR record belongs to, if the person has one — SPEC-003 U6.
+    #:
+    #: **This is what makes §4.1's `PERSONNEL` rule enforceable.** *"Staff may see their own
+    #: record; never others'"* needs a hard answer to "which row is mine", and `email` cannot give
+    #: one: it is nullable (NULL would match NULL), two rows may share an address, and an HR
+    #: contact address is often not the address someone signs in with. `authz/query_scope.py`
+    #: filters `PERSONNEL` on this column and on nothing else.
+    #:
+    #: Nullable because most staff have no login at all — a gardener, a contractor's crew — and
+    #: `ON DELETE SET NULL` because deleting a *person's login* must not delete their *employment
+    #: record*. No `index=True`: see the migration's note on Step 3's leading-column rule.
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     whatsapp_phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
     certifications: Mapped[str | None] = mapped_column(Text, nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)

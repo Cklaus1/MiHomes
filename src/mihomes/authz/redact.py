@@ -18,9 +18,22 @@ still passes because its loop simply never matches. `test_every_redacted_field_e
 makes that class of error impossible to reintroduce.
 
 **D12's ratings clause is enforced by row-denial, not by this table.** Since `Vendor.ratings` does
-not exist, there is no field to strip; `VendorRating` is classified `ACCOUNT_LEVEL`, so staff
-never receive the row. Recorded here because "the field is missing from the redaction list" and
-"the data is protected" are different claims, and only the second one is true.
+not exist, there is no field to strip; `VendorRating` is `ACCOUNT_LEVEL`, and
+`authz/query_scope.py` filters that class at the query layer, so staff do not receive the row.
+
+**That sentence used to end "…so staff never receive the row" and it was false when written
+(corrected in U7).** The classification was right; nothing read it. `ACCOUNT_LEVEL` had no
+query-layer mechanism at all until U7 gave it one, so the row was denied only where a route
+happened to declare an action staff lack — and `/vendors/` declares `vendor.view_contact`, which
+is `SCOPED` for staff. A probe confirmed the rating's free-text notes rendering on a staff
+member's page. `test_u7_enforcement.py::TestVendorRatingsAreNotServedToStaff` now pins the claim
+this comment makes.
+
+Worth keeping the history visible rather than quietly editing the line: it was a written
+assertion that a *classification* enforced something, inside the file whose whole job is
+enforcement, and it read as authoritative for exactly that reason. "The field is missing from the
+redaction list", "the class says staff cannot see it", and "the data is protected" are three
+different claims, and only the third one matters.
 """
 
 from __future__ import annotations

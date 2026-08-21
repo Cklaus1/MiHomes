@@ -133,8 +133,15 @@ CLASS_MECHANISM = {
     EntityClass.PROPERTY_SCOPED: "query_scope.scoped_models() — with_loader_criteria per model",
     EntityClass.FLAGGED: "query_scope._document_criteria — staff_visible AND parent in scope",
     EntityClass.PROPERTY_LINKED: "redact.REDACTED_FIELDS[Vendor] — row allowed, fields stripped",
-    EntityClass.ACCOUNT_LEVEL: "ROUTE DECLARATION ONLY — no query-layer enforcement exists",
-    EntityClass.PERSONNEL: "ROUTE DECLARATION ONLY — no query-layer enforcement exists",
+    # **Both of these read "ROUTE DECLARATION ONLY" until U7.** That was the finding: four of the
+    # six classes were labels with nothing behind them, and two live leaks (`/search/` notes,
+    # `/vendors/` ratings) came out of exactly that gap — routes correctly declaring actions staff
+    # hold, reading an ACCOUNT_LEVEL model from inside a service.
+    EntityClass.ACCOUNT_LEVEL: (
+        "query_scope._account_level_criteria — property_id IN scope / polymorphic parent "
+        "subquery / false(), by column shape"
+    ),
+    EntityClass.PERSONNEL: "query_scope._personnel_criteria — Staff.user_id == current_user",
     EntityClass.GLOBAL: "OUT OF REMIT — not tenant data; nothing to scope",
 }
 
@@ -153,20 +160,46 @@ def test_every_entity_class_has_a_named_mechanism():
     )
 
 
-def test_the_classes_with_no_mechanism_are_exactly_the_ones_we_think():
-    """Pins the census. If a class *gains* enforcement, this test says so and the table updates.
+def test_no_class_is_left_to_route_declaration_alone():
+    """Pins the census. **This test's expected value changed at U7, and that is the point of it.**
 
-    Derived by grepping `EntityClass.<VALUE>` across `src/` at G17: only `PROPERTY_SCOPED` appears
-    outside `actions.py`. `FLAGGED` and `PROPERTY_LINKED` are reached by *model name* rather than
-    by class, which counts — the mechanism exists — but is worth knowing, because a newly-added
-    `FLAGGED` model would not inherit it.
+    At G17 it asserted `{ACCOUNT_LEVEL, PERSONNEL}` — the two classes enforced by nothing but a
+    route's declaration. Both now have query-layer criteria, so the expected set is empty, and
+    this test is what would notice a class quietly losing its mechanism again.
+
+    Why "route declaration alone" is not enough, stated once here rather than rediscovered: a
+    route declaration is a statement about *who may call an endpoint*, and a class is a statement
+    about *which rows a person may see*. They coincide only when every route touching the class
+    happens to declare an action staff lack. `/search/` and `/vendors/` are the counter-examples —
+    both declare actions staff legitimately hold, and both read an `ACCOUNT_LEVEL` model through a
+    service. Neither was a route mistake; the class simply had no teeth.
+
+    `FLAGGED` and `PROPERTY_LINKED` are still reached by *model name* rather than by class, which
+    counts — the mechanism exists — but is worth knowing, because a newly-added model in either
+    class would not inherit it. `ACCOUNT_LEVEL` and `PERSONNEL` are derived from the
+    classification and so do not have that weakness.
     """
     unenforced = {c for c, how in CLASS_MECHANISM.items() if how.startswith("ROUTE DECLARATION")}
-    assert unenforced == {EntityClass.ACCOUNT_LEVEL, EntityClass.PERSONNEL}, (
-        "the set of classes enforced only by route declaration has changed. If a class gained a "
-        "mechanism, update CLASS_MECHANISM; if one lost it, that is a regression. "
+    assert unenforced == set(), (
+        "a class is back to being enforced by route declaration alone. That is a regression U7 "
+        "closed: four leaks came from classifications nothing read. "
         f"Now: {sorted(c.value for c in unenforced)}"
     )
+
+
+def test_the_enforced_classes_name_the_code_that_enforces_them():
+    """A mechanism string is only worth having if it points at something real.
+
+    `CLASS_MECHANISM` is prose, and prose drifts — `redact.py` carried a comment claiming
+    `ACCOUNT_LEVEL` denied staff a row for an entire phase while it denied nothing. So the two
+    classes U7 added are checked against the functions they name.
+    """
+    from mihomes.authz import query_scope
+
+    assert callable(query_scope._account_level_criteria)
+    assert callable(query_scope._personnel_criteria)
+    assert "_account_level_criteria" in CLASS_MECHANISM[EntityClass.ACCOUNT_LEVEL]
+    assert "_personnel_criteria" in CLASS_MECHANISM[EntityClass.PERSONNEL]
 
 
 def test_property_scoped_models_are_enforced_or_declared():

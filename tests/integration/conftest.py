@@ -193,6 +193,30 @@ def web_client_as(_pg_engine, account_a):
         yield make
     finally:
         stack.close()
+        # **Deny-audit rows outlive this fixture's rollback, by design — so clean them here.**
+        #
+        # `authz/audit.py audit_deny` writes on an *independent* session and commits, because a
+        # deny audit written through the request session is discarded by the very rollback that
+        # reports the denial (A33). Correct behaviour, and it means every route test that provokes
+        # a 403 leaves a committed `audit_log` row behind that this fixture's `transaction.rollback`
+        # cannot reach.
+        #
+        # It is not hypothetical and it is not local. `test_leak_matrix.py` provokes two denials,
+        # and those rows were still visible ~380 tests later to
+        # `test_archive.py::TestGetStats::test_counts_eligible_rows`, which counted 3 where it
+        # seeded 2 — a failure that looks like a bug in the archive service and is not. The rows
+        # belong to *other* accounts, and would be invisible if `session.query(M).count()` honoured
+        # the tenant filter; it does not (see `authz/query_scope.py`'s note on `all_mappers`), and
+        # RLS does not apply on the superuser connection the suite runs on. So the pollution and
+        # the count gap only bite when combined, which is what made it look intermittent.
+        #
+        # Deleting by account keeps this narrow: only rows this fixture's own tenant produced.
+        # `tests/integration/test_audit.py::audit_factory` does the same thing for the same reason.
+        with _pg_engine.begin() as cleanup:
+            cleanup.execute(
+                text("DELETE FROM audit_log WHERE account_id = :account_id"),
+                {"account_id": account_a},
+            )
 
 
 @pytest.fixture

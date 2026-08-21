@@ -276,6 +276,67 @@
           <div class="text-sm text-gray-700 whitespace-pre-wrap">{{ doc.notes }}</div>
         </div>
         {% endif %}
+
+        {# ── Who can see this — SPEC-004 ──────────────────────────────────────
+           Rendered only for owner/admin. `can_grant` is computed in the route rather than
+           tested here, because the *query* that builds the picker must not run for staff at
+           all: after U6b a staff member's PERSONNEL filter narrows `Staff` to their own row,
+           so the picker would silently become a one-item list of themselves. #}
+        {% if can_grant %}
+        <div class="pt-2 border-t border-gray-100">
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Who can see this</div>
+            <span class="text-[10px] text-gray-400">Staff see nothing until granted</span>
+          </div>
+
+          {% if access_error %}
+          <div class="mb-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+            {{ access_error }}
+          </div>
+          {% endif %}
+
+          {% if grantable_staff %}
+          <div class="space-y-1.5">
+            {% for member in grantable_staff %}
+            {% set has_access = member.id in grant_map.get(doc.id, []) %}
+            <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-lg
+                        {% if has_access %}bg-emerald-50{% else %}bg-gray-50{% endif %}">
+              <div class="min-w-0">
+                <div class="text-sm font-medium text-gray-800 truncate">{{ member.name }}</div>
+                <div class="text-[10px] text-gray-400">{{ member.role.value.replace('-', ' ')|title }}</div>
+              </div>
+              {% if has_access %}
+              <button hx-post="/documents/{{ doc.slug }}/access/revoke"
+                      hx-vals='{"staff_id": "{{ member.id }}"}'
+                      hx-target="body" hx-swap="innerHTML"
+                      class="flex-shrink-0 px-2.5 py-1 text-xs font-medium text-emerald-700 bg-emerald-100
+                             hover:bg-red-100 hover:text-red-700 rounded-md transition-colors"
+                      title="Revoke access">
+                Has access
+              </button>
+              {% else %}
+              <button hx-post="/documents/{{ doc.slug }}/access"
+                      hx-vals='{"staff_id": "{{ member.id }}"}'
+                      hx-target="body" hx-swap="innerHTML"
+                      class="flex-shrink-0 px-2.5 py-1 text-xs font-medium text-gray-500 bg-white
+                             border border-gray-200 hover:border-brand-400 hover:text-brand-600
+                             rounded-md transition-colors">
+                Grant
+              </button>
+              {% endif %}
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}
+          {# Only staff with a linked login can hold a grant — see document_svc.grantable_staff.
+             Saying why, rather than showing an empty list, is the difference between "nobody to
+             pick" and "the feature is broken". #}
+          <p class="text-xs text-gray-400 italic">
+            No staff have a MiHomes login yet. Invite someone before granting document access.
+          </p>
+          {% endif %}
+        </div>
+        {% endif %}
       </div>
 
       <!-- Edit mode -->

@@ -96,6 +96,19 @@ MATRIX: dict[str, ActionSpec] = {
     "task.manage":         _spec("task.manage",         5,  _A, _A, _S, _ITEM),
     "issue.manage":        _spec("issue.manage",        6,  _A, _A, _S, _ITEM),
     "inventory.manage":    _spec("inventory.manage",    7,  _A, _A, _S, _ITEM),
+    # **SPEC-004 — row 7 split, the fourth split and the same precedent as row 8 (D12).** Documents
+    # live under `inventory.manage`, which is `SCOPED` for staff and correctly so: a housekeeper
+    # may see an appliance manual for a property they cover. What they may not do is decide *who
+    # else* sees a document — that is the owner's call, and a three-valued cell cannot say "you may
+    # read these rows but not administer who reads them".
+    #
+    # `_ACCT` rather than `_ITEM`: granting is not an operation on one property, and
+    # `test_scoped_grants_are_never_declared_on_account_routes` keeps `SCOPED` off account routes,
+    # which is why staff is `_D` here rather than a narrowed grant. Admins are included on the
+    # owner's instruction — the same pairing as `member.manage`.
+    "document.grant":      _spec("document.grant",      7,  _A, _A, _D, _ACCT,
+                                 rule="SPEC-004: owner/admin decide who sees each document; "
+                                      "staff never administer access"),
     "vendor.view_contact": _spec("vendor.view_contact", 8,  _A, _A, _S, _ITEM,
                                  rule="D12: staff read-only, contact fields only"),
     "vendor.manage":       _spec("vendor.manage",       8,  _A, _A, _D, _ITEM,
@@ -236,6 +249,7 @@ def _entity_classes() -> dict[type, EntityClass]:
     from mihomes.models.consumable import Consumable, ConsumablePriceEntry
     from mihomes.models.contract import Contract
     from mihomes.models.document import Document
+    from mihomes.models.document_access import DocumentAccess
     from mihomes.models.event import Event, EventGuest, Guest
     from mihomes.models.insurance import InsurancePolicy
     from mihomes.models.invite import Invite
@@ -285,6 +299,18 @@ def _entity_classes() -> dict[type, EntityClass]:
 
         Vendor: EntityClass.PROPERTY_LINKED,
         Document: EntityClass.FLAGGED,
+        # **`ACCOUNT_LEVEL`, and the exemption that comes with it is the point.** A grant row is
+        # the *answer* to "may this person see this document", so `_document_criteria` reads it to
+        # decide — which makes it the same shape as `Membership`/`MembershipPropertyScope`: a table
+        # the authorization primitive consults, and therefore one that cannot be subject to its own
+        # filter without the question becoming circular. Registered in
+        # `query_scope._ACCOUNT_LEVEL_EXEMPT` for exactly that reason, alongside them.
+        #
+        # `ACCOUNT_LEVEL` rather than a new class because the row genuinely is account-level
+        # configuration: staff never read the grant table as *content*, only ever as the thing
+        # gating something else. Nothing surfaces a grant to a staff member, and the exemption
+        # means nothing needs to.
+        DocumentAccess: account,
 
         # Account-level. Budget/Contract/RecurringExpense/Book DO carry property_id — they are
         # denied to staff by row 9 policy, not for want of a property to scope by (C10).

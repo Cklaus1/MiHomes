@@ -60,21 +60,23 @@ class TestMatrixCoverage:
         gained one — the same class of false green A1 avoids by asserting the row *set* instead of
         a count.
 
-        The three splits: row 8 (D12 — staff read some vendor fields, write none), row 10 (U6b —
+        The four splits: row 8 (D12 — staff read some vendor fields, write none), row 10 (U6b —
         `staff.view_own` alongside `member.manage`, because "own record only" is not "manage
         members"), row 5 (U6b — `automation.manage` alongside `task.manage`, because running a
-        template is task work and managing one is not).
+        template is task work and managing one is not), row 7 (SPEC-004 — `document.grant`
+        alongside `inventory.manage`, because reading a document and deciding who else reads it are
+        different powers).
         """
         from collections import Counter
 
         per_row = Counter(spec.row for spec in MATRIX.values())
         split_rows = {row: n for row, n in per_row.items() if n > 1}
 
-        assert split_rows == {5: 2, 8: 2, 10: 2}, (
+        assert split_rows == {5: 2, 7: 2, 8: 2, 10: 2}, (
             "the set of split rows changed. Each split needs a written reason at its MATRIX "
             f"entry, because it breaks the one-key-per-source-row correspondence. Now: {split_rows}"
         )
-        assert len(MATRIX) == 20 + sum(n - 1 for n in split_rows.values()) == 23
+        assert len(MATRIX) == 20 + sum(n - 1 for n in split_rows.values()) == 24
 
     def test_key_matches_its_own_spec_key_field(self):
         """A transcription guard: the dict key and `ActionSpec.key` must agree.

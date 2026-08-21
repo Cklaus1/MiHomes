@@ -275,15 +275,28 @@ class TestScopeExemptions:
     def test_the_exemption_list_is_documented_and_small(self):
         """An exemption list is a hole in the mechanism, so its size is the thing to watch.
 
-        `Template`/`TemplateItem` are exempt only until U6b gives templates their own matrix key;
-        `test_leak_matrix.py` currently asserts staff *do* reach `/templates/` because
-        `task.manage` grants it, and denying the rows before redeclaring the route would make the
-        two commits fail each other.
+        Three reasons across five entries, and they are not interchangeable:
+
+        - `Membership`/`MembershipPropertyScope` — **structural**. `scoped_property_ids` reads them
+          to compute the staff scope, so filtering them makes the primitive recursive.
+        - `DocumentAccess` (SPEC-004) — **structural, same shape**. `_document_criteria` reads the
+          grant table to decide document visibility; subjecting it to its own filter would make
+          that question circular too. Nothing surfaces a grant row to staff as content.
+        - `Template`/`TemplateItem` — **standing**, and U6b confirmed rather than retired it.
+          `run_template` resolves by slug, so running a template requires reading its row; denying
+          rows would leave staff a `/run` endpoint whose targets they cannot see. The split is by
+          verb instead — `automation.manage` for create/delete, `task.manage` to list and run.
         """
         from mihomes.authz import query_scope
 
         assert query_scope._ACCOUNT_LEVEL_EXEMPT == frozenset(
-            {"Membership", "MembershipPropertyScope", "Template", "TemplateItem"}
+            {
+                "Membership",
+                "MembershipPropertyScope",
+                "Template",
+                "TemplateItem",
+                "DocumentAccess",
+            }
         ), (
             "the exemption list changed. Each entry is a model staff can read despite its class "
             "saying otherwise — add one only with the reason written down."

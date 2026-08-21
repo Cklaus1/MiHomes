@@ -89,6 +89,7 @@ from mihomes.models.configuration import Configuration  # noqa: E402, F401
 from mihomes.models.consumable import Consumable, ConsumablePriceEntry  # noqa: E402, F401
 from mihomes.models.contract import Contract  # noqa: E402, F401
 from mihomes.models.document import Document  # noqa: E402, F401
+from mihomes.models.document_access import DocumentAccess  # noqa: E402, F401
 from mihomes.models.event import Event, EventGuest, Guest  # noqa: E402, F401
 from mihomes.models.insurance import InsurancePolicy  # noqa: E402, F401
 from mihomes.models.invite import Invite  # noqa: E402, F401

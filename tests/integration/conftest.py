@@ -167,6 +167,12 @@ def web_client_as(_pg_engine, account_a):
             TestClient(app, base_url="http://localhost", raise_server_exceptions=False)
         )
         client.cookies.set(SESSION_COOKIE, raw)
+        # The signed-in identity, attached so a test can build rows that reference *this* client's
+        # user — `staff.user_id` grants (SPEC-003 U6a / SPEC-004) are the case that needs it, since
+        # a grant is only meaningful against the person actually making the request. Additive: it
+        # is an attribute on the returned client, so no existing caller changes.
+        client.user_id = user_id
+        client.membership_id = membership_id
         return client
 
     def session_for_scope(scoped_to=()):

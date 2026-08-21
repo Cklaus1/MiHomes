@@ -151,8 +151,19 @@ __all__ = ["install_property_scope_listener", "scoped_models"]
 #: `ACCOUNT_LEVEL` remains the wrong label for these two models; a seventh §4.1 class is spec work
 #: and out of scope here. What U6b removed is the *unintended write access*, which was the part
 #: that mattered.
+#: `DocumentAccess` (SPEC-004) is exempt for the **structural** reason, not the deferral one:
+#: `_document_criteria` reads the grant table to decide whether a staff member may see a document,
+#: so subjecting it to its own filter makes the question circular in the same way denying
+#: `Membership` makes `scoped_property_ids` recursive. Nothing ever surfaces a grant row to a staff
+#: member as content, so the exemption costs nothing.
 _ACCOUNT_LEVEL_EXEMPT = frozenset(
-    {"Membership", "MembershipPropertyScope", "Template", "TemplateItem"}
+    {
+        "Membership",
+        "MembershipPropertyScope",
+        "Template",
+        "TemplateItem",
+        "DocumentAccess",
+    }
 )
 
 #: `entity_type` → the parent model, for the polymorphic `ACCOUNT_LEVEL` models. A superset of
@@ -408,7 +419,9 @@ def _apply_property_scope(execute_state) -> None:
                 )
             )
         options.append(
-            with_loader_criteria(_Document(), _document_criteria(allowed), include_aliases=True)
+            with_loader_criteria(
+                _Document(), _document_criteria(allowed, user_id), include_aliases=True
+            )
         )
 
     if options:
@@ -442,21 +455,40 @@ def _document_parents() -> dict[str, type]:
     }
 
 
-def _document_criteria(allowed):
-    """D13 + C11 — `staff_visible` **and** a parent inside the scope.
+def _document_criteria(allowed, user_id: uuid.UUID | None):
+    """C11 + SPEC-004 — **a per-person grant** and a parent inside the scope.
 
-    Both conditions, ANDed. Filtering on the flag alone would let a ticked document on another
-    property through; filtering on scope alone would expose every invoice by default. D13 is the
-    first condition and G7's scoping is the second, and the document layer is the one place they
-    have to be spelled out together because `Document` carries no `property_id` of its own (C11).
+    Both conditions, ANDed. The grant answers *"may this person see this document"*; G7's scoping
+    answers *"and only for properties they cover"*. A grant is not an escape hatch from the
+    property boundary, and scope alone would expose every invoice on a property someone works at.
+    The document layer is where the two have to be spelled out together, because `Document` carries
+    no `property_id` of its own (C11).
 
-    A document with `entity_id IS NULL` matches no branch and is therefore invisible: an
-    account-level document has no parent whose scope could authorise it. That is the fail-closed
-    reading of a case the source never resolves (F2c).
+    **This replaced D13's `staff_visible` flag rather than adding to it.** That column gave one
+    boolean per document, so ticking it exposed the document to *every* staff member in scope — and
+    an estate has paperwork appropriate for one person and not another. Requiring both the flag and
+    a grant would mean the owner setting two controls to express one intention, with a silent
+    empty page whenever they set only one. So `staff_visible` is no longer read here.
+
+    Nothing regresses by ignoring it: the column never had a setter — no service argument, no route
+    form field, no UI — and its only writers in the tree were tests using raw SQL. It stays on the
+    table (see `0009_document_access`) because dropping a column whose only cost is being unread
+    would trade a reversible decision for an irreversible one.
+
+    Two rows are invisible by construction rather than by a written rule, which is the fail-closed
+    direction in both cases:
+
+    - **`entity_id IS NULL`** matches no branch, so an account-level document has no parent whose
+      scope could authorise it (F2c — a case the source never resolves).
+    - **`user_id is None`** — no signed-in user, so the CLI, background jobs and the bot — makes the
+      grant subquery match nothing. An unattended path is exactly where a permissive default would
+      be least likely to be noticed.
     """
     from sqlalchemy import and_, or_, select
 
     from mihomes.models.document import Document
+    from mihomes.models.document_access import DocumentAccess
+    from mihomes.models.staff import Staff
 
     branches = []
     for entity_type, parent in _document_parents().items():
@@ -468,7 +500,22 @@ def _document_criteria(allowed):
             )
         )
 
-    return and_(Document.staff_visible.is_(True), or_(*branches))
+    if user_id is None:
+        granted = false()
+    else:
+        # Two hops on purpose: the grant names a **staff row** (the directory the owner picks
+        # from), and `staff.user_id` is what ties that row to the signed-in person. A grant to a
+        # staff member with no login therefore matches nothing at all — which is why the picker
+        # offers only staff who have one.
+        granted = Document.id.in_(
+            select(DocumentAccess.document_id).where(
+                DocumentAccess.staff_id.in_(
+                    select(Staff.id).where(Staff.user_id == user_id)
+                )
+            )
+        )
+
+    return and_(granted, or_(*branches))
 
 
 def install_property_scope_listener() -> None:

@@ -55,9 +55,11 @@ from mihomes.tenancy.registry import ASSOCIATION_TABLES, GLOBAL_TABLES, TENANT_T
 #                                        off at step 2 resumes at step 3
 #   42  `telegram_links`     (G16, A32) — sender → membership, so revoking a membership CASCADEs
 #                                        the chat link away
+#   43  `document_access`    (SPEC-004) — per-person document grants, replacing the one-boolean
+#                                        `documents.staff_visible` as the owner-controlled gate
 # Each raise is acknowledged here in the same commit as its migration, which is the whole point of
 # writing the number as a literal: it makes an *accidental* addition visible.
-EXPECTED_TENANT_TABLE_COUNT = 42
+EXPECTED_TENANT_TABLE_COUNT = 43
 
 
 # --------------------------------------------------------------------------------------

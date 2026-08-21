@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from mihomes.authz.actions import Access
 from mihomes.authz.declare import declares
+from mihomes.authz.scope import current_role
 from mihomes.models.document import DocumentType
 from mihomes.services import document as doc_svc
 from mihomes.services import property as prop_svc
@@ -44,6 +45,22 @@ def _ctx(db: Session, type_filter: str = "", **kwargs) -> dict:
     documents = doc_svc.list_documents(db, document_type=dt)
     expiring = doc_svc.list_expiring(db, days=60)
     expiring_ids = {d.id for d in expiring}
+
+    # The access picker, built only for roles that may actually grant (SPEC-004).
+    #
+    # **Not merely a display choice.** `grantable_staff` reads the whole people directory, and
+    # after U6b a staff member's `PERSONNEL` filter narrows `Staff` to their own row — so for
+    # staff this would silently return a one-item list of themselves, which is a confusing thing
+    # to render next to a control they cannot use. Gating on the role keeps the query off that
+    # path entirely rather than relying on the filter to make it harmless.
+    can_grant = current_role.get() in ("owner", "admin")
+    grant_map: dict = {}
+    grantable: list = []
+    if can_grant:
+        grantable = doc_svc.grantable_staff(db)
+        for doc in documents:
+            grant_map[doc.id] = {g.staff_id for g in doc_svc.list_access(db, str(doc.id))}
+
     return {
         "page": "documents",
         "documents": documents,
@@ -53,6 +70,10 @@ def _ctx(db: Session, type_filter: str = "", **kwargs) -> dict:
         "doc_type_colors": DOC_TYPE_COLORS,
         "type_filter": type_filter,
         "expiring_ids": expiring_ids,
+        "can_grant": can_grant,
+        "grantable_staff": grantable,
+        "grant_map": grant_map,
+        "access_error": None,
         **kwargs,
     }
 
@@ -123,3 +144,58 @@ def delete_document(
 ):
     doc_svc.delete_document(db, slug)
     return templates.TemplateResponse(request, "documents.html", _ctx(db))
+
+
+# ── Per-person access grants — SPEC-004 ───────────────────────────────────────
+#
+# `document.grant`, not `inventory.manage`. The latter is `SCOPED` for staff and correctly so —
+# a housekeeper may read an appliance manual for a property they cover — but deciding *who else*
+# sees a document is the owner's call. Row 7 is split for exactly that reason, on the row-8
+# precedent: a three-valued cell cannot say "you may read these rows but not administer who reads
+# them".
+
+
+@router.post("/{slug}/access")
+@declares("document.grant", Access.ACCOUNT)
+def grant_document_access(
+    request: Request,
+    slug: str,
+    staff_id: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    """Give one staff member access to one document.
+
+    Errors are rendered back onto the page rather than raised: the only two failures are a staff
+    id that does not resolve and a staff member with no MiHomes login, and both are things the
+    operator can fix from this screen. A 500 would lose the rest of their work.
+    """
+    import uuid as _uuid
+
+    try:
+        doc_svc.grant_access(db, slug, _uuid.UUID(staff_id))
+        error = None
+    except (ValueError, TypeError) as exc:
+        error = str(exc)
+    return templates.TemplateResponse(
+        request, "documents.html", _ctx(db, access_error=error)
+    )
+
+
+@router.post("/{slug}/access/revoke")
+@declares("document.grant", Access.ACCOUNT)
+def revoke_document_access(
+    request: Request,
+    slug: str,
+    staff_id: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    import uuid as _uuid
+
+    try:
+        doc_svc.revoke_access(db, slug, _uuid.UUID(staff_id))
+        error = None
+    except (ValueError, TypeError) as exc:
+        error = str(exc)
+    return templates.TemplateResponse(
+        request, "documents.html", _ctx(db, access_error=error)
+    )

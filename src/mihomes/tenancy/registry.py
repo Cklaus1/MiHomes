@@ -70,6 +70,10 @@ TENANT_TABLES = frozenset({
     "consumable_price_entries",
     "consumables",
     "contracts",
+    # SPEC-004: per-person document grants. Registered here in the same commit as its migration,
+    # which is what `check_registry()` exists to force — an unregistered tenant table gets no RLS
+    # policy and no A21 coverage, a readable cross-tenant surface reported as green.
+    "document_access",
     "documents",
     "event_guests",
     "events",

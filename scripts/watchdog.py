@@ -3,6 +3,12 @@ MiHomes Watchdog — keeps the messaging monitors alive.
 Runs as a background process, checks every 60s, restarts a monitor if it dies.
 Supervises the Telegram monitor always, and the WhatsApp monitor when
 `whatsapp.autostart` is enabled (both gateways can run side by side).
+
+**Requires `MIHOMES_SECRET_KEY` in its own environment** (SPEC-003 U1). This process reads
+`telegram.bot_token` from the config database, and stored credentials are now encrypted — so a
+watchdog started without the variable raises `UndecryptableValue` on its first token read rather
+than supervising anything. It is a *separate* process from the app, so inheriting the variable is
+not automatic: whatever starts the watchdog (systemd unit, shell, Task Scheduler) has to pass it.
 """
 import os
 import subprocess

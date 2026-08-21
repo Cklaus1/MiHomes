@@ -39,11 +39,14 @@
     <button class="bg-brand-600 text-white rounded px-4 py-2">Save</button>
   </form>
 
-  {# §10 states this plainly and so does the UI: masking is not protection at rest. Telling the
-     operator the truth is worth more than the mask itself. #}
+  {# This used to read "stored unencrypted … until at-rest encryption ships." It has shipped
+     (SPEC-003 U1), so the text changed — but it still states the residual rather than claiming
+     the problem is gone. Telling the operator exactly how far the protection reaches is worth
+     more than either the mask or the encryption on its own. #}
   <p class="mt-6 text-xs text-gray-500">
-    API keys and tokens are hidden here, but are stored unencrypted. Set them with
-    <code>mihomes config set</code> until at-rest encryption ships.
+    API keys and tokens are hidden here and encrypted in the database, so a backup or database
+    copy does not expose them. The encryption key lives in the server's environment, so anyone
+    with access to the server itself can still read them.
   </p>
 </div>
 {% endblock %}

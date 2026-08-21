@@ -27,6 +27,10 @@ primary_region = "iad"
 # Secrets come from `fly secrets set`, never from this file or the repo (§10):
 #   DATABASE_URL  RESEND_API_KEY  EMAIL_FROM
 #   GOOGLE_CLIENT_ID  GOOGLE_CLIENT_SECRET  SECRET_KEY
+#   MIHOMES_SECRET_KEY  -- SPEC-003 U1: decrypts stored credentials (provider API keys, bot
+#     tokens) in `configurations.value`. Distinct from SECRET_KEY, which signs session cookies;
+#     do not reuse one for the other. Generate with `mihomes config generate-key`. Losing it
+#     means the encrypted values cannot be recovered, so keep a copy outside the machine.
 
 [http_service]
   internal_port = 8080

@@ -22,6 +22,14 @@ with get_session() as s:
 
 if (-not $NvidiaKey) {
     Write-Host "WARNING: NVIDIA_API_KEY not found in environment or config. Monitor will start without AI." -ForegroundColor Yellow
+    # SPEC-003 U1: stored credentials are encrypted, keyed from MIHOMES_SECRET_KEY. The lookup
+    # above is a separate `python` process with its own environment, and it is wrapped in
+    # `2>$null` + `catch {}` -- so a missing key looks identical to a missing credential. Naming
+    # the likely cause turns a silent degradation into a fixable one.
+    if (-not $env:MIHOMES_SECRET_KEY) {
+        Write-Host "  MIHOMES_SECRET_KEY is not set in this shell, so an encrypted key in the config DB could not be read." -ForegroundColor Yellow
+        Write-Host "  Set it (see 'mihomes config generate-key') and re-run, or export NVIDIA_API_KEY directly." -ForegroundColor Yellow
+    }
 }
 
 # --- Check if bridge is already running ---

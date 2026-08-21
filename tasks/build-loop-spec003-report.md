@@ -184,15 +184,45 @@ as blocked (`G15.3`, on O1) turned out to be closable by refusal rather than def
 
 ## Unmet launch gates
 
+**Updated 2026-08-21 — U1, U6 and U7 are closed, and closing them found two more live leaks.**
+The original entries are kept struck through rather than deleted: what each one turned out to be
+worth is the useful part, and three of the four were understated.
+
 | # | What | Owner |
 |---|---|---|
-| **U1** | **O1** — provider API keys stay plaintext in `configurations.value`. Step 15 masks on display; the UI says so, because §10 is explicit that masking does not make them safe. | founder |
-| **U2** | Mis-declared actions — **now partly mechanical.** G17's static check closes the sub-case where a mis-declaration contradicts the entity classification, which is the shape both real leaks took. Residual: a mis-declaration no classification contradicts. | human review |
+| ~~**U1**~~ | ~~**O1** — provider API keys stay plaintext in `configurations.value`.~~ **CLOSED** (`766fe28`). Fernet at rest, keyed from `MIHOMES_SECRET_KEY`, versioned `enc:v1:` prefix. Proof: a raw `SELECT value` shows the prefix and no plaintext. `list_config` was the participant that would have been missed — it bypasses `_lookup`. Also fixed a **pre-existing CLI leak** the entry never mentioned: `config set` echoed the value unmasked and took it positionally, so a bot token landed in scrollback *and* shell history. | ✔ done |
+| **U2** | Mis-declared actions — **now partly mechanical.** G17's static check closes the sub-case where a mis-declaration contradicts the entity classification, which is the shape both real leaks took. Residual: a mis-declaration no classification contradicts. **Both U7 leaks are in that residual** — the read happens in a *service*, not an endpoint body, so no endpoint-source scan can see it. Still human review; the residual now has two known instances rather than none. | human review |
 | **U3** | Aggregate inference — A15 tests direct paths, not inference. Accepted. | accepted |
-| **U4** | Bot transport — Step 16 scopes *answers*; the bot still polls with a token in per-account config (N7). | Phase 4+ |
+| **U4** | Bot transport — Step 16 scopes *answers*; the bot still polls with a token in per-account config (N7). **U1 helps**: that token is now encrypted at rest, so the exposure is transport and process memory rather than the database too. | Phase 4+ |
 | **U5** | Inherited from SPEC-002: S1 archival, S7 demo mode, S5 polymorphic drift is app-only. | founder / accepted |
-| **U6** | **No entity class fits `Template`/`TemplateItem`**, and `PERSONNEL`'s "own record only" rule has no matrix key. Both pinned with reasons and asserted, so the entries cannot outlive the gap. | spec work |
-| **U7** | **Three of six entity classes are enforced by nothing**; two more are reached by model *name*, so a newly-added member inherits nothing. Both G17 leaks were of this shape. | Phase 3 |
+| ~~**U6**~~ | ~~No entity class fits `Template`/`TemplateItem`, and `PERSONNEL`'s "own record only" rule has no matrix key.~~ **HALF CLOSED** (`10786c1`, `aae9e97`). `staff.view_own` (row 10) exists and staff now read their own HR record — which needed `staff.user_id` first, because `Staff.email` cannot answer "which row is mine". `automation.manage` (row 5) stops staff creating and deleting templates. **The `Template` classification stays open and U6b confirmed it rather than retiring it**: `run_template` resolves by slug, so running a template requires reading its row, and denying rows would leave staff a `/run` endpoint whose targets they cannot see. Split by *verb* instead. A seventh §4.1 class is the real fix. | spec work (residual) |
+| ~~**U7**~~ | ~~Three of six entity classes are enforced by nothing.~~ **CLOSED** (`28cd6ee`). `ACCOUNT_LEVEL` and `PERSONNEL` are now derived from the classification and filtered at the query layer. **The entry understated this: it read as a tidiness item and it was two live leaks.** `/search/` returned notes from properties a staff member cannot see; `/vendors/` rendered the vendor ratings D12 denies staff by name. Both reproduced through HTTP before the fix. `PROPERTY_LINKED` and `FLAGGED` are still reached by model *name*, so a newly-added member of either inherits nothing — that part remains. | ✔ mostly done |
+
+### Two leaks this table did not know about
+
+Found while closing U7, both of the same shape as the two G17 found, bringing the phase total to
+**four leaks from one root cause**:
+
+| Leak | Route | Why the static check could not see it |
+|---|---|---|
+| Notes from unscoped properties | `/search/` | `services/search.py` runs a raw `Note.content ILIKE` across the account, from behind `property.view` (`SCOPED` for staff — correctly declared) |
+| Vendor ratings, denied by D12 **by name** | `/vendors/` | `services/vendor.py` called from `_ctx`, behind `vendor.view_contact` (`SCOPED` — also correctly declared) |
+
+Neither is a route mistake, which is the point: both routes declare actions staff legitimately
+hold, and both read an `ACCOUNT_LEVEL` model from inside a **service**. `authz/redact.py` asserted
+in a comment that the second could not happen — *"`VendorRating` is classified `ACCOUNT_LEVEL`, so
+staff never receive the row"* — which was false when written. The classification was right; nothing
+read it.
+
+### Residual recorded rather than fixed
+
+`tenancy/session.py`'s `all_mappers` gate skips `.count()` statements, the same gap fixed in
+`authz/query_scope.py`. Left alone deliberately: RLS covers the account boundary (verified under
+the non-superuser role production connects as — the alarming figure came from a superuser probe),
+and widening the gate turns 44 tests red because `auth/sessions.py` relies on the narrow gate to
+resolve a membership *before* any account context exists. **RLS enforces the account boundary;
+nothing enforces the property boundary except `query_scope`** — which is why the same one-line
+pattern is correct in one file and wrong in the other.
 
 ---
 
@@ -212,6 +242,47 @@ broken deliberately, A15 confirmed red), G17 (3 mutations — reverting `Book`'s
 transcript declaration, dropping `Asset` from `scoped_models()`; the second failed in the runtime
 probe *and* the static scan independently). Conventions §0: a gate that cannot fail is not a gate,
 and this phase is made of them.
+
+---
+
+## U-gate closure — 2026-08-21
+
+Five commits on `origin/spec-build`, each gated on the full suite:
+
+Numbers below are read from each commit's own body (`git log --format=%b | grep passed`), not
+reconstructed — the rule this report's own lessons section records.
+
+| Commit | What | Suite after |
+|---|---|---|
+| `cebd9a9` | the `/ai/` 500 — `func.min(AIConversation.id)`, and Postgres has no `min(uuid)` | not captured in the body |
+| `766fe28` | U1 — secrets encrypted at rest | 1896 passed, 1 failed |
+| `10786c1` | U6a — `staff.user_id`, the link `staff.view_own` needed | gated jointly with `766fe28` |
+| `28cd6ee` | U7 — mechanism for the unenforced classes; two leaks closed; audit-pollution fix | **1916 passed, 0 failed** |
+| `aae9e97` | U6b — `staff.view_own` + `automation.manage` | **1923 passed, 0 failed** |
+
+Baseline entering this work was 1852 passed with 1 pre-existing failure
+(`test_archive.py::TestGetStats::test_counts_eligible_rows`, red in full runs and green in
+isolation for the whole phase). It is fixed: `audit_deny` commits on an independent session by
+design (A33), so every route test provoking a 403 left a row `web_client_as`'s rollback could not
+reach — and those rows were counted only because `.count()` escaped the tenant filter. **Neither
+defect alone was visible**, which is what made it look flaky.
+
+`766fe28` and `10786c1` were gated **jointly** rather than separately — both were in the tree when
+the suite ran — and both commit messages say so. A per-commit green neither of them measured would
+have been the easier thing to write.
+
+### Empirical closure, not just unit assertions
+
+All four leaks re-probed through HTTP as a scoped staff member, with a distinct needle planted per
+leak on an out-of-scope property, across 15 reachable pages: **none reached staff.** The owner
+control confirms none of the four fixes over-denied — an important half, since a filter returning
+`false()` for everyone would pass every "staff cannot see it" assertion while breaking the product.
+
+**Mutation-tested:** 8 arms in U7, 3 in U6b, each turning its named test red when broken. Two U7
+arms initially came back with no teeth and the diagnoses were opposite — one condition genuinely
+redundant (deleted), one arm real but untested (test added). The mutation *harness itself* was the
+first bug found: it reported "0 failed" for every mutation, including deleting an arm outright,
+because pytest's ANSI colour codes defeated its `startswith("FAILED")` check.
 
 ---
 

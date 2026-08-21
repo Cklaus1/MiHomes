@@ -923,3 +923,133 @@
   the first draft of my own exception dict. A hand-written matrix would have been green and wrong.
   Fourth group running where a derived-rather-than-transcribed gate found something (G2's census,
   G11's registry, G16's two, now this).
+
+---
+
+## SPEC-003 U-gate closure — 2026-08-21
+
+The four items the SPEC-003 report carried forward (U1, U6, U7, and the `/ai/` 500) are closed.
+What follows is what closing them turned up, which is more interesting than the closures.
+
+- [RESOLVED] **U1 — secrets are encrypted at rest.** O1 is answered: Fernet, keyed from
+  `MIHOMES_SECRET_KEY`, values stored with a versioned `enc:v1:` prefix so the format is
+  self-describing and rotation does not have to guess. **`list_config` was the participant that
+  would have been missed** — it runs its own `session.query(Configuration).all()` rather than going
+  through `_lookup`, so a decrypt shim placed only in `get_config` leaves the settings page and
+  `mihomes config list` rendering base64. Three existing tests failed, which is how it was found.
+  Conversion of legacy rows is a command (`mihomes config encrypt-secrets`), deliberately not a
+  migration: a migration that reads the encryption key depends on the environment it runs in, and
+  this phase hit that trap three times. The assertion that proves it: a raw `SELECT value` shows
+  `enc:v1:` and no plaintext — everything else would pass against a no-op cipher.
+  **Also fixed a pre-existing CLI leak**: `config set` echoed the value unmasked and took it
+  positionally, so a bot token landed in both scrollback and shell history.
+
+- [RESOLVED] **U7 — the unenforced classes have a mechanism, and it closed two more leaks.** The
+  `[PATTERN]` entry above ("only ONE of the six entity classes is read by any code") is now acted
+  on rather than noted. `ACCOUNT_LEVEL` and `PERSONNEL` are derived from the classification and
+  filtered at the query layer. Two live leaks fell out while building it, both reproduced through
+  HTTP first: **`/search/` returned notes from properties a staff member cannot see**, and
+  **`/vendors/` rendered the vendor ratings D12 denies staff by name**. Neither was a route
+  mistake — both routes correctly declare actions staff hold, and both read an `ACCOUNT_LEVEL`
+  model from inside a *service*, which is precisely the residual G17's endpoint-source scan
+  admitted. Four leaks now trace to that one gap.
+
+- [PATTERN] **A comment asserted a classification enforced something, in the file whose job is
+  enforcement.** `authz/redact.py` said, in prose: *"`VendorRating` is classified `ACCOUNT_LEVEL`,
+  so staff never receive the row."* False when written, and it read as authoritative *because* of
+  where it was. The classification was right; nothing read it. This is the sharpest form of the
+  documentation-drift problem this file keeps recording: not a comment that went stale, but one
+  that was never true, stating a mechanism rather than an intention. Worth a habit — when a comment
+  claims something is enforced, name the function that enforces it, so the claim is checkable.
+  `test_the_enforced_classes_name_the_code_that_enforces_them` now does that mechanically for the
+  two classes U7 added.
+
+- [PATTERN] **`.count()` escapes a `do_orm_execute` filter, and the same one-line mistake is
+  correct in one file and wrong in another.** `state.all_mappers` is **empty** for
+  `session.query(Model).count()` and `select(func.count()).select_from(Model)` — the statement's
+  top-level column is a bare `count(*)`, not an entity — so gating a listener on it silently skips
+  every count. Measured, both layers.
+  In `authz/query_scope.py` it was load-bearing and is fixed (a tree walk over the statement's
+  tables). In `tenancy/session.py` it is **deliberately left alone**, for two reasons each
+  established by measurement: RLS catches it (probed as the non-superuser role production connects
+  as, every count shape returns the correct number — the alarming 8-vs-2 figure came from a
+  *superuser* probe, and superusers bypass RLS unconditionally even under FORCE ROW LEVEL
+  SECURITY); and widening it turns 44 tests red, because `auth/sessions.py` resolves a membership
+  with a Core `select(memberships.c.role, ...)` **before any account context exists** and its
+  docstring names the empty `all_mappers` as the mechanism that lets it through, while N9 forbids
+  `skip_tenant` on the hot path of every request.
+  The stateable difference: **RLS enforces the account boundary; nothing enforces the property
+  boundary except `query_scope`.** A uniform fix would have removed a documented bootstrap path to
+  add redundancy behind a stronger enforcer. Residual, not defect.
+
+- [PATTERN] **Superuser probes cannot distinguish "defence-in-depth gap" from "live leak", and I
+  nearly reported the wrong one.** The first `.count()` probe connected as `postgres` and showed a
+  cross-tenant count of 8 where `.all()` gave 2 — which looks exactly like a live multi-tenancy
+  leak. Re-probed as `mihomes_test_app`: every shape correct. `tests/conftest.py`'s `app_engine`
+  docstring already warns about this in writing, which is the point — the warning existed and I
+  still had to be reminded of it by a second measurement. **Any claim about tenant isolation must
+  name the role the probe connected as.**
+
+- [PATTERN] **Two mutation checks with no teeth, for two different reasons — and the harness
+  itself was the first bug.** Its initial version reported "0 failed" for every mutation including
+  deleting an arm outright: pytest emits ANSI colour, so `line.startswith("FAILED")` never matched.
+  *A mutation harness that cannot see failures reports perfect safety.* Once fixed, two of eight
+  arms still came back with no teeth, and the diagnoses were opposite: `_property_id_criteria`'s
+  `is_not(None)` guard was genuinely **redundant** (`NULL IN (...)` is NULL, and a WHERE clause
+  keeps only rows evaluating to *true*, so the row is excluded either way — measured with three
+  seeded ratings) and was removed; the no-linkage `false()` branch was **real but untested**
+  (probing showed it correctly suppressing a `Tag` row) and got the test it was missing. An
+  unnecessary condition in a security filter is worse than none — it reads as a handled hazard.
+
+- [PATTERN] **A test that asserts correctly while measuring the wrong layer.** The first version of
+  the count-vector test sat on the app-role connection, where RLS answers the count correctly no
+  matter what the ORM does — so it passed with the bug fully present. Moving it to the superuser
+  connection *inverted this file's central rule for one specific assertion*, and that inversion is
+  the reason it works. Both versions assert a true thing; only one can fail when the code breaks.
+
+- [RESOLVED] **Cross-test pollution that looked intermittent needed both defects to bite.**
+  `test_archive.py::TestGetStats::test_counts_eligible_rows` had been failing in full-suite runs
+  and passing in isolation. Cause: `audit_deny` writes on an independent session and commits —
+  correct A33 behaviour, since a deny audited through the request session is discarded by the
+  rollback that reports it — so every route test provoking a 403 leaves a committed row
+  `web_client_as`'s rollback cannot reach. `test_leak_matrix.py`'s two denials were still visible
+  ~380 tests later. Those rows belong to *other accounts* and would have been invisible if
+  `.count()` honoured the tenant filter. **Neither defect alone was visible**, which is what made
+  it look flaky. `web_client_as` now cleans its own account's audit rows on teardown.
+
+- [RESOLVED] **U6 — `staff.view_own` and `automation.manage`.** Row 10 and row 5 split on the
+  row-8 precedent. The ordering was forced and worth recording: U6a's `staff.user_id` had to land
+  first (*"their own record"* needs a hard answer to which row is mine, and `Staff.email` is
+  nullable, non-unique, and often not the sign-in address), then U7's `PERSONNEL` mechanism, and
+  only then the key — because a grant that opens a route without a filter behind it is a leak, not
+  a fix.
+
+- [PATTERN] **Opening a route exposed a leak that only a paired assertion could catch.** Declaring
+  `staff.view_own` turned `/staff/` into a full directory read: `web/deps.py` binds a property
+  scope **only when the grant is `SCOPED`**, so an `ALLOW` grant leaves it `None`, and
+  `_apply_property_scope` returns early on `None` as "unrestricted" — skipping the `PERSONNEL`
+  filter for exactly the request it exists to constrain. Property scope and role are *different
+  conditions* and conflating them was the bug. Caught on the first run by the test written
+  alongside the reachability one; a test asserting only "the page returns 200" would have shipped
+  it.
+
+- [CONFIRMED, NOT RESOLVED] **`NO_CLASS_FITS["Template"]` survives U6b, and its original
+  diagnosis was right.** The plan was that a dedicated matrix key would let the rows be denied at
+  the query layer — "U6 resolves U6". Writing it showed that to be self-contradictory:
+  `template_service.run_template` resolves the template *by slug*, so running one requires reading
+  the row, and denying rows leaves staff a `/run` endpoint whose targets they cannot see. So the
+  split is by **verb, not by row** — `automation.manage` governs create/delete, listing and running
+  stay `task.manage` — and enforcement lives in the route declarations, because a verb distinction
+  is not something a query layer can express. The entry's own words still name the real fix:
+  *"what is missing is a class for 'account-wide, not sensitive, staff use it'."* A seventh §4.1
+  class is spec work. U6b removed the unintended **write** access, which was the part that
+  mattered.
+
+- [PATTERN] **Three plan steps were wrong, and each was only visible once written.** "Retire the
+  Template exemption" (contradicted by `run_template`'s slug lookup), "fix the `.count()` gap
+  everywhere" (breaks the auth bootstrap), "the `is_not(None)` guard is load-bearing" (it changed
+  no result). All three came from a plan written after real exploration, and all three survived
+  until implementation forced the detail. The lesson is not "plan less" — the plan was right about
+  the shape of every commit — it is that a plan's *justifications* deserve the same suspicion as
+  its conclusions, and that mutation testing plus one honest probe is what converts a plausible
+  justification into a checked one.

@@ -542,3 +542,81 @@ Review this at the start of each session.
   commit body the whole time (`git log --format=%b | grep passed`). **Rule:** a report states
   measured values or says the value was not captured. A plausible number nobody can source is
   worse than an admitted gap, because the gap invites verification and the number ends it.
+
+## From closing SPEC-003's four open items — 2026-08-21
+
+- **A probe's connection is part of its claim.** A `.count()` probe run as `postgres` returned a
+  cross-tenant count of 8 where `.all()` returned 2 — indistinguishable from a live multi-tenancy
+  leak, and I nearly reported it as one. Re-run as the non-superuser role production actually uses,
+  every shape was correct: RLS had it covered, making it a defence-in-depth gap rather than a leak.
+  Superusers bypass RLS unconditionally, even under `FORCE ROW LEVEL SECURITY`, and `conftest.py`
+  already says so in writing — the warning existed and a second measurement is what made me read
+  it. **Rule:** no claim about isolation without naming the role the probe connected as. "Leak" and
+  "gap behind a stronger enforcer" call for completely different responses, and only the connection
+  distinguishes them.
+
+- **Verify the harness before trusting a green mutation run.** My first mutation script reported
+  "0 failed" for all seven mutations — including deleting an entire security arm. Pytest emits ANSI
+  colour codes, so `line.startswith("FAILED")` never matched. *A mutation harness that cannot see
+  failures reports perfect safety*, which is the most dangerous output a security check can
+  produce. **Rule:** before believing a mutation result, confirm the harness can detect a failure
+  it should — delete an arm on purpose and check it goes red. Use `--color=no` and the return code,
+  never string-matching on decorated output.
+
+- **"No teeth" has two opposite diagnoses; do not accept either without probing.** Two of eight
+  U7 arms survived mutation. One (`is_not(None)` guarding a nullable `property_id`) was **genuinely
+  redundant** — `NULL IN (...)` is NULL, but a WHERE clause keeps only rows evaluating to *true*,
+  so the row was excluded either way, measured with three seeded rows — and was deleted. The other
+  (`false()` for models with no property linkage) was **real but untested**, and got the test it
+  lacked. Same symptom, opposite fixes. **Rule:** when a mutation changes nothing, measure the
+  behaviour directly before concluding the code is either wrong or fine. And delete a redundant
+  condition in a security filter rather than keeping it "just in case": it reads as a handled
+  hazard and invites more trust than the evidence supports.
+
+- **A test can assert the right thing while measuring the wrong layer.** My count-vector test sat
+  on the app-role connection, where RLS answers correctly regardless of what the ORM does — so it
+  passed with the bug fully present. Moving it to the superuser connection *inverted the file's
+  central rule*, and that inversion is exactly why it works: with RLS out of the way, the ORM's own
+  behaviour is what is being measured. **Rule:** for a defence-in-depth layer, the test must run
+  where the *other* layers are absent. Otherwise you are testing the strongest defence and
+  attributing the result to the weakest.
+
+- **A comment claiming enforcement is a claim, and claims belong in tests.** `authz/redact.py`
+  stated *"`VendorRating` is classified `ACCOUNT_LEVEL`, so staff never receive the row."* False
+  when written — the classification was right, nothing read it — and it read as authoritative
+  precisely because it sat in the enforcement file. Not stale documentation: never-true
+  documentation, asserting a *mechanism* where only an *intention* existed. **Rule:** when a
+  comment says something is enforced, name the function that enforces it, and add a test that the
+  named function exists and is referenced. Cheap, and it converts prose into something checkable.
+
+- **Grep for what reads a classification, not just what writes one.** Every model was classified
+  and a test proved it; four of six classes were read by nothing. "I classified it, so it is
+  protected" is most tempting for the class whose name sounds most protective (`ACCOUNT_LEVEL`).
+  **Rule:** for any taxonomy that is supposed to control behaviour, grep the *consumers*. A label
+  with no reader is documentation wearing a control's clothes — and here it produced four leaks.
+
+- **Two defects that only bite together look like flakiness.** A test failed in full runs and
+  passed in isolation for an entire phase. It needed *both* an audit row committed outside a
+  fixture's rollback *and* `.count()` escaping the tenant filter — either alone was invisible.
+  **Rule:** an order-dependent failure is a real finding, not a retry candidate. Bisect it to the
+  polluter, and expect the explanation to have more than one part; the reason it looked
+  intermittent is usually that no single cause was sufficient.
+
+- **A plan's justifications deserve the same suspicion as its conclusions.** Three steps of a plan
+  written after thorough exploration were wrong, each visible only once implemented: "retire the
+  Template exemption" (contradicted by `run_template`'s slug lookup — running a template requires
+  reading its row), "fix the `.count()` gap in both layers" (breaks the auth bootstrap, 44 tests
+  red), "the NULL guard is load-bearing" (changed no result). The plan was right about the *shape*
+  of all five commits. **Rule:** treat a plan's stated reasons as hypotheses to check while
+  implementing, not as settled findings. And when implementation contradicts the plan, say so in
+  the commit — a reader who sees the plan and the code disagree, with no note, has to redo the
+  reasoning.
+
+- **Opening a permission and filtering its rows are one change, and need paired tests.** Declaring
+  `staff.view_own` on `/staff/` turned it into a full directory read, because `web/deps.py` binds a
+  property scope only for `SCOPED` grants — so an `ALLOW` grant left it `None`, and the filter
+  treated `None` as "unrestricted" and skipped the `PERSONNEL` narrowing for exactly the request it
+  existed to constrain. Property scope and role are different conditions; conflating them was the
+  bug. **Rule:** every route opened to a narrower principal gets two tests written together — one
+  that it is reachable, one that it returns only what it should. The reachability test alone passes
+  against a leak, and it is the one that feels like the point.

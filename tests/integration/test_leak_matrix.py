@@ -46,7 +46,7 @@ import uuid
 import pytest
 
 from mihomes.authz import query_scope
-from mihomes.authz.actions import ENTITY_CLASSES, MATRIX, EntityClass, Grant
+from mihomes.authz.actions import ENTITY_CLASSES, MATRIX, Access, EntityClass, Grant
 from mihomes.authz.declare import declared_action
 from mihomes.authz.scope import authz_context
 from mihomes.models.asset import Asset, AssetType, PriceEntry
@@ -111,7 +111,15 @@ NO_CLASS_FITS = {
         "Enforcing ACCOUNT_LEVEL would break a capability the matrix grants. And the sensitivity "
         "argument runs the same way: a template's fields are name, description and checklist "
         "items — the same class of content as a Task, which staff already see. What is missing is "
-        "a class for 'account-wide, not sensitive, staff use it'. See U6."
+        "a class for 'account-wide, not sensitive, staff use it'. See U6. "
+        "**U6b was expected to retire this entry and did not — it CONFIRMED it.** The plan was "
+        "that a dedicated matrix key would let the rows be denied at the query layer. But "
+        "`template_service.run_template` resolves the template by slug, so running one requires "
+        "reading the row: denying it would leave staff a /run endpoint whose targets they cannot "
+        "see. U6b therefore split by *verb* — automation.manage governs create/delete, while "
+        "listing and running stay task.manage — which removed the unintended write access and "
+        "left the classification exactly as mis-fitting as this entry says. A seventh §4.1 class "
+        "is the real fix and is spec work."
     ),
     "TemplateItem": (
         "Same gap as Template, whose rows it belongs to. Listed separately so resolving one "
@@ -409,44 +417,144 @@ class TestChildTablesAreReachable:
         )
 
 
-class TestPersonnelIsDeniedNotLeaked:
-    """`PERSONNEL` has no mechanism — and staff are denied anyway, by the route's declaration.
+class TestPersonnelIsOwnRecordOnly:
+    """§4.1's `PERSONNEL` rule, finally expressible — **this class asserted the gap until U6b.**
 
-    Worth its own test because the census flags `PERSONNEL` as unenforced, and the natural
-    assumption from that is a leak. It is the opposite: `staff.py` declares `member.manage`, which
-    is `✗` for staff, so a housekeeper cannot read *any* HR record — including **their own**,
-    which §4.1 says they may. Fail-closed and stricter than the spec, exactly as G6 recorded.
+    It used to be `TestPersonnelIsDeniedNotLeaked`, and its subject was the fail-closed state G6
+    shipped: `staff.py` declared `member.manage`, denied to staff, so a housekeeper could not read
+    *any* HR record — their own included, which §4.1 says they may. Not a leak; stricter than the
+    spec, and recorded as U6.
+
+    Two pieces had to land before the rule could be enforced rather than over-enforced, and the
+    order mattered. U6a added `staff.user_id`, because *"their own record"* needs a hard answer to
+    which row is mine and `Staff.email` cannot give one. U7 gave `PERSONNEL` a query-layer
+    mechanism, because without one a route that let staff in would let them read everyone. Only
+    then does `staff.view_own` (row 10, ALLOW for all three roles) become safe: the grant opens the
+    page and the query layer narrows it to one row.
     """
 
-    def test_staff_cannot_reach_the_hr_pages(self, web_client_as, two_estates):
+    def test_staff_reach_the_hr_page(self, web_client_as, two_estates):
+        """403 → 200. The grant changed, so this assertion had to change with it."""
         client = web_client_as("staff", scoped_to=[two_estates["belle"]])
         response = client.get("/staff/")
-        assert response.status_code == 403, (
-            f"expected 403 from the matrix (member.manage is denied to staff), got "
-            f"{response.status_code}. A 404 would mean the route moved and this test is probing "
-            "nothing — which is the failure mode that makes a 'staff cannot reach it' assertion "
-            "worthless."
+        assert response.status_code == 200, (
+            f"expected 200 — staff.view_own is ALLOW for staff (U6b) — got "
+            f"{response.status_code}. A 403 means the route is still declaring member.manage."
         )
 
-    def test_the_denial_comes_from_the_matrix_not_from_a_missing_route(self):
-        """The teeth. A 403 is only meaningful if it came from the grant we think it did."""
-        assert MATRIX["member.manage"].staff is Grant.DENY, (
-            "staff.py's routes declare member.manage; if that grant ever becomes ALLOW or "
-            "SCOPED, the 403 above turns into a leak of every colleague's HR record and "
-            "PERSONNEL has no mechanism to stop it"
-        )
+    def test_staff_see_only_their_own_row(self, web_client_as, two_estates):
+        """The half that makes the 200 above safe rather than a regression.
 
-    def test_own_record_visibility_is_a_known_gap(self):
-        """§4.1's PERSONNEL rule is *"may see their own record"* — and no key expresses it.
-
-        Asserted as a gap rather than left as prose, so the U-gate has a test to retire.
+        A test asserting only reachability would pass against a route that hands a housekeeper the
+        entire directory — which is precisely what `member.manage` was protecting against, and why
+        opening the route without U7's filter would have been a leak rather than a fix.
         """
-        keys_mentioning_self = [k for k in MATRIX if "own" in k or "self" in k]
-        assert keys_mentioning_self == ["gateway.link_self"], (
-            "if a self-scoped key was added (e.g. staff.view_own), PERSONNEL's own-record rule "
-            f"may now be expressible — resolve U6 and update this test. Found: "
-            f"{keys_mentioning_self}"
+        from mihomes.models.staff import Staff
+
+        client = web_client_as("staff", scoped_to=[two_estates["belle"]])
+
+        def _seed(session):
+            session.add(
+                Staff(id=uuid.uuid4(), name="COLLEAGUENEEDLE",
+                      slug=f"c-{uuid.uuid4().hex[:6]}")
+            )
+
+        web_client_as.seed(_seed)
+        body = client.get("/staff/").text
+        assert "COLLEAGUENEEDLE" not in body, (
+            "a staff member read a colleague's HR record through /staff/. staff.view_own opens "
+            "the page; query_scope._personnel_criteria is what must narrow it to their own row."
         )
+
+    def test_the_grant_is_allow_and_the_narrowing_is_not_the_grant(self):
+        """The teeth, and the design point in one assertion.
+
+        `staff.view_own` must be `ALLOW`, not `SCOPED`: `SCOPED` means "filtered to the properties
+        in your scope", and an HR record has nothing to do with which homes someone covers.
+        `test_scoped_grants_are_never_declared_on_account_routes` forbids `SCOPED` on an `ACCOUNT`
+        route anyway, correctly — there is no property target to scope by. So if the row-narrowing
+        ever moves *into* the grant, that is a design regression even if the tests above still
+        pass.
+        """
+        spec = MATRIX["staff.view_own"]
+        assert spec.staff is Grant.ALLOW
+        assert spec.access is Access.ACCOUNT
+        assert MATRIX["member.manage"].staff is Grant.DENY, (
+            "the write routes still declare member.manage; if that becomes ALLOW or SCOPED, "
+            "staff can edit the roster"
+        )
+
+    def test_own_record_visibility_is_no_longer_a_gap(self):
+        """The retired U-gate. This test asserted `== ["gateway.link_self"]` until U6b."""
+        keys_mentioning_self = sorted(k for k in MATRIX if "own" in k or "self" in k)
+        assert keys_mentioning_self == ["gateway.link_self", "staff.view_own"], (
+            f"expected the two self-scoped keys; found {keys_mentioning_self}"
+        )
+
+
+class TestTemplatesAreRunnableButNotManageable:
+    """U6b's row-5 split. **The interesting part is what it does NOT do.**
+
+    G6 declared every `/templates/` route `task.manage`, which is `SCOPED` for staff — so a
+    housekeeper could create and delete the templates driving everyone's work. Row 5 never meant
+    that; it meant task management.
+
+    The plan was to give templates their own key and then let U7's query layer deny the rows
+    outright. **Writing it showed that to be wrong**, and the reason is worth stating:
+    `template_service.run_template` resolves the template *by slug*, so running one requires
+    reading the row. Denying rows would leave staff a `/run` endpoint they can call but whose
+    targets they cannot see — a capability in name only, which the matrix deliberately grants.
+
+    So the split is by **verb, not by row**: `automation.manage` (DENY for staff) governs create
+    and delete; listing and running stay `task.manage`. `Template`/`TemplateItem` therefore remain
+    in both `query_scope._ACCOUNT_LEVEL_EXEMPT` and `NO_CLASS_FITS` — U6b removed the unintended
+    *write* access, and left the misclassification exactly where `NO_CLASS_FITS` already diagnosed
+    it. A verb distinction belongs in a route declaration; the query layer can only express row
+    visibility, and row visibility was never the rule here.
+    """
+
+    def test_staff_can_still_reach_the_template_list(self, web_client_as, two_estates):
+        client = web_client_as("staff", scoped_to=[two_estates["belle"]])
+        assert client.get("/templates/").status_code == 200, (
+            "staff can no longer list templates, so they cannot pick one to run — "
+            "`/{slug}/run` becomes unreachable in practice"
+        )
+
+    def test_staff_cannot_create_a_template(self, web_client_as, two_estates):
+        client = web_client_as("staff", scoped_to=[two_estates["belle"]])
+        response = client.post("/templates/", data={"name": "Staff made this"})
+        assert response.status_code == 403, (
+            f"expected 403 from automation.manage (DENY for staff), got {response.status_code}"
+        )
+
+    def test_staff_cannot_delete_a_template(self, web_client_as, two_estates):
+        from mihomes.models.template import Template
+
+        slug = f"tmpl-{uuid.uuid4().hex[:6]}"
+
+        def _seed(session):
+            session.add(Template(id=uuid.uuid4(), name="Spring open-up", slug=slug))
+
+        web_client_as.seed(_seed)
+        client = web_client_as("staff", scoped_to=[two_estates["belle"]])
+        assert client.post(f"/templates/{slug}/delete").status_code == 403
+
+    def test_running_a_template_is_still_task_work(self):
+        """The declaration itself, so the verb split cannot drift without a test noticing."""
+        import inspect as _i
+
+        from mihomes.web.routes import templates_route
+
+        assert declared_action(templates_route.run_template) == ("task.manage", Access.ITEM)
+        assert declared_action(templates_route.create_template)[0] == "automation.manage"
+        assert declared_action(templates_route.delete_template)[0] == "automation.manage"
+        # And the reason the list route keeps task.manage is recorded where a reader will find it.
+        assert "requires reading the row" in _i.getdoc(templates_route.list_templates)
+
+    def test_the_template_exemptions_are_still_declared(self):
+        """U6b did not retire these, and a test says so rather than leaving it to memory."""
+        assert "Template" in query_scope._ACCOUNT_LEVEL_EXEMPT
+        assert "Template" in NO_CLASS_FITS
 
 
 class TestAccountLevelReachIsDeclaredOrDenied:

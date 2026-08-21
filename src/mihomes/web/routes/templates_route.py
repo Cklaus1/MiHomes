@@ -29,11 +29,24 @@ def _ctx(db: Session, flash: str | None = None) -> dict:
 @router.get("/")
 @declares("task.manage", Access.COLLECTION)
 def list_templates(request: Request, db: Session = Depends(get_db)):
+    """**Stays `task.manage` — staff must reach this page to run a template (U6b).**
+
+    The obvious reading of "staff may run a template but not manage one" is that only `/run` keeps
+    `task.manage`. That is wrong, and `run_template` is why: it resolves the template by slug, so
+    running one *requires reading the row*. A staff member who cannot list templates cannot pick
+    one to run, and a `/run` they can call but never see the target of is a capability in name
+    only.
+
+    So the split is by **verb, not by page**: the write routes below move to `automation.manage`,
+    while reading the list and running an item stay task work. A template's fields are a name, a
+    description and checklist items — the same class of content as the Tasks it generates, which
+    staff already see.
+    """
     return templates.TemplateResponse(request, "templates.html", _ctx(db))
 
 
 @router.post("/", response_class=HTMLResponse)
-@declares("task.manage", Access.ITEM)
+@declares("automation.manage", Access.ACCOUNT)
 def create_template(
     request: Request,
     name: str = Form(...),
@@ -51,7 +64,7 @@ def create_template(
 
 
 @router.post("/{slug}/run", response_class=HTMLResponse)
-@declares("task.manage", Access.ITEM)
+@declares("task.manage", Access.ITEM)  # U6b: running a template IS task work — see list_templates
 def run_template(
     request: Request,
     slug: str,
@@ -71,7 +84,7 @@ def run_template(
 
 
 @router.post("/{slug}/delete", response_class=HTMLResponse)
-@declares("task.manage", Access.ITEM)
+@declares("automation.manage", Access.ACCOUNT)
 def delete_template(
     request: Request,
     slug: str,

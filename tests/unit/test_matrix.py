@@ -35,17 +35,46 @@ class TestMatrixCoverage:
         )
 
     def test_row_eight_is_split_in_two(self):
-        """D12 — 21 keys for 20 rows, because row 8 cannot be expressed by one cell.
+        """D12 — row 8 cannot be expressed by one cell.
 
         Staff get read access to *some* vendor fields and no write access at all; a single
         three-valued cell has no way to say that. The `row` field is what preserves traceability
         back to the source after the split.
+
+        **The `len(MATRIX)` assertion that used to close this test has moved** to
+        `test_the_key_count_is_what_the_splits_imply`. It was incidental to the claim here — this
+        test is about row 8's *shape* — and leaving it meant every future split had to edit a test
+        whose name promised something else, which is how a count silently becomes the thing being
+        asserted instead of the split.
         """
         row_eight = sorted(k for k, s in MATRIX.items() if s.row == 8)
         assert row_eight == ["vendor.manage", "vendor.view_contact"]
         assert MATRIX["vendor.view_contact"].staff is Grant.SCOPED
         assert MATRIX["vendor.manage"].staff is Grant.DENY
-        assert len(MATRIX) == 21
+
+    def test_the_key_count_is_what_the_splits_imply(self):
+        """23 keys for 20 rows: three rows are split, each for a reason recorded at its entry.
+
+        Derived rather than hardcoded, so the number cannot drift away from its justification. A
+        bare `len(MATRIX) == 23` would also pass if a split row lost a key while an unrelated row
+        gained one — the same class of false green A1 avoids by asserting the row *set* instead of
+        a count.
+
+        The three splits: row 8 (D12 — staff read some vendor fields, write none), row 10 (U6b —
+        `staff.view_own` alongside `member.manage`, because "own record only" is not "manage
+        members"), row 5 (U6b — `automation.manage` alongside `task.manage`, because running a
+        template is task work and managing one is not).
+        """
+        from collections import Counter
+
+        per_row = Counter(spec.row for spec in MATRIX.values())
+        split_rows = {row: n for row, n in per_row.items() if n > 1}
+
+        assert split_rows == {5: 2, 8: 2, 10: 2}, (
+            "the set of split rows changed. Each split needs a written reason at its MATRIX "
+            f"entry, because it breaks the one-key-per-source-row correspondence. Now: {split_rows}"
+        )
+        assert len(MATRIX) == 20 + sum(n - 1 for n in split_rows.values()) == 23
 
     def test_key_matches_its_own_spec_key_field(self):
         """A transcription guard: the dict key and `ActionSpec.key` must agree.

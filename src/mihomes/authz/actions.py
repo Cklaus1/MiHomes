@@ -102,6 +102,35 @@ MATRIX: dict[str, ActionSpec] = {
                                  rule="D12: split from row 8 — staff never write vendors"),
     "finance.view":        _spec("finance.view",        9,  _A, _A, _D, _ACCT),
     "member.manage":       _spec("member.manage",       10, _A, _A, _D, _ACCT),
+    # **U6b — row 10 split, on the row-8 precedent.** §4.1 classifies `staff` as `PERSONNEL` with
+    # the rule *"Staff may see their own record; never others'"*, and no key expressed it: G6
+    # declared every HR route `member.manage`, so staff saw **nothing**, their own record
+    # included. Fail-closed and stricter than the spec, recorded as U6.
+    #
+    # `_A` for staff, not `_S`, and the distinction is the whole design. `SCOPED` means "filtered
+    # to the properties in your scope", which is not the rule here — the rule is "filtered to the
+    # row that is you", and a staff member's own HR record has nothing to do with which homes they
+    # cover. `test_scoped_grants_are_never_declared_on_account_routes` also forbids `SCOPED` on an
+    # `ACCOUNT` route, correctly: there is no property target to scope by. The row-narrowing is
+    # done by `query_scope._personnel_criteria` filtering on `Staff.user_id`, which is exactly
+    # where §9.4 step 4 says it belongs — *"at the query layer, not post-hoc"*. Same shape as row
+    # 20's `gateway.link_self`: allowed to everyone, narrowed to self by the mechanism.
+    "staff.view_own":      _spec("staff.view_own",      10, _A, _A, _A, _ACCT,
+                                 rule="F2d: own record only — narrowed by PERSONNEL at the "
+                                      "query layer, never by this grant"),
+    # **U6b — row 5 split.** Templates generate tasks, so G6 declared `/templates/` with
+    # `task.manage`, which is `SCOPED` for staff — and that granted staff the ability to *create
+    # and delete* the templates that drive everyone's work, which row 5 never intended. Running a
+    # template is task work; managing one is automation configuration. `/{slug}/run` keeps
+    # `task.manage`; the CRUD routes move here.
+    #
+    # This also retires `query_scope._ACCOUNT_LEVEL_EXEMPT`'s `Template`/`TemplateItem` entries:
+    # U7 had to exempt them because `task.manage` let staff reach `/templates/`, so denying the
+    # rows would have broken a route the matrix still permitted. Redeclaring the route is what
+    # makes denying the rows correct — U6 resolves U6.
+    "automation.manage":   _spec("automation.manage",   5,  _A, _A, _D, _ACCT,
+                                 rule="U6b: split from row 5 — staff may run a template, "
+                                      "never manage one"),
     "invite.create":       _spec("invite.create",       11, _A, _A, _D, _ACCT),
     "invite.modify":       _spec("invite.modify",       12, _A, _A, _D, _ACCT),
     "member.change_role":  _spec("member.change_role",  13, _A, _A, _D, _ACCT, rule="R1"),

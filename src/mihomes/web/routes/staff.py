@@ -42,8 +42,24 @@ def _ctx(db: Session) -> dict:
 
 
 @router.get("/")
-@declares("member.manage", Access.ACCOUNT)
+@declares("staff.view_own", Access.ACCOUNT)
 def list_staff(request: Request, db: Session = Depends(get_db)):
+    """The directory. **`staff.view_own`, not `member.manage` — U6b.**
+
+    §4.1 classifies `staff` as `PERSONNEL`: *"Staff may see their own record; never others'"*. G6
+    had no key for that, so this route was `member.manage` and staff saw **nothing** — their own
+    record included. Fail-closed and stricter than the spec, recorded as U6.
+
+    **The grant lets them in; the query layer decides what they get.** `staff.view_own` is `ALLOW`
+    for all three roles, and `query_scope._personnel_criteria` filters `Staff` to
+    `user_id == current_user`, so a staff member reaching this page sees exactly one row — their
+    own — while an owner sees the directory. Narrowing at the query layer rather than in the route
+    is §9.4 step 4's rule, and it means `_ctx`'s `notes_map` inherits the filter for free: it
+    iterates the already-filtered `staff` list, so it cannot build an entry for a colleague.
+
+    The write routes below stay `member.manage`. Reading your own record and editing the roster
+    are different powers, which is the whole reason row 10 needed splitting.
+    """
     return templates.TemplateResponse(request, "staff.html", _ctx(db))
 
 

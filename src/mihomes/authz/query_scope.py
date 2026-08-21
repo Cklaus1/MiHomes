@@ -122,7 +122,7 @@ from sqlalchemy.orm import Session, with_loader_criteria
 from sqlalchemy.sql import visitors
 
 from mihomes.authz.actions import ENTITY_CLASSES, EntityClass
-from mihomes.authz.scope import current_property_scope
+from mihomes.authz.scope import current_property_scope, current_role
 from mihomes.tenancy.context import current_user
 
 __all__ = ["install_property_scope_listener", "scoped_models"]
@@ -134,10 +134,23 @@ __all__ = ["install_property_scope_listener", "scoped_models"]
 #: reads them to *compute* the staff scope, so denying them makes the primitive recursive on its
 #: own filter — resolving "which properties may this person see" would require already knowing.
 #:
-#: `Template` and `TemplateItem` are a **deferral**, removed by U6b. `task.manage` currently
-#: grants staff `/templates/` and `test_leak_matrix.py` asserts they reach it; denying the rows
-#: before that route is redeclared would make the two commits fail each other. U6b gives
-#: templates their own `automation.manage` key and retires these two entries.
+#: `Template` and `TemplateItem` are a **standing exemption, and U6b is what settled that.** They
+#: were entered here as a deferral, on the assumption that giving templates their own matrix key
+#: would let the rows be denied. Writing U6b showed the opposite: `template_service.run_template`
+#: resolves the template **by slug**, so *running* one requires reading the row. Denying the rows
+#: would leave staff a `/run` endpoint they can call but whose targets they cannot see — a
+#: capability in name only, and the matrix deliberately grants it.
+#:
+#: So the split is by verb rather than by row: `automation.manage` (row 5, DENY for staff) governs
+#: create and delete, while listing and running stay `task.manage`. Enforcement lives in the route
+#: declarations, which is the right layer for a *verb* distinction — the query layer can only
+#: express row visibility, and row visibility is not the rule here.
+#:
+#: `test_leak_matrix.py`'s `NO_CLASS_FITS["Template"]` therefore stays, and its diagnosis was
+#: right all along: *"what is missing is a class for 'account-wide, not sensitive, staff use it'."*
+#: `ACCOUNT_LEVEL` remains the wrong label for these two models; a seventh §4.1 class is spec work
+#: and out of scope here. What U6b removed is the *unintended write access*, which was the part
+#: that mattered.
 _ACCOUNT_LEVEL_EXEMPT = frozenset(
     {"Membership", "MembershipPropertyScope", "Template", "TemplateItem"}
 )
@@ -337,7 +350,24 @@ def _apply_property_scope(execute_state) -> None:
         return
 
     scope = current_property_scope.get()
-    if scope is None:
+    role = current_role.get()
+
+    # **`PERSONNEL` is gated on the ROLE, and everything else on the property scope.** These are
+    # not the same condition, and conflating them was a leak.
+    #
+    # `web/deps.py` binds a scope only when the resolved grant is `SCOPED`; an `ALLOW` grant leaves
+    # it `None`, meaning "no property restriction" — correct for an owner, and correct for staff on
+    # a route that is not about properties. But `staff.view_own` (row 10, U6b) is exactly that: an
+    # `ACCOUNT`-class route, `ALLOW` for staff, whose whole rule is *"their own record, never
+    # others'"*. Returning early on `scope is None` skipped the `PERSONNEL` filter for precisely
+    # the request it exists to constrain, and `/staff/` rendered every colleague's record to a
+    # housekeeper. Caught by `test_staff_see_only_their_own_row` — the assertion written to make
+    # opening that route safe, doing its job on the first run.
+    #
+    # So the two are separated: `PERSONNEL` applies whenever a **staff** role is bound, regardless
+    # of scope; the property-derived criteria still need a scope to filter against.
+    is_staff = role == "staff"
+    if scope is None and not is_staff:
         # Unrestricted: owner/admin, the CLI, background jobs. **Not** the same as an empty
         # scope, which restricts to nothing — see `authz/scope.py`.
         return
@@ -348,36 +378,41 @@ def _apply_property_scope(execute_state) -> None:
     # Read outside the lambda. SQLAlchemy rejects a callable invoked inside a lambda SQL
     # construct outright ("Can't invoke Python callable get() inside of lambda expression"), and
     # `tenancy/session.py` documents the same correction for the tenant filter.
-    allowed = list(scope)
     try:
         user_id = current_user.get()
     except LookupError:
         user_id = None
 
     options = []
-    for model, column in scoped_models():
-        options.append(
-            with_loader_criteria(
-                model, getattr(model, column).in_(allowed), include_aliases=True
-            )
-        )
-    for model in _models_in_class(EntityClass.ACCOUNT_LEVEL):
-        options.append(
-            with_loader_criteria(
-                model, _account_level_criteria(model, allowed), include_aliases=True
-            )
-        )
-    for model in _models_in_class(EntityClass.PERSONNEL):
-        options.append(
-            with_loader_criteria(
-                model, _personnel_criteria(model, user_id), include_aliases=True
-            )
-        )
-    options.append(
-        with_loader_criteria(_Document(), _document_criteria(allowed), include_aliases=True)
-    )
 
-    execute_state.statement = execute_state.statement.options(*options)
+    if is_staff:
+        for model in _models_in_class(EntityClass.PERSONNEL):
+            options.append(
+                with_loader_criteria(
+                    model, _personnel_criteria(model, user_id), include_aliases=True
+                )
+            )
+
+    if scope is not None:
+        allowed = list(scope)
+        for model, column in scoped_models():
+            options.append(
+                with_loader_criteria(
+                    model, getattr(model, column).in_(allowed), include_aliases=True
+                )
+            )
+        for model in _models_in_class(EntityClass.ACCOUNT_LEVEL):
+            options.append(
+                with_loader_criteria(
+                    model, _account_level_criteria(model, allowed), include_aliases=True
+                )
+            )
+        options.append(
+            with_loader_criteria(_Document(), _document_criteria(allowed), include_aliases=True)
+        )
+
+    if options:
+        execute_state.statement = execute_state.statement.options(*options)
 
 
 def _Document():  # noqa: N802 - reads as the class it stands in for

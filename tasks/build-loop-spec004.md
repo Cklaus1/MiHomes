@@ -253,20 +253,56 @@ is conventions §4: `checkbox + ID · spec-ref · criteria · imperative · veri
 before metering, or the suite goes green with an uncapped bill), **G12 before G13** (the scheduler
 exists before the trial needs it), **G3 before G4** (the ledger exists before the webhook writes).
 
-### [ ] G1 — Step 1: billing provider skeleton + factory — *dep: none*
-- [ ] G1.1 · §6 Step 1 · — · `services/billing/provider.py` reusing `BILLING` §4.1's `BillingProviderError`/`BillingAuthError`/`WebhookVerificationError`, `SubscriptionState`, `NormalizedEvent`, `BillingProvider` Protocol **verbatim** (N5: the adapter never touches the DB) · verify: `tests/unit/test_billing_provider.py::test_fake_satisfies_protocol_structurally`
-- [ ] G1.2 · §6 Step 1 · — · `get_billing_provider()` mirroring `ai/provider.py`'s string dispatch + lazy import + explicit `else: raise`; **takes no api_key** (§9: env only) · verify: `tests/unit/test_billing_provider.py::test_unknown_provider_names_supported_list`
-- [ ] G1.3 · §6 Step 1 · — · `stripe_provider.py` + `stripe` in `pyproject.toml` + coverage `omit` (§9 precedent) · verify: `tests/unit/test_billing_provider.py::test_factory_returns_stripe`
+### [x] G1+G2 — Steps 1–2: billing provider seam + price map — *dep: none* — *21 tests; 1945 → 1966; 2 arms mutation-verified; commit `<G1G2>`*
 
-### [ ] G2 — Step 2: the price map — *dep: G1*
-- [ ] G2.1 · §6 Step 2 · A29 · `prices.py` resolving `(plan, interval) -> price_id` from `STRIPE_PRICE_*` env, following `ai_config.py`'s env→config→raise precedent · verify: `tests/unit/test_prices.py::test_missing_env_names_the_var`
-- [ ] G2.2 · §6 Step 2 · A29 · **D3/N2** — no price id in any signature, none accepted from a request · verify: `tests/unit/test_prices.py::test_no_price_id_in_interface`
+> **Landed as one commit, and the reason is the import graph.** `stripe_provider.create_checkout_session`
+> resolves `(plan, interval)` through `prices.py`, so G1 cannot be green without G2's module — and
+> stubbing it would make the D3 assertion vacuous, which is the one thing Step 2 exists for. The
+> group boundary bends to the dependency rather than the dependency being faked to preserve it.
 
-### [ ] G3 — Step 3: the idempotency ledger + migration — *dep: G1 — MUST precede G4*
-- [ ] G3.1 · §6 Step 3 · — · `models/processed_webhook_event.py` per §4.1, **corrected to UUID PKs (C6)**; `UniqueConstraint(provider, provider_event_id)` — the dedup signal itself, not a bare index · verify: `tests/integration/test_webhook_tenancy.py::test_duplicate_event_id_violates_unique`
-- [ ] G3.2 · §6 Step 3 · A6 · migration `0010`; **ledger is `GLOBAL_TABLES`, no RLS** (B7, C9c) — same carve-out as `sessions` · verify: `tests/unit/test_webhook_tenancy.py::test_ledger_not_rls`
-- [ ] G3.3 · C9a,C9f · — · classify `ProcessedWebhookEvent` in `ENTITY_CLASSES` + `UNFILTERED_CLASSES` reason if applicable · verify: `tests/unit/test_matrix.py::test_every_model_is_classified`
-- [ ] G3.4 · C9d,C9e · A30 · migration round-trip + metadata-drift + index-rule gates (inherited, C7) · verify: `tests/integration/test_pg_baseline.py::test_baseline_matches_metadata`
+- [x] G1.1 · §6 Step 1 · — · `services/billing/provider.py` reusing `BILLING` §4.1's `BillingProviderError`/`BillingAuthError`/`WebhookVerificationError`, `SubscriptionState`, `NormalizedEvent`, `BillingProvider` Protocol **verbatim** (N5: the adapter never touches the DB) · verify: `tests/unit/test_billing_provider.py::test_fake_satisfies_protocol_structurally` ✓
+- [x] G1.2 · §6 Step 1 · — · `get_billing_provider()` mirroring `ai/provider.py`'s string dispatch + lazy import + explicit `else: raise`; **takes no api_key** (§9: env only) · verify: `tests/unit/test_billing_provider.py::test_unknown_provider_names_supported_list` ✓
+- [x] G1.3 · §6 Step 1 · — · `stripe_provider.py` + `stripe>=11.0` in `pyproject.toml` + coverage `omit` (§9 precedent) · verify: `tests/unit/test_billing_provider.py::test_factory_returns_stripe` ✓
+- [x] G2.1 · §6 Step 2 · A29 · `prices.py` resolving `(plan, interval) -> price_id` from `STRIPE_PRICE_*` env, following `ai_config.py`'s env→raise precedent · verify: `tests/unit/test_prices.py::test_missing_env_names_the_var` ✓
+- [x] G2.2 · §6 Step 2 · A29 · **D3/N2** — no price id in any signature, none accepted from a request · verify: `tests/unit/test_prices.py::test_no_price_id_in_interface` ✓
+
+> **Mutation-verified, two arms.** Adding `price_id: str` to the Protocol turns *two* unrelated
+> tests red (`test_no_price_id_in_interface` and `test_fake_satisfies_protocol_structurally`) —
+> which is what a real invariant looks like from outside. And `plan_for_price_id` returning
+> `"free"` instead of `None` for an unknown id fails `test_unknown_price_id_is_none_not_free`:
+> **an unrecognised price id must never default to Free**, because it means a customer bought
+> something this deployment cannot name, and recording that as Free strips entitlements they are
+> being charged for.
+
+### [x] G3 — Step 3: the idempotency ledger + migration — *dep: G1 — MUST precede G4* — *19 tests; 1966 → 1985; 2 arms mutation-verified; commit `<G3>`*
+- [x] G3.1 · §6 Step 3 · — · `models/processed_webhook_event.py` per §4.1, **corrected to UUID PKs (C6)**; `UniqueConstraint(provider, provider_event_id)` — the dedup signal itself, not a bare index · verify: `tests/unit/test_webhook_tenancy.py::test_unique_constraint_is_the_dedup_mechanism` ✓
+- [x] G3.2 · §6 Step 3 · A6 · migration `0010`; **ledger is `GLOBAL_TABLES`, no RLS** (B7, C9c) — same carve-out as `sessions` · verify: `tests/unit/test_webhook_tenancy.py::test_ledger_not_rls` ✓ **plus** `test_no_later_migration_adds_a_policy`, sweeping every revision file — A6 as written names one migration, and the danger is a *later* one
+- [x] G3.3 · C9a,C9f · — · classify `ProcessedWebhookEvent` as `EntityClass.GLOBAL` · verify: `tests/unit/test_matrix.py::test_every_model_is_classified` ✓
+- [x] G3.4 · C9d,C9e · A30 · migration round-trip + metadata-drift gates (inherited, C7); table count 47 → 48 · verify: `tests/integration/test_pg_baseline.py::test_baseline_matches_metadata` ✓
+
+> **C9 fired four times, which is the phase working.** Adding one model turned four SPEC-003 gates
+> red before a line of billing logic existed. The fourth was a genuine design conflict, not a
+> missing entry: the registry forbids `account_id` on a global table, and §4.1 puts one on the
+> ledger deliberately.
+>
+> **The distinction is input versus output.** The rule exists because such a column invites RLS,
+> and RLS on a table read before account context exists returns zero rows (D3) — which binds when
+> the column is an *input* to visibility. The ledger's is an **output**: the account is discovered
+> by resolving a Stripe customer id (D2) and then recorded, never consulted to decide who may read
+> the row, and legitimately NULL.
+>
+> **The general rule was not relaxed** — A6 covers one table, and says nothing about a fourth
+> global table added later, which is what the rule is prophylactic against. Carve-out declared as
+> data with a reason (`GLOBAL_TABLES_WITH_ACCOUNT_ID`) plus a derived liveness test. Same
+> construction as U6, same reason: a correct exemption and a forgotten one are byte-identical.
+> Mutation-verified both directions.
+>
+> **Two latent bugs found in existing tests.** `test_single_head_and_no_legacy_revisions`
+> distinguished legacy revisions by `startswith("000")` — correct for 0001–0009 and *guaranteed*
+> to fail at 0010; now matches the shape `\d{4}_\w+`. And this group's own A6 test failed on the
+> migration's comment warning readers not to add a policy: a source scan cannot tell a warning
+> from a call, so it now strips comments and the docstring via `ast` rather than the wording being
+> softened — a test that punishes an explanation trains the next author to delete it.
 
 ### [ ] G4 — Step 4: the webhook route — *dep: G3*
 - [ ] G4.1 · §6 Step 4 · A4 · `POST /webhooks/stripe` — raw body read, signature verified **before any parse** (N3); no session auth, no tenant scoping · verify: `tests/integration/test_webhooks.py::test_bad_signature_no_write`
@@ -362,8 +398,15 @@ what differs before deciding which.
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**Not started.** Pre-flight complete (§0.6), baseline measured (1945 passed), harness written.
-Resume at **G1.1**.
+**Steps 1–3 landed.** Suite at **1985 passed, 3 skipped, 2 xfailed, 0 failed** (baseline 1945).
+Resume at **G4.1** — the webhook route, which carries C9b's `PERMANENT_ALLOWLIST` decision.
+
+| Group | State | Commit |
+|---|---|---|
+| harness + pre-flight | ✅ | `36eca9b` |
+| G1+G2 — provider seam, price map | ✅ 21 tests | `<G1G2>` |
+| G3 — the ledger, A6 carve-out | ✅ 19 tests | `<G3>` |
+| G4 onward | ⬜ not started | — |
 
 ## 3. Circuit breaker (conventions §3)
 

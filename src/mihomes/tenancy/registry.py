@@ -42,7 +42,19 @@ __all__ = [
 #
 # `accounts` is excluded for a different reason: it is the tenant ROOT. It has no
 # account_id of its own — it is what account_id points at.
-GLOBAL_TABLES = frozenset({"users", "sessions", "waitlist", "accounts"})
+#   processed_webhook_events
+#             SPEC-004 B7. A Stripe webhook is verified and recorded BEFORE we know
+#             which account it belongs to — the event carries a provider customer id
+#             and mapping it is BillingService's job (D2). Under a tenant policy every
+#             dedup lookup would return zero rows on the webhook route's account-less
+#             session, and **every Stripe event would silently reprocess**: the insert
+#             succeeds, the check finds nothing, and a customer is charged or
+#             downgraded twice with no error anywhere. Its nullable `account_id` is a
+#             record of what the event resolved to, not a tenancy column — it is never
+#             consulted to decide who may read the row.
+GLOBAL_TABLES = frozenset(
+    {"users", "sessions", "waitlist", "accounts", "processed_webhook_events"}
+)
 
 # Not a real table: `tests/unit/test_slug.py` defines a throwaway `DummyModel` on the
 # SHARED Base, so it appears in Base.metadata for every test in the session. Excluded

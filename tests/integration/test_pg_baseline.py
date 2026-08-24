@@ -14,6 +14,7 @@ The suite's database is built by `create_all` (see `tests/conftest.py`), and run
 """
 
 import os
+import re
 import uuid
 
 import pytest
@@ -128,11 +129,13 @@ def test_upgrade_then_downgrade_is_clean(scratch_db):
     first = _counts(scratch_db)
     # 43 domain tables + alembic_version = 44 at the SPEC-002 baseline.
     # SPEC-003 adds two: `onboarding_state` (0004, A17) → 45, `telegram_links` (0007, A32) → 46.
-    # SPEC-004 adds `document_access` (0009) → 47. `0008` added a *column*, not a table.
+    # Per-person document access adds `document_access` (0009) → 47. `0008` added a *column*.
+    # SPEC-004 adds `processed_webhook_events` (0010, B7) → 48 — the webhook idempotency ledger,
+    # and the one table in the tree that deliberately carries no RLS policy (A6).
     # The count is pinned deliberately: it is what makes an *accidental* table addition visible,
     # so raising it is a decision recorded in the same commit as the migration, never a silent
     # adjustment to make a run go green.
-    assert len(first["tables"]) == 47, first["tables"]
+    assert len(first["tables"]) == 48, first["tables"]
     assert len(first["enums"]) == 22
     assert first["guard_fns"] == ["mihomes_assert_account_matches_parent"]
 
@@ -215,6 +218,13 @@ def test_single_head_and_no_legacy_revisions():
     assert revs[-1] == "0001_pg_baseline", (
         f"the baseline must be the root of the chain, but the root is {revs[-1]}"
     )
-    # The 40 archived revisions all carry hex ids; the SPEC-002 chain is 000N_-prefixed.
-    legacy = [r for r in revs if not r.startswith("000")]
+    # The 40 archived revisions carry bare hex ids (`7514b34eed7b`); every revision in this
+    # chain is `<zero-padded number>_<name>`.
+    #
+    # **This was `startswith("000")` and had a fuse on it**: correct for revisions 0001-0009 and
+    # guaranteed to fail at 0010, which is exactly when it did. The prefix was never the
+    # property being tested — it was a coincidence of the chain being short. What actually
+    # distinguishes a legacy revision is the *shape*: a bare hex id has no `NNNN_name` structure,
+    # so match that instead and the check keeps working at 0100 too.
+    legacy = [r for r in revs if not re.fullmatch(r"\d{4}_\w+", r)]
     assert not legacy, f"legacy revisions are still on the search path: {legacy}"

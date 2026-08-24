@@ -100,6 +100,9 @@ from mihomes.models.membership import (  # noqa: E402, F401
 )
 from mihomes.models.note import Note  # noqa: E402, F401
 from mihomes.models.onboarding_state import OnboardingState  # noqa: E402, F401
+from mihomes.models.processed_webhook_event import (  # noqa: E402, F401
+    ProcessedWebhookEvent,
+)
 from mihomes.models.property import Property  # noqa: E402, F401
 from mihomes.models.recurring_expense import RecurringExpense  # noqa: E402, F401
 from mihomes.models.session import Session  # noqa: E402, F401

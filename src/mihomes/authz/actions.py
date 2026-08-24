@@ -283,6 +283,7 @@ def _entity_classes() -> dict[type, EntityClass]:
     from mihomes.models.membership import Membership, MembershipPropertyScope
     from mihomes.models.note import Note
     from mihomes.models.onboarding_state import OnboardingState
+    from mihomes.models.processed_webhook_event import ProcessedWebhookEvent
     from mihomes.models.property import Property
     from mihomes.models.recurring_expense import RecurringExpense
     from mihomes.models.session import Session
@@ -389,6 +390,19 @@ def _entity_classes() -> dict[type, EntityClass]:
         User: EntityClass.GLOBAL,
         Session: EntityClass.GLOBAL,
         Waitlist: EntityClass.GLOBAL,
+
+        # SPEC-004 B7 — the webhook idempotency ledger, and `GLOBAL` is the honest label rather
+        # than a convenient one. A raw Stripe webhook is read and written *before* an account is
+        # known: `NormalizedEvent` carries a provider customer id and nothing else, and resolving
+        # it is `BillingService`'s job (D2). That is the same condition the registry already
+        # gives for `sessions` — *"read or written BEFORE account context exists"* — and it is
+        # what `GLOBAL`'s `UNFILTERED_CLASSES` entry already says in words.
+        #
+        # The row also carries a nullable `account_id`, which is *not* tenancy: it records which
+        # account an event resolved to, may legitimately stay NULL when it resolved to none, and
+        # is never used to decide who may read the row. Nobody reads this table as content — it
+        # exists so an event is processed once.
+        ProcessedWebhookEvent: EntityClass.GLOBAL,
     }
 
 

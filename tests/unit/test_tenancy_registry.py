@@ -86,17 +86,86 @@ def test_each_tenant_table_has_account_id(table_name):
     assert "accounts.id" in fks, f"{table_name}.account_id must FK to accounts.id"
 
 
+#: Global tables that legitimately carry an `account_id`, each with the reason.
+#:
+#: **The distinction is input versus output.** The general rule below exists because an
+#: `account_id` on a global table invites someone to add RLS to it, and RLS on a table read
+#: before account context exists returns zero rows and breaks the thing it protects (D3). That
+#: reasoning binds when the column is an *input* to visibility — when something decides who may
+#: read the row by consulting it.
+#:
+#: `processed_webhook_events.account_id` is the opposite: it is an **output** of processing. The
+#: account is *discovered* by resolving a Stripe customer id (D2) and then recorded, so the
+#: ledger can answer "which account did this event apply to" — the first question anyone
+#: debugging a billing incident asks. It is never consulted to decide who may read the row, and
+#: it is legitimately NULL when an event resolved to no account at all.
+#:
+#: Declared as data with a reason rather than loosened in the general rule, for the reason U6
+#: taught: a correct exemption and a forgotten one are byte-identical in code. A6 asserts this
+#: one table has no RLS policy — it says nothing about a *fourth* global table someone adds
+#: later, which is exactly what the general rule is prophylactic against.
+GLOBAL_TABLES_WITH_ACCOUNT_ID: dict[str, str] = {
+    "processed_webhook_events": (
+        "SPEC-004 B7 — the account is an OUTPUT of processing, not an input to visibility: a "
+        "webhook is verified and recorded before we know whose it is, and this column records "
+        "what it resolved to (NULL when nothing). Never read to decide row visibility. A6 "
+        "separately asserts the table has no RLS policy."
+    ),
+}
+
+
 @pytest.mark.parametrize("table_name", sorted(GLOBAL_TABLES - {"accounts"}))
 def test_global_tables_have_no_account_id(table_name):
     """D3 — a tenant policy on these breaks the thing it protects.
 
     `users` and `sessions` are read before account context exists; `waitlist` ships
     before `accounts` does. An account_id here would invite someone to add RLS to it.
+
+    Exemptions are declared above **with a reason**, never granted by relaxing this assertion —
+    a table that is merely absent from the check is indistinguishable from one nobody thought
+    about. An exempted table is still asserted here, in the other direction: it must actually
+    carry the column it was excused for. **Deliberately not `pytest.skip`** — the build harness
+    treats a skipped test as a red gate, and an exemption that makes a test vanish is how a
+    carve-out stops being visible.
     """
     table = Base.metadata.tables[table_name]
+    if table_name in GLOBAL_TABLES_WITH_ACCOUNT_ID:
+        assert "account_id" in table.columns, (
+            f"{table_name} is exempted from the no-account_id rule but does not carry the "
+            "column — delete the exemption"
+        )
+        return
     assert "account_id" not in table.columns, (
         f"{table_name} is GLOBAL (D3) and must not carry account_id"
     )
+
+
+def test_every_account_id_exemption_is_live_and_needed():
+    """The exemption list cannot outlive what it excuses.
+
+    Two directions, because each hides a different kind of rot:
+
+    - an entry naming a table that is no longer global (or no longer exists) is a stale carve-out
+      that would silently excuse a *future* table reusing the name;
+    - an entry for a table that **no longer has** an `account_id` is an exemption excusing
+      nothing, which reads as precedent for the next one.
+
+    Without this, the list is the decoration U7 exists to prevent: something that looks like a
+    control and enforces nothing.
+    """
+    for table_name, reason in GLOBAL_TABLES_WITH_ACCOUNT_ID.items():
+        assert table_name in GLOBAL_TABLES, (
+            f"{table_name} is exempted from the no-account_id rule but is not a global table — "
+            "a stale entry would excuse a future table that reuses this name"
+        )
+        assert table_name in Base.metadata.tables, (
+            f"{table_name} is exempted but does not exist in metadata (stale entry?)"
+        )
+        assert "account_id" in Base.metadata.tables[table_name].columns, (
+            f"{table_name} is exempted from the no-account_id rule but has no account_id — "
+            "delete the exemption rather than leaving one that excuses nothing"
+        )
+        assert reason.strip(), f"{table_name}'s exemption must carry a reason"
 
 
 def test_accounts_is_the_root_not_a_tenant():

@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Billing — MiHomes{% endblock %}
+{% block content %}
+<div class="max-w-2xl mx-auto py-10">
+  <h1 class="text-2xl font-semibold mb-6">Billing</h1>
+
+  {% if error %}
+    <p class="mb-4 rounded border border-red-300 bg-red-50 px-3 py-2 text-red-800">{{ error }}</p>
+  {% endif %}
+  {% if notice %}
+    <p class="mb-4 rounded border border-green-300 bg-green-50 px-3 py-2 text-green-800">{{ notice }}</p>
+  {% endif %}
+
+  <div class="mb-8 rounded border p-4">
+    <p class="text-sm text-gray-500">Current plan</p>
+    <p class="text-xl font-medium capitalize">{{ account.plan }}</p>
+    {% if account.subscription_status %}
+      <p class="mt-1 text-sm text-gray-600">
+        Status: <span class="font-mono">{{ account.subscription_status }}</span>
+        {# past_due keeps full access during the grace window (D10) — saying so here is the
+           difference between a user who updates their card and one who thinks they have been
+           locked out and gives up. #}
+        {% if account.subscription_status == "past_due" %}
+          — your access continues while we retry the payment.
+        {% endif %}
+      </p>
+    {% endif %}
+    {% if account.current_period_end %}
+      <p class="mt-1 text-sm text-gray-600">
+        Renews {{ account.current_period_end.strftime("%d %b %Y") }}
+      </p>
+    {% endif %}
+  </div>
+
+  {% if account.stripe_customer_id %}
+    {# The portal covers plan changes, payment methods and cancellation, so there is no custom
+       billing UI to maintain (BILLING §7). Cancellation still arrives back as a webhook, so the
+       entitlement change travels the same verified path as everything else (D1). #}
+    <form method="post" action="/billing/portal">
+      <button type="submit" class="rounded bg-gray-900 px-4 py-2 text-white">
+        Manage billing
+      </button>
+    </form>
+  {% else %}
+    <p class="mb-4 text-sm text-gray-600">Upgrade to unlock more homes, seats and AI.</p>
+    <div class="flex gap-3">
+      {# Plan and interval only — never a price id. The client picking its own price id would be
+         a self-service discount (D3/N2), and the server validates these names against
+         SELLABLE_PLANS regardless of what the form sends. #}
+      <form method="post" action="/billing/checkout">
+        <input type="hidden" name="plan" value="pro">
+        <input type="hidden" name="interval" value="monthly">
+        <button type="submit" class="rounded bg-gray-900 px-4 py-2 text-white">
+          Upgrade to Pro
+        </button>
+      </form>
+      <form method="post" action="/billing/checkout">
+        <input type="hidden" name="plan" value="estate">
+        <input type="hidden" name="interval" value="monthly">
+        <button type="submit" class="rounded border border-gray-900 px-4 py-2">
+          Upgrade to Estate
+        </button>
+      </form>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

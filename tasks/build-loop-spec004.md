@@ -351,9 +351,24 @@ exists before the trial needs it), **G3 before G4** (the ledger exists before th
 > rows are excluded, or one dropped delivery poisons the reference timestamp and every later
 > event is dropped too — compounding silently while looking like webhooks having stopped.
 
-### [ ] G6 — Step 6: checkout + portal — *dep: G2, G5*
-- [ ] G6.1 · §6 Step 6 · A28 · `web/routes/billing.py`, owner-only via the **existing** `billing.manage` row-15 key (C8) · verify: `tests/integration/test_billing_routes.py::test_owner_only`
-- [ ] G6.2 · §6 Step 6 · — · `start_checkout` reuses `stripe_customer_id` rather than creating a second Customer · verify: `tests/integration/test_billing_routes.py::test_customer_reused`
+### [x] G6 — Step 6: checkout + portal — *dep: G2, G5* — *11 tests; 2007 → 2018; A28 mutation-verified; commit `<G6>`*
+- [x] G6.1 · §6 Step 6 · A28 · `web/routes/billing.py`, owner-only via the **existing** `billing.manage` row-15 key (C8) · verify: `tests/integration/test_billing_routes.py::test_owner_only` ✓ — parameterised over **admin and staff**, and the route list is derived from the mounted app so a seventh route is covered without editing the test
+- [x] G6.2 · §6 Step 6 · — · `start_checkout` reuses `stripe_customer_id` rather than creating a second Customer · verify: `tests/integration/test_billing_routes.py::test_customer_reused` ✓
+- [x] G6.3 · N1/D1 · — · `/billing/success` **grants nothing** — the confirmation page reads and renders, never writes · verify: `tests/integration/test_billing_routes.py::test_success_page_does_not_change_the_plan` ✓
+
+> **The admin half of A28 is the one that could have been missed.** Everywhere else in this
+> codebase an admin is the near-equal of an owner, so a staff-only denial test would read as
+> complete while missing half of D8 — *"admins manage the estate, not the card."*
+> **Mutation-verified:** swapping in `member.manage` (owner+admin) turns two tests red.
+>
+> **Two decisions worth finding later.** The customer id **commits before** checkout is created —
+> reversed, a failed commit leaves Stripe holding a Customer this database never heard of and its
+> webhooks land unmappable forever. And customer reuse is not cosmetic: a second Stripe Customer
+> means the upgrade is paid for and **silently never applies**.
+>
+> The billing email resolves from the **active owner membership**, not the caller — an
+> authorization fact and an invoice-address fact are different things, and `status == "active"`
+> matters because a revoked former owner can still hold an owner-role row.
 
 ### [ ] G7 — Step 7: status → entitlement mapping — *dep: G5*
 - [ ] G7.1 · §6 Step 7 · A2 · `apply_subscription_state` — the **single** writer of `plan`/`subscription_status`/`current_period_end` (SPEC-002 §4.2), called by both webhook and reconcile · verify: `tests/unit/test_billing_mapping.py::test_status_table`
@@ -435,8 +450,9 @@ what differs before deciding which.
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**Steps 1–5 landed.** Suite at **2007 passed, 3 skipped, 2 xfailed, 0 failed** (baseline 1945).
-Resume at **G6.1** — checkout + portal, owner-only via the existing `billing.manage` key (C8).
+**Steps 1–6 landed.** Suite at **2018 passed, 3 skipped, 2 xfailed, 0 failed** (baseline 1945).
+Resume at **G7.1** — `apply_subscription_state`, the single writer of `plan` /
+`subscription_status` / `current_period_end`, shared by the webhook and the reconciliation sweep.
 
 | Group | State | Commit |
 |---|---|---|
@@ -445,9 +461,10 @@ Resume at **G6.1** — checkout + portal, owner-only via the existing `billing.m
 | G3 — the ledger, A6 carve-out | ✅ 19 tests | `b672571` |
 | G4 — webhook route, Host-guard fix | ✅ 10 tests | `682f0e7` |
 | G5 — idempotency, out-of-order | ✅ 12 tests | `38c3633` |
-| G6 onward | ⬜ not started | — |
+| G6 — checkout, portal, plan page | ✅ 11 tests | `<G6>` |
+| G7 onward | ⬜ not started | — |
 
-**Criteria discharged so far:** A4, A5, A6, A7, A27, A29, A30. Twenty-four remain.
+**Criteria discharged so far:** A4, A5, A6, A7, A27, A28, A29, A30. Twenty-three remain.
 
 ## 3. Circuit breaker (conventions §3)
 

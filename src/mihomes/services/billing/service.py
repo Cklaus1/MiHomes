@@ -54,7 +54,7 @@ from mihomes.services.billing.provider import NormalizedEvent
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["handle_verified_event"]
+__all__ = ["handle_verified_event", "start_checkout", "start_portal_session"]
 
 PROVIDER = "stripe"
 
@@ -116,6 +116,108 @@ def handle_verified_event(session: Session, event: NormalizedEvent) -> None:
         "stripe webhook applied: type=%s event=%s account=%s",
         event.type, event.raw_event_id, account.id,
     )
+
+
+def start_checkout(
+    session: Session,
+    account: Account,
+    *,
+    plan: str,
+    interval: str,
+    success_url: str,
+    cancel_url: str,
+    provider: object | None = None,
+) -> str:
+    """Return a hosted checkout URL for `(plan, interval)`. **Never takes a price id** (D3/N2).
+
+    Creates the Stripe Customer on first use and persists `stripe_customer_id`, so a returning
+    customer reuses theirs. Two Customers for one account is not cosmetic: the webhook maps
+    `provider_customer_id -> account`, so the second Customer's events would resolve to nothing
+    and the upgrade would silently never apply.
+
+    **The customer id is committed before checkout is created.** If the order were reversed and
+    the commit failed, Stripe would hold a Customer this database has never heard of — and the
+    resulting webhook would land in the unmappable bucket. Committing first can at worst leave an
+    id for a checkout the user abandoned, which the next attempt reuses.
+
+    `provider` is injectable so tests exercise this against `FakeBillingProvider`; production
+    passes nothing and gets the real adapter from the factory.
+    """
+    from mihomes.services.billing.provider import get_billing_provider
+
+    billing = provider if provider is not None else get_billing_provider("stripe")
+
+    if not account.stripe_customer_id:
+        account.stripe_customer_id = billing.create_customer(
+            account_id=str(account.id),
+            email=_billing_email(session, account),
+            name=account.name,
+        )
+        session.commit()
+
+    return billing.create_checkout_session(
+        customer_id=account.stripe_customer_id,
+        plan=plan,
+        interval=interval,
+        success_url=success_url,
+        cancel_url=cancel_url,
+    )
+
+
+def start_portal_session(
+    account: Account, *, return_url: str, provider: object | None = None
+) -> str:
+    """Return a Stripe Customer Portal URL — plan changes, payment methods, cancellation.
+
+    Raises `BillingProviderError` when the account has no Stripe Customer, which is the Free
+    case (D4): there is nothing to manage, and sending the user to a portal for a customer that
+    does not exist would fail inside Stripe's UI rather than here.
+    """
+    from mihomes.services.billing.provider import BillingProviderError, get_billing_provider
+
+    if not account.stripe_customer_id:
+        raise BillingProviderError(
+            "this account has no billing customer yet — Free accounts have no Stripe "
+            "subscription object (D4), so there is nothing to manage"
+        )
+
+    billing = provider if provider is not None else get_billing_provider("stripe")
+    return billing.create_portal_session(
+        customer_id=account.stripe_customer_id, return_url=return_url,
+    )
+
+
+def _billing_email(session: Session, account: Account) -> str:
+    """The owner's email — Stripe needs one for receipts and dunning.
+
+    Resolved from the **owner membership** rather than from whoever is calling: `billing.manage`
+    is owner-only today (row 15), but that is an authorization fact and this is a data fact, and
+    coupling them would put the wrong address on invoices the first time the matrix changes.
+    """
+    from mihomes.models.membership import Membership
+    from mihomes.models.user import User
+
+    email = session.execute(
+        select(User.email)
+        .join(Membership, Membership.user_id == User.id)
+        .where(
+            Membership.account_id == account.id,
+            Membership.role == "owner",
+            # `status` matters here, not just `role`: SPEC-002's partial unique index is scoped
+            # to `role = 'owner' AND status = 'active'`, so a revoked former owner can still hold
+            # an owner-role row. Omitting this would let a removed person keep receiving the
+            # account's invoices and dunning mail.
+            Membership.status == "active",
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+
+    if email is None:
+        # Every account has an owner (SPEC-002 D4's partial unique index), so this is a
+        # corrupted-state signal rather than an ordinary branch — say so instead of sending
+        # Stripe an empty string it will happily accept.
+        raise ValueError(f"account {account.id} has no owner membership; cannot bill it")
+    return email
 
 
 def _record_event(session: Session, event: NormalizedEvent) -> ProcessedWebhookEvent | None:

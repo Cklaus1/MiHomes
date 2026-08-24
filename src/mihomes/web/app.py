@@ -35,6 +35,7 @@ from mihomes.web.routes import (
     work_orders,
 )
 from mihomes.web.routes import auth as auth_route
+from mihomes.web.routes import billing as billing_route
 from mihomes.web.routes import calendar as calendar_route
 from mihomes.web.routes import inventory as inventory_route
 from mihomes.web.routes import library as library_route
@@ -106,9 +107,13 @@ def create_app() -> FastAPI:
     # SPEC-004 Step 4 — `POST /webhooks/stripe`. Mounted with **no prefix**: the path is
     # registered in the Stripe dashboard, so it is external identity rather than an internal
     # routing choice, and `web/security.py` reads its prefix constant to exempt it from the Host
-    # and Origin guards. Declares no matter action; it is in `PERMANENT_ALLOWLIST`, authorised by
+    # and Origin guards. Declares no matrix action; it is in `PERMANENT_ALLOWLIST`, authorised by
     # a signature over the raw body rather than by a session (N3).
     app.include_router(webhooks_route.router)
+
+    # SPEC-004 Step 6 — checkout, portal, plan page. Owner-only via `billing.manage` (row 15),
+    # enforced app-wide by `enforce_declared_action` rather than by a check in the handlers.
+    app.include_router(billing_route.router)
     # Sign-in / sign-out (G12). No prefix: these paths are fixed by the OAuth redirect URI
     # registered with Google, so they cannot move without reconfiguring the provider.
     app.include_router(auth_route.router)

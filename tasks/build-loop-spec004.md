@@ -253,7 +253,7 @@ is conventions §4: `checkbox + ID · spec-ref · criteria · imperative · veri
 before metering, or the suite goes green with an uncapped bill), **G12 before G13** (the scheduler
 exists before the trial needs it), **G3 before G4** (the ledger exists before the webhook writes).
 
-### [x] G1+G2 — Steps 1–2: billing provider seam + price map — *dep: none* — *21 tests; 1945 → 1966; 2 arms mutation-verified; commit `<G1G2>`*
+### [x] G1+G2 — Steps 1–2: billing provider seam + price map — *dep: none* — *21 tests; 1945 → 1966; 2 arms mutation-verified; commit `d4ae614`*
 
 > **Landed as one commit, and the reason is the import graph.** `stripe_provider.create_checkout_session`
 > resolves `(plan, interval)` through `prices.py`, so G1 cannot be green without G2's module — and
@@ -274,7 +274,7 @@ exists before the trial needs it), **G3 before G4** (the ledger exists before th
 > something this deployment cannot name, and recording that as Free strips entitlements they are
 > being charged for.
 
-### [x] G3 — Step 3: the idempotency ledger + migration — *dep: G1 — MUST precede G4* — *19 tests; 1966 → 1985; 2 arms mutation-verified; commit `<G3>`*
+### [x] G3 — Step 3: the idempotency ledger + migration — *dep: G1 — MUST precede G4* — *19 tests; 1966 → 1985; 2 arms mutation-verified; commit `b672571`*
 - [x] G3.1 · §6 Step 3 · — · `models/processed_webhook_event.py` per §4.1, **corrected to UUID PKs (C6)**; `UniqueConstraint(provider, provider_event_id)` — the dedup signal itself, not a bare index · verify: `tests/unit/test_webhook_tenancy.py::test_unique_constraint_is_the_dedup_mechanism` ✓
 - [x] G3.2 · §6 Step 3 · A6 · migration `0010`; **ledger is `GLOBAL_TABLES`, no RLS** (B7, C9c) — same carve-out as `sessions` · verify: `tests/unit/test_webhook_tenancy.py::test_ledger_not_rls` ✓ **plus** `test_no_later_migration_adds_a_policy`, sweeping every revision file — A6 as written names one migration, and the danger is a *later* one
 - [x] G3.3 · C9a,C9f · — · classify `ProcessedWebhookEvent` as `EntityClass.GLOBAL` · verify: `tests/unit/test_matrix.py::test_every_model_is_classified` ✓
@@ -404,8 +404,8 @@ Resume at **G4.1** — the webhook route, which carries C9b's `PERMANENT_ALLOWLI
 | Group | State | Commit |
 |---|---|---|
 | harness + pre-flight | ✅ | `36eca9b` |
-| G1+G2 — provider seam, price map | ✅ 21 tests | `<G1G2>` |
-| G3 — the ledger, A6 carve-out | ✅ 19 tests | `<G3>` |
+| G1+G2 — provider seam, price map | ✅ 21 tests | `d4ae614` |
+| G3 — the ledger, A6 carve-out | ✅ 19 tests | `b672571` |
 | G4 onward | ⬜ not started | — |
 
 ## 3. Circuit breaker (conventions §3)

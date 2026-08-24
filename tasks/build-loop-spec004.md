@@ -326,10 +326,30 @@ exists before the trial needs it), **G3 before G4** (the ledger exists before th
 > SDK parsed a real signed payload — the case for signing real bytes rather than stubbing
 > verification, since a stub returns whatever shape the test author imagined.
 
-### [ ] G5 — Step 5: idempotency + out-of-order handling — *dep: G4*
-- [ ] G5.1 · §6 Step 5 · A5 · **insert-first**, unique violation *is* the dedup signal (N4 — check-then-insert races) · verify: `tests/integration/test_webhooks.py::test_idempotent_replay`
-- [ ] G5.2 · §6 Step 5 · A27 · two concurrent deliveries of one event apply once · verify: `tests/integration/test_webhooks.py::test_concurrent_delivery`
-- [ ] G5.3 · §6 Step 5 · A7 · drop events whose `occurred_at` predates applied state · verify: `tests/integration/test_webhooks.py::test_out_of_order_dropped`
+### [x] G5 — Step 5: idempotency + out-of-order handling — *dep: G4* — *12 tests; 1995 → 2007; A27 mutation-verified after two failed attempts; commit `<G5>`*
+- [x] G5.1 · §6 Step 5 · A5 · **insert-first**, unique violation *is* the dedup signal (N4 — check-then-insert races) · verify: `tests/integration/test_webhook_idempotency.py::test_idempotent_replay` ✓
+- [x] G5.2 · §6 Step 5 · A27 · two concurrent deliveries of one event apply once · verify: `tests/integration/test_webhook_idempotency.py::test_concurrent_delivery` ✓
+- [x] G5.3 · §6 Step 5 · A7 · drop events whose `occurred_at` predates applied state · verify: `tests/integration/test_webhook_idempotency.py::test_out_of_order_dropped` ✓
+- [x] G5.4 · **found here** · — · two adapter gaps `BILLING` §5–§6 exposed: `checkout.session.completed` missing from the event map, and vendor statuses passed through unmapped · verify: same module
+
+> **A27's test was written wrong twice, and the mutation check caught both.** First version: two
+> sequential calls across two sessions — session one committed before session two began, so no
+> race occurred, and check-then-insert left all twelve green. Second: two threads behind a
+> barrier — the SELECT→COMMIT window is microseconds, so they serialized by luck. **Third works
+> by forcing the overlap**: a rival connection flushes the row and holds the transaction open
+> past the handler's read, so the handler runs against a database where the row exists but is
+> invisible to it. Verified with a standalone probe before trusting it.
+>
+> **Then it passed alone and failed in the full suite** — a real interaction, not a flake. Under
+> load the rival sometimes *loses*, and its own commit raises; the rival is a raw fixture with no
+> dedup handling by design, and both sides' exceptions were being collected in one list. Split
+> into `handler_errors` / `rival_errors`, then **re-mutated to confirm the teeth survived the
+> fix** — a fix that quietly removes an assertion's power is worse than the flake it cured.
+>
+> **Two out-of-order refinements the criterion does not name.** Only state-bearing events are
+> compared, and only against each other (a receipt must not shadow a plan change); and errored
+> rows are excluded, or one dropped delivery poisons the reference timestamp and every later
+> event is dropped too — compounding silently while looking like webhooks having stopped.
 
 ### [ ] G6 — Step 6: checkout + portal — *dep: G2, G5*
 - [ ] G6.1 · §6 Step 6 · A28 · `web/routes/billing.py`, owner-only via the **existing** `billing.manage` row-15 key (C8) · verify: `tests/integration/test_billing_routes.py::test_owner_only`
@@ -415,9 +435,8 @@ what differs before deciding which.
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**Steps 1–4 landed.** Suite at **1995 passed, 3 skipped, 2 xfailed, 0 failed** (baseline 1945).
-Resume at **G5.1** — idempotency and out-of-order handling, which fills in behind the
-`_dispatch` seam G4 left in `services/billing/service.py`.
+**Steps 1–5 landed.** Suite at **2007 passed, 3 skipped, 2 xfailed, 0 failed** (baseline 1945).
+Resume at **G6.1** — checkout + portal, owner-only via the existing `billing.manage` key (C8).
 
 | Group | State | Commit |
 |---|---|---|
@@ -425,7 +444,10 @@ Resume at **G5.1** — idempotency and out-of-order handling, which fills in beh
 | G1+G2 — provider seam, price map | ✅ 21 tests | `d4ae614` |
 | G3 — the ledger, A6 carve-out | ✅ 19 tests | `b672571` |
 | G4 — webhook route, Host-guard fix | ✅ 10 tests | `682f0e7` |
-| G5 onward | ⬜ not started | — |
+| G5 — idempotency, out-of-order | ✅ 12 tests | `<G5>` |
+| G6 onward | ⬜ not started | — |
+
+**Criteria discharged so far:** A4, A5, A6, A7, A27, A29, A30. Twenty-four remain.
 
 ## 3. Circuit breaker (conventions §3)
 

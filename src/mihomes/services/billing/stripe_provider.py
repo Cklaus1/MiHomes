@@ -22,6 +22,7 @@ is the Protocol boundary, and `FakeBillingProvider` tests it.
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import UTC, datetime
 
@@ -34,6 +35,8 @@ from mihomes.services.billing.provider import (
 
 __all__ = ["StripeProvider"]
 
+logger = logging.getLogger(__name__)
+
 SECRET_KEY_ENV = "STRIPE_SECRET_KEY"
 WEBHOOK_SECRET_ENV = "STRIPE_WEBHOOK_SECRET"
 
@@ -43,6 +46,11 @@ WEBHOOK_SECRET_ENV = "STRIPE_WEBHOOK_SECRET"
 #: `None` and the route still acks 2xx. Stripe sends far more event types than a subscription
 #: product cares about, and retrying the ones we ignore forever is the failure mode this avoids.
 _EVENT_TYPE_MAP = {
+    # `BILLING` §6's first row, and the one that links a Checkout to an account: it is the only
+    # event carrying the `client_reference_id` we set when starting checkout, so a customer whose
+    # `stripe_customer_id` is not yet stored is resolvable from it. Omitting it would leave the
+    # very first upgrade unmappable — the exit criterion's own path.
+    "checkout.session.completed": "checkout.completed",
     "customer.subscription.created": "subscription.activated",
     "customer.subscription.updated": "subscription.updated",
     "customer.subscription.deleted": "subscription.cancelled",
@@ -50,6 +58,49 @@ _EVENT_TYPE_MAP = {
     "invoice.paid": "invoice.paid",
     "invoice.payment_failed": "invoice.payment_failed",
 }
+
+#: Stripe's `Subscription.status` → the normalized set (`BILLING` §5's normalization rule).
+#:
+#: *"`incomplete`, `incomplete_expired`, and `paused` normalize to `none`. Any **unknown** future
+#: vendor status normalizes to `none` (fail closed to Free entitlements, never to paid access)
+#: and logs loudly."*
+#:
+#: The unknown case is the one worth writing down: Stripe adds statuses, and a status string
+#: passed through unmapped would reach `limits_for`, miss `_STATUS_TO_EFFECTIVE_PLAN`, and — by
+#: that function's own fallback — resolve to Free anyway. Correct by luck, through two layers of
+#: default. Mapping it here makes the fail-closed direction a decision at the boundary where the
+#: unknown value first appears, and logs it so a new Stripe status is noticed rather than absorbed.
+_STATUS_MAP = {
+    "trialing": "trialing",
+    "active": "active",
+    "past_due": "past_due",
+    "unpaid": "unpaid",
+    "canceled": "canceled",
+    "incomplete": "none",
+    "incomplete_expired": "none",
+    "paused": "none",
+}
+
+
+def _normalize_status(vendor_status: str | None) -> str | None:
+    """Stripe status → the normalized set, failing closed on anything unrecognised.
+
+    `None` in means no subscription, which is a legitimate state (D4) and passes through. An
+    **unknown** string means Stripe shipped a status this code predates: it becomes `"none"` —
+    Free entitlements — and logs at warning level, because the alternative is a value that
+    silently falls through every downstream mapping and lands on paid access by accident.
+    """
+    if vendor_status is None:
+        return None
+    normalized = _STATUS_MAP.get(vendor_status)
+    if normalized is None:
+        logger.warning(
+            "unknown Stripe subscription status %r — failing closed to Free entitlements "
+            "(BILLING §5). Add it to _STATUS_MAP once its behaviour is decided.",
+            vendor_status,
+        )
+        return "none"
+    return normalized
 
 
 def _get(obj, key: str, default=None):
@@ -229,7 +280,7 @@ class StripeProvider:
         return SubscriptionState(
             provider_subscription_id=_get(sub, "id"),
             plan=plan_for_price_id(price_id) if price_id else None,
-            status=_get(sub, "status"),
+            status=_normalize_status(_get(sub, "status")),
             current_period_end=(
                 datetime.fromtimestamp(period_end, tz=UTC) if period_end else None
             ),

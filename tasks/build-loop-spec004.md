@@ -351,7 +351,7 @@ exists before the trial needs it), **G3 before G4** (the ledger exists before th
 > rows are excluded, or one dropped delivery poisons the reference timestamp and every later
 > event is dropped too — compounding silently while looking like webhooks having stopped.
 
-### [x] G6 — Step 6: checkout + portal — *dep: G2, G5* — *11 tests; 2007 → 2018; A28 mutation-verified; commit `<G6>`*
+### [x] G6 — Step 6: checkout + portal — *dep: G2, G5* — *11 tests; 2007 → 2018; A28 mutation-verified; commit `6aae48a`*
 - [x] G6.1 · §6 Step 6 · A28 · `web/routes/billing.py`, owner-only via the **existing** `billing.manage` row-15 key (C8) · verify: `tests/integration/test_billing_routes.py::test_owner_only` ✓ — parameterised over **admin and staff**, and the route list is derived from the mounted app so a seventh route is covered without editing the test
 - [x] G6.2 · §6 Step 6 · — · `start_checkout` reuses `stripe_customer_id` rather than creating a second Customer · verify: `tests/integration/test_billing_routes.py::test_customer_reused` ✓
 - [x] G6.3 · N1/D1 · — · `/billing/success` **grants nothing** — the confirmation page reads and renders, never writes · verify: `tests/integration/test_billing_routes.py::test_success_page_does_not_change_the_plan` ✓
@@ -461,7 +461,7 @@ Resume at **G7.1** — `apply_subscription_state`, the single writer of `plan` /
 | G3 — the ledger, A6 carve-out | ✅ 19 tests | `b672571` |
 | G4 — webhook route, Host-guard fix | ✅ 10 tests | `682f0e7` |
 | G5 — idempotency, out-of-order | ✅ 12 tests | `38c3633` |
-| G6 — checkout, portal, plan page | ✅ 11 tests | `<G6>` |
+| G6 — checkout, portal, plan page | ✅ 11 tests | `6aae48a` |
 | G7 onward | ⬜ not started | — |
 
 **Criteria discharged so far:** A4, A5, A6, A7, A27, A28, A29, A30. Twenty-three remain.

@@ -101,31 +101,23 @@ NOT_YET_ENFORCEABLE = {
 }
 
 #: `model_name -> reason`. The model's class is **wrong**, and none of §4.1's six is right.
-NO_CLASS_FITS = {
-    "Template": (
-        "Classified ACCOUNT_LEVEL ('X for staff') by C10 — but §4.1's own account-level list is "
-        "budget/contract/recurring_expense/transaction/configuration/note/book and does NOT "
-        "contain template, so there is no source authority behind the classification. Meanwhile "
-        "matrix row 5 (task.manage) is SCOPED for staff, and creating tasks from a template IS "
-        "task management, so templates_route declares task.manage and staff reach the rows. "
-        "Enforcing ACCOUNT_LEVEL would break a capability the matrix grants. And the sensitivity "
-        "argument runs the same way: a template's fields are name, description and checklist "
-        "items — the same class of content as a Task, which staff already see. What is missing is "
-        "a class for 'account-wide, not sensitive, staff use it'. See U6. "
-        "**U6b was expected to retire this entry and did not — it CONFIRMED it.** The plan was "
-        "that a dedicated matrix key would let the rows be denied at the query layer. But "
-        "`template_service.run_template` resolves the template by slug, so running one requires "
-        "reading the row: denying it would leave staff a /run endpoint whose targets they cannot "
-        "see. U6b therefore split by *verb* — automation.manage governs create/delete, while "
-        "listing and running stay task.manage — which removed the unintended write access and "
-        "left the classification exactly as mis-fitting as this entry says. A seventh §4.1 class "
-        "is the real fix and is spec work."
-    ),
-    "TemplateItem": (
-        "Same gap as Template, whose rows it belongs to. Listed separately so resolving one "
-        "cannot silently leave the other behind."
-    ),
-}
+#: **Empty, and it took three groups to get here.** `Template`/`TemplateItem` were the only entries
+#: and they are resolved: SPEC-003 U6's closing change added `EntityClass.ACCOUNT_SHARED` — the
+#: class this list's own diagnosis asked for, *"account-wide, not sensitive, staff use it"* — and
+#: reclassified both models into it.
+#:
+#: The history is worth keeping because the entry was right and the plan to close it was wrong
+#: twice. G17 recorded the gap. U6b expected a dedicated matrix key to let the rows be denied at
+#: the query layer and instead **confirmed** the entry: `run_template` resolves by slug, so running
+#: a template requires reading its row, and denying rows would leave staff a `/run` endpoint whose
+#: targets they cannot see. What was actually missing was never enforcement — it was a name for
+#: "staff may read these rows and not administer them", which is a verb distinction the route
+#: declarations carry (`task.manage` to run, `automation.manage` to manage).
+#:
+#: Kept as an empty dict rather than deleted: `test_the_two_exception_lists_are_disjoint` and
+#: `test_every_declared_exception_is_still_true` both read it, and an empty list that is still
+#: asserted is how a new entry gets noticed.
+NO_CLASS_FITS: dict[str, str] = {}
 
 _ALL_EXCEPTIONS = {**NOT_YET_ENFORCEABLE, **NO_CLASS_FITS}
 
@@ -151,6 +143,14 @@ CLASS_MECHANISM = {
     ),
     EntityClass.PERSONNEL: "query_scope._personnel_criteria — Staff.user_id == current_user",
     EntityClass.GLOBAL: "OUT OF REMIT — not tenant data; nothing to scope",
+    # The seventh class (SPEC-003 U6). "No row filter" is the *mechanism* here, and it is declared
+    # in `query_scope.UNFILTERED_CLASSES` with its reason rather than being the absence of a code
+    # branch — which is the distinction U7 was about. Enforcement is the route declarations:
+    # `task.manage` to list and run, `automation.manage` to create and delete.
+    EntityClass.ACCOUNT_SHARED: (
+        "NO ROW FILTER BY DESIGN — query_scope.UNFILTERED_CLASSES; access is a verb distinction "
+        "carried by the route declarations (task.manage to run, automation.manage to manage)"
+    ),
 }
 
 
@@ -551,10 +551,24 @@ class TestTemplatesAreRunnableButNotManageable:
         # And the reason the list route keeps task.manage is recorded where a reader will find it.
         assert "requires reading the row" in _i.getdoc(templates_route.list_templates)
 
-    def test_the_template_exemptions_are_still_declared(self):
-        """U6b did not retire these, and a test says so rather than leaving it to memory."""
-        assert "Template" in query_scope._ACCOUNT_LEVEL_EXEMPT
-        assert "Template" in NO_CLASS_FITS
+    def test_the_template_exemptions_are_gone(self):
+        """**The inverse of what this test asserted at U6b**, and the change is SPEC-003 U6's close.
+
+        Both entries existed only to neutralise a misclassification: `ACCOUNT_LEVEL` said "✗ for
+        staff" while row 5 granted staff the rows, so the exemption list carried the contradiction.
+        `ACCOUNT_SHARED` names what these models actually are, and both crutches retire with it.
+
+        Asserting their *absence* matters as much as asserting their presence did. An exemption
+        list holding only structural "the filter would be circular here" cases is a different thing
+        from one that also absorbs "the class is wrong here" cases — and the second kind grows
+        quietly, because each new entry looks like the last one.
+        """
+        assert "Template" not in query_scope._ACCOUNT_LEVEL_EXEMPT
+        assert "TemplateItem" not in query_scope._ACCOUNT_LEVEL_EXEMPT
+        assert NO_CLASS_FITS == {}, (
+            f"NO_CLASS_FITS gained an entry: {sorted(NO_CLASS_FITS)}. A model whose class does not "
+            "fit is spec work — record it here, but do not let an exemption list absorb it."
+        )
 
 
 class TestAccountLevelReachIsDeclaredOrDenied:
@@ -624,7 +638,17 @@ class TestAccountLevelReachIsDeclaredOrDenied:
     def test_template_reach_is_the_declared_exception_and_still_true(
         self, web_client_as, two_estates
     ):
-        """`NO_CLASS_FITS` asserted rather than described, same discipline as the child tables."""
+        """**Was an exception; is now the classification.** SPEC-003 U6's closing change.
+
+        This test asserted `NO_CLASS_FITS` — that staff reach `/templates/` *despite* the class
+        saying they should not. That was true and uncomfortable: it pinned a contradiction rather
+        than a rule. `ACCOUNT_SHARED` resolves it, so the same reachability is now what the
+        classification *predicts* instead of what it fails to prevent.
+
+        Reachability is still asserted, and by the same probe. A class change that quietly took
+        `/templates/` away from staff would break a capability row 5 grants, and this is what would
+        notice.
+        """
         def _seed(session):
             session.add(Template(id=uuid.uuid4(), name="TEMPLATENEEDLE",
                                  slug=f"t-{uuid.uuid4().hex[:8]}"))
@@ -634,13 +658,14 @@ class TestAccountLevelReachIsDeclaredOrDenied:
         body = client.get("/templates/").text
 
         assert "TEMPLATENEEDLE" in body, (
-            "Template is in NO_CLASS_FITS *because* staff reach it — templates_route declares "
-            "task.manage, which row 5 grants staff. If staff no longer reach it, the gap was "
-            "resolved and the entry must be removed."
+            "staff no longer reach /templates/. Row 5 grants running a template and "
+            "`run_template` resolves by slug, so a staff member who cannot list templates cannot "
+            "run one — the /run endpoint becomes unreachable in practice."
         )
-        assert ENTITY_CLASSES[Template] is EntityClass.ACCOUNT_LEVEL, (
-            "Template's classification changed — if a class that fits was added, resolve U6 and "
-            "drop it from NO_CLASS_FITS"
+        assert ENTITY_CLASSES[Template] is EntityClass.ACCOUNT_SHARED, (
+            "Template's classification changed. ACCOUNT_SHARED is what makes the reachability "
+            "above correct rather than exceptional; moving it back to ACCOUNT_LEVEL would reopen "
+            "the contradiction NO_CLASS_FITS existed to record."
         )
 
 

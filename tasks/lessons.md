@@ -620,3 +620,30 @@ Review this at the start of each session.
   bug. **Rule:** every route opened to a narrower principal gets two tests written together — one
   that it is reachable, one that it returns only what it should. The reachability test alone passes
   against a leak, and it is the one that feels like the point.
+
+- **Ask whether the class is wrong before asking how to enforce it.** `Template` sat classified
+  `ACCOUNT_LEVEL` ("✗ for staff") while the matrix granted staff the rows, and two separate plans
+  tried to close that by *enforcing* the class — each breaking a capability the matrix deliberately
+  granted, because `run_template` resolves by slug and so running a template requires reading its
+  row. The actual fix was a **name**: a seventh entity class meaning "account-wide, not sensitive,
+  staff use it", which the exception entry's own text had asked for from the start. **Rule:** a
+  model that must be exempted from its own class's enforcement is evidence the class is wrong, not
+  evidence the enforcement is hard. Exempting it converts a labelling error into a permanent
+  carve-out, and carve-outs accumulate because each new one has a precedent that looks identical.
+
+- **A correct non-decision and a forgotten one are byte-identical in code.** The new class applies
+  no row filter — exactly what four classes did accidentally for a whole phase before U7 found two
+  leaks in them. There is no way to tell "we decided not to filter this" from "nobody noticed this
+  was unfiltered" by reading the absence of a code branch. **Rule:** declare the non-decision as
+  data with its reason (`UNFILTERED_CLASSES`), and add a derived test asserting every member of the
+  taxonomy is either enforced or explicitly declared unenforced. Then a new member fails the suite
+  instead of silently joining the unenforced group.
+
+- **A surviving mutation has three possible diagnoses, and "add a test" is right for only one.**
+  Across this month: a redundant `is_not(None)` guard that changed no result (**delete it**), an
+  untested `false()` branch that was doing real work (**add the test**), and now a change to
+  `_governed_tables()` that is behaviourally inert — it only decides which statements short-circuit
+  early, and no row's visibility differs either way (**document it, with the measurement**). Adding
+  a test for the third kind pins an implementation detail and makes future refactors fail for no
+  reason. **Rule:** when a mutation survives, measure what actually differs before deciding what to
+  do; the reflex to write a test is wrong about a third of the time.

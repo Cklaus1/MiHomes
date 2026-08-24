@@ -184,9 +184,18 @@ as blocked (`G15.3`, on O1) turned out to be closable by refusal rather than def
 
 ## Unmet launch gates
 
-**Updated 2026-08-21 — U1, U6 and U7 are closed, and closing them found two more live leaks.**
-The original entries are kept struck through rather than deleted: what each one turned out to be
-worth is the useful part, and three of the four were understated.
+**Updated 2026-08-24 — every code item is closed.** U1, U6 and U7 are done, and closing them found
+two more live leaks. The three that remain (U2, U3, U5) are human review or accepted-by-design;
+none is a piece of code waiting to be written. The original entries are kept struck through rather
+than deleted: what each one turned out to be worth is the useful part, and three of the four were
+understated.
+
+U6 was the last to close and took three attempts, which is the part worth reading. G17 recorded
+that no entity class fitted `Template`/`TemplateItem`. U6b expected a dedicated matrix key to let
+the rows be denied at the query layer, and instead **confirmed** the entry — `run_template`
+resolves by slug, so running a template requires reading its row. The actual fix was neither
+enforcement nor an exemption but a **name**: `EntityClass.ACCOUNT_SHARED`, which is what
+`NO_CLASS_FITS`'s own text asked for from the beginning.
 
 | # | What | Owner |
 |---|---|---|
@@ -195,7 +204,7 @@ worth is the useful part, and three of the four were understated.
 | **U3** | Aggregate inference — A15 tests direct paths, not inference. Accepted. | accepted |
 | **U4** | Bot transport — Step 16 scopes *answers*; the bot still polls with a token in per-account config (N7). **U1 helps**: that token is now encrypted at rest, so the exposure is transport and process memory rather than the database too. | Phase 4+ |
 | **U5** | Inherited from SPEC-002: S1 archival, S7 demo mode, S5 polymorphic drift is app-only. | founder / accepted |
-| ~~**U6**~~ | ~~No entity class fits `Template`/`TemplateItem`, and `PERSONNEL`'s "own record only" rule has no matrix key.~~ **HALF CLOSED** (`10786c1`, `aae9e97`). `staff.view_own` (row 10) exists and staff now read their own HR record — which needed `staff.user_id` first, because `Staff.email` cannot answer "which row is mine". `automation.manage` (row 5) stops staff creating and deleting templates. **The `Template` classification stays open and U6b confirmed it rather than retiring it**: `run_template` resolves by slug, so running a template requires reading its row, and denying rows would leave staff a `/run` endpoint whose targets they cannot see. Split by *verb* instead. A seventh §4.1 class is the real fix. | spec work (residual) |
+| ~~**U6**~~ | ~~No entity class fits `Template`/`TemplateItem`, and `PERSONNEL`'s "own record only" rule has no matrix key.~~ **CLOSED** (`10786c1`, `aae9e97`, and the seventh class). `staff.view_own` (row 10) exists and staff now read their own HR record — which needed `staff.user_id` first, because `Staff.email` cannot answer "which row is mine". `automation.manage` (row 5) stops staff creating and deleting templates. The `Template` classification is fixed at the source: **`EntityClass.ACCOUNT_SHARED`** — *"account-wide, not sensitive, staff use it"*, the exact class `NO_CLASS_FITS` asked for at G17. Both models reclassified, `NO_CLASS_FITS` is now empty, and the two `_ACCOUNT_LEVEL_EXEMPT` entries that existed only to neutralise the wrong label are gone. | ✔ done |
 | ~~**U7**~~ | ~~Three of six entity classes are enforced by nothing.~~ **CLOSED** (`28cd6ee`). `ACCOUNT_LEVEL` and `PERSONNEL` are now derived from the classification and filtered at the query layer. **The entry understated this: it read as a tidiness item and it was two live leaks.** `/search/` returned notes from properties a staff member cannot see; `/vendors/` rendered the vendor ratings D12 denies staff by name. Both reproduced through HTTP before the fix. `PROPERTY_LINKED` and `FLAGGED` are still reached by model *name*, so a newly-added member of either inherits nothing — that part remains. | ✔ mostly done |
 
 ### Two leaks this table did not know about
@@ -259,6 +268,11 @@ reconstructed — the rule this report's own lessons section records.
 | `10786c1` | U6a — `staff.user_id`, the link `staff.view_own` needed | gated jointly with `766fe28` |
 | `28cd6ee` | U7 — mechanism for the unenforced classes; two leaks closed; audit-pollution fix | **1916 passed, 0 failed** |
 | `aae9e97` | U6b — `staff.view_own` + `automation.manage` | **1923 passed, 0 failed** |
+| *(this commit)* | U6 close — `EntityClass.ACCOUNT_SHARED`, the seventh class | **1945 passed, 0 failed** |
+
+The jump from 1923 to 1945 is not all this change: `345c9db` (per-person document access, a
+feature request rather than a numbered spec — it was briefly mislabelled `spec004:` and the subject
+was amended) added tests in between.
 
 Baseline entering this work was 1852 passed with 1 pre-existing failure
 (`test_archive.py::TestGetStats::test_counts_eligible_rows`, red in full runs and green in

@@ -151,17 +151,24 @@ __all__ = ["install_property_scope_listener", "scoped_models"]
 #: `ACCOUNT_LEVEL` remains the wrong label for these two models; a seventh §4.1 class is spec work
 #: and out of scope here. What U6b removed is the *unintended write access*, which was the part
 #: that mattered.
-#: `DocumentAccess` (SPEC-004) is exempt for the **structural** reason, not the deferral one:
-#: `_document_criteria` reads the grant table to decide whether a staff member may see a document,
-#: so subjecting it to its own filter makes the question circular in the same way denying
-#: `Membership` makes `scoped_property_ids` recursive. Nothing ever surfaces a grant row to a staff
-#: member as content, so the exemption costs nothing.
+#: `DocumentAccess` is exempt for the **structural** reason: `_document_criteria` reads the grant
+#: table to decide whether a staff member may see a document, so subjecting it to its own filter
+#: makes the question circular in the same way denying `Membership` makes `scoped_property_ids`
+#: recursive. Nothing ever surfaces a grant row to a staff member as content, so it costs nothing.
+#:
+#: **`Template` and `TemplateItem` are gone from this list**, and their departure is the point of
+#: SPEC-003 U6's closing change. They were here only because `ACCOUNT_LEVEL` was the wrong label
+#: for them — an exemption whose whole justification was neutralising a misclassification. They are
+#: now `ACCOUNT_SHARED`, a class this module reads and deliberately does not row-filter, so the
+#: decision is stated in the classification instead of hidden in an exception list.
+#:
+#: Every remaining entry is structural. That is the property to preserve: an exemption list holding
+#: only "the filter would be circular here" cases is a different thing from one that also absorbs
+#: "the class is wrong here" cases, and the second kind quietly grows.
 _ACCOUNT_LEVEL_EXEMPT = frozenset(
     {
         "Membership",
         "MembershipPropertyScope",
-        "Template",
-        "TemplateItem",
         "DocumentAccess",
     }
 )
@@ -208,12 +215,49 @@ def _models_in_class(entity_class: EntityClass) -> list[type]:
     ]
 
 
+#: Classes this module deliberately applies **no row filter** to, with the reason each is safe.
+#:
+#: Stated as data and asserted by a test, rather than left as the absence of a code branch. That
+#: distinction is the whole lesson of U7: `ACCOUNT_LEVEL` and `PERSONNEL` were "unfiltered" for a
+#: phase because nothing read them, and the difference between *decided* and *forgotten* was
+#: invisible until two leaks made it visible.
+UNFILTERED_CLASSES: dict[EntityClass, str] = {
+    EntityClass.GLOBAL: (
+        "not tenant data — `users`, `sessions`, `waitlist` are read before an account exists (D3), "
+        "so there is no account, let alone a property, to scope by"
+    ),
+    EntityClass.PROPERTY_LINKED: (
+        "row allowed, fields stripped — D12 gives staff a vendor's contact details and withholds "
+        "the rest, which is `redact.REDACTED_FIELDS[Vendor]`'s job, not a row filter's"
+    ),
+    EntityClass.ACCOUNT_SHARED: (
+        "account-wide and not sensitive, and staff legitimately use these rows — matrix row 5 "
+        "grants running a template and `run_template` resolves by slug, so denying the row would "
+        "leave staff a `/run` endpoint whose targets they cannot see. The rule here is a **verb** "
+        "distinction (run, never manage), enforced by the route declarations `task.manage` and "
+        "`automation.manage`; a query layer can only express row visibility, so it is the wrong "
+        "layer for it. See SPEC-003 U6."
+    ),
+}
+
+
 def _governed_tables() -> frozenset[str]:
     """Table names this listener has criteria for — the short-circuit's lookup set.
 
     Built once per call from the classification rather than cached at import: the module is
     imported before some models are, and a stale set would silently stop governing whatever was
     registered late.
+
+    `ACCOUNT_SHARED` is **not** here, and that is deliberate rather than an oversight — see
+    `UNFILTERED_CLASSES`.
+
+    **Adding it would change nothing observable**, and that is worth stating because a reader may
+    otherwise "fix" the omission. Mutation-tested: including `ACCOUNT_SHARED` here left all 69
+    tests green, because this set only decides which statements *skip the listener early*. No
+    criteria is ever built for the class either way, so no row's visibility changes; the statement
+    simply stops short-circuiting and does slightly more work to reach the same result. It is left
+    out for coherence — the set is named for tables this module has criteria for — not for safety,
+    and no test guards it because there is no behaviour to guard.
     """
     names = {m.__table__.name for m, _ in scoped_models()}
     for cls in (EntityClass.ACCOUNT_LEVEL, EntityClass.PERSONNEL):

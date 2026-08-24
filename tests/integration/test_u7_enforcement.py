@@ -257,6 +257,88 @@ class TestEveryClassNowHasAMechanism:
         assert set(derived) == expected
 
 
+class TestTheSeventhClassIsDeclaredNotDecorative:
+    """`ACCOUNT_SHARED` (SPEC-003 U6) applies no row filter — **and says so, in data.**
+
+    This is the exact shape U7 was about, arrived at from the other direction. There, four classes
+    were unfiltered because nothing read them, and "decided" was indistinguishable from
+    "forgotten" until two leaks made the difference visible. A seventh class that is *correctly*
+    unfiltered would look identical to those four unless the decision is recorded somewhere a test
+    can check — so it is recorded in `query_scope.UNFILTERED_CLASSES` with its reason.
+    """
+
+    def test_the_class_is_declared_unfiltered_with_a_reason(self):
+        from mihomes.authz import query_scope
+
+        assert EntityClass.ACCOUNT_SHARED in query_scope.UNFILTERED_CLASSES
+        reason = query_scope.UNFILTERED_CLASSES[EntityClass.ACCOUNT_SHARED]
+        assert len(reason) > 80, (
+            "a one-line reason is not a reason. This entry is what stands between 'we decided not "
+            "to filter this' and 'nobody noticed it was unfiltered'."
+        )
+
+    def test_every_unfiltered_class_is_accounted_for(self):
+        """Derived: the classes with no criteria must be exactly the ones declared unfiltered.
+
+        A new class added without either a filter or an entry here fails this test rather than
+        silently joining the unenforced group — which is precisely how `ACCOUNT_LEVEL` and
+        `PERSONNEL` spent a phase.
+        """
+        from mihomes.authz import query_scope
+
+        filtered = {
+            EntityClass.PROPERTY_SCOPED,
+            EntityClass.ACCOUNT_LEVEL,
+            EntityClass.PERSONNEL,
+            EntityClass.FLAGGED,
+        }
+        declared_unfiltered = set(query_scope.UNFILTERED_CLASSES)
+
+        assert filtered | declared_unfiltered == set(EntityClass), (
+            "a class is neither filtered nor declared unfiltered: "
+            f"{sorted(c.value for c in set(EntityClass) - filtered - declared_unfiltered)}"
+        )
+        assert not (filtered & declared_unfiltered), (
+            "a class is both filtered and declared unfiltered — one of the two is wrong: "
+            f"{sorted(c.value for c in filtered & declared_unfiltered)}"
+        )
+
+    def test_templates_are_in_the_new_class_and_not_exempted(self):
+        """The pair that motivated the class, asserted together.
+
+        Being in `ACCOUNT_SHARED` *and* absent from the exemption list is the whole change: before,
+        the model was mislabelled and the exemption hid it; now the label is right and no exemption
+        is needed.
+        """
+        from mihomes.authz import query_scope
+        from mihomes.models.template import Template, TemplateItem
+
+        for model in (Template, TemplateItem):
+            assert ENTITY_CLASSES[model] is EntityClass.ACCOUNT_SHARED
+            assert model.__name__ not in query_scope._ACCOUNT_LEVEL_EXEMPT
+
+    def test_staff_can_still_read_templates_at_the_query_layer(self, web_client_as):
+        """The behaviour the class asserts, measured rather than inferred from the label."""
+        from mihomes.authz.scope import authz_context
+        from mihomes.models.template import Template
+
+        name = f"SHAREDTEMPLATE-{uuid.uuid4().hex[:6]}"
+
+        def _seed(session):
+            session.add(Template(id=uuid.uuid4(), name=name, slug=f"t-{uuid.uuid4().hex[:8]}"))
+
+        web_client_as.seed(_seed)
+        session = web_client_as.session_for_scope()
+
+        with authz_context("staff", frozenset({uuid.uuid4()})):
+            names = {t.name for t in session.query(Template).all()}
+
+        assert name in names, (
+            "a staff member with a scope bound cannot read templates. ACCOUNT_SHARED means no row "
+            "filter — if one is being applied, running a template becomes impossible."
+        )
+
+
 class TestScopeExemptions:
     """Two models must stay exempt, and the reasons are different in kind."""
 
@@ -272,20 +354,23 @@ class TestScopeExemptions:
         assert "Membership" in query_scope._ACCOUNT_LEVEL_EXEMPT
         assert "MembershipPropertyScope" in query_scope._ACCOUNT_LEVEL_EXEMPT
 
-    def test_the_exemption_list_is_documented_and_small(self):
-        """An exemption list is a hole in the mechanism, so its size is the thing to watch.
+    def test_every_exemption_is_structural(self):
+        """An exemption list is a hole in the mechanism, so **what kind** of hole matters most.
 
-        Three reasons across five entries, and they are not interchangeable:
+        All three remaining entries share one reason: the filter would be **circular**. Each names
+        a table the authorization primitive itself reads, so subjecting it to its own criteria
+        would mean answering the question by already knowing the answer.
 
-        - `Membership`/`MembershipPropertyScope` — **structural**. `scoped_property_ids` reads them
-          to compute the staff scope, so filtering them makes the primitive recursive.
-        - `DocumentAccess` (SPEC-004) — **structural, same shape**. `_document_criteria` reads the
-          grant table to decide document visibility; subjecting it to its own filter would make
-          that question circular too. Nothing surfaces a grant row to staff as content.
-        - `Template`/`TemplateItem` — **standing**, and U6b confirmed rather than retired it.
-          `run_template` resolves by slug, so running a template requires reading its row; denying
-          rows would leave staff a `/run` endpoint whose targets they cannot see. The split is by
-          verb instead — `automation.manage` for create/delete, `task.manage` to list and run.
+        - `Membership`/`MembershipPropertyScope` — `scoped_property_ids` reads them to compute the
+          staff scope.
+        - `DocumentAccess` — `_document_criteria` reads it to decide document visibility.
+
+        **`Template`/`TemplateItem` were here and are not**, which is the property this test now
+        protects. They were exempted for a *different* reason — `ACCOUNT_LEVEL` was simply the
+        wrong label, and the exemption neutralised it — and SPEC-003 U6 fixed that at the source by
+        adding `EntityClass.ACCOUNT_SHARED`. A list holding only circular-dependency cases stays
+        small on its own; one that also accepts "the class is wrong here" grows, because every new
+        entry has a precedent that looks just like it.
         """
         from mihomes.authz import query_scope
 
@@ -293,13 +378,11 @@ class TestScopeExemptions:
             {
                 "Membership",
                 "MembershipPropertyScope",
-                "Template",
-                "TemplateItem",
                 "DocumentAccess",
             }
         ), (
-            "the exemption list changed. Each entry is a model staff can read despite its class "
-            "saying otherwise — add one only with the reason written down."
+            "the exemption list changed. Every entry must be a table the authz primitive itself "
+            "reads — if a model is exempt because its *class* is wrong, fix the class instead."
         )
 
 

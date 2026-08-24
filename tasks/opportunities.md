@@ -1053,3 +1053,41 @@ What follows is what closing them turned up, which is more interesting than the 
   the shape of every commit — it is that a plan's *justifications* deserve the same suspicion as
   its conclusions, and that mutation testing plus one honest probe is what converts a plausible
   justification into a checked one.
+
+- [RESOLVED] **U6's last item — `EntityClass.ACCOUNT_SHARED`, the seventh class (2026-08-24).**
+  `NO_CLASS_FITS["Template"]` is now empty, and its own text named the fix from the beginning:
+  *"what is missing is a class for 'account-wide, not sensitive, staff use it'."* Templates are
+  account-wide (no `property_id`), staff legitimately **use** them (row 5 grants running one, and
+  `run_template` resolves by slug so running requires reading the row), and their fields are the
+  same class of content as the Tasks they generate. Both models reclassified; the two
+  `_ACCOUNT_LEVEL_EXEMPT` entries that existed only to neutralise the wrong label are gone.
+
+- [PATTERN] **A wrong classification and a missing enforcement look identical from inside an
+  exemption list.** U7's finding was "four classes are enforced by nothing" and its fix was to give
+  them mechanisms. `Template` looked like the same problem and was not: it was *correctly*
+  unfiltered and *incorrectly* labelled, so every attempt to enforce its class broke a capability
+  the matrix deliberately granted. Two plans failed on that before the third worked — G17 recorded
+  the gap, U6b tried a matrix key and confirmed the gap instead. **Rule:** when a model has to be
+  exempted from its own class's enforcement, ask whether the class is wrong *before* asking how to
+  enforce it. An exemption list holding only structural "the filter would be circular here" cases
+  stays small; one that also absorbs "the class is wrong here" grows, because each new entry has a
+  precedent that looks exactly like it.
+
+- [PATTERN] **"No filter" must be declared, not merely absent.** The seventh class applies no row
+  filtering — which is what the four classes U7 fixed also did, for a whole phase, by accident. A
+  correct non-decision and a forgotten one are byte-identical in code. So
+  `query_scope.UNFILTERED_CLASSES` states each unfiltered class with its reason, and a derived test
+  asserts that *every* class is either filtered or declared — a new class fails the suite rather
+  than silently joining the unenforced group. The declaration is the only thing separating "we
+  decided" from "nobody noticed".
+
+- [PATTERN] **A mutation with no teeth is not always a missing test.** Adding `ACCOUNT_SHARED` to
+  `_governed_tables()` left all 69 tests green. Probing showed why: that set decides only which
+  statements short-circuit *early*, and since no criteria is built for the class either way, no
+  row's visibility changes — the statement just does slightly more work to reach the same answer.
+  Behaviourally inert, so writing a test for it would have been testing an implementation detail
+  and pinning a decision that has no consequence. Recorded in the docstring instead, with the
+  measurement, so the next reader does not "fix" the omission. **Third distinct diagnosis for a
+  toothless mutation this month** — redundant condition (delete it), untested arm (add the test),
+  and now inert difference (document it). The reflex to add a test for every surviving mutation is
+  wrong a third of the time.

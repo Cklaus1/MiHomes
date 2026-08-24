@@ -213,7 +213,8 @@ EXTRA_RULES = {"R1": _rule_change_role, "R2": _rule_link_self}
 
 
 class EntityClass(StrEnum):
-    """§4.1's six classes. Every mapped model lands in exactly one.
+    """§4.1's six classes, **plus a seventh the spec was missing.** Every mapped model lands in
+    exactly one.
 
     N4: *"Do not scope only the property-bearing entities. Vendors, contracts, budgets, notes and
     personnel records have no `property_id`; threading a property set past them silently allows
@@ -222,10 +223,35 @@ class EntityClass(StrEnum):
 
     PROPERTY_SCOPED = "property_scoped"   # visible if property_id ∈ scope, money redacted (D14)
     PROPERTY_LINKED = "property_linked"   # vendor — contact fields only, read-only (D12)
-    FLAGGED = "flagged"                   # document — staff_visible AND property-scoped (D13)
+    FLAGGED = "flagged"                   # document — per-person grant AND property-scoped
     ACCOUNT_LEVEL = "account_level"       # ✗ for staff
     PERSONNEL = "personnel"               # own record only, never others' (F2d)
     GLOBAL = "global"                     # not tenant data; unaffected
+
+    # **The seventh class, added to close SPEC-003's U6 residual.**
+    #
+    # `NO_CLASS_FITS["Template"]` named this gap at G17 and U6b confirmed rather than closed it:
+    # *"what is missing is a class for 'account-wide, not sensitive, staff use it'."* Templates are
+    # account-wide (no `property_id`), staff legitimately **use** them — matrix row 5 grants running
+    # one, and `run_template` resolves by slug so running requires reading the row — and their
+    # fields are a name, a description and checklist items, the same class of content as the Tasks
+    # they generate, which staff already see.
+    #
+    # Every existing class was wrong for that. `ACCOUNT_LEVEL` means "✗ for staff" and enforcing it
+    # would break a capability the matrix deliberately grants; §4.1's own account-level list
+    # (budget / contract / recurring_expense / transaction / configuration / note / book) never
+    # contained `template`, so the classification had no source authority behind it either.
+    # `PROPERTY_SCOPED` cannot apply to a row with no property. So the model sat classified-but-
+    # exempted, and `_ACCOUNT_LEVEL_EXEMPT` carried two entries whose only justification was that
+    # the label was a lie.
+    #
+    # **Read, not decorative** — that is the lesson U7 exists to enforce. `query_scope` derives
+    # this class's members and applies *no row filter* to them, deliberately and visibly, so the
+    # absence of filtering is a decision the code states rather than an omission nobody notices.
+    # Access control for these models lives in the route declarations, which is the right layer:
+    # the rule is a **verb** distinction (staff may run a template, never manage one — row 5's
+    # `task.manage` vs `automation.manage`), and a query layer can only express row visibility.
+    ACCOUNT_SHARED = "account_shared"     # account-wide, not sensitive, staff use it (U6)
 
 
 def _entity_classes() -> dict[type, EntityClass]:
@@ -335,8 +361,14 @@ def _entity_classes() -> dict[type, EntityClass]:
         VendorRating: account,
         Tag: account,
         TagAssignment: account,
-        Template: account,
-        TemplateItem: account,
+        # **Reclassified from ACCOUNT_LEVEL — SPEC-003 U6's last code item.** C10 put them here and
+        # `NO_CLASS_FITS` recorded at G17 that the label was wrong: §4.1's account-level list does
+        # not contain `template`, staff legitimately run templates (row 5), and a template's fields
+        # are the same class of content as the Tasks it generates. `ACCOUNT_SHARED` is the class
+        # that describes them. The two `_ACCOUNT_LEVEL_EXEMPT` entries that existed only to
+        # neutralise the wrong label retire with this change.
+        Template: EntityClass.ACCOUNT_SHARED,
+        TemplateItem: EntityClass.ACCOUNT_SHARED,
         AIConversation: account,
         AuditLog: account,
         Account: account,

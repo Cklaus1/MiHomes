@@ -326,7 +326,7 @@ exists before the trial needs it), **G3 before G4** (the ledger exists before th
 > SDK parsed a real signed payload — the case for signing real bytes rather than stubbing
 > verification, since a stub returns whatever shape the test author imagined.
 
-### [x] G5 — Step 5: idempotency + out-of-order handling — *dep: G4* — *12 tests; 1995 → 2007; A27 mutation-verified after two failed attempts; commit `<G5>`*
+### [x] G5 — Step 5: idempotency + out-of-order handling — *dep: G4* — *12 tests; 1995 → 2007; A27 mutation-verified after two failed attempts; commit `38c3633`*
 - [x] G5.1 · §6 Step 5 · A5 · **insert-first**, unique violation *is* the dedup signal (N4 — check-then-insert races) · verify: `tests/integration/test_webhook_idempotency.py::test_idempotent_replay` ✓
 - [x] G5.2 · §6 Step 5 · A27 · two concurrent deliveries of one event apply once · verify: `tests/integration/test_webhook_idempotency.py::test_concurrent_delivery` ✓
 - [x] G5.3 · §6 Step 5 · A7 · drop events whose `occurred_at` predates applied state · verify: `tests/integration/test_webhook_idempotency.py::test_out_of_order_dropped` ✓
@@ -444,7 +444,7 @@ Resume at **G6.1** — checkout + portal, owner-only via the existing `billing.m
 | G1+G2 — provider seam, price map | ✅ 21 tests | `d4ae614` |
 | G3 — the ledger, A6 carve-out | ✅ 19 tests | `b672571` |
 | G4 — webhook route, Host-guard fix | ✅ 10 tests | `682f0e7` |
-| G5 — idempotency, out-of-order | ✅ 12 tests | `<G5>` |
+| G5 — idempotency, out-of-order | ✅ 12 tests | `38c3633` |
 | G6 onward | ⬜ not started | — |
 
 **Criteria discharged so far:** A4, A5, A6, A7, A27, A29, A30. Twenty-four remain.

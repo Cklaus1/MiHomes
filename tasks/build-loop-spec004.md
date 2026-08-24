@@ -304,10 +304,27 @@ exists before the trial needs it), **G3 before G4** (the ledger exists before th
 > from a call, so it now strips comments and the docstring via `ast` rather than the wording being
 > softened — a test that punishes an explanation trains the next author to delete it.
 
-### [ ] G4 — Step 4: the webhook route — *dep: G3*
-- [ ] G4.1 · §6 Step 4 · A4 · `POST /webhooks/stripe` — raw body read, signature verified **before any parse** (N3); no session auth, no tenant scoping · verify: `tests/integration/test_webhooks.py::test_bad_signature_no_write`
-- [ ] G4.2 · C9b · — · add the module to `PERMANENT_ALLOWLIST` with its reason; ceiling stays 0, temporary list stays empty · verify: `tests/unit/test_route_declarations.py::test_ceiling_is_not_slack`
-- [ ] G4.3 · C9b · — · **new derived gate**: every `PERMANENT_ALLOWLIST` module declares its non-session mechanism · verify: `tests/unit/test_route_declarations.py::test_every_allowlisted_module_names_its_mechanism`
+### [x] G4 — Step 4: the webhook route — *dep: G3* — *10 tests; 1985 → 1995; 2 arms mutation-verified; commit `<G4>`*
+- [x] G4.1 · §6 Step 4 · A4 · `POST /webhooks/stripe` — raw body read, signature verified **before any parse** (N3); no session auth, no tenant scoping · verify: `tests/integration/test_webhooks.py::test_bad_signature_no_write` ✓ — asserts the **ledger count** on both sides, not just the 400: recording-then-rejecting would consume the event id and deduplicate the legitimate delivery away
+- [x] G4.2 · C9b · — · module added to `PERMANENT_ALLOWLIST` with its reason; ceiling stays 0, temporary list stays empty · verify: `tests/unit/test_route_declarations.py::test_ceiling_is_not_slack` ✓
+- [x] G4.3 · C9b · — · **new derived gate**: every `PERMANENT_ALLOWLIST` module declares its non-session mechanism · verify: `tests/unit/test_route_declarations.py::test_every_allowlisted_module_names_its_mechanism` ✓
+- [x] G4.4 · **found here** · — · **the Host guard rejected every live webhook.** H30 400s any non-loopback `Host`; Stripe posts to the endpoint's public hostname, and no test would ever have caught it because the test client's base URL is `localhost`. Webhook prefix exempted from both guards · verify: `tests/integration/test_webhooks.py::test_host_guard_does_not_block_a_public_hostname` ✓
+
+> **The exemption does not weaken either defence, and the reason is precise.** CSRF is *the
+> browser attaching the user's cookies to a forged request*; this route reads no cookie and
+> trusts no caller identity. Its authentication is an HMAC over the raw body — strictly stronger
+> than an Origin header, which is advisory and unauthenticated. DNS rebinding likewise targets a
+> session that does not exist here.
+>
+> **Mutation-verified with the blast radius, not the feature.** Widening the exemption to every
+> path turns four tests red, including `test_other_routes_still_reject_a_bad_host` — a guard on
+> the exemption, because a prefix typo would disable H30 app-wide while every webhook test still
+> passed. Second arm: a stale `ALLOWLIST_MECHANISMS` entry fails its gate.
+>
+> **A real SDK behaviour the mocks would have hidden.** `StripeObject` supports `obj["key"]` and
+> deliberately **raises `AttributeError` on `.get()`**. Four tests failed the first time the real
+> SDK parsed a real signed payload — the case for signing real bytes rather than stubbing
+> verification, since a stub returns whatever shape the test author imagined.
 
 ### [ ] G5 — Step 5: idempotency + out-of-order handling — *dep: G4*
 - [ ] G5.1 · §6 Step 5 · A5 · **insert-first**, unique violation *is* the dedup signal (N4 — check-then-insert races) · verify: `tests/integration/test_webhooks.py::test_idempotent_replay`
@@ -398,15 +415,17 @@ what differs before deciding which.
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**Steps 1–3 landed.** Suite at **1985 passed, 3 skipped, 2 xfailed, 0 failed** (baseline 1945).
-Resume at **G4.1** — the webhook route, which carries C9b's `PERMANENT_ALLOWLIST` decision.
+**Steps 1–4 landed.** Suite at **1995 passed, 3 skipped, 2 xfailed, 0 failed** (baseline 1945).
+Resume at **G5.1** — idempotency and out-of-order handling, which fills in behind the
+`_dispatch` seam G4 left in `services/billing/service.py`.
 
 | Group | State | Commit |
 |---|---|---|
 | harness + pre-flight | ✅ | `36eca9b` |
 | G1+G2 — provider seam, price map | ✅ 21 tests | `d4ae614` |
 | G3 — the ledger, A6 carve-out | ✅ 19 tests | `b672571` |
-| G4 onward | ⬜ not started | — |
+| G4 — webhook route, Host-guard fix | ✅ 10 tests | `<G4>` |
+| G5 onward | ⬜ not started | — |
 
 ## 3. Circuit breaker (conventions §3)
 

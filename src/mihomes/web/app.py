@@ -39,6 +39,7 @@ from mihomes.web.routes import calendar as calendar_route
 from mihomes.web.routes import inventory as inventory_route
 from mihomes.web.routes import library as library_route
 from mihomes.web.routes import weather as weather_route
+from mihomes.web.routes import webhooks as webhooks_route
 from mihomes.web.security import HostAndOriginGuardMiddleware
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -101,6 +102,13 @@ def create_app() -> FastAPI:
     # Tenant-checked object download (G11 · A14). Registered without a prefix because it owns
     # its full path; it replaces the unauthenticated /uploads static mount.
     app.include_router(documents_download.router)
+
+    # SPEC-004 Step 4 — `POST /webhooks/stripe`. Mounted with **no prefix**: the path is
+    # registered in the Stripe dashboard, so it is external identity rather than an internal
+    # routing choice, and `web/security.py` reads its prefix constant to exempt it from the Host
+    # and Origin guards. Declares no matter action; it is in `PERMANENT_ALLOWLIST`, authorised by
+    # a signature over the raw body rather than by a session (N3).
+    app.include_router(webhooks_route.router)
     # Sign-in / sign-out (G12). No prefix: these paths are fixed by the OAuth redirect URI
     # registered with Google, so they cannot move without reconfiguring the provider.
     app.include_router(auth_route.router)

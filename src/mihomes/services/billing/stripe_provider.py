@@ -52,6 +52,25 @@ _EVENT_TYPE_MAP = {
 }
 
 
+def _get(obj, key: str, default=None):
+    """Read an optional field from a `StripeObject` **or** a plain dict.
+
+    The SDK's `StripeObject` supports `obj["key"]` but deliberately raises `AttributeError` on
+    `obj.get("key")` — it is a `dict` lookalike that is not a `dict`, and the error message says
+    so. Webhook payloads arrive as `StripeObject`s while `FakeBillingProvider` and the fixture
+    payloads use dicts, so normalization has to handle both without a type check at every field.
+
+    `try/except KeyError` rather than `hasattr`/`isinstance`: nested objects can be either type at
+    any depth, and a lookup that works on both is simpler than a branch that has to be right about
+    which one it received.
+    """
+    try:
+        value = obj[key]
+    except (KeyError, TypeError, AttributeError):
+        return default
+    return default if value is None else value
+
+
 class StripeProvider:
     """Satisfies `BillingProvider` structurally — no subclassing, per the `AIProvider` precedent."""
 
@@ -159,13 +178,21 @@ class StripeProvider:
     # -- normalization ------------------------------------------------------------------
 
     def _normalize(self, event) -> NormalizedEvent | None:
-        """Stripe event → `NormalizedEvent`; `None` for types we deliberately ignore."""
+        """Stripe event → `NormalizedEvent`; `None` for types we deliberately ignore.
+
+        **`StripeObject` is not a dict**, and this is worth stating because the SDK makes it look
+        like one: it supports `[]` but raises `AttributeError` on `.get()`, with a message
+        pointing at `.to_dict()`. So every optional field is read through `_get`, never `.get`.
+        Found by running the real SDK against a real signed payload rather than a mock — a
+        stubbed verifier returns whatever shape the test author imagined, which here would have
+        been a plain dict and would have hidden this until the first live webhook.
+        """
         mapped = _EVENT_TYPE_MAP.get(event["type"])
         if mapped is None:
             return None
 
         obj = event["data"]["object"]
-        customer_id = obj.get("customer")
+        customer_id = _get(obj, "customer")
         if not customer_id:
             # No customer to map to an account. Returning None rather than raising: the route
             # still acks, so Stripe stops retrying an event we can never resolve.
@@ -188,21 +215,23 @@ class StripeProvider:
 
         The **price id → plan** direction lives in `prices.py` alongside its inverse, so the two
         maps cannot drift into disagreeing about what a customer bought.
+
+        Every read goes through `_get` — see `_normalize` on why `.get()` is not available here.
         """
         from mihomes.services.billing.prices import plan_for_price_id
 
         price_id = None
-        items = sub.get("items", {}).get("data") or []
+        items = _get(_get(sub, "items") or {}, "data") or []
         if items:
-            price_id = (items[0].get("price") or {}).get("id")
+            price_id = _get(_get(items[0], "price") or {}, "id")
 
-        period_end = sub.get("current_period_end")
+        period_end = _get(sub, "current_period_end")
         return SubscriptionState(
-            provider_subscription_id=sub.get("id"),
+            provider_subscription_id=_get(sub, "id"),
             plan=plan_for_price_id(price_id) if price_id else None,
-            status=sub.get("status"),
+            status=_get(sub, "status"),
             current_period_end=(
                 datetime.fromtimestamp(period_end, tz=UTC) if period_end else None
             ),
-            cancel_at_period_end=bool(sub.get("cancel_at_period_end")),
+            cancel_at_period_end=bool(_get(sub, "cancel_at_period_end")),
         )

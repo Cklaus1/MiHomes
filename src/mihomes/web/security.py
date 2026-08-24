@@ -47,6 +47,29 @@ def _origin_host(origin: str) -> str:
 
 class HostAndOriginGuardMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        # 0. Provider webhooks are exempt from **both** guards, and this is the one exemption
+        #    in the app (SPEC-004 Step 4).
+        #
+        #    Both guards assume the caller is a *browser the user is driving*. Stripe is neither:
+        #    it POSTs from its own infrastructure to whatever public hostname the endpoint is
+        #    registered under, so the Host guard would 400 every live webhook, and it sends no
+        #    Origin, so only the Host half actually bites — but exempting one and not the other
+        #    would leave a rule whose reason no longer matches its behaviour.
+        #
+        #    **This does not weaken CSRF or DNS-rebinding defence**, because neither threat model
+        #    applies to a route with no session: CSRF is the browser attaching *the user's*
+        #    cookies to a forged request, and this route reads no cookie and trusts no caller
+        #    identity. Its authentication is a signature over the raw body (N3) — strictly
+        #    stronger than an Origin header, which is advisory and unauthenticated.
+        #
+        #    Scoped to the prefix rather than the exact path so a second provider's endpoint
+        #    inherits it; the constant lives beside the route so a rename cannot silently re-arm
+        #    the guards and take production webhooks down.
+        from mihomes.web.routes.webhooks import WEBHOOK_PATH_PREFIX
+
+        if request.url.path.startswith(WEBHOOK_PATH_PREFIX):
+            return await call_next(request)
+
         # 1. Host guard (DNS-rebinding): reject non-loopback hosts outright.
         host = _host_only(request.headers.get("host", ""))
         if host and host.lower() not in _LOCAL_HOSTS:

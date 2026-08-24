@@ -41,6 +41,35 @@ PERMANENT_ALLOWLIST: dict[str, str] = {
         "action would make authentication depend on being authenticated. Signout is included "
         "because refusing to let a revoked user sign out is a worse failure than the check."
     ),
+    "mihomes.web.routes.webhooks": (
+        "Stripe is not a user. There is no cookie, no principal and no account on this request, "
+        "so there is no role for the matrix to consult — the caller is authenticated by an "
+        "HMAC signature over the raw request body (N3), which is strictly stronger than a "
+        "session. Distinct from `auth`, which is excused because identity does not *yet* exist; "
+        "here identity is irrelevant and always will be."
+    ),
+}
+
+#: How each permanently-allowlisted module authenticates instead of a declared action.
+#:
+#: **The list became load-bearing when it stopped having one entry.** `PERMANENT_ALLOWLIST` is
+#: reviewed by a human reading the reason strings, and `test_permanent_allowlist_entries_are_still_live`
+#: catches a *stale* entry — but nothing catches an entry added to silence the harness, which is
+#: the cheapest way to make a route's authorisation disappear: one line, and the route is exempt
+#: from the check that would have caught it.
+#:
+#: So each entry names its mechanism as data, and the test below asserts the naming is complete.
+#: Same construction as `UNFILTERED_CLASSES` and SPEC-004's `GLOBAL_TABLES_WITH_ACCOUNT_ID`: a
+#: correct exemption and a forgotten one are byte-identical in code unless the correct one is
+#: made to say so.
+ALLOWLIST_MECHANISMS: dict[str, str] = {
+    "mihomes.web.routes.auth": (
+        "the OIDC provider's own flow — state/nonce on the callback, and a signed session "
+        "cookie thereafter"
+    ),
+    "mihomes.web.routes.webhooks": (
+        "HMAC signature verification over the raw request body, against STRIPE_WEBHOOK_SECRET"
+    ),
 }
 
 #: Router modules whose endpoints have not been declared yet. **Only ever shrinks** (A5).
@@ -171,6 +200,38 @@ class TestAllowlistDiscipline:
         """
         for module, reason in PERMANENT_ALLOWLIST.items():
             assert reason and len(reason) > 20, f"{module} needs a real justification"
+
+    def test_every_allowlisted_module_names_its_mechanism(self):
+        """**C9b's derived gate** — an exemption must say what authenticates instead.
+
+        `test_every_permanent_entry_has_a_justification` asks for prose a human reviews;
+        `test_allowlists_name_only_real_modules` catches an entry that has gone stale. Neither
+        catches the failure that matters most: **an entry added to silence the harness.** That is
+        one line, and it removes a route from the only check that would have noticed it has no
+        authorisation at all.
+
+        A reason string cannot be asserted on — it is prose. A *mechanism* can: every allowlisted
+        module must appear in `ALLOWLIST_MECHANISMS`, so exempting a route means answering "then
+        what authenticates it?" in a second place, where its absence fails the suite. Not proof
+        the mechanism works — proof that someone had to name one.
+        """
+        missing = sorted(set(PERMANENT_ALLOWLIST) - set(ALLOWLIST_MECHANISMS))
+        assert not missing, (
+            "a permanently-allowlisted module is exempt from the action check, so it must name "
+            "what authenticates it instead — add an ALLOWLIST_MECHANISMS entry for: "
+            f"{missing}"
+        )
+
+        extra = sorted(set(ALLOWLIST_MECHANISMS) - set(PERMANENT_ALLOWLIST))
+        assert not extra, (
+            f"ALLOWLIST_MECHANISMS names modules that are not allowlisted: {extra} — a stale "
+            "entry would pre-authorise the next module to reuse the name"
+        )
+
+        for module, mechanism in ALLOWLIST_MECHANISMS.items():
+            assert mechanism and len(mechanism) > 20, (
+                f"{module}'s mechanism must actually describe one"
+            )
 
     def test_allowlists_name_only_real_modules(self):
         """A stale entry silently excuses nothing while hiding that the work is done.

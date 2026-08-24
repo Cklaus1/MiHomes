@@ -31,6 +31,10 @@ dependencies = [
     # dropped it, or an authlib release that stopped needing it, would take `mihomes config` with
     # it. Declared because we import it directly.
     "cryptography>=42",
+    # SPEC-004 Phase 3 — the billing adapter. Confined to `services/billing/stripe_provider.py`
+    # by D2: nothing else in the tree imports it, which is what makes the provider swappable and
+    # lets `FakeBillingProvider` cover every criterion without a live Stripe account.
+    "stripe>=11.0",
 ]
 
 [project.optional-dependencies]
@@ -99,6 +103,10 @@ omit = [
     "*/services/gateways/whatsapp/*",
     "*/services/gateways/telegram/*",
     "*/services/gateways/calendar/provider.py",
+    # SPEC-004 §9 — the Stripe adapter, following the AI-provider precedent above. Testing that
+    # the Stripe SDK works is Stripe's job; the seam worth testing is the Protocol boundary, and
+    # `FakeBillingProvider` tests that without credentials.
+    "*/services/billing/stripe_provider.py",
 ]
 exclude_lines = [
     "pragma: no cover",

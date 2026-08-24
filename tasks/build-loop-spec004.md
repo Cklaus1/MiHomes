@@ -304,7 +304,7 @@ exists before the trial needs it), **G3 before G4** (the ledger exists before th
 > from a call, so it now strips comments and the docstring via `ast` rather than the wording being
 > softened — a test that punishes an explanation trains the next author to delete it.
 
-### [x] G4 — Step 4: the webhook route — *dep: G3* — *10 tests; 1985 → 1995; 2 arms mutation-verified; commit `<G4>`*
+### [x] G4 — Step 4: the webhook route — *dep: G3* — *10 tests; 1985 → 1995; 2 arms mutation-verified; commit `682f0e7`*
 - [x] G4.1 · §6 Step 4 · A4 · `POST /webhooks/stripe` — raw body read, signature verified **before any parse** (N3); no session auth, no tenant scoping · verify: `tests/integration/test_webhooks.py::test_bad_signature_no_write` ✓ — asserts the **ledger count** on both sides, not just the 400: recording-then-rejecting would consume the event id and deduplicate the legitimate delivery away
 - [x] G4.2 · C9b · — · module added to `PERMANENT_ALLOWLIST` with its reason; ceiling stays 0, temporary list stays empty · verify: `tests/unit/test_route_declarations.py::test_ceiling_is_not_slack` ✓
 - [x] G4.3 · C9b · — · **new derived gate**: every `PERMANENT_ALLOWLIST` module declares its non-session mechanism · verify: `tests/unit/test_route_declarations.py::test_every_allowlisted_module_names_its_mechanism` ✓
@@ -424,7 +424,7 @@ Resume at **G5.1** — idempotency and out-of-order handling, which fills in beh
 | harness + pre-flight | ✅ | `36eca9b` |
 | G1+G2 — provider seam, price map | ✅ 21 tests | `d4ae614` |
 | G3 — the ledger, A6 carve-out | ✅ 19 tests | `b672571` |
-| G4 — webhook route, Host-guard fix | ✅ 10 tests | `<G4>` |
+| G4 — webhook route, Host-guard fix | ✅ 10 tests | `682f0e7` |
 | G5 onward | ⬜ not started | — |
 
 ## 3. Circuit breaker (conventions §3)

@@ -72,10 +72,24 @@ def agent_stream(
       ("token",  "Here are the books...")        — final response tokens
       ("error",  "message")                      — on failure
     """
-    import anthropic
+    from mihomes.services.ai.provider import get_provider
     from mihomes.services.ai.tools import TOOL_SCHEMAS, execute_tool, tool_label
 
-    client = anthropic.Anthropic(api_key=api_key)
+    # **The factory, not `anthropic.Anthropic(...)` — SPEC-004 D17/F8.**
+    #
+    # This line used to construct its own SDK client, which made it the one AI path in the tree
+    # that never touched `get_provider()`. Step 10 wraps the factory's return value in
+    # `MeteredProvider`, so leaving the bypass here would have produced a green suite and an
+    # uncapped bill: every other dispatch metered, and the **highest-token path in the app**
+    # — an agentic loop that can make six API calls per question — silently free. That is why
+    # Step 9 is ordered before Step 10 rather than folded into it.
+    #
+    # The client is borrowed from the provider rather than the provider being used directly,
+    # because this loop needs the raw `messages.create` / `messages.stream` surface for tool
+    # calling, which the `AIProvider` Protocol deliberately does not expose. Borrowing keeps
+    # construction — and therefore metering — in one place while leaving the loop unchanged.
+    provider = get_provider("claude", api_key=api_key, model=model)
+    client = provider.client
     full_system = system_prompt.rstrip() + "\n" + _AGENT_SYSTEM_SUFFIX
 
     # Build initial user content

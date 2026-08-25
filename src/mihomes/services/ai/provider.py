@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
@@ -59,6 +60,24 @@ class AIProvider(Protocol):
         attachments: list[Attachment] | None = None,
     ) -> dict:
         """Request structured JSON output conforming to schema."""
+        ...
+
+    def stream(
+        self,
+        system_prompt: str,
+        user_message: str,
+        context_data: str | None = None,
+        attachments: list[Attachment] | None = None,
+    ) -> Iterator[str]:
+        """Stream response tokens.
+
+        **Declared as of SPEC-004 Step 9 (F8).** All four implementations have had this method
+        since Phase 1 and `agent.py:44` has been calling it — but the Protocol declared only
+        `complete` and `structured_output`, so the second-highest-token path in the app was
+        formally outside the interface it travels through. An undeclared method is one a wrapper
+        has no reason to proxy, which is precisely how streaming would have escaped Step 10's
+        meter.
+        """
         ...
 
 

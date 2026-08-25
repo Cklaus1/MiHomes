@@ -419,9 +419,30 @@ exists before the trial needs it), **G3 before G4** (the ledger exists before th
 > tests also resolve against the **live binding** rather than passing `table=`, because Step 8's
 > whole content is which table is active.
 
-### [ ] G9 — Step 9: close the `agent_stream` bypass — *dep: none — MUST precede G10*
-- [ ] G9.1 · §6 Step 9 · A10 · route `agent.py:78` through `get_provider()`; declare `stream` on the `AIProvider` Protocol (F8) · verify: `tests/unit/test_ai_metering.py::test_no_factory_bypass`
-- [ ] G9.2 · §6 Step 9 · — · the agentic tool-loop and streaming still work end to end · verify: `tests/integration/test_web_smoke.py::test_ai_stream_persists_conversation`
+### [x] G9 — Step 9: close the `agent_stream` bypass — *dep: none — MUST precede G10* — *11 tests; 2055 → 2066; A10 mutation-verified; commit `<G9>`*
+- [x] G9.1 · §6 Step 9 · A10 · `agent.py` obtains its client from `get_provider()`; `stream` declared on the `AIProvider` Protocol (F8) · verify: `tests/unit/test_ai_metering.py::test_no_factory_bypass` ✓
+- [x] G9.2 · §6 Step 9 · — · the agentic tool-loop and streaming still work end to end · verify: `tests/integration/test_web_smoke.py::test_ai_stream_persists_conversation` ✓ (46 passed)
+
+> **This is why Step 9 precedes Step 10 rather than folding into it.** `agent.py:78` was the one
+> path outside the factory *and* the highest-token path in the app — an agentic loop makes up to
+> six API calls per question. Step 10 meters by wrapping what `get_provider()` returns, so a path
+> that never calls the factory is one the meter cannot see: a green suite and an uncapped bill.
+>
+> **The client is borrowed, not replaced.** The loop needs raw `messages.create(..., tools=...)`,
+> which the Protocol deliberately does not expose (three of four providers have no equivalent),
+> so `agent_stream` takes `provider.client`. Construction stays in one place — all the meter
+> needs — and the loop is unchanged.
+>
+> **A10 is AST, not grep**, because this module's own docstring contains the constructor string a
+> text scan would flag. Same trap G3's A6 test hit, same fix: a test that punishes the
+> explanation trains the next author to delete it. Mutation-verified — restoring the bypass turns
+> two tests red — and the scan carries a guard on itself, since a scanner with a typo would look
+> identical to a clean tree.
+>
+> **`stream` was called for a whole phase without being declared** (F8). An undeclared method is
+> one a wrapper has no reason to proxy — exactly how streaming would escape the meter even after
+> the bypass closed. Verified honest before declaring: all four implementations have it, asserted
+> per-provider, since a missing one fails at runtime on whichever provider a deployment configures.
 
 ### [ ] G10 — Step 10: the meter — **A11, the phase's definition of done** — *dep: G8, G9*
 - [ ] G10.1 · §6 Step 10 · — · `models/ai_usage.py` (`AIUsageEvent` + `AIUsageRollup`), **UUID PKs (C6)**, migration `0011`, RLS policies, registry entries, entity classification (C9a/c/d/f) · verify: `tests/integration/test_pg_baseline.py::test_baseline_matches_metadata`
@@ -491,9 +512,9 @@ what differs before deciding which.
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**Steps 1–8 landed — the gates are live.** Suite at **2055 passed, 3 skipped, 2 xfailed, 0
-failed** (baseline 1945). Condition D re-verified explicitly: `test_smoke_all_tools.py` 18 passed.
-Resume at **G9.1** — close the `agent_stream` bypass (`agent.py:78`), which **must** precede G10.
+**Steps 1–9 landed.** Suite at **2066 passed, 3 skipped, 2 xfailed, 0 failed** (baseline 1945).
+Resume at **G10.1** — the meter itself, and **A11 is the phase's definition of done**. G9 has
+closed the bypass, so wrapping the factory now reaches every dispatch path.
 
 | Group | State | Commit |
 |---|---|---|
@@ -505,10 +526,11 @@ Resume at **G9.1** — close the `agent_stream` bypass (`agent.py:78`), which **
 | G6 — checkout, portal, plan page | ✅ 11 tests | `6aae48a` |
 | G7 — status mapping, single writer | ✅ 26 tests | `5995d9b` |
 | G8 — real limits, gates live | ✅ 11 tests | `4cd5043` |
-| G9 onward | ⬜ not started | — |
+| G9 — factory bypass closed | ✅ 11 tests | `<G9>` |
+| G10 onward | ⬜ not started | — |
 
-**Criteria discharged so far:** A1, A2, A3, A4, A5, A6, A7, A8, A27, A28, A29, A30. Nineteen
-remain — A11 (the definition of done) and A31 (the exit criterion) among them.
+**Criteria discharged so far:** A1, A2, A3, A4, A5, A6, A7, A8, A10, A27, A28, A29, A30.
+Eighteen remain — A11 (the definition of done) and A31 (the exit criterion) among them.
 
 ## 3. Circuit breaker (conventions §3)
 

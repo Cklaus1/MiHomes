@@ -636,7 +636,7 @@ exists before the trial needs it), **G3 before G4** (the ledger exists before th
 > would fire only on the operator CLI), not `Appointment`/`/calendar` (a different product wearing
 > the same word — gating it would present as a broken nightly job, N9). No due date, no gate.
 
-### [x] G17 — Step 17: the importer gate — *dep: G8* — *3 tests; commit `<G1718>`*
+### [x] G17 — Step 17: the importer gate — *dep: G8* — *3 tests; commit `a0146e5`*
 - [x] G17.1 · §6 Step 17 · A25 · **D16** — assert `can("home.create")` per home; refuse rather than create an over-limit account; no partial account left · verify: `tests/integration/test_importer.py::test_over_limit_refused` ✓
 
 > **A25 closes a path §4.3 has no language for.** That table describes accounts that *downgrade*
@@ -648,7 +648,7 @@ exists before the trial needs it), **G3 before G4** (the ledger exists before th
 > archive holds several properties, which is D16's exact scenario. Fixture moved to `estate`; the
 > test *about* the limit provisions Free explicitly so it never depends on a shared default.
 
-### [x] G18 — Step 18: reconciliation in anger + **the exit criterion** — *dep: all* — *2 tests; A31 mutation-verified; commit `<G1718>`*
+### [x] G18 — Step 18: reconciliation in anger + **the exit criterion** — *dep: all* — *2 tests; A31 mutation-verified; commit `a0146e5`*
 - [x] G18.1 · §6 Step 18 · A9 · drift corrected within one sweep · verify: `tests/integration/test_jobs.py::test_drift_corrected` ✓ (landed at G12)
 - [x] G18.2 · §6 exit · **A31** · a Free gate flips to Pro **from the webhook, not the redirect** (D1/N1) · verify: `tests/integration/test_upgrade_flow.py::test_exit_criterion` ✓
 
@@ -716,7 +716,7 @@ own named test, F.3a/F.3b the two reconciliation walks, F.4 smoke, F.5 the end-o
 | G14 — restricted mode | ✅ 13 tests | `681daa0` |
 | G15 — the four billing emails | ✅ 20 tests | `3b11c17` |
 | G16 — the three feature gates | ✅ 12 tests | `4e0af61` |
-| G17+G18 — importer gate, **A31** | ✅ 5 tests | `<G1718>` |
+| G17+G18 — importer gate, **A31** | ✅ 5 tests | `a0146e5` |
 | G-Final | ⬜ not started | — |
 
 **All 31 criteria discharged** — A1 through A31, including **A11** (the definition of done) and

@@ -565,8 +565,31 @@ exists before the trial needs it), **G3 before G4** (the ledger exists before th
 > the trial started — without that, every Free account would get unlimited homes by hitting the
 > limit twice.
 
-### [ ] G14 — Step 14: downgrade + restricted mode — *dep: G13*
-- [ ] G14.1 · §6 Step 14 · A20 · **D9** — surplus read-only, core home editable, **nothing deleted**, all three arrival paths · verify: `tests/integration/test_downgrade.py::test_nothing_deleted`
+### [x] G14 — Step 14: downgrade + restricted mode — *dep: G13* — *13 tests; 2134 → 2147; 2 arms mutation-verified; commit `<G14>`*
+- [x] G14.1 · §6 Step 14 · A20 · **D9** — surplus read-only, core home editable, **nothing deleted**, all three arrival paths · verify: `tests/integration/test_downgrade.py::test_nothing_deleted` ✓ (parameterised over past-due / cancellation / trial expiry)
+- [x] G14.2 · §6 Step 14 · A20 · the core home stays editable; a frozen one refuses edits and names the upgrade · verify: `tests/integration/test_downgrade.py::test_the_core_home_is_editable` ✓
+- [x] G14.3 · §6 Step 14 · A8 · `past_due` unrestricted, `unpaid` restricted, at the account level · verify: `tests/integration/test_downgrade.py::test_grace_then_restrict` ✓
+
+> **A20's two clauses are each other's control.** Freezing *everything* satisfies "nothing
+> deleted" completely and leaves a museum; deleting the surplus satisfies "core home editable"
+> just as completely. Both asserted, both mutation-verified — freeze-everything turns **five**
+> tests red.
+>
+> **Frozen is computed, never stored.** No `properties.frozen` column: the frozen set is a
+> function of `(homes, max_homes, choice)` and all three move, so a stored flag is a cache with no
+> invalidation that would present as *"why can't I edit my own house"*. Computing it makes the
+> non-destructive guarantee **structural** — there is no write to get wrong.
+>
+> **The read half is a real assertion.** An implementation that *hid* frozen homes would pass
+> every "nothing deleted" test while making the data unreachable — deletion from the customer's
+> point of view. Each frozen row is read back.
+>
+> A choice that would exceed the limit is ignored (or the picker becomes a way around the cap); a
+> *partial* choice is honoured and topped up from the oldest.
+>
+> **A test bug worth recording:** `test_grace_then_restrict` first failed because the test's setup
+> was wrong, not the rule — it dropped `plan` to `free` alongside `past_due`, and grace preserves
+> the account's *own* plan.
 
 ### [ ] G15 — Step 15: the four emails — *dep: G7, G12*
 - [ ] G15.1 · §6 Step 15 · A21 · four template pairs + four `send_*` on the **existing** `EmailService`; do **not** extend the transport-only `EmailProvider` Protocol · verify: `tests/integration/test_billing_emails.py::test_four_templates`
@@ -612,9 +635,9 @@ what differs before deciding which.
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**Steps 1–13 landed.** Suite at **2134 passed, 3 skipped, 2 xfailed, 0 failed** (baseline 1945).
-Resume at **G14.1** — downgrade and restricted mode (A20): surplus read-only, core home editable,
-nothing deleted, across all three arrival paths.
+**Steps 1–14 landed.** Suite at **2147 passed, 3 skipped, 2 xfailed, 0 failed** (baseline 1945).
+Resume at **G15.1** — the four emails (A21), on the **existing** `EmailService` (SPEC-001). Three
+fire from webhooks; `trial_ending` fires from G12's sweep (F3/B2).
 
 | Group | State | Commit |
 |---|---|---|
@@ -631,10 +654,11 @@ nothing deleted, across all three arrival paths.
 | G11 — overage, ceiling, nudges | ✅ 13 tests | `408e43b` |
 | G12 — scheduled jobs | ✅ 13 tests | `44f1d35` |
 | G13 — the trial state machine | ✅ 13 tests | `b69983a` |
-| G14 onward | ⬜ not started | — |
+| G14 — restricted mode | ✅ 13 tests | `<G14>` |
+| G15 onward | ⬜ not started | — |
 
-**Criteria discharged so far:** A1–A17, A18, A19, A26–A30. Seven remain: A20–A25 and
-**A31, the exit criterion.**
+**Criteria discharged so far:** A1–A20, A26–A30. Six remain: A21–A25 and **A31, the exit
+criterion.**
 
 ## 3. Circuit breaker (conventions §3)
 

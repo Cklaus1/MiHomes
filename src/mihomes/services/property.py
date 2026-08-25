@@ -59,6 +59,45 @@ def _check_home_entitlement(session: Session) -> None:
             raise EntitlementError(decision)
 
 
+def _refuse_if_frozen(session: Session, prop: Property) -> None:
+    """Refuse a write to a frozen home — `PRICING` §4.3, A20.
+
+    *"Frozen homes are read-only, never deleted: view and export yes; create/edit/complete/
+    AI-advise no."* This is the **edit** half; the read half is that nothing here touches queries,
+    so a frozen home stays fully visible and exportable.
+
+    Raises `EntitlementError` with the upgrade target, so the UI renders rule 4's prompt rather
+    than a dead end: the customer is one payment away from editing their own house, and the error
+    should say so.
+    """
+    from mihomes.entitlements.limits import UPGRADE_PATH
+    from mihomes.entitlements.service import Denied
+    from mihomes.models.account import Account
+    from mihomes.services.billing.restricted import restriction_for
+    from mihomes.tenancy import require_account
+
+    account = session.get(Account, require_account())
+    if account is None:  # pragma: no cover - a bound account always exists
+        return
+
+    restriction = restriction_for(session, account)
+    if restriction.may_edit(prop.id):
+        return
+
+    raise EntitlementError(
+        Denied(
+            reason=(
+                f"{prop.name} is read-only: the {account.plan} plan covers "
+                f"{restriction.max_homes} home(s) and this account has "
+                f"{len(restriction.active_ids) + len(restriction.frozen_ids)}. "
+                "Nothing has been deleted — upgrade to edit it again."
+            ),
+            upgrade_target=UPGRADE_PATH.get(getattr(account, "plan", "free")),
+            limit=restriction.max_homes,
+        )
+    )
+
+
 class EntitlementError(Exception):
     """A plan limit refused the action. Carries the `Denied` so the UI can render rule 4's
     upgrade prompt rather than a bare error string."""
@@ -121,6 +160,7 @@ def get_property(session: Session, id_or_slug: str) -> Property:
 
 def update_property(session: Session, id_or_slug: str, **kwargs) -> Property:
     prop = resolve_identifier(session, Property, id_or_slug)
+    _refuse_if_frozen(session, prop)
     old_snap = snapshot_instance(prop)
 
     # Handle slug change if name changes

@@ -50,11 +50,16 @@ from sqlalchemy.orm import Session
 
 from mihomes.models.account import Account
 from mihomes.models.processed_webhook_event import ProcessedWebhookEvent
-from mihomes.services.billing.provider import NormalizedEvent
+from mihomes.services.billing.provider import NormalizedEvent, SubscriptionState
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["handle_verified_event", "start_checkout", "start_portal_session"]
+__all__ = [
+    "apply_subscription_state",
+    "handle_verified_event",
+    "start_checkout",
+    "start_portal_session",
+]
 
 PROVIDER = "stripe"
 
@@ -109,13 +114,79 @@ def handle_verified_event(session: Session, event: NormalizedEvent) -> None:
         )
         return
 
-    # Step 7 lands `apply_subscription_state` here — the single writer of plan /
-    # subscription_status / current_period_end, shared with the reconciliation sweep so live
-    # events and drift-correction cannot diverge.
+    if event.subscription is not None:
+        apply_subscription_state(session, account, event.subscription)
+
     logger.info(
         "stripe webhook applied: type=%s event=%s account=%s",
         event.type, event.raw_event_id, account.id,
     )
+
+
+def apply_subscription_state(
+    session: Session, account: Account, state: SubscriptionState
+) -> bool:
+    """**The single place `plan` / `subscription_status` / `current_period_end` are written.**
+
+    SPEC-002 §4.2 requires it in as many words — those columns are *"written ONLY by the billing
+    webhook handler"* — and both the live webhook path and the reconciliation sweep (Step 18)
+    call through here. That shared call is the point: the sweep exists to correct drift after a
+    dropped webhook, so if it applied state by its own route the two would eventually disagree
+    about what a customer bought, and the disagreement would surface as a plan that flips back
+    and forth depending on which path ran last.
+
+    Returns whether anything actually changed, which `reconcile` reports as "drift corrected".
+
+    ## The plan and the status are two different questions
+
+    `BILLING` §5 maps the *status* to behaviour; the *plan* comes from the price the customer is
+    paying for. Both are stored, because `can()` needs both (D5): the plan says what was bought
+    and the status says whether it is currently paid for. Collapsing them — storing "effective
+    plan" alone — would lose the information needed to restore access on reactivation, which
+    `PRICING` §4.3 promises is instant and non-destructive.
+
+    **A `canceled` or `unpaid` account keeps its `plan` string.** Entitlements are resolved by
+    `limits_for(plan, subscription_status)`, which already maps those statuses down to Free —
+    so downgrading the stored plan too would be a second, redundant mechanism, and the one that
+    forgets what to restore. This is `PRICING` §4.3's *"nothing was deleted"* applied to the plan
+    column itself.
+
+    ## `plan=None` means "do not change the plan", not "Free"
+
+    An `invoice.paid` event carries no line items, and a subscription whose price id is not in
+    `PRICE_ENV_VARS` normalizes to `None` (see `prices.plan_for_price_id`, which refuses to guess).
+    Treating either as Free would silently downgrade a paying customer on an ordinary receipt.
+    The status still updates — that part is always known.
+    """
+    changed = False
+
+    if state.status is not None and account.subscription_status != state.status:
+        account.subscription_status = state.status
+        changed = True
+
+    if state.plan is not None and account.plan != state.plan:
+        account.plan = state.plan
+        changed = True
+
+    if state.provider_subscription_id is not None and (
+        account.stripe_subscription_id != state.provider_subscription_id
+    ):
+        account.stripe_subscription_id = state.provider_subscription_id
+        changed = True
+
+    if state.current_period_end is not None and (
+        account.current_period_end != state.current_period_end
+    ):
+        account.current_period_end = state.current_period_end
+        changed = True
+
+    if changed:
+        session.commit()
+        logger.info(
+            "subscription state applied: account=%s plan=%s status=%s",
+            account.id, account.plan, account.subscription_status,
+        )
+    return changed
 
 
 def start_checkout(

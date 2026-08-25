@@ -370,9 +370,24 @@ exists before the trial needs it), **G3 before G4** (the ledger exists before th
 > authorization fact and an invoice-address fact are different things, and `status == "active"`
 > matters because a revoked former owner can still hold an owner-role row.
 
-### [ ] G7 — Step 7: status → entitlement mapping — *dep: G5*
-- [ ] G7.1 · §6 Step 7 · A2 · `apply_subscription_state` — the **single** writer of `plan`/`subscription_status`/`current_period_end` (SPEC-002 §4.2), called by both webhook and reconcile · verify: `tests/unit/test_billing_mapping.py::test_status_table`
-- [ ] G7.2 · §6 Step 7 · A8 · `past_due` keeps full access; `unpaid` restricts (D10) · verify: `tests/integration/test_downgrade.py::test_grace_then_restrict`
+### [x] G7 — Step 7: status → entitlement mapping — *dep: G5* — *26 tests; 2018 → 2044; 2 arms mutation-verified; commit `<G7>`*
+- [x] G7.1 · §6 Step 7 · A2 · `apply_subscription_state` — the **single** writer of `plan`/`subscription_status`/`current_period_end` (SPEC-002 §4.2), called by both webhook and reconcile · verify: `tests/unit/test_billing_mapping.py::test_status_table` ✓ — parameterised over all eight, **plus** a test asserting the row set equals Stripe's set so a missing row cannot hide behind the parametrisation
+- [x] G7.2 · §6 Step 7 · A8 · `past_due` keeps full access; `unpaid` restricts (D10) · verify: `tests/unit/test_billing_mapping.py::test_grace_then_restrict` ✓ (unit, not integration — the mapping is pure; the *route-level* downgrade behaviour is G14/A20)
+
+> **Two arms mutation-verified, both of which would have cost real money.**
+> `plan=None` must not mean Free: `invoice.paid` carries no line items, so treating it as Free
+> downgrades a paying customer **on an ordinary receipt**. And an unknown status must fail closed
+> *at the boundary* — the mutant still half-worked, because an unmapped string reaches
+> `limits_for`, misses its lookup and lands on Free anyway. Correct by luck, through two layers of
+> default, with no warning that a new Stripe status exists.
+>
+> **The plan column is memory, not access.** A cancelled Pro account keeps `plan="pro"` while
+> entitlements resolve to Free via `limits_for`. Clearing it too would be a second mechanism doing
+> the same job — and the one that forgets what to restore, which `PRICING` §4.3 promises is
+> instant. §4.3's "nothing was deleted" applied to the plan column itself.
+>
+> A8 carries a guard on itself: a second test asserts Pro and Free actually have different limits,
+> or A8 would pass while proving nothing about the distinction.
 
 ### [ ] G8 — Step 8: real limits — *dep: G7* — **the exit criterion's first half**
 - [ ] G8.1 · §6 Step 8 · A1 · **swap the active table to `PLAN_LIMITS_PHASE3`** (C4 — a one-line change, not a rewrite) · verify: `tests/unit/test_limits.py::test_free_gates`
@@ -450,9 +465,9 @@ what differs before deciding which.
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**Steps 1–6 landed.** Suite at **2018 passed, 3 skipped, 2 xfailed, 0 failed** (baseline 1945).
-Resume at **G7.1** — `apply_subscription_state`, the single writer of `plan` /
-`subscription_status` / `current_period_end`, shared by the webhook and the reconciliation sweep.
+**Steps 1–7 landed.** Suite at **2044 passed, 3 skipped, 2 xfailed, 0 failed** (baseline 1945).
+Resume at **G8.1** — real limits, which per C4 is a one-line swap of which table `limits.py`
+binds as active. This is the exit criterion's first half.
 
 | Group | State | Commit |
 |---|---|---|
@@ -462,9 +477,10 @@ Resume at **G7.1** — `apply_subscription_state`, the single writer of `plan` /
 | G4 — webhook route, Host-guard fix | ✅ 10 tests | `682f0e7` |
 | G5 — idempotency, out-of-order | ✅ 12 tests | `38c3633` |
 | G6 — checkout, portal, plan page | ✅ 11 tests | `6aae48a` |
-| G7 onward | ⬜ not started | — |
+| G7 — status mapping, single writer | ✅ 26 tests | `<G7>` |
+| G8 onward | ⬜ not started | — |
 
-**Criteria discharged so far:** A4, A5, A6, A7, A27, A28, A29, A30. Twenty-three remain.
+**Criteria discharged so far:** A2, A4, A5, A6, A7, A8, A27, A28, A29, A30. Twenty-one remain.
 
 ## 3. Circuit breaker (conventions §3)
 

@@ -512,7 +512,7 @@ exists before the trial needs it), **G3 before G4** (the ledger exists before th
 > `check_and_reserve` deliberately **does not reserve** (§5.3's ordering rule is what binds, not
 > §5.4's verb), and C13 records that `usage()` gained a keyword-only `session`.
 
-### [x] G12 — Step 12: scheduled-job entrypoints — *dep: G7 — MUST precede G13* — *13 tests; 2108 → 2121; 2 arms mutation-verified; commit `<G12>`*
+### [x] G12 — Step 12: scheduled-job entrypoints — *dep: G7 — MUST precede G13* — *13 tests; 2108 → 2121; 2 arms mutation-verified; commit `44f1d35`*
 - [x] G12.1 · §6 Step 12 · A16 · `mihomes jobs trial-sweep` / `reconcile`, both idempotent (D15) · verify: `tests/integration/test_jobs.py::test_idempotent` ✓
 - [x] G12.2 · §6 Step 12 · A9 · `reconcile` corrects a deliberately drifted account · verify: `tests/integration/test_jobs.py::test_drift_corrected` ✓
 - [x] G12.3 · **found here** · — · **`mihomes jobs` could not be invoked at all** on a multi-account install · verify: `tests/integration/test_jobs.py::test_the_command_actually_runs_on_a_multi_account_install` ✓
@@ -604,7 +604,7 @@ Resume at **G13.1** — the trial state machine. G12's sweep is its only clock (
 | G9 — factory bypass closed | ✅ 11 tests | `9402cd7` |
 | G10 — **the meter (A11)** | ✅ 29 tests | `61812f2` |
 | G11 — overage, ceiling, nudges | ✅ 13 tests | `408e43b` |
-| G12 — scheduled jobs | ✅ 13 tests | `<G12>` |
+| G12 — scheduled jobs | ✅ 13 tests | `44f1d35` |
 | G13 onward | ⬜ not started | — |
 
 **Criteria discharged so far:** A1–A8, A9, A10, **A11**, A12–A16, A26–A30. Ten remain:

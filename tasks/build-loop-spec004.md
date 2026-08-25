@@ -370,7 +370,7 @@ exists before the trial needs it), **G3 before G4** (the ledger exists before th
 > authorization fact and an invoice-address fact are different things, and `status == "active"`
 > matters because a revoked former owner can still hold an owner-role row.
 
-### [x] G7 — Step 7: status → entitlement mapping — *dep: G5* — *26 tests; 2018 → 2044; 2 arms mutation-verified; commit `<G7>`*
+### [x] G7 — Step 7: status → entitlement mapping — *dep: G5* — *26 tests; 2018 → 2044; 2 arms mutation-verified; commit `5995d9b`*
 - [x] G7.1 · §6 Step 7 · A2 · `apply_subscription_state` — the **single** writer of `plan`/`subscription_status`/`current_period_end` (SPEC-002 §4.2), called by both webhook and reconcile · verify: `tests/unit/test_billing_mapping.py::test_status_table` ✓ — parameterised over all eight, **plus** a test asserting the row set equals Stripe's set so a missing row cannot hide behind the parametrisation
 - [x] G7.2 · §6 Step 7 · A8 · `past_due` keeps full access; `unpaid` restricts (D10) · verify: `tests/unit/test_billing_mapping.py::test_grace_then_restrict` ✓ (unit, not integration — the mapping is pure; the *route-level* downgrade behaviour is G14/A20)
 
@@ -477,7 +477,7 @@ binds as active. This is the exit criterion's first half.
 | G4 — webhook route, Host-guard fix | ✅ 10 tests | `682f0e7` |
 | G5 — idempotency, out-of-order | ✅ 12 tests | `38c3633` |
 | G6 — checkout, portal, plan page | ✅ 11 tests | `6aae48a` |
-| G7 — status mapping, single writer | ✅ 26 tests | `<G7>` |
+| G7 — status mapping, single writer | ✅ 26 tests | `5995d9b` |
 | G8 onward | ⬜ not started | — |
 
 **Criteria discharged so far:** A2, A4, A5, A6, A7, A8, A27, A28, A29, A30. Twenty-one remain.

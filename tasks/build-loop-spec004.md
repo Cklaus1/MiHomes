@@ -419,7 +419,7 @@ exists before the trial needs it), **G3 before G4** (the ledger exists before th
 > tests also resolve against the **live binding** rather than passing `table=`, because Step 8's
 > whole content is which table is active.
 
-### [x] G9 — Step 9: close the `agent_stream` bypass — *dep: none — MUST precede G10* — *11 tests; 2055 → 2066; A10 mutation-verified; commit `<G9>`*
+### [x] G9 — Step 9: close the `agent_stream` bypass — *dep: none — MUST precede G10* — *11 tests; 2055 → 2066; A10 mutation-verified; commit `9402cd7`*
 - [x] G9.1 · §6 Step 9 · A10 · `agent.py` obtains its client from `get_provider()`; `stream` declared on the `AIProvider` Protocol (F8) · verify: `tests/unit/test_ai_metering.py::test_no_factory_bypass` ✓
 - [x] G9.2 · §6 Step 9 · — · the agentic tool-loop and streaming still work end to end · verify: `tests/integration/test_web_smoke.py::test_ai_stream_persists_conversation` ✓ (46 passed)
 
@@ -526,7 +526,7 @@ closed the bypass, so wrapping the factory now reaches every dispatch path.
 | G6 — checkout, portal, plan page | ✅ 11 tests | `6aae48a` |
 | G7 — status mapping, single writer | ✅ 26 tests | `5995d9b` |
 | G8 — real limits, gates live | ✅ 11 tests | `4cd5043` |
-| G9 — factory bypass closed | ✅ 11 tests | `<G9>` |
+| G9 — factory bypass closed | ✅ 11 tests | `9402cd7` |
 | G10 onward | ⬜ not started | — |
 
 **Criteria discharged so far:** A1, A2, A3, A4, A5, A6, A7, A8, A10, A27, A28, A29, A30.

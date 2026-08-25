@@ -444,7 +444,7 @@ exists before the trial needs it), **G3 before G4** (the ledger exists before th
 > the bypass closed. Verified honest before declaring: all four implementations have it, asserted
 > per-provider, since a missing one fails at runtime on whichever provider a deployment configures.
 
-### [x] G10 — Step 10: the meter — **A11, the phase's definition of done** — *dep: G8, G9* — *29 tests; 2066 → 2095; 3 arms mutation-verified; commit `<G10>`*
+### [x] G10 — Step 10: the meter — **A11, the phase's definition of done** — *dep: G8, G9* — *29 tests; 2066 → 2095; 3 arms mutation-verified; commit `61812f2`*
 - [x] G10.1 · §6 Step 10 · — · `models/ai_usage.py`, migration `0011`, RLS policies, registry entries, entity classification · verify: `tests/integration/test_pg_baseline.py::test_baseline_matches_metadata` ✓
 - [x] G10.2 · §6 Step 10 · — · `meter.py::record_usage` — event + rollup increment in **one transaction**, rollup locked `FOR UPDATE` · verify: `tests/integration/test_ai_usage.py` ✓
 - [x] G10.3 · §6 Step 10 · — · `MeteredProvider` proxying the **full** surface: `__getattr__` for `client`, `__setattr__` for `provider.model = …` (F8) · verify: `tests/unit/test_ai_metering.py::test_attribute_writes_reach_the_provider` ✓
@@ -551,7 +551,7 @@ Resume at **G11.1** — overage behaviour: the hard ceiling, the soft cap, and t
 | G7 — status mapping, single writer | ✅ 26 tests | `5995d9b` |
 | G8 — real limits, gates live | ✅ 11 tests | `4cd5043` |
 | G9 — factory bypass closed | ✅ 11 tests | `9402cd7` |
-| G10 — **the meter (A11)** | ✅ 29 tests | `<G10>` |
+| G10 — **the meter (A11)** | ✅ 29 tests | `61812f2` |
 | G11 onward | ⬜ not started | — |
 
 **Criteria discharged so far:** A1, A2, A3, A4, A5, A6, A7, A8, A10, **A11**, A12, A13, A27,

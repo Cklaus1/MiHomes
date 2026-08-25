@@ -51,6 +51,19 @@ def main(
         rprint("[yellow]MiHomes is not initialized. Run:[/yellow] [bold]mihomes init[/bold]")
         raise typer.Exit(1)
 
+    # **`jobs` binds no tenant, and must not** — SPEC-004 Step 12 (D15).
+    #
+    # `_bind_account` refuses to proceed on a multi-account install without `--account`, which is
+    # right for every other command: they operate *inside* one estate, and guessing which would be
+    # a cross-tenant write. The billing sweeps operate *across* estates — reconciling one account
+    # is not a partial success, it is the wrong thing — so requiring a tenant here made
+    # `mihomes jobs` unreachable on exactly the installs it exists for.
+    #
+    # Found by running the command rather than by testing the service functions it wraps: the
+    # sweep logic was green while the entrypoint could not be invoked at all.
+    if ctx.invoked_subcommand == "jobs":
+        return
+
     _bind_account(ctx, account)
 
 
@@ -231,8 +244,14 @@ app.add_typer(doctor_app, name="doctor")
 from mihomes.cli.ai import app as ai_app  # noqa: E402
 from mihomes.cli.cron import app as cron_app  # noqa: E402
 
+# SPEC-004 Step 12 (D15) — `jobs trial-sweep` / `jobs reconcile`. Unlike every other command
+# group, these sweep *across* accounts and bind tenant context per account inside the loop, so
+# they must not be given a `--account` option: there is no single tenant for them to run as.
+from mihomes.cli.jobs import app as jobs_app  # noqa: E402
+
 app.add_typer(ai_app, name="ai")
 app.add_typer(cron_app, name="cron")
+app.add_typer(jobs_app, name="jobs")
 
 # Phase 3a sub-apps
 from mihomes.cli.asset import app as asset_app  # noqa: E402

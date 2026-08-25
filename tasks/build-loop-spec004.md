@@ -512,9 +512,28 @@ exists before the trial needs it), **G3 before G4** (the ledger exists before th
 > `check_and_reserve` deliberately **does not reserve** (§5.3's ordering rule is what binds, not
 > §5.4's verb), and C13 records that `usage()` gained a keyword-only `session`.
 
-### [ ] G12 — Step 12: scheduled-job entrypoints — *dep: G7 — MUST precede G13*
-- [ ] G12.1 · §6 Step 12 · A16 · `mihomes jobs trial-sweep` / `reconcile`, both idempotent (D15) · verify: `tests/integration/test_jobs.py::test_idempotent`
-- [ ] G12.2 · §6 Step 12 · A9 · `reconcile` corrects a deliberately drifted account · verify: `tests/integration/test_reconcile.py::test_drift_corrected`
+### [x] G12 — Step 12: scheduled-job entrypoints — *dep: G7 — MUST precede G13* — *13 tests; 2108 → 2121; 2 arms mutation-verified; commit `<G12>`*
+- [x] G12.1 · §6 Step 12 · A16 · `mihomes jobs trial-sweep` / `reconcile`, both idempotent (D15) · verify: `tests/integration/test_jobs.py::test_idempotent` ✓
+- [x] G12.2 · §6 Step 12 · A9 · `reconcile` corrects a deliberately drifted account · verify: `tests/integration/test_jobs.py::test_drift_corrected` ✓
+- [x] G12.3 · **found here** · — · **`mihomes jobs` could not be invoked at all** on a multi-account install · verify: `tests/integration/test_jobs.py::test_the_command_actually_runs_on_a_multi_account_install` ✓
+
+> **The bug the service-layer tests could not see.** Every sweep function was green; the first
+> time the *command* ran it exited 1 with *"This install has 7 accounts, so --account is
+> required"*. The root callback binds a tenant before any subcommand — right for every group
+> except this one, which sweeps **across** estates. `mihomes jobs` was unreachable on exactly the
+> installs it exists for. The regression test uses **two** account fixtures, because the gate only
+> fires when there is a choice to make: one account would have passed while production failed.
+>
+> **`trial_used_at` survives expiry**, and that is A18's foundation — clearing it reads as
+> tidy-up and would hand every account unlimited trials. Mutation-verified. Expiry also deletes
+> nothing (`PRICING` §4.3), asserted because "clean up the surplus" is the intuitive wrong move.
+>
+> **A16 is structural, not defensive.** For `reconcile`, "nothing changed" is what the word means.
+> For `trial-sweep`, expiry clears `trial_ends_at` and the sweep selects on `IS NOT NULL`, so an
+> account that expired yesterday is not re-expired nightly forever.
+>
+> One account's failure must not abort the sweep: errors are logged per account and it continues,
+> or one unreachable Stripe customer strands every account after it in the list.
 
 ### [ ] G13 — Step 13: the trial state machine — *dep: G12*
 - [ ] G13.1 · §6 Step 13 · A17 · a trial grants Pro entitlements with **no Stripe subscription existing** (F3) · verify: `tests/integration/test_trial.py::test_cardless_trial_entitlements`
@@ -568,9 +587,9 @@ what differs before deciding which.
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**Steps 1–11 landed.** Suite at **2108 passed, 3 skipped, 2 xfailed, 0 failed** (baseline 1945).
-Resume at **G12.1** — the scheduled-job entrypoints (`mihomes jobs trial-sweep | reconcile`),
-which **must** precede G13: the card-less trial has no other trigger (F3).
+**Steps 1–12 landed.** Suite at **2121 passed, 3 skipped, 2 xfailed, 0 failed** (baseline 1945).
+Resume at **G13.1** — the trial state machine. G12's sweep is its only clock (F3), and
+`jobs._expire_trial` is the half it already drives.
 
 | Group | State | Commit |
 |---|---|---|
@@ -585,10 +604,11 @@ which **must** precede G13: the card-less trial has no other trigger (F3).
 | G9 — factory bypass closed | ✅ 11 tests | `9402cd7` |
 | G10 — **the meter (A11)** | ✅ 29 tests | `61812f2` |
 | G11 — overage, ceiling, nudges | ✅ 13 tests | `408e43b` |
-| G12 onward | ⬜ not started | — |
+| G12 — scheduled jobs | ✅ 13 tests | `<G12>` |
+| G13 onward | ⬜ not started | — |
 
-**Criteria discharged so far:** A1, A2, A3, A4, A5, A6, A7, A8, A10, **A11**, A12, A13, A14,
-A15, A26, A27, A28, A29, A30. Twelve remain — **A31, the exit criterion, among them.**
+**Criteria discharged so far:** A1–A8, A9, A10, **A11**, A12–A16, A26–A30. Ten remain:
+A17–A25 and **A31, the exit criterion.**
 
 ## 3. Circuit breaker (conventions §3)
 

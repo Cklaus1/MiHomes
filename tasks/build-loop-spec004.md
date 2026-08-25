@@ -535,7 +535,7 @@ exists before the trial needs it), **G3 before G4** (the ledger exists before th
 > One account's failure must not abort the sweep: errors are logged per account and it continues,
 > or one unreachable Stripe customer strands every account after it in the list.
 
-### [x] G13 — Step 13: the trial state machine — *dep: G12* — *13 tests; 2121 → 2134; 2 arms mutation-verified; commit `<G13>`*
+### [x] G13 — Step 13: the trial state machine — *dep: G12* — *13 tests; 2121 → 2134; 2 arms mutation-verified; commit `b69983a`*
 - [x] G13.1 · §6 Step 13 · A17 · a trial grants Pro entitlements with **no Stripe subscription existing** (F3) · verify: `tests/integration/test_trial.py::test_cardless_trial_entitlements` ✓
 - [x] G13.2 · §6 Step 13 · A18 · one trial per account, ever (`trial_used_at`) · verify: `tests/integration/test_trial.py::test_one_trial_ever` ✓
 - [x] G13.3 · §6 Step 13 · A19 · expiry downgrades and surfaces over-limit, dropping nothing · verify: `tests/integration/test_trial.py::test_expiry_is_nondestructive` ✓
@@ -630,7 +630,7 @@ nothing deleted, across all three arrival paths.
 | G10 — **the meter (A11)** | ✅ 29 tests | `61812f2` |
 | G11 — overage, ceiling, nudges | ✅ 13 tests | `408e43b` |
 | G12 — scheduled jobs | ✅ 13 tests | `44f1d35` |
-| G13 — the trial state machine | ✅ 13 tests | `<G13>` |
+| G13 — the trial state machine | ✅ 13 tests | `b69983a` |
 | G14 onward | ⬜ not started | — |
 
 **Criteria discharged so far:** A1–A17, A18, A19, A26–A30. Seven remain: A20–A25 and

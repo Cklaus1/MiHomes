@@ -1,4 +1,17 @@
-"""Vendor rating service — rate vendors and compare scores."""
+"""Vendor rating service — rate vendors and compare scores.
+
+**Every function here is gated on the `vendor_ratings` entitlement (D12), and all three currently
+have zero callers** (F6). Gating dead code is deliberate rather than thorough-for-its-own-sake:
+the live path is `services/vendor.py::get_vendor_ratings`, and whoever eventually wires *these* up
+— the write path §3.2 assumes exists, or a comparison screen — inherits the gate instead of
+reopening the hole. A module left ungated because nothing calls it today is a paywall with a
+scheduled expiry date.
+
+Unlike the read path, these **raise** rather than returning empty. N11's "the page must still
+load" is about a panel among many on a dashboard; a caller explicitly asking to *create* a rating
+or *compare* vendors has no partial answer to render, and silently doing nothing would be worse
+than a clear refusal.
+"""
 
 from datetime import date
 
@@ -14,6 +27,35 @@ from mihomes.services.rating_validation import validate_scores
 from mihomes.services.slug import resolve_identifier
 
 
+def _require_ratings_entitlement(session: Session) -> None:
+    """Raise unless the bound account's plan includes vendor ratings (D12/D14)."""
+    from mihomes.entitlements.limits import UPGRADE_PATH
+    from mihomes.entitlements.service import Denied, can
+    from mihomes.models.account import Account
+    from mihomes.services.property import EntitlementError
+    from mihomes.tenancy import current_account
+
+    account_id = current_account.get(None)
+    if account_id is None:
+        return  # operator CLI / background job — no household to bill (SPEC-002 D1)
+
+    account = session.get(Account, account_id)
+    if account is None:  # pragma: no cover - a bound account always exists
+        return
+
+    decision = can(account, "vendor.rate")
+    if isinstance(decision, Denied):
+        raise EntitlementError(
+            Denied(
+                reason=(
+                    f"Vendor ratings are not included in the {account.plan} plan."
+                ),
+                upgrade_target=UPGRADE_PATH.get(getattr(account, "plan", "free")),
+                limit=False,
+            )
+        )
+
+
 def create_rating(
     session: Session,
     vendor_id_or_slug: str,
@@ -27,6 +69,7 @@ def create_rating(
     notes: str | None = None,
     rated_date: date | None = None,
 ) -> VendorRating:
+    _require_ratings_entitlement(session)
     # M5: enforce the same 1–5 bounds as vendor.rate_vendor via the shared helper.
     validate_scores({
         "quality": (quality_score, True),
@@ -59,6 +102,7 @@ def create_rating(
 
 def get_vendor_scores(session: Session, vendor_id_or_slug: str) -> dict:
     """Get average scores for a vendor."""
+    _require_ratings_entitlement(session)
     vendor = resolve_identifier(session, Vendor, vendor_id_or_slug)
     result = session.query(
         func.avg(VendorRating.quality_score).label("quality"),
@@ -82,6 +126,7 @@ def get_vendor_scores(session: Session, vendor_id_or_slug: str) -> dict:
 
 def compare_vendors(session: Session, vendor_slugs: list[str]) -> list[dict]:
     """Compare multiple vendors by their average scores."""
+    _require_ratings_entitlement(session)
     results = []
     for slug in vendor_slugs:
         scores = get_vendor_scores(session, slug)

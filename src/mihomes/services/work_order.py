@@ -35,6 +35,54 @@ def _validate_transition(current: WorkOrderStatus, target: WorkOrderStatus) -> N
         )
 
 
+def _require_scheduling_entitlement(session: Session, due_date) -> None:
+    """Gate `work_order_scheduling` — **and D13 scopes that key to exactly one capability**.
+
+    *"Setting `WorkOrder.due_date`."* Not `assignee_id`, not `Appointment`/`/calendar`. The key
+    named a feature that did not exist (F5), so enforcing it required defining it first, and the
+    scope matters more than the gate:
+
+    - `assignee_id` is not coherently gateable — the web UI exposes no assignee field at all, so
+      a gate would fire only on the CLI, which SPEC-002 D1 makes an operator tool.
+    - `Appointment`/`/calendar` is a **different product wearing the same word**. Gating it would
+      paywall the whole calendar, the Telegram bot's appointment creation, and
+      `services/recurring.py`'s nightly automation — far more than `PRICING:27` sells, and it
+      would present to a Free user as a broken background job rather than an upgrade prompt (N9).
+
+    **No due date, no gate.** A work order without one is allowed on every plan, which is what
+    keeps the Telegram path unaffected (F5: `responder.py` passes no `due_date`) and satisfies
+    N10 — a gate that tripped a bot message would deny a user something they did not choose to do.
+    """
+    if due_date is None:
+        return
+
+    from mihomes.entitlements.limits import UPGRADE_PATH
+    from mihomes.entitlements.service import Denied, can
+    from mihomes.models.account import Account
+    from mihomes.services.property import EntitlementError
+    from mihomes.tenancy import current_account
+
+    account_id = current_account.get(None)
+    if account_id is None:
+        return  # operator CLI / background job (SPEC-002 D1)
+
+    account = session.get(Account, account_id)
+    if account is None:  # pragma: no cover - a bound account always exists
+        return
+
+    if isinstance(can(account, "work_order.schedule"), Denied):
+        raise EntitlementError(
+            Denied(
+                reason=(
+                    f"Scheduling work orders is not included in the {account.plan} plan. "
+                    "You can still create this work order without a due date."
+                ),
+                upgrade_target=UPGRADE_PATH.get(getattr(account, "plan", "free")),
+                limit=False,
+            )
+        )
+
+
 def create_work_order(
     session: Session,
     title: str,
@@ -51,6 +99,7 @@ def create_work_order(
     due_date: datetime | None = None,
     slug: str | None = None,
 ) -> WorkOrder:
+    _require_scheduling_entitlement(session, due_date)
     prop = resolve_identifier(session, Property, property_id_or_slug)
     vendor_id = None
     if vendor_id_or_slug:
@@ -103,6 +152,9 @@ def get_work_order(session: Session, id_or_slug: str) -> WorkOrder:
 
 
 def update_work_order(session: Session, id_or_slug: str, **kwargs) -> WorkOrder:
+    # Only when a due date is actually being *set* — an edit that leaves it alone, or clears it,
+    # is not scheduling and must stay available on every plan.
+    _require_scheduling_entitlement(session, kwargs.get("due_date"))
     wo = resolve_identifier(session, WorkOrder, id_or_slug)
     old_snap = snapshot_instance(wo)
     if "title" in kwargs and "slug" not in kwargs:

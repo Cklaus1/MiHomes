@@ -613,11 +613,28 @@ exists before the trial needs it), **G3 before G4** (the ledger exists before th
 > A control test confirms an account **within** its limits gets no over-limit warning — otherwise
 > `over_limit` could be hardcoded true and every other assertion would still pass.
 
-### [ ] G16 — Step 16: the three feature gates — *dep: G8*
-- [ ] G16.1 · §6 Step 16 · A22 · ratings gated at **context assembly**, not the route (N11) — `services/vendor.py` live path *and* `vendor_rating.py`'s three dead ones (F6) · verify: `tests/integration/test_feature_gates.py::test_ratings_gated_pages_load`
-- [ ] G16.2 · §6 Step 16 · A22 · `dashboard.html` + `property_detail.html` **still load** on Free · verify: same test
-- [ ] G16.3 · §6 Step 16 · A23 · `due_date` denied on Free; an **undated** work order succeeds (D13) · verify: `tests/integration/test_feature_gates.py::test_due_date_gate`
-- [ ] G16.4 · §6 Step 16 · A24 · **N9/N10** — the Telegram path passes no `due_date` (F5), so no bot path trips the gate · verify: `tests/integration/test_feature_gates.py::test_bot_path_ungated`
+### [x] G16 — Step 16: the three feature gates — *dep: G8* — *12 tests; 2167 → 2179; 1 arm mutation-verified after **three** vacuity fixes; commit `<G16>`*
+- [x] G16.1 · §6 Step 16 · A22 · ratings gated at **context assembly**, not the route (N11) — live path `services/vendor.py` *and* `vendor_rating.py`'s three dead ones (F6) · verify: `tests/integration/test_feature_gates.py::test_free_gets_no_ratings` ✓
+- [x] G16.2 · §6 Step 16 · A22 · both pages **still load** on Free · verify: `tests/integration/test_feature_gates.py::test_ratings_gated_pages_load` ✓
+- [x] G16.3 · §6 Step 16 · A23 · `due_date` denied on Free; an **undated** work order succeeds (D13) · verify: `tests/integration/test_feature_gates.py::test_due_date_gate` ✓
+- [x] G16.4 · §6 Step 16 · A24 · **N9/N10** — the Telegram path passes no `due_date`, asserted statically · verify: `tests/integration/test_feature_gates.py::test_bot_path_ungated` ✓
+
+> **A22's test was green for three separate wrong reasons**, and mutation found all of them.
+> Making the gate raise turned three tests red and left the page-load test green:
+> (1) no vendor existed in the request's world — `web_client_as` runs on a different connection
+> from `session`, so the comprehension never called the gated function; (2) the seed then had to
+> be *proven* to arrive, since a 200 says nothing if the gate was never reached; (3) the account
+> was on `DEFAULT_FIXTURE_PLAN = "estate"` (Step 8) and therefore entitled. Only after all three
+> does the mutation turn it red — the exact shape §0.4 exists to close.
+>
+> **The gate degrades, it does not refuse.** Same shape, empty data: six templates render it, and
+> a caller getting `None` on Free would need a branch at every one — the first forgotten branch
+> being a 500 on the page the gate exists to keep loading. The dead module **raises** instead,
+> deliberately: a caller asking to compare vendors has no partial answer to render.
+>
+> **D13's scope is narrower than the key's name.** Not `assignee_id` (no web UI field, so the gate
+> would fire only on the operator CLI), not `Appointment`/`/calendar` (a different product wearing
+> the same word — gating it would present as a broken nightly job, N9). No due date, no gate.
 
 ### [ ] G17 — Step 17: the importer gate — *dep: G8*
 - [ ] G17.1 · §6 Step 17 · A25 · **D16** — assert `can("home.create")` per home; refuse rather than create an over-limit account; no partial account left · verify: `tests/integration/test_importer_gate.py::test_over_limit_refused`
@@ -653,9 +670,9 @@ what differs before deciding which.
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**Steps 1–15 landed.** Suite at **2167 passed, 3 skipped, 2 xfailed, 0 failed** (baseline 1945).
-Resume at **G16.1** — the three feature gates (A22–A24). Ratings gate at **context assembly**,
-never at the route: N11 forbids 403-ing the dashboard, which renders ratings among other things.
+**Steps 1–16 landed.** Suite at **2179 passed, 3 skipped, 2 xfailed, 0 failed** (baseline 1945).
+Resume at **G17.1** — the importer gate (A25, D16): assert `can("home.create")` per home and
+refuse an over-limit import rather than creating an account §4.3 has no language to rescue.
 
 | Group | State | Commit |
 |---|---|---|
@@ -674,10 +691,11 @@ never at the route: N11 forbids 403-ing the dashboard, which renders ratings amo
 | G13 — the trial state machine | ✅ 13 tests | `b69983a` |
 | G14 — restricted mode | ✅ 13 tests | `681daa0` |
 | G15 — the four billing emails | ✅ 20 tests | `3b11c17` |
-| G16 onward | ⬜ not started | — |
+| G16 — the three feature gates | ✅ 12 tests | `<G16>` |
+| G17 onward | ⬜ not started | — |
 
-**Criteria discharged so far:** A1–A21, A26–A30. Five remain: A22–A25 and **A31, the exit
-criterion.**
+**Criteria discharged so far:** A1–A24, A26–A30. Two remain: **A25** (the importer gate) and
+**A31, the exit criterion.**
 
 ## 3. Circuit breaker (conventions §3)
 

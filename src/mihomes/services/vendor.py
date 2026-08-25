@@ -275,9 +275,60 @@ def rate_vendor(
     return rating
 
 
+def ratings_are_entitled(session: Session) -> bool:
+    """Does the bound account's plan include vendor ratings? — `PRICING` §3.1, D12/D14.
+
+    **A declared *read* gate**, which §3.2 rule 5's write-only list does not cover — hence D14
+    stating the exception rather than leaving SPEC-004 in silent conflict with SPEC-003 §5.
+    Ratings have no write path at all today (F6: `create_rating` has zero callers), so reading is
+    the only thing there is to gate.
+
+    Returns a bool rather than raising, because **N11 forbids 403-ing the dashboard**: it renders
+    ratings alongside a dozen other things, and refusing the whole page to withhold one panel
+    would be a worse product than the paywall it enforces. The gate is at context assembly —
+    callers simply get no ratings.
+
+    Unbound account (CLI operator, background job) → **entitled**. There is no household to bill
+    and no plan to consult, and failing closed here would break `mihomes vendor show` for the
+    operator tool SPEC-002 D1 says the CLI is.
+    """
+    from mihomes.entitlements import Denied, can
+    from mihomes.models.account import Account
+    from mihomes.tenancy import current_account
+
+    account_id = current_account.get(None)
+    if account_id is None:
+        return True
+
+    account = session.get(Account, account_id)
+    if account is None:  # pragma: no cover - a bound account always exists
+        return True
+
+    return not isinstance(can(account, "vendor.rate"), Denied)
+
+
+#: What a Free account gets instead of ratings — the same shape, empty.
+#:
+#: Shape-compatible on purpose: six templates render this, and a caller that got `None` on Free
+#: and a dict on Pro would need a branch at every one of them. The panel renders empty and the
+#: page keeps working, which is exactly what N11 asks for.
+_NO_RATINGS: dict = {"vendor": None, "ratings": [], "averages": None, "entitled": False}
+
+
 def get_vendor_ratings(session: Session, id_or_slug: str) -> dict:
-    """Return all ratings and aggregate averages for a vendor."""
+    """Return all ratings and aggregate averages for a vendor.
+
+    **Gated on `vendor_ratings`** (D12): `false` on Free, `true` on Pro and Estate. SPEC-003's N8
+    forbade enforcing this — its reasoning was that enforcement would *"delete working
+    functionality from every user"* — and D12 supersedes it: there are no hosted users to
+    grandfather, so it is a pricing question the PRD already answered.
+    """
     vendor = resolve_identifier(session, Vendor, id_or_slug)
+
+    if not ratings_are_entitled(session):
+        # The vendor is still returned — the page shows the vendor, minus the ratings panel.
+        return {**_NO_RATINGS, "vendor": vendor}
+
     ratings = (
         session.query(VendorRating)
         .filter(VendorRating.vendor_id == vendor.id)

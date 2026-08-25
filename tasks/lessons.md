@@ -647,3 +647,43 @@ Review this at the start of each session.
   a test for the third kind pins an implementation detail and makes future refactors fail for no
   reason. **Rule:** when a mutation survives, measure what actually differs before deciding what to
   do; the reflex to write a test is wrong about a third of the time.
+
+
+## 2026-08-25 — SPEC-004 (Phase 3, Billing/Freemium)
+
+- **A test that passes in isolation and fails in the suite is a finding, not a flake — and the
+  first diagnosis is usually wrong.** A31 did this, and the symptom actively misled: the webhook
+  returned 200 and logged *"no account for customer"*, which reads as a mapping bug in code just
+  written. Two plausible theories died before the real one: the ledger had deduplicated it (zero
+  rows — wrong), and the `session` fixture's open transaction was hiding the row (the rewrite onto
+  a dedicated committed account **still failed**, which is what falsified it). The cause was that
+  `get_session()` resolves `DATABASE_URL` at call time while a session-scoped fixture rewrites that
+  variable — so every test after it looks in a different database. **Rule:** when a suite-only
+  failure has a plausible cause, fix it and re-run *the failing configuration*, not the isolated
+  test. A theory that survives only because it was never falsified costs more than the bug.
+
+- **"Fixed the env var" is not the same as "changed the behaviour" when a module caches.**
+  Pinning `DATABASE_URL` left A31 failing exactly as before, because `db._engine` is a
+  module-level cache built on first use. **Rule:** after changing configuration a module reads,
+  check whether it reads it *once*; if so, the change needs a dispose/reset alongside, and the
+  absence of any improvement is the signal that a cache is involved.
+
+- **A test can be vacuous in more than one way at once, and fixing one leaves it green.** A22 was
+  green for three independent reasons — no vendor existed in the request's world, the seed was
+  never proven to arrive, and the account was on the fixture's default plan and therefore
+  entitled. Each fix looked sufficient. **Rule:** when a mutation leaves a test green, keep
+  mutating after each fix until it goes red; stopping at the first plausible repair leaves the
+  other holes intact and, worse, leaves you believing the test now works.
+
+- **Assert the absence, not just the presence, when the criterion says "without".** A17 is *"a
+  trial grants Pro entitlements **with no Stripe subscription existing**"*. A trial that quietly
+  created a Stripe Customer grants exactly the right entitlements and passes any test that checks
+  only the gate — while creating vendor records for people who never convert. **Rule:** when a
+  criterion contains "without", "never", or "not", that clause needs its own assertion; the
+  positive half will pass either way.
+
+- **A pinned count is a gate, and its failure message is the design.** Three separate pinned
+  counts fired this phase — table count, tenant-registry size, and U7's denied-model census — each
+  demanding the change be acknowledged rather than absorbed. Every one was correct and every one
+  cost thirty seconds. **Rule:** when adding a model or table, expect the pinned counts to fail and
+  budget for updating them *with the reason*, not for arguing with them.

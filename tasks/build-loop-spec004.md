@@ -666,13 +666,24 @@ exists before the trial needs it), **G3 before G4** (the ledger exists before th
 > pinning it was not enough — `db._engine` is a module-level cache, so `dispose_engine()` is
 > required alongside. Both facts are now in the fixture's docstring.
 
-### [ ] G-Final — Compound-stop verification (conventions §4.1)
-- [ ] F.1 · full-suite `pytest -q` green (condition C)
-- [ ] F.2 · every §8 criterion green by its own named test (condition E) — all 31
-- [ ] F.3a · walk §6 top-to-bottom: every step has a task (condition B, steps)
-- [ ] F.3b · walk §8 top-to-bottom: every criterion has a gate (condition B, criteria)
-- [ ] F.4 · smoke green (condition D)
-- [ ] F.5 · write end-of-run report `tasks/build-loop-spec004-report.md` (§5)
+### [x] G-Final — Compound-stop verification (conventions §4.1) — **all five conditions hold**
+- [x] F.1 · full-suite `pytest -q` green (condition C) ✓ `2184 passed, 3 skipped, 2 xfailed, 0 failed`
+- [x] F.2 · every §8 criterion green by its own named test (condition E) ✓ **31 node ids run explicitly — `44 passed, 0 skipped`**
+- [x] F.3a · walk §6 top-to-bottom: every step has a task (condition B, steps) ✓ 18/18
+- [x] F.3b · walk §8 top-to-bottom: every criterion has a gate (condition B, criteria) ✓ 31/31
+- [x] F.4 · smoke green (condition D) ✓ `test_smoke_all_tools.py` 18 passed
+- [x] F.5 · end-of-run report written ✓ `tasks/build-loop-spec004-report.md`
+
+> **F.2 was run by node id, not inferred from the suite.** Conventions §0: *"a gate that cannot
+> fail is not a gate"* — a criterion whose test silently skipped would leave C green while the
+> thing it proves never executed. `-rs` confirms zero skips among the 31.
+>
+> **Four tests live in different files from §9's manifest**, each because the test belongs where
+> its subject lives: A5/A7/A27 in `test_webhook_idempotency.py` (Step 5's module, separate from
+> Step 4's route tests); A8 as a unit test because the mapping is pure; A13 with the meter's
+> behavioural tests rather than its static ones; A25 extending `test_importer.py` so its eight
+> shared fixtures stay in one place. A30 is discharged by the inherited `test_pg_baseline.py`
+> round-trip, which C7 measured as already covering every migration.
 
 ---
 
@@ -693,10 +704,10 @@ what differs before deciding which.
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**All 18 steps landed. A31 — the exit criterion — is green.** Suite at **2184 passed, 3
-skipped, 2 xfailed, 0 failed** (baseline 1945).
-Resume at **G-Final** — the compound stop condition: F.1 full suite, F.2 every criterion by its
-own named test, F.3a/F.3b the two reconciliation walks, F.4 smoke, F.5 the end-of-run report.
+**COMPLETE.** All 18 steps, all 31 criteria, all five stop conditions. Suite at **2184 passed, 3
+skipped, 2 xfailed, 0 failed** (baseline 1945) — **no new skip introduced**, which conventions §0
+treats as a red gate.
+**RUN COMPLETE.** Nothing to resume — see `tasks/build-loop-spec004-report.md`.
 
 | Group | State | Commit |
 |---|---|---|
@@ -717,7 +728,7 @@ own named test, F.3a/F.3b the two reconciliation walks, F.4 smoke, F.5 the end-o
 | G15 — the four billing emails | ✅ 20 tests | `3b11c17` |
 | G16 — the three feature gates | ✅ 12 tests | `4e0af61` |
 | G17+G18 — importer gate, **A31** | ✅ 5 tests | `a0146e5` |
-| G-Final | ⬜ not started | — |
+| G-Final — compound stop | ✅ all five conditions | `<GFINAL>` |
 
 **All 31 criteria discharged** — A1 through A31, including **A11** (the definition of done) and
 **A31** (the exit criterion). G-Final proves it formally.

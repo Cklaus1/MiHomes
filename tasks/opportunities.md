@@ -1091,3 +1091,44 @@ What follows is what closing them turned up, which is more interesting than the 
   toothless mutation this month** — redundant condition (delete it), untested arm (add the test),
   and now inert difference (document it). The reflex to add a test for every surviving mutation is
   wrong a third of the time.
+
+
+## SPEC-004 (Phase 3, Billing/Freemium) — 2026-08-25
+
+- [DEFER][U8] `services/metering/ai_wrapper.py::_check` — **a metering-infrastructure outage lifts
+  the AI ceiling for its duration.** The ceiling check fails *open* when the lookup itself raises.
+  Measured before choosing: the AI route reads its provider key from the database before a provider
+  exists, so a dead database already fails the request — the real choice was between a confusing
+  billing error and a database error, not between capped and uncapped. A `Denied` still raises;
+  only the lookup is wrapped, and re-mutating the ceiling confirmed A14 kept its teeth. Bounded and
+  accepted; recorded so it is not rediscovered as a bug.
+
+- [OPT] `services/metering/meter.py` — **two sessions per AI call.** `_check` opens one and
+  `_record` another, so the count read can be stale by the time the increment lands. The same
+  window the no-reserve decision already accepts (see `check_and_reserve`'s docstring), and closing
+  it would mean building the reservation that function deliberately is not. Not acted on.
+
+- [OPT] `services/vendor.py:3,5` — two unused imports (`date`, `func`) that predate this phase,
+  confirmed present at `4178286`. Left alone: they are outside SPEC-004's diff, and the tree-wide
+  ruff backlog (~448 findings) is its own task on its own branch.
+
+- [BUG][low] `PRICING` §4.3's **home-picker is not built.** §4.3 promises *"an in-app picker shown
+  from day 0 of Grace"* so the owner chooses which home stays active. `restricted.restriction_for`
+  takes `chosen_ids` and honours it — the mechanism is there — but no UI writes it, so today every
+  restricted account gets the oldest-created default. Phase 4 UI work; the service needs no change.
+
+- [BUG][low] **`trial_ending` is counted but not sent.** `cli/jobs.py::trial_sweep` counts trials
+  ending within the window and `EmailService.send_trial_ending` renders correctly (A21), but the
+  sweep does not call it. Split deliberately so a failure in the mail path cannot mark a trial as
+  notified without notifying anyone — the wiring, and the "sent once per cycle" marker it needs,
+  are the remaining piece.
+
+- [DEFER][O1] The **four `STRIPE_PRICE_*` env vars, `STRIPE_SECRET_KEY` and
+  `STRIPE_WEBHOOK_SECRET`** do not exist in any environment, and no Stripe account is configured.
+  Every criterion is proved against `FakeBillingProvider`; nothing here proves the live account's
+  own configuration. Launch prerequisite, founder-owned.
+
+- [DEFER][D15] **No scheduler runs the two jobs.** `mihomes jobs trial-sweep | reconcile` are
+  idempotent and safe to run twice — the half that is provable without one — but Fly's scheduled-
+  machine mechanism has **not** been verified against their documentation, so the deployment shape
+  remains a default with a named alternative rather than an asserted fact.

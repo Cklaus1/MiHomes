@@ -115,3 +115,89 @@ class EmailService:
                 "invited_email": invited_email,
             },
         )
+
+    # ── SPEC-004 §6 Step 15 — the four billing mails ──────────────────────────
+    #
+    # **Methods here, not on the `EmailProvider` Protocol.** SPEC-001 §5.1 keeps that Protocol
+    # transport-only — `send(to, subject, html, text)` and nothing else — so a provider swap
+    # (Console → Resend → anything) never has to know what mail types exist. Adding
+    # `send_receipt` there would make every provider implement every message.
+    #
+    # **Three fire from webhooks, one from the scheduler**, and B2 corrects the spec's own
+    # summary on that point: `trial_ending` has no Stripe event behind it, because a card-less
+    # trial has no Stripe subscription (F3). `cli/jobs.py::trial_sweep` is its only trigger.
+
+    def send_receipt(self, to: str, *, plan: str, amount: str, billing_url: str,
+                     period_end: str | None = None) -> None:
+        """`invoice.paid` — the payment went through.
+
+        `amount` is a **pre-formatted string**, not a number: Stripe reports minor units in the
+        customer's currency, and formatting that correctly is a presentation concern the caller
+        already has to solve for the billing page. Passing an int here would put currency
+        formatting inside a mail template, where it would be wrong for every non-USD account.
+        """
+        self._send(
+            to,
+            "receipt",
+            {
+                "plan": plan,
+                "amount": amount,
+                "billing_url": billing_url,
+                "period_end": period_end,
+            },
+        )
+
+    def send_payment_failed(self, to: str, *, plan: str, billing_url: str,
+                            grace_days: int | None = None) -> None:
+        """`invoice.payment_failed` — the card was declined and dunning has started.
+
+        **Says nothing has changed yet**, because it has not (D10): `past_due` is the grace
+        window and keeps full access while Stripe retries. Leading with "your account is
+        suspended" would be false *and* worse for recovery — a customer who believes they are
+        already locked out is less likely to come back and fix the card.
+        """
+        self._send(
+            to,
+            "payment_failed",
+            {"plan": plan, "billing_url": billing_url, "grace_days": grace_days},
+        )
+
+    def send_trial_ending(self, to: str, *, days_left: int, ends_on: str, billing_url: str,
+                          home_count: int | None = None,
+                          max_homes: int | None = None) -> None:
+        """The trial is nearly over — **sent by the scheduler, never by a webhook** (F3, B2).
+
+        Carries the over-limit numbers when they apply, because §4.3 shows the home-picker ~3
+        days ahead *"so the choice is made before access changes rather than after"*. An email
+        that only says "your trial is ending" leaves the customer to discover the consequence
+        themselves, after two of their homes have gone read-only.
+        """
+        self._send(
+            to,
+            "trial_ending",
+            {
+                "days_left": days_left,
+                "ends_on": ends_on,
+                "billing_url": billing_url,
+                "home_count": home_count,
+                "max_homes": max_homes,
+                "over_limit": bool(
+                    home_count is not None and max_homes is not None and home_count > max_homes
+                ),
+            },
+        )
+
+    def send_subscription_cancelled(self, to: str, *, plan: str, billing_url: str,
+                                    active_until: str | None = None) -> None:
+        """`customer.subscription.deleted` — cancelled, and what that actually means.
+
+        `active_until` matters: §4.4 says cancellation takes effect **at period end**, not
+        instantly, because the customer has already paid for the rest of the period. Omitting it
+        invites the support ticket that begins *"I cancelled and lost access immediately"* — which
+        would be a misunderstanding the email caused.
+        """
+        self._send(
+            to,
+            "subscription_cancelled",
+            {"plan": plan, "billing_url": billing_url, "active_until": active_until},
+        )

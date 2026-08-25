@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block subject %}Your MiHomes receipt — {{ plan|capitalize }}{% endblock %}
+
+{% block content %}
+  <p style="margin:0 0 16px;">Hi,</p>
+
+  <p style="margin:0 0 24px;">
+    Thanks — your MiHomes payment went through.
+  </p>
+
+  <table style="margin:0 0 28px;border-collapse:collapse;">
+    <tr>
+      <td style="padding:4px 24px 4px 0;color:#6b6b66;">Plan</td>
+      <td style="padding:4px 0;"><strong>{{ plan|capitalize }}</strong></td>
+    </tr>
+    <tr>
+      <td style="padding:4px 24px 4px 0;color:#6b6b66;">Amount</td>
+      <td style="padding:4px 0;">{{ amount }}</td>
+    </tr>
+    {% if period_end %}
+    <tr>
+      <td style="padding:4px 24px 4px 0;color:#6b6b66;">Renews</td>
+      <td style="padding:4px 0;">{{ period_end }}</td>
+    </tr>
+    {% endif %}
+  </table>
+
+  <p style="margin:0 0 28px;">
+    <a href="{{ billing_url }}"
+       style="display:inline-block;background:#1c1c1a;color:#ffffff;
+              text-decoration:none;padding:12px 22px;border-radius:6px;
+              font-weight:500;">View billing</a>
+  </p>
+
+  <p style="margin:0;color:#6b6b66;font-size:14px;">
+    Nothing to do — this is just your record of the payment.
+  </p>
+{% endblock %}

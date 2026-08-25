@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block subject %}Your MiHomes subscription has been cancelled{% endblock %}
+
+{% block content %}
+  <p style="margin:0 0 16px;">Hi,</p>
+
+  <p style="margin:0 0 24px;">
+    Your MiHomes <strong>{{ plan|capitalize }}</strong> subscription has been
+    cancelled.
+  </p>
+
+  {# PRICING §4.4: cancellation takes effect at period end, not instantly — they
+     paid for it. Saying so prevents the support ticket that starts "I cancelled
+     and lost access immediately". #}
+  {% if active_until %}
+  <p style="margin:0 0 24px;">
+    You keep {{ plan|capitalize }} until <strong>{{ active_until }}</strong> —
+    you have already paid for it. After that your account moves to the free plan.
+  </p>
+  {% endif %}
+
+  <p style="margin:0 0 24px;">
+    <strong>Nothing has been deleted.</strong> Any homes over the free limit
+    become read-only: you can still open and export everything, and resubscribing
+    brings them straight back exactly as they were.
+  </p>
+
+  <p style="margin:0 0 28px;">
+    <a href="{{ billing_url }}"
+       style="display:inline-block;background:#1c1c1a;color:#ffffff;
+              text-decoration:none;padding:12px 22px;border-radius:6px;
+              font-weight:500;">Resubscribe</a>
+  </p>
+{% endblock %}

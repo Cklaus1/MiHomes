@@ -1,0 +1,14 @@
+Hi,
+
+Your MiHomes {{ plan|capitalize }} subscription has been cancelled.
+{% if active_until %}
+You keep {{ plan|capitalize }} until {{ active_until }} — you have already paid
+for it. After that your account moves to the free plan.
+{% endif %}
+Nothing has been deleted. Any homes over the free limit become read-only:
+you can still open and export everything, and resubscribing brings them
+straight back exactly as they were.
+
+Change your mind any time:
+
+{{ billing_url }}

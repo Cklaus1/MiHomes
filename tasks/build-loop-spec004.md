@@ -591,9 +591,27 @@ exists before the trial needs it), **G3 before G4** (the ledger exists before th
 > was wrong, not the rule — it dropped `plan` to `free` alongside `past_due`, and grace preserves
 > the account's *own* plan.
 
-### [ ] G15 — Step 15: the four emails — *dep: G7, G12*
-- [ ] G15.1 · §6 Step 15 · A21 · four template pairs + four `send_*` on the **existing** `EmailService`; do **not** extend the transport-only `EmailProvider` Protocol · verify: `tests/integration/test_billing_emails.py::test_four_templates`
-- [ ] G15.2 · §6 Step 15 · A21 · 3 webhook-triggered + 1 scheduler-triggered (`trial_ending`, F3/B2); each fires once per event · verify: `tests/integration/test_billing_emails.py::test_fires_once`
+### [x] G15 — Step 15: the four emails — *dep: G7, G12* — *20 tests; 2147 → 2167; 1 arm mutation-verified; commit `<G15>`*
+- [x] G15.1 · §6 Step 15 · A21 · four template pairs + four `send_*` on the **existing** `EmailService`; the transport-only `EmailProvider` Protocol is **not** extended · verify: `tests/integration/test_billing_emails.py::test_four_templates` ✓
+- [x] G15.2 · §6 Step 15 · A21 · 3 webhook-triggered + 1 scheduler-triggered (`trial_ending`, F3/B2); each fires once · verify: `tests/integration/test_billing_emails.py::test_fires_once` ✓
+
+> **Rendered through `ConsoleProvider`, not a mock.** A mock asserts `send` was called; the real
+> provider proves the *template renders*, and most template faults are render-time.
+> **Mutation-verified** with the exact typo this guards — `{{ billing_url }` — which turns three
+> tests red. Harder than the test's own reasoning assumed: I expected Jinja to emit the broken
+> delimiter as literal text; it raises instead.
+>
+> **The Protocol assertion is structural**, not a file read: `EmailProvider` must stay
+> `{send}` so a provider swap never has to know what mail types exist (SPEC-001 §5.1).
+>
+> **The copy is part of the correctness**, and three tests assert it. `payment_failed` says
+> *"nothing has changed yet"* because it has not (D10) — leading with "suspended" would be false
+> and worse for recovery. Both downgrade mails carry §4.3's nothing-is-deleted promise, which only
+> counts if it reaches the customer. `subscription_cancelled` names the date access ends (§4.4),
+> or the email itself causes the *"I cancelled and lost access immediately"* ticket.
+>
+> A control test confirms an account **within** its limits gets no over-limit warning — otherwise
+> `over_limit` could be hardcoded true and every other assertion would still pass.
 
 ### [ ] G16 — Step 16: the three feature gates — *dep: G8*
 - [ ] G16.1 · §6 Step 16 · A22 · ratings gated at **context assembly**, not the route (N11) — `services/vendor.py` live path *and* `vendor_rating.py`'s three dead ones (F6) · verify: `tests/integration/test_feature_gates.py::test_ratings_gated_pages_load`
@@ -635,9 +653,9 @@ what differs before deciding which.
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**Steps 1–14 landed.** Suite at **2147 passed, 3 skipped, 2 xfailed, 0 failed** (baseline 1945).
-Resume at **G15.1** — the four emails (A21), on the **existing** `EmailService` (SPEC-001). Three
-fire from webhooks; `trial_ending` fires from G12's sweep (F3/B2).
+**Steps 1–15 landed.** Suite at **2167 passed, 3 skipped, 2 xfailed, 0 failed** (baseline 1945).
+Resume at **G16.1** — the three feature gates (A22–A24). Ratings gate at **context assembly**,
+never at the route: N11 forbids 403-ing the dashboard, which renders ratings among other things.
 
 | Group | State | Commit |
 |---|---|---|
@@ -655,9 +673,10 @@ fire from webhooks; `trial_ending` fires from G12's sweep (F3/B2).
 | G12 — scheduled jobs | ✅ 13 tests | `44f1d35` |
 | G13 — the trial state machine | ✅ 13 tests | `b69983a` |
 | G14 — restricted mode | ✅ 13 tests | `681daa0` |
-| G15 onward | ⬜ not started | — |
+| G15 — the four billing emails | ✅ 20 tests | `<G15>` |
+| G16 onward | ⬜ not started | — |
 
-**Criteria discharged so far:** A1–A20, A26–A30. Six remain: A21–A25 and **A31, the exit
+**Criteria discharged so far:** A1–A21, A26–A30. Five remain: A22–A25 and **A31, the exit
 criterion.**
 
 ## 3. Circuit breaker (conventions §3)

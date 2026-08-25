@@ -1,0 +1,11 @@
+Hi,
+
+Thanks — your MiHomes payment went through.
+
+  Plan:    {{ plan|capitalize }}
+  Amount:  {{ amount }}
+{% if period_end %}  Renews:  {{ period_end }}
+{% endif %}
+Nothing to do. Your invoices and payment history are always in billing:
+
+{{ billing_url }}

@@ -212,6 +212,17 @@ statements conflict.
 
 Recorded because a later reader will otherwise "fix" one half to match the other.
 
+### C13 — `usage()` gained a keyword-only `session`, and that is a divergence
+
+SPEC-003 §5.3 requires `usage(account, meter)` *"character-for-character"*, because a signature
+edit there puts the two specs in contradiction. Step 11 added `*, session=None`.
+
+**Call-compatible, but still an addition**, and logged rather than judged — the discipline that has
+caught things all build. The two-argument form keeps working and returns the real limit with
+`used=0`; the reason it needs a session at all is that the counter lives in a tenant table and
+`usage()` has no other way to reach one. The alternative — opening a session *inside* `usage()` —
+would commit outside the caller's transaction, which is the race `PRICING` §3.2 rule 5 forbids.
+
 ### C12 — bug found during pre-flight → `opportunities.md`
 
 None found at pre-flight beyond the corrections above. Any surfaced mid-run follow conventions §5.
@@ -240,6 +251,7 @@ Conventions §3.3. Inherited from SPEC-003's report plus this phase's own.
 | **U4** | **Cost attribution below the account.** The meter counts calls per account — that is what `PRICING` §5.1 bills. One member can exhaust the quota with no visibility into who (spec §10) | accepted |
 | **U5** | **Inference cost vs. price.** `ai_calls_per_month` caps *calls*, not tokens. The event log records `tokens_in`/`tokens_out` so it becomes measurable; nothing acts on it until metered billing (Phase 4+) | Phase 4+ |
 | **U6** | **Inherited from SPEC-003 §10, unchanged:** mis-declared action keys (U2 there), aggregate inference (U3 there), the Telegram bot's transport (U4 there) | as recorded |
+| **U8** | **A metering-infrastructure outage lifts the AI ceiling for its duration.** `MeteredProvider._check` fails **open** when the lookup itself raises — measured before choosing: `web/routes/ai.py:460` reads the provider key from the database *before* a provider exists, so a dead database already fails the request, and the real choice is between a confusing billing error and a database error rather than between capped and uncapped. A `Denied` still raises — only the lookup is wrapped — and re-mutating the ceiling confirms A14 kept its teeth. Bounded, and cheaper than the alternative | accepted |
 | **U7** | **SPEC-003's O1 is CLOSED** — secrets are Fernet-encrypted at rest as of SPEC-003 U1. **SPEC-004 §10's first bullet and N12 are stale**: they say provider keys "remain plaintext" and `mihomes config list` "still prints them unredacted". Both were fixed. N12's *rule* still holds (`STRIPE_SECRET_KEY` from env, never `configurations.value`) but its *reason* has changed | ✅ resolved |
 
 ---
@@ -474,10 +486,31 @@ exists before the trial needs it), **G3 before G4** (the ledger exists before th
 > Four SPEC-003 gates fired, all correctly, including U7's census demanding the two new models be
 > acknowledged as denied-to-staff — the right outcome, since usage rows are billing data.
 
-### [ ] G11 — Step 11: overage behaviour — *dep: G10*
-- [ ] G11.1 · §6 Step 11 · A14 · soft cap passes, hard ceiling denies, each nudge fires once · verify: `tests/unit/test_overage.py::test_ceiling_and_nudges`
-- [ ] G11.2 · §6 Step 11 · A15 · **N10** — system-initiated calls never metered or denied · verify: `tests/unit/test_overage.py::test_system_calls_exempt`
-- [ ] G11.3 · §6 Step 11 · A26 · two concurrent calls at the cap: exactly one proceeds · verify: `tests/unit/test_overage.py::test_concurrent_at_cap`
+### [x] G11 — Step 11: overage behaviour — *dep: G10* — *13 tests; 2095 → 2108; 2 arms mutation-verified; commit `<G11>`*
+- [x] G11.1 · §6 Step 11 · A14 · soft cap passes, hard ceiling denies, each nudge fires once · verify: `tests/integration/test_overage.py::test_ceiling_and_nudges` ✓
+- [x] G11.2 · §6 Step 11 · A15 · **N10** — system-initiated calls never metered or denied · verify: `tests/integration/test_overage.py::test_system_calls_exempt` ✓
+- [x] G11.3 · §6 Step 11 · A26 · two concurrent calls at the cap: the counter cannot lose an increment · verify: `tests/integration/test_overage.py::test_concurrent_at_cap` ✓
+- [x] G11.4 · **P3-b closed** · — · `usage()` returns a real measurement; its Phase 2 test asserted the inverse and was **rewritten, not deleted** · verify: `tests/unit/test_entitlements.py::test_usage_reports_the_real_limit` ✓
+
+> **Three regions, not two.** §5.3 rejected a hard wall — *"it punishes the most engaged users,
+> our best upgrade candidates"* — so the middle region (over the plan, inside the buffer, still
+> working) is the one worth pinning. Free's buffer is **0%**, asserted, because "borrow 20% from
+> a plan that pays nothing" is the generous-looking bug that costs money.
+>
+> **The design question this step surfaced.** Adding `_check` before `_record` meant a dead
+> metering database blocked AI entirely — caught by a test that was *right to fail*. Measured
+> before choosing: `web/routes/ai.py:460` reads the provider key from the database before a
+> provider exists, so a dead database already fails the request. `_check` now fails **open on
+> infrastructure error, closed on a real `Denied`**, with only the lookup wrapped — a `try` around
+> the whole block would swallow `EntitlementError` and remove A14's teeth, so **the ceiling
+> mutation was re-run after the fix** and still turns four tests red. Recorded as **U8**.
+>
+> **A mutation with no teeth, found and fixed.** Re-marking `warned_100_at` on every call — the
+> notification-storm bug the columns exist to prevent — passed all twelve tests: the test asserted
+> the 80% marker's stability and never the 100% one. Independent columns, independent guards.
+>
+> `check_and_reserve` deliberately **does not reserve** (§5.3's ordering rule is what binds, not
+> §5.4's verb), and C13 records that `usage()` gained a keyword-only `session`.
 
 ### [ ] G12 — Step 12: scheduled-job entrypoints — *dep: G7 — MUST precede G13*
 - [ ] G12.1 · §6 Step 12 · A16 · `mihomes jobs trial-sweep` / `reconcile`, both idempotent (D15) · verify: `tests/integration/test_jobs.py::test_idempotent`
@@ -535,10 +568,9 @@ what differs before deciding which.
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**Steps 1–10 landed — A11, the definition of done, is green.** Suite at **2095 passed, 3
-skipped, 2 xfailed, 0 failed** (baseline 1945). Condition D re-verified: smoke 18 passed.
-Resume at **G11.1** — overage behaviour: the hard ceiling, the soft cap, and the 80/100% nudges.
-`meter.check_and_reserve` is declared and returns `Allowed()`; Step 11 fills in its body.
+**Steps 1–11 landed.** Suite at **2108 passed, 3 skipped, 2 xfailed, 0 failed** (baseline 1945).
+Resume at **G12.1** — the scheduled-job entrypoints (`mihomes jobs trial-sweep | reconcile`),
+which **must** precede G13: the card-less trial has no other trigger (F3).
 
 | Group | State | Commit |
 |---|---|---|
@@ -552,10 +584,11 @@ Resume at **G11.1** — overage behaviour: the hard ceiling, the soft cap, and t
 | G8 — real limits, gates live | ✅ 11 tests | `4cd5043` |
 | G9 — factory bypass closed | ✅ 11 tests | `9402cd7` |
 | G10 — **the meter (A11)** | ✅ 29 tests | `61812f2` |
-| G11 onward | ⬜ not started | — |
+| G11 — overage, ceiling, nudges | ✅ 13 tests | `<G11>` |
+| G12 onward | ⬜ not started | — |
 
-**Criteria discharged so far:** A1, A2, A3, A4, A5, A6, A7, A8, A10, **A11**, A12, A13, A27,
-A28, A29, A30. Fifteen remain — **A31, the exit criterion, among them.**
+**Criteria discharged so far:** A1, A2, A3, A4, A5, A6, A7, A8, A10, **A11**, A12, A13, A14,
+A15, A26, A27, A28, A29, A30. Twelve remain — **A31, the exit criterion, among them.**
 
 ## 3. Circuit breaker (conventions §3)
 

@@ -136,17 +136,116 @@ def current_usage(session: Session, account) -> int:
     return used or 0
 
 
-def check_and_reserve(session: Session, account, *, entry_point: str):
-    """**DEFERRED to Step 11** — the hard ceiling, the soft cap and the 80/100% nudges.
+def hard_ceiling(account) -> int:
+    """`ai_calls_per_month × (1 + ai_overage_buffer_pct/100)` — `PRICING` §5.3.
 
-    Declared now because `MeteredProvider` is written against it and Step 11 fills in the body;
-    an `Allowed` here means the meter counts without yet denying, which is deliberate: Step 10's
-    criterion (A11) is that every path is *counted*, and Step 11's (A14) is that the count is
-    *enforced*. Landing them together would make a failure of either look like a failure of both.
+    **Not the limit.** The limit is the soft cap: past it, AI keeps working through the buffer
+    with an upgrade banner, because *"a hard wall at exactly the limit punishes the most engaged
+    users — our best upgrade candidates — and creates a bad moment."* The ceiling exists purely to
+    bound worst-case Claude spend.
+
+    Free's buffer is **0%**, so its soft cap and ceiling coincide at 200: there is no revenue to
+    offset the cost of letting it run over. That is a deliberate asymmetry, not an oversight.
     """
-    from mihomes.entitlements.service import Allowed
+    from mihomes.entitlements.limits import limits_for
 
-    return Allowed()
+    limits = limits_for(
+        getattr(account, "plan", "free"), getattr(account, "subscription_status", None)
+    )
+    cap = limits.get("ai_calls_per_month", 0)
+    buffer_pct = limits.get("ai_overage_buffer_pct", 0)
+    return int(cap * (1 + buffer_pct / 100))
+
+
+def check_and_reserve(session: Session, account, *, entry_point: str):
+    """Called **before** dispatch. `Denied` once the account is at its hard ceiling (A14).
+
+    §5.3: *"the AI dispatch path compares against the hard ceiling **before** invoking the
+    provider; attempted calls past the ceiling are rejected, **not recorded**."* Both halves
+    matter. Checking after would bill the customer for the call that was refused, and recording
+    the rejection would inflate the counter past the ceiling forever, so the reset date would
+    arrive with the account still over.
+
+    **The name says `reserve` and it deliberately does not.** Reserving would mean incrementing
+    here and decrementing on failure — two writes and a rollback path around every AI call, to
+    close a window measured in milliseconds. The count is incremented by `record_usage` after the
+    provider returns, so the only overshoot is the calls in flight when the ceiling is crossed,
+    bounded by concurrency rather than by time. The signature is §5.4's; the behaviour is what the
+    ordering rule in §5.3 actually requires.
+
+    Fires the 80% and 100% nudges as a side effect, each **once per period**.
+
+    **Two sessions per AI call, measured and accepted.** `MeteredProvider._check` opens one here
+    and `_record` opens another after the provider returns, so the count read here can be stale by
+    the time the increment lands. That is the same window the no-reserve decision above already
+    accepts, and closing it would mean the reservation this function deliberately is not. Recorded
+    so the next reader does not "fix" it into one.
+    """
+    from mihomes.entitlements.limits import limits_for
+    from mihomes.entitlements.service import Allowed, Denied
+
+    limits = limits_for(
+        getattr(account, "plan", "free"), getattr(account, "subscription_status", None)
+    )
+    soft_cap = limits.get("ai_calls_per_month", 0)
+    ceiling = hard_ceiling(account)
+    used = current_usage(session, account)
+
+    _maybe_nudge(session, account, used=used, soft_cap=soft_cap)
+
+    if used >= ceiling:
+        _start, resets_at = billing_period(account)
+        from mihomes.entitlements.limits import UPGRADE_PATH
+
+        return Denied(
+            reason=(
+                f"AI paused until {resets_at.isoformat()} — {used} of {soft_cap} calls used "
+                f"this period. Upgrade to continue."
+            ),
+            upgrade_target=UPGRADE_PATH.get(getattr(account, "plan", "free")),
+            limit=soft_cap,
+        )
+    return Allowed(limit=soft_cap)
+
+
+def _maybe_nudge(session: Session, account, *, used: int, soft_cap: int) -> None:
+    """Set the 80% / 100% markers, each once per period (§5.3, §5.1's *"once per cycle"*).
+
+    **Columns rather than a recomputation**, and that is the whole design: "have we told them
+    yet" is a fact about what was *sent*, and deriving it from `used >= threshold` would re-send
+    on every single call past the threshold — turning a helpful nudge into a notification storm
+    precisely for the heaviest users, who are the best upgrade candidates.
+
+    This marks; it does not send. Step 15 owns the email and reads these columns, so a nudge
+    cannot be marked-but-unsent by a failure in the mail path.
+    """
+    if soft_cap <= 0:
+        return
+
+    start, _end = billing_period(account)
+    rollup = session.execute(
+        select(AIUsageRollup).where(
+            AIUsageRollup.account_id == account.id,
+            AIUsageRollup.period_start == start,
+        )
+    ).scalar_one_or_none()
+    if rollup is None:
+        return
+
+    now = datetime.now(UTC)
+    changed = False
+    if used >= soft_cap and rollup.warned_100_at is None:
+        rollup.warned_100_at = now
+        changed = True
+    # Not `elif`: an account crossing both thresholds in one jump — a burst, or a plan downgrade
+    # that lowers the cap under existing usage — must still record that 80% was passed, or the
+    # 80% nudge would fire later in a *subsequent* period and read as a false alarm.
+    if used >= soft_cap * 0.8 and rollup.warned_80_at is None:
+        rollup.warned_80_at = now
+        changed = True
+
+    if changed:
+        session.commit()
 
 
 def _rollup_for(session: Session, account, start: date, end: date) -> AIUsageRollup:

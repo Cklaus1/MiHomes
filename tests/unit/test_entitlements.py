@@ -292,14 +292,22 @@ class TestCanIsActuallyCalled:
         create_property(session, "Blue Room")
 
 
-class TestUsageIsDeclaredOnly:
-    def test_usage_is_declared_only(self):
-        """P3-b / N9 — no meter exists; `usage()` is an interface, not a measurement.
+class TestUsageIsMeasured:
+    def test_usage_reports_the_real_limit(self):
+        """**Rewritten at SPEC-004 Step 11 — this test asserted the inverse.**
 
-        `limit=None` rather than the plan's 200 is deliberate: reporting a limit while nothing
-        counts toward it would render as "0 of 200 used" instead of "not measured".
+        It was `test_usage_is_declared_only`, pinning P3-b/N9: *"no meter exists; `usage()` is an
+        interface, not a measurement"*, with `limit=None` because reporting a limit while nothing
+        counted toward it would render as "0 of 200 used" instead of "not measured".
+
+        The meter exists now (Step 10), so the limit is a measurement and `None` would be the
+        lie. Rewritten rather than deleted, keeping the old name in this docstring, so the change
+        of intent is legible — the same precedent as Step 8's two table tests.
+
+        `used` is still 0 here because no session is passed: the two-argument signature SPEC-003
+        §5.3 requires *"character-for-character"* has nothing to read from. The real
+        measurement is covered by `test_overage.py::test_usage_returns_a_real_measurement`.
         """
         report = usage(FakeAccount(plan="free"), "ai_calls")
         assert report.used == 0
-        assert report.limit is None
-        assert report.resets_at is None
+        assert report.limit == PLAN_LIMITS["free"]["ai_calls_per_month"]

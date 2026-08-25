@@ -70,11 +70,13 @@ class MeteredProvider:
     # -- the three metered methods ------------------------------------------------------
 
     def complete(self, *args, **kwargs):
+        self._check()
         result = self._provider.complete(*args, **kwargs)
         self._record("complete")
         return result
 
     def structured_output(self, *args, **kwargs):
+        self._check()
         result = self._provider.structured_output(*args, **kwargs)
         self._record("structured_output")
         return result
@@ -87,6 +89,7 @@ class MeteredProvider:
         the generator is consumed, so a caller that abandons the stream halfway is still counted:
         the request was made and the provider billed for it.
         """
+        self._check()
         self._record("stream")
         return self._provider.stream(*args, **kwargs)
 
@@ -117,6 +120,57 @@ class MeteredProvider:
         return f"<MeteredProvider {self._provider!r} entry_point={self._entry_point}>"
 
     # -- recording ----------------------------------------------------------------------
+
+    def _check(self) -> None:
+        """Enforce the hard ceiling **before** the provider is invoked (§5.3, A14).
+
+        Raises `EntitlementError` carrying the `Denied`, so the caller can render §5.3's message
+        — *"AI paused until &lt;resets_at&gt; — upgrade to continue"* — with the usage meter and
+        reset date, rather than a bare failure. The same exception type `property.add` raises, so
+        one handler covers both kinds of plan denial.
+
+        **A ceiling check that failed open would be the single most expensive bug in this phase**,
+        so unlike `_record` this does not swallow. `_record` swallowing is right — the answer
+        already exists and the vendor already billed — and the asymmetry is deliberate: an
+        under-count costs a little revenue, an unenforced ceiling costs unbounded inference.
+        """
+        if self._account is None:
+            return  # system-initiated (N10) — never metered, never denied
+        from mihomes.entitlements.service import Denied
+        from mihomes.services.metering.meter import check_and_reserve
+
+        # **Only the lookup is wrapped, and that boundary is the whole design.**
+        #
+        # A `Denied` must still raise — putting the `isinstance` check inside this `try` would
+        # swallow `EntitlementError` and silently remove A14's teeth, which is the specific way
+        # this fix could go wrong.
+        #
+        # Failing *open* on an infrastructure error rather than closed, because "the database is
+        # unreachable" is not the asymmetry this file is otherwise built around: it is **no
+        # information**. Measured before choosing — `web/routes/ai.py:460` reads the provider API
+        # key from the database *before* a provider exists, so a dead database already fails the
+        # request. The real choice is between failing with a confusing billing error and failing
+        # with a database error, not between capped and uncapped.
+        #
+        # The residual is bounded and recorded in the harness §0.8: a metering-infrastructure
+        # outage lifts the AI ceiling for its duration.
+        try:
+            with self._session_factory() as session:
+                decision = check_and_reserve(
+                    session, self._account, entry_point=self._entry_point
+                )
+        except Exception:
+            logger.exception(
+                "ceiling check failed for entry_point=%s — allowing the call; see the AI "
+                "ceiling residual in the SPEC-004 harness §0.8",
+                self._entry_point,
+            )
+            return
+
+        if isinstance(decision, Denied):
+            from mihomes.services.property import EntitlementError
+
+            raise EntitlementError(decision)
 
     def _record(self, method: str) -> None:
         """Write the usage event. **Never raises into the caller.**

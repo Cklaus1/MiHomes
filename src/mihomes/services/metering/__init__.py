@@ -16,7 +16,14 @@ from mihomes.services.metering.meter import (
     billing_period,
     check_and_reserve,
     current_usage,
+    hard_ceiling,
     record_usage,
 )
 
-__all__ = ["billing_period", "check_and_reserve", "current_usage", "record_usage"]
+__all__ = [
+    "billing_period",
+    "check_and_reserve",
+    "current_usage",
+    "hard_ceiling",
+    "record_usage",
+]

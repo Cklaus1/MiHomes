@@ -20,6 +20,7 @@ construction rather than by remembering to check twice.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
 from mihomes.entitlements.limits import UPGRADE_PATH, limits_for
@@ -169,19 +170,48 @@ def _upgrade_target(account, action: str, key: str, table) -> str | None:
 class UsageReport:
     used: int
     limit: int | None
-    resets_at: None = None
+    # A `date` as of Phase 3 — the end of the current billing period. Was annotated `None` while
+    # `usage()` was a stub, which was accurate then and would now be a lie: §5.3 shows this value
+    # to the user ("AI paused until <resets_at>"), so it has to be a real date.
+    resets_at: date | None = None
 
 
-def usage(account, meter: str) -> UsageReport:
-    """**DEFERRED (Phase 3)** — a declared interface, not an enforced limit.
+def usage(account, meter: str, *, session=None) -> UsageReport:
+    """`{used, limit, resets_at}` — **real as of Phase 3**, closing P3-b.
 
-    P3-b: `ai_calls_per_month: 200` is unenforceable because **no meter exists anywhere in
-    `src/`**. The only token record is `ai_conversations.tokens_used`, a nullable per-row int
-    with no account and no monthly rollup. N9 is explicit: *"Do not build the AI usage meter."*
+    Phase 2 returned `limit=None` deliberately: reporting `limit=200` while nothing counted
+    toward it would render a usage bar that is always empty and read as *"0 of 200 used"* rather
+    than *"not measured"*. The meter now exists (Step 10), so the number is a measurement.
 
-    Returning `limit=None` rather than the plan's number is deliberate — reporting `limit=200`
-    while nothing counts toward it would let a caller render a usage bar that is always empty and
-    read as "0 of 200 used" rather than "not measured". `None` cannot be mistaken for a
-    measurement.
+    `used` reads the **materialized** `AIUsageRollup`, never `ai_conversations` (D18/N8:
+    `archive.py` DELETEs those rows, so a derived count would reset a customer's usage when they
+    archive). `resets_at` is the billing anniversary, or the calendar month for an account with
+    no subscription (D4).
+
+    **`session` is keyword-only and optional**, so SPEC-003's two-argument signature keeps
+    working — §5.3 requires it *"character-for-character"*, and a required third parameter would
+    put the two specs in contradiction. Without a session the report is honest rather than
+    wrong: `used=0` with the real `limit`, which a caller can still render.
     """
-    return UsageReport(used=0, limit=None, resets_at=None)
+    from mihomes.entitlements.limits import limits_for
+
+    limits = limits_for(
+        getattr(account, "plan", "free"), getattr(account, "subscription_status", None)
+    )
+    limit = limits.get(_METER_LIMIT_KEYS.get(meter, ""), None)
+
+    if session is None:
+        return UsageReport(used=0, limit=limit, resets_at=None)
+
+    from mihomes.services.metering.meter import billing_period, current_usage
+
+    _start, end = billing_period(account)
+    return UsageReport(used=current_usage(session, account), limit=limit, resets_at=end)
+
+
+#: meter name → the `PRICING` §3.1 key holding its limit.
+#:
+#: One entry today. Declared as a map rather than an `if` so a second metered resource is a data
+#: change, and an unknown meter resolves to `limit=None` — "not measured" — instead of silently
+#: borrowing the AI limit.
+_METER_LIMIT_KEYS = {"ai_calls": "ai_calls_per_month"}

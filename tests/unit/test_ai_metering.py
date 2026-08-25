@@ -364,10 +364,23 @@ class TestTheWrapperProxiesTheFullSurface:
         assert list(wrapper.stream("system", "user")) == ["tok"]
 
     def test_a_metering_failure_does_not_break_the_call(self):
-        """The answer has already been produced and the vendor has already billed for it.
+        """Both the counter and the ceiling **fail open on an infrastructure error**.
 
-        Refusing to return it because the *counter* failed would cost money and deliver nothing —
-        so `_record` swallows and logs. Simulated with a session factory that raises.
+        For `_record` the reasoning is direct: the answer has already been produced and the
+        vendor has already billed for it, so refusing to return it because the *counter* failed
+        would cost money and deliver nothing.
+
+        For `_check` it took a measurement. This file is otherwise built on the asymmetry that an
+        under-count costs a little revenue while an unenforced ceiling costs unbounded inference
+        — but "the database is unreachable" is neither: it is **no information**.
+        `web/routes/ai.py:460` reads the provider API key from the database *before* a provider
+        exists, so a dead database already fails the request. The choice is between failing with a
+        confusing billing error and failing with a database error, not between capped and
+        uncapped. Recorded as a bounded residual in the harness §0.8.
+
+        **This test caught the behaviour change.** Step 11 added `_check` before `_record`, and
+        the first version raised into the caller — a dead metering database would have blocked AI
+        entirely.
         """
         from mihomes.services.metering.ai_wrapper import MeteredProvider
 
@@ -383,6 +396,41 @@ class TestTheWrapperProxiesTheFullSurface:
         )
 
         assert wrapper.complete("system", "user") == "answer"
+
+    def test_failing_open_on_an_outage_does_not_disarm_the_ceiling(self):
+        """**The other half**, and without it the test above only proves the wrapper is inert.
+
+        A `try` around the whole of `_check` — rather than around the lookup alone — would
+        swallow `EntitlementError` and silently remove A14's teeth while every outage test still
+        passed. So: a *working* session that returns `Denied` must still raise.
+        """
+        from contextlib import contextmanager
+
+        from mihomes.entitlements.service import Denied
+        from mihomes.services.metering.ai_wrapper import MeteredProvider
+        from mihomes.services.property import EntitlementError
+
+        @contextmanager
+        def _working_session():
+            yield object()
+
+        import mihomes.services.metering.meter as meter_mod
+
+        original = meter_mod.check_and_reserve
+        meter_mod.check_and_reserve = lambda *a, **k: Denied(
+            reason="AI paused", upgrade_target="pro", limit=200,
+        )
+        try:
+            wrapper = MeteredProvider(
+                _RecordingProvider(),
+                session_factory=_working_session,
+                account=type("A", (), {"id": "x"})(),
+                entry_point="test",
+            )
+            with pytest.raises(EntitlementError):
+                wrapper.complete("system", "user")
+        finally:
+            meter_mod.check_and_reserve = original
 
 
 class TestProtocolDeclaresWhatIsCalled:

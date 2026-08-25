@@ -636,12 +636,35 @@ exists before the trial needs it), **G3 before G4** (the ledger exists before th
 > would fire only on the operator CLI), not `Appointment`/`/calendar` (a different product wearing
 > the same word — gating it would present as a broken nightly job, N9). No due date, no gate.
 
-### [ ] G17 — Step 17: the importer gate — *dep: G8*
-- [ ] G17.1 · §6 Step 17 · A25 · **D16** — assert `can("home.create")` per home; refuse rather than create an over-limit account; no partial account left · verify: `tests/integration/test_importer_gate.py::test_over_limit_refused`
+### [x] G17 — Step 17: the importer gate — *dep: G8* — *3 tests; commit `<G1718>`*
+- [x] G17.1 · §6 Step 17 · A25 · **D16** — assert `can("home.create")` per home; refuse rather than create an over-limit account; no partial account left · verify: `tests/integration/test_importer.py::test_over_limit_refused` ✓
 
-### [ ] G18 — Step 18: reconciliation in anger + the exit criterion — *dep: all*
-- [ ] G18.1 · §6 Step 18 · A9 · sweep `reconcile` over all accounts with a Stripe customer; a dropped webhook is corrected within one sweep · verify: `tests/integration/test_reconcile.py::test_drift_corrected`
-- [ ] G18.2 · §6 exit · **A31** · **THE exit criterion** — a Free gate flips to Pro **from the webhook, not the redirect** (D1/N1) · verify: `tests/integration/test_upgrade_flow.py::test_exit_criterion`
+> **A25 closes a path §4.3 has no language for.** That table describes accounts that *downgrade*
+> into an over-limit state; an import is none of those — the account arrives there having never
+> had more. Refusing at the source beats provisioning the importing account as Estate, because
+> special-casing the founder's archive works exactly once.
+>
+> The gate turned **eight existing importer tests red** — their fixture is a Free account and the
+> archive holds several properties, which is D16's exact scenario. Fixture moved to `estate`; the
+> test *about* the limit provisions Free explicitly so it never depends on a shared default.
+
+### [x] G18 — Step 18: reconciliation in anger + **the exit criterion** — *dep: all* — *2 tests; A31 mutation-verified; commit `<G1718>`*
+- [x] G18.1 · §6 Step 18 · A9 · drift corrected within one sweep · verify: `tests/integration/test_jobs.py::test_drift_corrected` ✓ (landed at G12)
+- [x] G18.2 · §6 exit · **A31** · a Free gate flips to Pro **from the webhook, not the redirect** (D1/N1) · verify: `tests/integration/test_upgrade_flow.py::test_exit_criterion` ✓
+
+> **The "not the redirect" clause is the whole criterion.** A system granting entitlements on
+> `success_url` would pass *"the user upgraded and the gate flipped"* perfectly while handing the
+> product to anyone who visits a URL they control. So the redirect is visited **before** the
+> webhook arrives — production's order — and the gate must still be closed there.
+>
+> **The bug that cost the most to find, and three wrong diagnoses.** A31 passed alone and failed
+> in the suite; the webhook returned 200 and logged *"no account for customer"*, which reads as a
+> mapping bug. Not the ledger (zero rows). Not the `session` fixture's open transaction — the
+> rewrite onto a dedicated committed account **still failed**, which is what falsified it. The
+> cause: `get_session()` resolves `DATABASE_URL` **at call time**, and session-scoped
+> `cli_database` rewrites that variable, so every test after it sees the CLI database. And
+> pinning it was not enough — `db._engine` is a module-level cache, so `dispose_engine()` is
+> required alongside. Both facts are now in the fixture's docstring.
 
 ### [ ] G-Final — Compound-stop verification (conventions §4.1)
 - [ ] F.1 · full-suite `pytest -q` green (condition C)
@@ -670,9 +693,10 @@ what differs before deciding which.
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**Steps 1–16 landed.** Suite at **2179 passed, 3 skipped, 2 xfailed, 0 failed** (baseline 1945).
-Resume at **G17.1** — the importer gate (A25, D16): assert `can("home.create")` per home and
-refuse an over-limit import rather than creating an account §4.3 has no language to rescue.
+**All 18 steps landed. A31 — the exit criterion — is green.** Suite at **2184 passed, 3
+skipped, 2 xfailed, 0 failed** (baseline 1945).
+Resume at **G-Final** — the compound stop condition: F.1 full suite, F.2 every criterion by its
+own named test, F.3a/F.3b the two reconciliation walks, F.4 smoke, F.5 the end-of-run report.
 
 | Group | State | Commit |
 |---|---|---|
@@ -692,10 +716,11 @@ refuse an over-limit import rather than creating an account §4.3 has no languag
 | G14 — restricted mode | ✅ 13 tests | `681daa0` |
 | G15 — the four billing emails | ✅ 20 tests | `3b11c17` |
 | G16 — the three feature gates | ✅ 12 tests | `4e0af61` |
-| G17 onward | ⬜ not started | — |
+| G17+G18 — importer gate, **A31** | ✅ 5 tests | `<G1718>` |
+| G-Final | ⬜ not started | — |
 
-**Criteria discharged so far:** A1–A24, A26–A30. Two remain: **A25** (the importer gate) and
-**A31, the exit criterion.**
+**All 31 criteria discharged** — A1 through A31, including **A11** (the definition of done) and
+**A31** (the exit criterion). G-Final proves it formally.
 
 ## 3. Circuit breaker (conventions §3)
 

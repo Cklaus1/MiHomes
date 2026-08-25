@@ -122,10 +122,17 @@ def target(_pg_engine):
     Base.metadata.create_all(engine)
     account_id = uuid.uuid4()
     with engine.begin() as conn:
+        # **`estate`, not `free` — SPEC-004 Step 17 (D16/A25).** The archive holds several
+        # properties, and Free covers one, so the importer now refuses it: exactly the behaviour
+        # A25 asserts, and it turned eight tests in this file red the moment the gate landed.
+        #
+        # The gate is right and the fixture encoded the pre-gate world, so the fixture moves.
+        # Tests *about* the limit provision Free explicitly (see `test_over_limit_refused`),
+        # which keeps that assertion from depending on a shared default.
         conn.execute(
             text(
-                "INSERT INTO accounts (id, slug, name, type, plan) "
-                "VALUES (:i, 'imported', 'Imported', 'household', 'free')"
+                "INSERT INTO accounts (id, slug, name, type, plan, subscription_status) "
+                "VALUES (:i, 'imported', 'Imported', 'household', 'estate', 'active')"
             ),
             {"i": account_id},
         )
@@ -474,3 +481,86 @@ def test_legacy_json_id_list_becomes_association_rows(tmp_path, target):
             {"a": account_id},
         ).scalar()
     assert untenanted == 0
+
+
+# --- A25: the importer gate (SPEC-004 Step 17, D16) --------------------------------
+
+
+def _set_plan(engine, account_id, plan: str, status: str | None = None) -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE accounts SET plan = :p, subscription_status = :s WHERE id = :i"),
+            {"p": plan, "s": status, "i": account_id},
+        )
+
+
+def test_over_limit_refused(source_db, target):
+    """**A25** — an over-limit import fails cleanly and leaves no partial account.
+
+    D16 closes a path `PRICING` §4.3 has **no language for**. That table describes accounts that
+    *downgrade* into an over-limit state — past-due, voluntary, trial expiry — and an import is
+    none of those: the account arrives over its limit having never had more. Rather than adding a
+    fourth row to a policy table, the importer refuses at the source.
+
+    Both halves asserted. "Fails" is the easy one; **"leaves no partial account"** is the
+    criterion — the refusal happens before files move and before any row is written, so a
+    rejected import is indistinguishable from one that never ran.
+    """
+    engine, account_id = target
+    _set_plan(engine, account_id, "free")
+
+    with pytest.raises(ImportError_) as exc:
+        import_sqlite(source_db, engine, account_id)
+
+    assert "propert" in str(exc.value).lower()
+    assert "free" in str(exc.value).lower()
+
+    with engine.connect() as conn:
+        for table in ("properties", "spaces", "assets"):
+            n = conn.execute(
+                text(f"SELECT COUNT(*) FROM {table} WHERE account_id = :a"),  # noqa: S608
+                {"a": account_id},
+            ).scalar()
+            assert n == 0, f"a refused import left {n} row(s) in {table} — no partial account"
+
+
+def test_an_upgraded_account_may_import_the_same_archive(source_db, target):
+    """**The control, and A25 is vacuous without it.**
+
+    An importer that refused *everything* would satisfy the refusal assertion completely while
+    breaking the one migration path SPEC-002 D10 keeps. The message also tells the operator to
+    upgrade and re-run, so that has to actually work.
+    """
+    engine, account_id = target
+    _set_plan(engine, account_id, "free")
+
+    with pytest.raises(ImportError_):
+        import_sqlite(source_db, engine, account_id)
+
+    _set_plan(engine, account_id, "estate", "active")
+    report = import_sqlite(source_db, engine, account_id)
+
+    assert report.plan.row_counts.get("properties", 0) > 0
+    with engine.connect() as conn:
+        n = conn.execute(
+            text("SELECT COUNT(*) FROM properties WHERE account_id = :a"), {"a": account_id}
+        ).scalar()
+    assert n == report.plan.row_counts["properties"]
+
+
+def test_the_refusal_names_the_plan_and_the_count(source_db, target):
+    """The operator is mid-migration with an archive in hand.
+
+    "Import failed" leaves them guessing; naming the archive's property count, the plan's limit,
+    and the fix — upgrade, then re-run — is the difference between a five-minute correction and a
+    support conversation.
+    """
+    engine, account_id = target
+    _set_plan(engine, account_id, "free")
+
+    with pytest.raises(ImportError_) as exc:
+        import_sqlite(source_db, engine, account_id)
+
+    message = str(exc.value)
+    assert "Nothing was imported" in message
+    assert "re-run" in message

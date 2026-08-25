@@ -59,6 +59,7 @@ from pathlib import Path
 
 from sqlalchemy import func, inspect, select
 from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session
 
 from mihomes.ids import new_id
 
@@ -693,6 +694,8 @@ def import_sqlite(
     report = ImportReport(plan=plan, account_id=account_id)
 
     _require_empty_account(engine, account_id)
+    # D16/A25 — before files move and before any row is written, so a refusal leaves nothing.
+    _require_within_home_limit(engine, account_id, plan)
 
     if dry_run:
         return report
@@ -874,6 +877,52 @@ def _rewrite_row(
     if "account_id" in target_cols:
         out["account_id"] = account_id
     return out
+
+
+def _require_within_home_limit(engine: Engine, account_id: uuid.UUID, plan) -> None:
+    """Refuse an import that would put the account over its plan's `max_homes` — D16, A25.
+
+    **Checked before any write**, alongside `_require_empty_account`, and that placement is the
+    whole decision. `PRICING` §4.3 describes what happens when an account *downgrades* into an
+    over-limit state; it has **no language for an account that arrived there** — which is why
+    D16 closes the path at the source rather than adding a fourth row to that table:
+
+    > The importer asserts `can()` per home and refuses an over-limit import rather than creating
+    > an account this table would then have to rescue.
+
+    Assert-per-home rather than one comparison, because that is what `can()` answers and because
+    the count is the thing the caller controls: an archive with four properties is refused with
+    the same message whether the plan allows one or three.
+
+    **Refusing beats provisioning the importing account as Estate**, which was the alternative
+    `PRD_REVIEW` B1 raised. Special-casing the founder's own archive would work exactly once; any
+    future customer migrating in hits the identical path, and would hit an over-limit state the
+    product cannot describe.
+    """
+    from mihomes.entitlements.service import Denied, can
+    from mihomes.models.account import Account
+    from mihomes.tenancy import account_context
+
+    incoming = plan.row_counts.get("properties", 0)
+    if not incoming:
+        return
+
+    with Session(engine) as session, account_context(account_id):
+        account = session.get(Account, account_id)
+        if account is None:  # pragma: no cover - the caller resolved this id
+            return
+
+        # Per home, from zero: the account is empty (`_require_empty_account` ran first), so the
+        # nth import is the nth home.
+        for n in range(incoming):
+            decision = can(account, "property.add", {"current_homes": n})
+            if isinstance(decision, Denied):
+                raise ImportError_(
+                    f"This archive holds {incoming} propert"
+                    f"{'y' if incoming == 1 else 'ies'}, and the "
+                    f"{account.plan} plan covers {decision.limit}. Nothing was imported — "
+                    f"upgrade the account first, then re-run. ({decision.reason})"
+                )
 
 
 def _require_empty_account(engine: Engine, account_id: uuid.UUID) -> None:

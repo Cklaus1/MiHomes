@@ -458,6 +458,16 @@ class TestModelsWithNoPropertyLinkageAreDenied:
             "OnboardingState",
             "TelegramLink",
             "Account",
+            # SPEC-004 §4.2 — the AI usage meter, and this gate is doing its job by demanding
+            # the addition be acknowledged rather than absorbed.
+            #
+            # Both are **billing data**: `calls_used` against a plan's cap tells a staff member
+            # which tier the household pays for, and the event log's `entry_point` traces who
+            # used the assistant and when. Denying them outright is the intended outcome — row
+            # 15 (`billing.manage`) is owner-only, and D10 keeps RBAC and entitlements separate,
+            # so an Estate plan buys more calls and never the right to read whose they were.
+            "AIUsageEvent",
+            "AIUsageRollup",
         }, (
             "the set of models denied outright has changed. Each one is a model staff can no "
             "longer read at all (or can now read) — confirm which, and why, before updating this."

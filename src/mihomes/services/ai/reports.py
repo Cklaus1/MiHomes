@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+import logging
+from datetime import date, datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import func
@@ -12,7 +13,6 @@ from mihomes.models.ai_conversation import AIConversation
 from mihomes.services.ai.ai_config import get_ai_api_key, get_ai_model, get_ai_provider_name
 from mihomes.services.ai.orchestrator import AIResponse, _get_session_id, _save_session_id
 from mihomes.services.ai.provider import get_provider
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -143,9 +143,8 @@ def generate_situation_report(
 
     if property_slug:
         try:
-            from mihomes.services.property import get_property
             from mihomes.services.issue import list_issues
-            from mihomes.services.asset import list_assets
+            from mihomes.services.property import get_property
             prop = get_property(session, property_slug)
             context_lines.append(f"\n## Property Context: {prop.name}")
             context_lines.append(f"Type: {prop.property_type.value}, Status: {prop.status.value}")
@@ -168,7 +167,7 @@ def generate_situation_report(
     provider_name = get_ai_provider_name(session)
     api_key = get_ai_api_key(session, provider_name)
     model = get_ai_model(session, provider_name)
-    provider = get_provider(provider_name, api_key, model=model)
+    provider = get_provider(provider_name, api_key, model=model, entry_point="ai.report")
 
     response_text = provider.complete(SITUATION_REPORT_PROMPT, user_message, attachments=attachments)
 
@@ -395,7 +394,7 @@ def generate_estate_digest(
     provider_name = get_ai_provider_name(session)
     api_key = get_ai_api_key(session, provider_name)
     model = get_ai_model(session, provider_name)
-    provider = get_provider(provider_name, api_key, model=model)
+    provider = get_provider(provider_name, api_key, model=model, entry_point="ai.report")
 
     response_text = provider.complete(ESTATE_DIGEST_PROMPT, user_message, attachments=attachments)
 

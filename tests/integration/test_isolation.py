@@ -55,11 +55,20 @@ from mihomes.tenancy.registry import ASSOCIATION_TABLES, GLOBAL_TABLES, TENANT_T
 #                                        off at step 2 resumes at step 3
 #   42  `telegram_links`     (G16, A32) — sender → membership, so revoking a membership CASCADEs
 #                                        the chat link away
-#   43  `document_access`    (SPEC-004) — per-person document grants, replacing the one-boolean
+#   43  `document_access`               — per-person document grants, replacing the one-boolean
 #                                        `documents.staff_visible` as the owner-controlled gate
+#   44  `ai_usage_events`    (SPEC-004) — one row per user-initiated AI call, carrying
+#                                        `entry_point` so A11 can prove every dispatch path is
+#                                        metered *from the tree* rather than from a list
+#   45  `ai_usage_rollups`   (SPEC-004) — the materialized monthly counter `usage()` returns.
+#                                        Materialized, not derived: `archive.py` DELETEs
+#                                        `ai_conversations` (F10), so a derived count would reset
+#                                        a customer's usage the moment they archived
+# The webhook ledger (`processed_webhook_events`, 0010) is **not** here — it is global by the
+# carve-out `GLOBAL_TABLES` records, because a Stripe event is recorded before we know whose it is.
 # Each raise is acknowledged here in the same commit as its migration, which is the whole point of
 # writing the number as a literal: it makes an *accidental* addition visible.
-EXPECTED_TENANT_TABLE_COUNT = 43
+EXPECTED_TENANT_TABLE_COUNT = 45
 
 
 # --------------------------------------------------------------------------------------

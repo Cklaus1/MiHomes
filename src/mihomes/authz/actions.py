@@ -265,6 +265,7 @@ def _entity_classes() -> dict[type, EntityClass]:
     """
     from mihomes.models.account import Account
     from mihomes.models.ai_conversation import AIConversation
+    from mihomes.models.ai_usage import AIUsageEvent, AIUsageRollup
     from mihomes.models.alert import Alert
     from mihomes.models.appointment import Appointment
     from mihomes.models.asset import Asset, PriceEntry
@@ -403,6 +404,18 @@ def _entity_classes() -> dict[type, EntityClass]:
         # is never used to decide who may read the row. Nobody reads this table as content — it
         # exists so an event is processed once.
         ProcessedWebhookEvent: EntityClass.GLOBAL,
+
+        # SPEC-004 §4.2 — the AI usage meter. `ACCOUNT_LEVEL` ("✗ for staff"), and the fit is
+        # exact rather than convenient: these rows are **billing data**. `calls_used` against a
+        # plan's cap tells a staff member which tier the household pays for, and the event log's
+        # `entry_point` traces who used the assistant and when — both account-level facts about
+        # the *owner's* spending, not estate data a housekeeper needs to do their job.
+        #
+        # Row 15 (`billing.manage`) is owner-only, and D10 keeps RBAC and entitlements as
+        # separate gates: an Estate plan buys more calls, never the right to read whose they
+        # were.
+        AIUsageEvent: account,
+        AIUsageRollup: account,
     }
 
 

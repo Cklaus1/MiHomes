@@ -79,6 +79,7 @@ class SlugMixin:
 # `users` and `sessions` are GLOBAL (D3) — read before account context exists.
 from mihomes.models.account import Account  # noqa: E402, F401
 from mihomes.models.ai_conversation import AIConversation  # noqa: E402, F401
+from mihomes.models.ai_usage import AIUsageEvent, AIUsageRollup  # noqa: E402, F401
 from mihomes.models.alert import Alert  # noqa: E402, F401
 from mihomes.models.appointment import Appointment  # noqa: E402, F401
 from mihomes.models.asset import Asset, PriceEntry  # noqa: E402, F401

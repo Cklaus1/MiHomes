@@ -130,12 +130,14 @@ def test_upgrade_then_downgrade_is_clean(scratch_db):
     # 43 domain tables + alembic_version = 44 at the SPEC-002 baseline.
     # SPEC-003 adds two: `onboarding_state` (0004, A17) → 45, `telegram_links` (0007, A32) → 46.
     # Per-person document access adds `document_access` (0009) → 47. `0008` added a *column*.
-    # SPEC-004 adds `processed_webhook_events` (0010, B7) → 48 — the webhook idempotency ledger,
-    # and the one table in the tree that deliberately carries no RLS policy (A6).
+    # SPEC-004 adds three: `processed_webhook_events` (0010, B7) → 48 — the webhook idempotency
+    # ledger, and the one table in the tree that deliberately carries no RLS policy (A6) — then
+    # `ai_usage_events` + `ai_usage_rollups` (0011, §4.2) → 50, the AI meter's event log and its
+    # materialized monthly counter. Both of those are tenant-scoped *with* RLS, unlike the ledger.
     # The count is pinned deliberately: it is what makes an *accidental* table addition visible,
     # so raising it is a decision recorded in the same commit as the migration, never a silent
     # adjustment to make a run go green.
-    assert len(first["tables"]) == 48, first["tables"]
+    assert len(first["tables"]) == 50, first["tables"]
     assert len(first["enums"]) == 22
     assert first["guard_fns"] == ["mihomes_assert_account_matches_parent"]
 

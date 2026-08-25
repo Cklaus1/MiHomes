@@ -5,7 +5,6 @@ from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 
-
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
@@ -67,14 +66,23 @@ def suggest_tasks_for_weather(
     Returns a list of WeatherTaskSuggestion (may be empty if weather is benign).
     """
     from mihomes.services.ai.ai_config import get_ai_api_key, get_ai_model, get_ai_provider_name
-    from mihomes.services.ai.provider import get_provider
     from mihomes.services.ai.context import assemble_context
+    from mihomes.services.ai.provider import get_provider
     from mihomes.services.ai.roles import ROLES
     from mihomes.services.weather import forecast_summary
 
     provider_name = get_ai_provider_name(session)
     api_key = get_ai_api_key(session, provider_name)
     model = get_ai_model(session, provider_name)
+    # **Deliberately unmetered — SPEC-004 D11/N10.** This runs from the nightly automation, not
+    # from a user action, and `PRICING` §5.2 exempts system-initiated calls: *"a limit that trips
+    # a scheduled job is a bug — the user cannot upgrade their way out of something they did not
+    # do."* Passing an `entry_point` here would count a household's quota against work it never
+    # asked for, and the visible symptom would be a background job failing rather than an upgrade
+    # prompt (N9's reasoning, applied to the meter instead of a gate).
+    #
+    # A15 asserts this stays true; `test_all_entry_points_metered` lists this module as a
+    # declared exemption rather than an omission, so removing the exemption fails the suite.
     provider = get_provider(provider_name, api_key, model=model)
 
     # Build context: property + tasks + issues (maintenance role categories)
@@ -211,8 +219,8 @@ def create_tasks_from_suggestions(
     indices: 1-based list of suggestions to accept. None = accept all.
     Returns list of created Task objects.
     """
+    from mihomes.models.task import TaskCategory, TaskPriority
     from mihomes.services.task import create_task
-    from mihomes.models.task import TaskPriority, TaskCategory
 
     to_create = [
         s for i, s in enumerate(suggestions, 1)

@@ -38,7 +38,7 @@ def provider_stream(
 
     full_system = system_prompt.rstrip() + "\n" + _PROVIDER_SYSTEM_SUFFIX
     context_data = assemble_context(session, roles, query, property_slug=property_slug)
-    provider = get_provider(provider_name, api_key=api_key, model=model)
+    provider = get_provider(provider_name, api_key=api_key, model=model, entry_point="web.stream")
 
     try:
         for chunk in provider.stream(full_system, query, context_data=context_data, attachments=attachments):
@@ -88,7 +88,7 @@ def agent_stream(
     # because this loop needs the raw `messages.create` / `messages.stream` surface for tool
     # calling, which the `AIProvider` Protocol deliberately does not expose. Borrowing keeps
     # construction — and therefore metering — in one place while leaving the loop unchanged.
-    provider = get_provider("claude", api_key=api_key, model=model)
+    provider = get_provider("claude", api_key=api_key, model=model, entry_point="web.agent")
     client = provider.client
     full_system = system_prompt.rstrip() + "\n" + _AGENT_SYSTEM_SUFFIX
 

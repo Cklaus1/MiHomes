@@ -71,6 +71,12 @@ TEST_ONLY_TABLES = frozenset({"dummy"})
 TENANT_TABLES = frozenset({
     # --- domain ---------------------------------------------------------
     "ai_conversations",
+    # SPEC-004 §4.2 — the AI usage meter. Tenant-scoped, unlike the webhook ledger above:
+    # a usage row is only ever created *while* an account is bound (a user made a call), so
+    # there is no before-we-know-whose-it-is problem, and the numbers are billing data one
+    # tenant must never read for another.
+    "ai_usage_events",
+    "ai_usage_rollups",
     "alerts",
     "appointments",
     "asset_price_entries",

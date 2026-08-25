@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -15,7 +16,6 @@ from mihomes.services.ai.ai_config import get_ai_api_key, get_ai_model, get_ai_p
 from mihomes.services.ai.context import assemble_context
 from mihomes.services.ai.provider import get_provider
 from mihomes.services.ai.roles import ROLES, route_query
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ def ask(
     provider_name = get_ai_provider_name(session)
     api_key = get_ai_api_key(session, provider_name)
     model = get_ai_model(session, provider_name)
-    provider = get_provider(provider_name, api_key, model=model)
+    provider = get_provider(provider_name, api_key, model=model, entry_point="ai.orchestrator")
 
     # Route to role(s)
     roles = route_query(query, explicit_role=role)
@@ -236,7 +236,7 @@ def budget_review(
     provider_name = get_ai_provider_name(session)
     api_key = get_ai_api_key(session, provider_name)
     model = get_ai_model(session, provider_name)
-    provider = get_provider(provider_name, api_key, model=model)
+    provider = get_provider(provider_name, api_key, model=model, entry_point="ai.orchestrator")
 
     role = ROLES["financial"]
     session_id = _get_session_id(False)

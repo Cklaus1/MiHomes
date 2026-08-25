@@ -81,8 +81,58 @@ class AIProvider(Protocol):
         ...
 
 
-def get_provider(provider_name: str = "claude", api_key: str | None = None, model: str | None = None) -> AIProvider:
-    """Factory: returns the configured AIProvider instance."""
+def get_provider(
+    provider_name: str = "claude",
+    api_key: str | None = None,
+    model: str | None = None,
+    *,
+    entry_point: str | None = None,
+) -> AIProvider:
+    """Factory: returns the configured AIProvider instance, **metered** (SPEC-004 D17).
+
+    Every AI dispatch in the tree passes through here — Step 9 closed the last bypass — so
+    wrapping the return value is what makes A11 achievable at all: *"the meter binds at every
+    entry point, or it bounds nothing."*
+
+    `entry_point` names the dispatch path (`"web.agent"`, `"cli.ai"`, `"gateway.telegram"`, …).
+    It is **optional and defaults to unmetered**, which is deliberate rather than lax:
+
+    - `PRICING` §5.2 and N10 exempt **system-initiated** calls. A nightly recurring-task sweep or
+      a weather job must never consume a household's quota — *"the user cannot upgrade their way
+      out of something they did not do"* — and those paths have no request and no account bound.
+    - Requiring the argument everywhere would mean the background jobs pass a sentinel meaning
+      "do not count this", which is the same decision written less clearly, and one a future
+      caller could copy onto a user-facing path by accident.
+
+    A11's test enumerates dispatch modules **from the tree** and asserts each user-facing one
+    passes an `entry_point`, so a new metered path cannot be forgotten — the omission fails the
+    suite rather than reading as an exemption.
+    """
+    provider = _construct(provider_name, api_key, model)
+    if entry_point is None:
+        return provider
+
+    from mihomes.db import get_session
+    from mihomes.models.account import Account
+    from mihomes.services.metering.ai_wrapper import MeteredProvider
+    from mihomes.tenancy import current_account
+
+    account_id = current_account.get(None)
+    if account_id is None:
+        # No tenant bound: an operator CLI invocation (SPEC-002 D1) or a background job. Nothing
+        # to bill, and fabricating an account to bill would be worse than not counting.
+        return provider
+
+    with get_session() as session:
+        account = session.get(Account, account_id)
+
+    return MeteredProvider(
+        provider, session_factory=get_session, account=account, entry_point=entry_point,
+    )
+
+
+def _construct(provider_name: str, api_key: str | None, model: str | None) -> AIProvider:
+    """The original dispatch — string match, lazy import, explicit `else: raise`."""
     if provider_name == "claude":
         from mihomes.services.ai.claude_provider import ClaudeProvider
         return ClaudeProvider(api_key=api_key, model=model)

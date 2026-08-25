@@ -5,14 +5,11 @@ Reads the job description from knowledge/staff/job-descriptions/<role>.md
 Returns a ranked list with scores and reasoning for each candidate.
 """
 
-import os
-import re
 from pathlib import Path
 from typing import Optional
 
+from mihomes.services.ai.provider import get_provider
 from mihomes.services.playbook import kb_path
-from mihomes.services.ai.provider import get_provider, AIProviderError
-
 
 # ── File ingestion ────────────────────────────────────────────────────────────
 
@@ -135,7 +132,7 @@ def rank_resumes(
     Returns top_n candidates ranked 1–N with scores, strengths, concerns, red flags,
     and a recommended action (phone_screen / hold / decline) for each.
     """
-    provider = get_provider("claude", api_key=api_key)
+    provider = get_provider("claude", api_key=api_key, entry_point="ai.resume_ranker")
 
     # Build resume block — truncate very long resumes to ~2000 chars to manage tokens
     resume_blocks = []
@@ -203,20 +200,20 @@ def save_candidate_notes(ranking: dict, role: str) -> Path:
     action = (ranking.get("recommended_action") or "unknown").replace("_", " ").title()
     lines = [
         f"# Candidate: {candidate_name}",
-        f"",
+        "",
         f"**Role**: {role}  ",
         f"**Rank**: #{ranking.get('rank', '?')}  ",
         f"**Overall Score**: {ranking.get('overall_score', '?')}/100  ",
         f"**Recommended Action**: {action}  ",
-        f"",
-        f"## Summary",
-        f"",
+        "",
+        "## Summary",
+        "",
         f"{ranking.get('one_line_summary', '')}",
-        f"",
-        f"## Scores",
-        f"",
-        f"| Dimension | Score |",
-        f"|-----------|-------|",
+        "",
+        "## Scores",
+        "",
+        "| Dimension | Score |",
+        "|-----------|-------|",
     ]
     for k, v in ranking.get("scores", {}).items():
         label = k.replace("_", " ").title()

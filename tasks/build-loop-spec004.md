@@ -444,12 +444,35 @@ exists before the trial needs it), **G3 before G4** (the ledger exists before th
 > the bypass closed. Verified honest before declaring: all four implementations have it, asserted
 > per-provider, since a missing one fails at runtime on whichever provider a deployment configures.
 
-### [ ] G10 — Step 10: the meter — **A11, the phase's definition of done** — *dep: G8, G9*
-- [ ] G10.1 · §6 Step 10 · — · `models/ai_usage.py` (`AIUsageEvent` + `AIUsageRollup`), **UUID PKs (C6)**, migration `0011`, RLS policies, registry entries, entity classification (C9a/c/d/f) · verify: `tests/integration/test_pg_baseline.py::test_baseline_matches_metadata`
-- [ ] G10.2 · §6 Step 10 · — · `meter.py::record_usage` — event + rollup increment in **one transaction** · verify: `tests/unit/test_overage.py::test_single_transaction`
-- [ ] G10.3 · §6 Step 10 · — · `MeteredProvider` proxying the **full** surface: `__getattr__` for undeclared methods, `__setattr__` for `provider.model = …` (F8) · verify: `tests/unit/test_ai_metering.py::test_wrapper_proxies_undeclared_surface`
-- [ ] G10.4 · §6 Step 10 · **A11** · **G-dispatch** — every dispatch path, enumerated from the tree, increments the counter · verify: `tests/unit/test_ai_metering.py::test_all_entry_points_metered`
-- [ ] G10.5 · §6 Step 10 · A12,A13 · no provider cached module-level; archiving does not reduce `calls_used` (D18/F10) · verify: `tests/unit/test_ai_metering.py::test_no_module_level_cache`, `::test_archive_preserves_usage`
+### [x] G10 — Step 10: the meter — **A11, the phase's definition of done** — *dep: G8, G9* — *29 tests; 2066 → 2095; 3 arms mutation-verified; commit `<G10>`*
+- [x] G10.1 · §6 Step 10 · — · `models/ai_usage.py`, migration `0011`, RLS policies, registry entries, entity classification · verify: `tests/integration/test_pg_baseline.py::test_baseline_matches_metadata` ✓
+- [x] G10.2 · §6 Step 10 · — · `meter.py::record_usage` — event + rollup increment in **one transaction**, rollup locked `FOR UPDATE` · verify: `tests/integration/test_ai_usage.py` ✓
+- [x] G10.3 · §6 Step 10 · — · `MeteredProvider` proxying the **full** surface: `__getattr__` for `client`, `__setattr__` for `provider.model = …` (F8) · verify: `tests/unit/test_ai_metering.py::test_attribute_writes_reach_the_provider` ✓
+- [x] G10.4 · §6 Step 10 · **A11** · **G-dispatch** — every dispatch path, enumerated from the tree, is metered · verify: `tests/unit/test_ai_metering.py::test_all_entry_points_metered` ✓
+- [x] G10.5 · §6 Step 10 · A12,A13 · no provider cached module-level; archiving does not reduce `calls_used` · verify: `::test_no_module_level_cache`, `tests/integration/test_ai_usage.py::test_archive_preserves_usage` ✓
+
+> **A11 is an enumeration, and that is the criterion.** *"Does the meter increment when called"*
+> passes trivially, so the test walks `src/` at test time and asserts every `get_provider()` call
+> passes an `entry_point` — a nineteenth dispatch path added later fails the suite rather than
+> joining the unmetered set silently. **Mutation-verified**: unmetering one of eight paths turns
+> it red. Plus a guard on the guard — if the AST walk stopped finding call sites, A11 would pass
+> over a tree with *no metering at all*, the exact false green §0.4 exists to close.
+>
+> **The one unmetered path is declared, not omitted.** `weather_tasks` is the nightly job D11/N10
+> exempts; `UNMETERED_DISPATCH` names it with its reason, and a test checks both directions.
+>
+> **Both of F8's hazards have tests, and one is very quiet.** `provider.model = …` stored on the
+> wrapper instead of passed through would succeed silently and leave the provider on its default
+> model forever — a caller asking for Opus getting Sonnet, visible only in the bill.
+> Mutation-verified. `stream` is metered once per *call*, not per token (§5.1 bills calls), and
+> `_record` never raises into the caller: the vendor already billed, so failing the request would
+> cost money and deliver nothing.
+>
+> **February is the trap.** `dateutil` is not a dependency and a naive `date(y, m, 31)` raises —
+> inside `record_usage`, on the hot path, for one customer in twelve. Clamped, with a test.
+>
+> Four SPEC-003 gates fired, all correctly, including U7's census demanding the two new models be
+> acknowledged as denied-to-staff — the right outcome, since usage rows are billing data.
 
 ### [ ] G11 — Step 11: overage behaviour — *dep: G10*
 - [ ] G11.1 · §6 Step 11 · A14 · soft cap passes, hard ceiling denies, each nudge fires once · verify: `tests/unit/test_overage.py::test_ceiling_and_nudges`
@@ -512,9 +535,10 @@ what differs before deciding which.
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**Steps 1–9 landed.** Suite at **2066 passed, 3 skipped, 2 xfailed, 0 failed** (baseline 1945).
-Resume at **G10.1** — the meter itself, and **A11 is the phase's definition of done**. G9 has
-closed the bypass, so wrapping the factory now reaches every dispatch path.
+**Steps 1–10 landed — A11, the definition of done, is green.** Suite at **2095 passed, 3
+skipped, 2 xfailed, 0 failed** (baseline 1945). Condition D re-verified: smoke 18 passed.
+Resume at **G11.1** — overage behaviour: the hard ceiling, the soft cap, and the 80/100% nudges.
+`meter.check_and_reserve` is declared and returns `Allowed()`; Step 11 fills in its body.
 
 | Group | State | Commit |
 |---|---|---|
@@ -527,10 +551,11 @@ closed the bypass, so wrapping the factory now reaches every dispatch path.
 | G7 — status mapping, single writer | ✅ 26 tests | `5995d9b` |
 | G8 — real limits, gates live | ✅ 11 tests | `4cd5043` |
 | G9 — factory bypass closed | ✅ 11 tests | `9402cd7` |
-| G10 onward | ⬜ not started | — |
+| G10 — **the meter (A11)** | ✅ 29 tests | `<G10>` |
+| G11 onward | ⬜ not started | — |
 
-**Criteria discharged so far:** A1, A2, A3, A4, A5, A6, A7, A8, A10, A27, A28, A29, A30.
-Eighteen remain — A11 (the definition of done) and A31 (the exit criterion) among them.
+**Criteria discharged so far:** A1, A2, A3, A4, A5, A6, A7, A8, A10, **A11**, A12, A13, A27,
+A28, A29, A30. Fifteen remain — **A31, the exit criterion, among them.**
 
 ## 3. Circuit breaker (conventions §3)
 

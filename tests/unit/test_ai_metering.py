@@ -128,6 +128,263 @@ class TestNoFactoryBypass:
         )
 
 
+#: Modules that call `get_provider()` **without** an `entry_point`, each with its reason.
+#:
+#: **A declared exemption, not an omission**, and the distinction is the whole of A11. A module
+#: missing from the metered set could mean "system-initiated, correctly exempt" or "somebody
+#: forgot" — and those are byte-identical in code. Naming them here forces the question to be
+#: answered once, in a place a reviewer reads, and `test_every_exemption_is_a_system_path` keeps
+#: the list honest.
+#:
+#: Same construction as SPEC-003's `UNFILTERED_CLASSES` and this phase's
+#: `GLOBAL_TABLES_WITH_ACCOUNT_ID`.
+UNMETERED_DISPATCH = {
+    "services/weather_tasks.py": (
+        "system-initiated — the nightly automation, not a user action. D11/N10: a limit that "
+        "trips a scheduled job is a bug, because the user cannot upgrade their way out of "
+        "something they did not do."
+    ),
+}
+
+
+def _dispatch_modules() -> dict[str, bool]:
+    """Every module calling `get_provider()`, mapped to whether it passes an `entry_point`.
+
+    **Derived from the tree at test time** — A11's own requirement: *"A hand-maintained list in a
+    test file rots the first time someone adds a dispatch path, and it rots silently."*
+
+    AST rather than grep, for the reason A10 gives: the docstrings in this area quote the call
+    they describe, and a text scan would count the documentation.
+    """
+    found: dict[str, bool] = {}
+    for path in sorted(SRC.rglob("*.py")):
+        rel = path.relative_to(SRC).as_posix()
+        if rel == "services/ai/provider.py":
+            continue  # the factory itself
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError:  # pragma: no cover
+            continue
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "get_provider"
+            ):
+                metered = any(kw.arg == "entry_point" for kw in node.keywords)
+                # A module with several call sites is metered only if *every* one is.
+                found[rel] = found.get(rel, True) and metered
+    return found
+
+
+class TestEveryEntryPointIsMetered:
+    def test_all_entry_points_metered(self):
+        """**A11 — the phase's definition of done.**
+
+        > The AI meter binds at every entry point, or it bounds nothing. A meter on the web route
+        > but not the Telegram bot, the CLI, or `agent_stream` does not cap Claude spend — the
+        > limit is only as strong as its leakiest dispatch path.
+
+        Enumerated from the tree, so a **nineteenth** dispatch path added next year fails this
+        test rather than quietly joining the unmetered set. That is the difference between a gate
+        and a decoration, and it is why the criterion is written as an enumeration rather than as
+        "does the meter increment when called" — which passes trivially.
+        """
+        unmetered = sorted(
+            rel for rel, metered in _dispatch_modules().items()
+            if not metered and rel not in UNMETERED_DISPATCH
+        )
+        assert not unmetered, (
+            "every user-facing AI dispatch must pass an entry_point to get_provider(), or the "
+            "call is free (A11). Unmetered:\n  " + "\n  ".join(unmetered)
+            + "\n\nIf a path is system-initiated (D11/N10), add it to UNMETERED_DISPATCH with "
+            "its reason instead of leaving it silent."
+        )
+
+    def test_the_census_is_not_empty(self):
+        """**A guard on A11**, and without it the criterion is worthless.
+
+        If the AST walk stopped finding call sites — a rename, a refactor to a different factory
+        function — `unmetered` would be empty and A11 would pass over a tree with no metering at
+        all. The exact shape of false green §0.4 exists to close.
+        """
+        modules = _dispatch_modules()
+        assert len(modules) >= 7, (
+            f"the dispatch census found only {len(modules)} modules — the scan is probably "
+            "broken, and A11 would pass vacuously"
+        )
+
+    def test_every_exemption_is_a_system_path(self):
+        """The exemption list cannot outlive what it excuses, or absorb a user-facing path.
+
+        Two directions: a stale entry (the module no longer dispatches) would pre-authorise the
+        next module to reuse the path, and an entry that *does* pass an `entry_point` is an
+        exemption excusing nothing — which reads as precedent for the next one.
+        """
+        census = _dispatch_modules()
+        for rel, reason in UNMETERED_DISPATCH.items():
+            assert rel in census, (
+                f"{rel} is exempted from metering but no longer calls get_provider() — delete "
+                "the exemption rather than leaving one that excuses nothing"
+            )
+            assert not census[rel], (
+                f"{rel} is exempted but now passes an entry_point — it is metered, so remove it "
+                "from UNMETERED_DISPATCH"
+            )
+            assert reason.strip(), f"{rel}'s exemption must carry a reason"
+
+
+class TestNoModuleLevelCache:
+    def test_no_module_level_cache(self):
+        """**A12** — no AI provider instance is cached at module level.
+
+        F10 measured this as true today, and A12 asserts it rather than trusting it to stay
+        true. The reason it matters is specific: `MeteredProvider` counts per *invocation*, which
+        is equivalent to counting per *construction* only while every call site builds a fresh
+        provider. A module-level cache would make the two diverge — and the divergence would
+        under-count silently, since a cached provider still works perfectly.
+
+        The four `_get_provider` functions in `calendar_sync`, `staff_pto` and `routes/calendar`
+        are **Google Calendar**, unrelated, and are excluded by name (F10 names them so a later
+        reader does not re-derive it).
+        """
+        offenders = []
+        for path in sorted(SRC.rglob("*.py")):
+            rel = path.relative_to(SRC).as_posix()
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8"))
+            except SyntaxError:  # pragma: no cover
+                continue
+            for node in tree.body:  # module level only — not inside a function
+                if not isinstance(node, ast.Assign):
+                    continue
+                value = node.value
+                if (
+                    isinstance(value, ast.Call)
+                    and isinstance(value.func, ast.Name)
+                    and value.func.id == "get_provider"
+                ):
+                    offenders.append(f"{rel}:{node.lineno}")
+
+        assert not offenders, (
+            "an AI provider cached at module level makes per-construction and per-invocation "
+            f"metering diverge, silently under-counting (A12). Found: {offenders}"
+        )
+
+
+class _RecordingProvider:
+    """A provider that records what it was asked, with no network and no database."""
+
+    supports_images = True
+
+    def __init__(self) -> None:
+        self.model = "default-model"
+        self.client = object()
+        self.calls: list[str] = []
+
+    def complete(self, *a, **kw) -> str:
+        self.calls.append("complete")
+        return "answer"
+
+    def structured_output(self, *a, **kw) -> dict:
+        self.calls.append("structured_output")
+        return {}
+
+    def stream(self, *a, **kw):
+        self.calls.append("stream")
+        return iter(["tok"])
+
+
+def _wrapped(provider):
+    """A `MeteredProvider` with metering disabled (`account=None`).
+
+    These tests are about **proxying**, not counting: A11 and A13 cover the counting. Passing
+    `account=None` takes the database out of the picture entirely, so a proxying bug cannot hide
+    behind a session error.
+    """
+    from mihomes.services.metering.ai_wrapper import MeteredProvider
+
+    return MeteredProvider(
+        provider, session_factory=None, account=None, entry_point="test",
+    )
+
+
+class TestTheWrapperProxiesTheFullSurface:
+    def test_wrapper_proxies_undeclared_surface(self):
+        """**F8's first hazard** — `agent.py` reads `provider.client` for the agentic tool loop.
+
+        The Protocol deliberately does not declare `client` (it is Anthropic-specific), so a
+        wrapper implementing only the declared methods would raise `AttributeError` the first
+        time a user asked the assistant a question that needed a tool.
+        """
+        inner = _RecordingProvider()
+        wrapper = _wrapped(inner)
+
+        assert wrapper.client is inner.client
+        assert wrapper.supports_images is True
+
+    def test_attribute_writes_reach_the_provider(self):
+        """**F8's second hazard, and the subtlest bug this file could contain.**
+
+        `agent.py:41` does `provider.model = model`. If `__setattr__` stored that on the wrapper
+        instead of passing it through, the assignment would succeed, nothing would raise, and the
+        provider would quietly use its default model for every subsequent call — a caller asking
+        for Opus silently getting Sonnet, visible only in the bill and the answer quality.
+        """
+        inner = _RecordingProvider()
+        wrapper = _wrapped(inner)
+
+        wrapper.model = "claude-opus-5"
+
+        assert inner.model == "claude-opus-5", (
+            "attribute writes must reach the wrapped provider — storing them on the wrapper "
+            "silently ignores the caller's choice of model"
+        )
+        assert wrapper.model == "claude-opus-5"
+
+    @pytest.mark.parametrize("method", ["complete", "structured_output", "stream"])
+    def test_every_declared_method_dispatches(self, method):
+        """All three reach the provider and return its result.
+
+        Parameterised over the declared surface rather than testing `complete` alone: `stream` is
+        the one that would break most quietly, since a wrapper returning `None` instead of an
+        iterator looks like an empty answer rather than an error.
+        """
+        inner = _RecordingProvider()
+        wrapper = _wrapped(inner)
+
+        result = getattr(wrapper, method)("system", "user")
+
+        assert inner.calls == [method]
+        assert result is not None
+
+    def test_stream_returns_a_real_iterator(self):
+        """The specific shape a broken proxy would produce: an empty answer, not an error."""
+        wrapper = _wrapped(_RecordingProvider())
+        assert list(wrapper.stream("system", "user")) == ["tok"]
+
+    def test_a_metering_failure_does_not_break_the_call(self):
+        """The answer has already been produced and the vendor has already billed for it.
+
+        Refusing to return it because the *counter* failed would cost money and deliver nothing —
+        so `_record` swallows and logs. Simulated with a session factory that raises.
+        """
+        from mihomes.services.metering.ai_wrapper import MeteredProvider
+
+        def _explode():
+            raise RuntimeError("database is down")
+
+        inner = _RecordingProvider()
+        wrapper = MeteredProvider(
+            inner,
+            session_factory=_explode,
+            account=type("A", (), {"id": "x"})(),
+            entry_point="test",
+        )
+
+        assert wrapper.complete("system", "user") == "answer"
+
+
 class TestProtocolDeclaresWhatIsCalled:
     @pytest.mark.parametrize("method", ["complete", "structured_output", "stream"])
     def test_protocol_declares(self, method):

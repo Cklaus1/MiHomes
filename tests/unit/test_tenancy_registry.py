@@ -227,16 +227,26 @@ def test_registry_size_is_asserted_explicitly():
     - **42** `telegram_links` (G16/A32) — sender → membership, keyed so that revoking a membership
       CASCADEs the chat link away.
 
-    SPEC-004 adds one:
+    Per-person document access adds one:
 
     - **43** `document_access` — per-person document grants, replacing `documents.staff_visible`
       as the owner-controlled gate. One boolean per document could not say "this is for Ana and
       not for Marco", which an estate needs.
 
+    SPEC-004 adds two, both from the AI usage meter (§4.2, Step 10):
+
+    - **44** `ai_usage_events` — one row per user-initiated AI call, carrying `entry_point` so
+      A11 can prove *from the tree* that every dispatch path is metered.
+    - **45** `ai_usage_rollups` — the materialized monthly counter `usage()` returns. Materialized
+      rather than derived because `archive.py` DELETEs `ai_conversations` (F10), so a derived
+      count would reset a customer's usage when they archive.
+
+    The webhook ledger is **not** here — it is global, by the carve-out `GLOBAL_TABLES` records.
+
     Each raise happened in the same commit as its migration. The count exists so that *forgetting*
     to register a table fails loudly, which only works if raising it is a conscious act.
     """
-    assert len(TENANT_TABLES) == 43, (
-        f"expected 43 tenant-owned tables, registry has {len(TENANT_TABLES)} — "
+    assert len(TENANT_TABLES) == 45, (
+        f"expected 45 tenant-owned tables, registry has {len(TENANT_TABLES)} — "
         "if a table was legitimately added or removed, update this number and say why"
     )

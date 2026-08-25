@@ -1,6 +1,5 @@
 """Tests for resume_ranker service."""
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -13,7 +12,6 @@ from mihomes.services.resume_ranker import (
     rank_resumes,
     save_candidate_notes,
 )
-
 
 # ── extract_text ──────────────────────────────────────────────────────────────
 
@@ -267,7 +265,9 @@ class TestRankResumes:
         mock_provider.structured_output.return_value = self._mock_ranking_result()
         with patch("mihomes.services.resume_ranker.get_provider", return_value=mock_provider) as mock_gp:
             rank_resumes(self._sample_resumes(), "JD", api_key="sk-test-key")
-        mock_gp.assert_called_once_with("claude", api_key="sk-test-key")
+        mock_gp.assert_called_once_with(
+            "claude", api_key="sk-test-key", entry_point="ai.resume_ranker"
+        )
 
 
 # ── save_candidate_notes ──────────────────────────────────────────────────────

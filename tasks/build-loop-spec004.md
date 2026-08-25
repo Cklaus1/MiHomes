@@ -591,7 +591,7 @@ exists before the trial needs it), **G3 before G4** (the ledger exists before th
 > was wrong, not the rule — it dropped `plan` to `free` alongside `past_due`, and grace preserves
 > the account's *own* plan.
 
-### [x] G15 — Step 15: the four emails — *dep: G7, G12* — *20 tests; 2147 → 2167; 1 arm mutation-verified; commit `<G15>`*
+### [x] G15 — Step 15: the four emails — *dep: G7, G12* — *20 tests; 2147 → 2167; 1 arm mutation-verified; commit `3b11c17`*
 - [x] G15.1 · §6 Step 15 · A21 · four template pairs + four `send_*` on the **existing** `EmailService`; the transport-only `EmailProvider` Protocol is **not** extended · verify: `tests/integration/test_billing_emails.py::test_four_templates` ✓
 - [x] G15.2 · §6 Step 15 · A21 · 3 webhook-triggered + 1 scheduler-triggered (`trial_ending`, F3/B2); each fires once · verify: `tests/integration/test_billing_emails.py::test_fires_once` ✓
 
@@ -673,7 +673,7 @@ never at the route: N11 forbids 403-ing the dashboard, which renders ratings amo
 | G12 — scheduled jobs | ✅ 13 tests | `44f1d35` |
 | G13 — the trial state machine | ✅ 13 tests | `b69983a` |
 | G14 — restricted mode | ✅ 13 tests | `681daa0` |
-| G15 — the four billing emails | ✅ 20 tests | `<G15>` |
+| G15 — the four billing emails | ✅ 20 tests | `3b11c17` |
 | G16 onward | ⬜ not started | — |
 
 **Criteria discharged so far:** A1–A21, A26–A30. Five remain: A22–A25 and **A31, the exit

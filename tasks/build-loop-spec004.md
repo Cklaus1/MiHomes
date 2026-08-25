@@ -565,7 +565,7 @@ exists before the trial needs it), **G3 before G4** (the ledger exists before th
 > the trial started — without that, every Free account would get unlimited homes by hitting the
 > limit twice.
 
-### [x] G14 — Step 14: downgrade + restricted mode — *dep: G13* — *13 tests; 2134 → 2147; 2 arms mutation-verified; commit `<G14>`*
+### [x] G14 — Step 14: downgrade + restricted mode — *dep: G13* — *13 tests; 2134 → 2147; 2 arms mutation-verified; commit `681daa0`*
 - [x] G14.1 · §6 Step 14 · A20 · **D9** — surplus read-only, core home editable, **nothing deleted**, all three arrival paths · verify: `tests/integration/test_downgrade.py::test_nothing_deleted` ✓ (parameterised over past-due / cancellation / trial expiry)
 - [x] G14.2 · §6 Step 14 · A20 · the core home stays editable; a frozen one refuses edits and names the upgrade · verify: `tests/integration/test_downgrade.py::test_the_core_home_is_editable` ✓
 - [x] G14.3 · §6 Step 14 · A8 · `past_due` unrestricted, `unpaid` restricted, at the account level · verify: `tests/integration/test_downgrade.py::test_grace_then_restrict` ✓
@@ -654,7 +654,7 @@ fire from webhooks; `trial_ending` fires from G12's sweep (F3/B2).
 | G11 — overage, ceiling, nudges | ✅ 13 tests | `408e43b` |
 | G12 — scheduled jobs | ✅ 13 tests | `44f1d35` |
 | G13 — the trial state machine | ✅ 13 tests | `b69983a` |
-| G14 — restricted mode | ✅ 13 tests | `<G14>` |
+| G14 — restricted mode | ✅ 13 tests | `681daa0` |
 | G15 onward | ⬜ not started | — |
 
 **Criteria discharged so far:** A1–A20, A26–A30. Six remain: A21–A25 and **A31, the exit

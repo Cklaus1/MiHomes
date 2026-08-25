@@ -25,7 +25,7 @@ runner = CliRunner()
 
 
 @pytest.fixture(scope="module", autouse=True)
-def setup_db(cli_database):
+def setup_db(cli_database, upgrade_operator_account):
     """Initialize the CLI database and load demo data once per module.
 
     `cli_database` (root conftest) owns the dedicated Postgres database and sets `DATABASE_URL`,
@@ -42,6 +42,16 @@ def setup_db(cli_database):
     # init_db() runs the migrations AND bootstraps the account; this returns the existing one.
     from mihomes.tenancy.bootstrap import ensure_default_account
     account_id = ensure_default_account(get_engine())
+
+    # SPEC-004 Step 8 — the bootstrapped operator account is created on **Free** (`ONBOARDING:143`:
+    # billing never blocks onboarding), and Free is now a real 1-home limit. `load_demo_data`
+    # seeds a multi-property estate, so it trips the gate on its second property.
+    #
+    # Raised to `estate` here rather than exempting the demo seeder, because the gate is behaving
+    # correctly: an account on Free genuinely may not hold four homes. What plan the *operator's*
+    # local database runs on is a fixture decision, and pretending it is Free while seeding four
+    # properties is the contradiction, not the gate.
+    upgrade_operator_account(account_id)
 
     with account_context(account_id):
         with get_session() as session:

@@ -3,19 +3,21 @@
 Rule 1: *"Plan → entitlements mapping lives in one config module, not scattered across
 features."* Every gate resolves against this file; no feature hardcodes a plan name.
 
-**Two tables, and the second one is the whole of D18.** `PRICING` §3.1 is the *Phase 3* table —
-`max_homes: 1`, `staff_invites_allowed: false` for Free. Phase 2 makes **every account `free`**
-(D7), so shipping those numbers as the active table would gate the entire product for every user
-with no paid tier to upgrade to. SPEC-003 §7's deferred table says exactly what to do instead:
-*"`can()` exists and is called; the limits config simply says 'free, unlimited'."*
+**One table, as of SPEC-004 Step 8.** Phase 2 shipped two: `PLAN_LIMITS` (permissive) active and
+`PLAN_LIMITS_PHASE3` (§3.1's real numbers) declared but inert, because D7 made every account
+`free` and gating the product with no paid tier to upgrade to would have locked out every user.
+Phase 3 supplies billing state, so the real numbers become the active ones and the permissive
+table is **deleted rather than left behind** — a second table nothing resolves against is a
+loaded gun for the next reader, who cannot tell an inert fixture from a live one.
 
-So `PLAN_LIMITS` (active) is permissive, `PLAN_LIMITS_PHASE3` (declared, inert) carries §3.1's
-real numbers, and `test_tables_declare_identical_keys` asserts the two never drift. Phase 3's
-change is then a **one-line swap of which table is active**, not a rewrite — and a key added to
-one table without the other fails the suite rather than silently defaulting.
+`PLAN_LIMITS_PHASE3` remains as an alias so existing call sites and tests keep working; it is the
+same object, and `limits_for(table=...)` still takes an explicit table for tests that need to
+resolve against something other than the live binding.
 
-N8 is the same decision seen from the feature side: `vendor_ratings` and `work_order_scheduling`
-stay declared and wired to nothing until Phase 3 supplies billing state.
+**These numbers are `PLACEHOLDER` except Free's 1 home / 3 seats** (SPEC-004 O1, blocks-ship).
+They are literals rather than env vars deliberately — C11: a price id is deployment identity and
+must be env, but the limits are product definition, already committed and drift-gated here, and
+moving them to env would make the plan table unreadable for no safety gain.
 """
 
 from __future__ import annotations
@@ -41,8 +43,8 @@ UNLIMITED = 10**9
 UPGRADE_PATH = {"free": "pro", "pro": "estate", "estate": None}
 
 
-# `PRICING` §3.1, verbatim. **Inert in Phase 2** — see the module docstring.
-PLAN_LIMITS_PHASE3: dict[str, dict[str, Any]] = {
+# `PRICING` §3.1, verbatim. **Live as of Phase 3** — see the module docstring.
+PLAN_LIMITS: dict[str, dict[str, Any]] = {
     "free": {
         "max_homes": 1,
         "max_seats": 3,
@@ -90,41 +92,15 @@ PLAN_LIMITS_PHASE3: dict[str, dict[str, Any]] = {
     },
 }
 
-ENTITLEMENT_KEYS = frozenset(PLAN_LIMITS_PHASE3["free"])
+ENTITLEMENT_KEYS = frozenset(PLAN_LIMITS["free"])
 
-
-def _phase2_free() -> dict[str, Any]:
-    """Free, unlimited — SPEC-003 §7's deferred table, D18, N8.
-
-    Every key from §3.1 is present so the *shape* is final and call sites written now keep
-    working when Phase 3 swaps the table. Only the values are permissive.
-    """
-    return {
-        "max_homes": UNLIMITED,
-        "max_seats": UNLIMITED,
-        # §1.4: "Staff invites work in Phase 2 precisely because nothing gates them yet."
-        "staff_invites_allowed": True,
-        "roles_allowed": frozenset({"owner", "admin", "staff"}),
-        "ai_calls_per_month": UNLIMITED,
-        "ai_overage_buffer_pct": 0,
-        "ai_priority": "standard",
-        # N8: declared, wired to nothing until Phase 3.
-        "vendor_ratings": True,
-        "work_order_scheduling": True,
-        "predictive_maintenance": True,
-        "weekly_ai_report": True,
-        "audit_export": True,
-        "support_tier": "community",
-    }
-
-
-# Active in Phase 2. All three plans resolve permissively because D7 makes every account `free`
-# and D18 defers the gates; Phase 3 replaces this binding with `PLAN_LIMITS_PHASE3`.
-PLAN_LIMITS: dict[str, dict[str, Any]] = {
-    "free": _phase2_free(),
-    "pro": _phase2_free(),
-    "estate": _phase2_free(),
-}
+#: Back-compatible alias — the same object, not a copy.
+#:
+#: Phase 2 code and tests refer to `PLAN_LIMITS_PHASE3` by name to mean "the real numbers". They
+#: now *are* the active numbers, so the alias keeps those call sites correct instead of requiring
+#: a rename that would say nothing new. `is` identity matters: a copy would reintroduce exactly
+#: the drift the two-table arrangement was gated against.
+PLAN_LIMITS_PHASE3 = PLAN_LIMITS
 
 
 # `BILLING_AND_EMAIL` §5, quoted in `PRICING` rule 3: status → which plan's entitlements apply.

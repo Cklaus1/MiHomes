@@ -33,7 +33,7 @@ runner = CliRunner()
 
 
 @pytest.fixture(scope="module", autouse=True)
-def report_db(cli_database):
+def report_db(cli_database, upgrade_operator_account):
     """Seed one contract due for renewal, once, in the account `cli_database` bootstraps.
 
     Module-scoped and idempotent (checks for the vendor before creating it) for the same reason
@@ -45,6 +45,10 @@ def report_db(cli_database):
 
     init_db()
     account_id = ensure_default_account(get_engine())
+    # SPEC-004 Step 8: the bootstrapped account is Free, and Free is now a real 1-home limit.
+    # Demo seeding creates several properties, so raise the operator database's plan — see
+    # `conftest.upgrade_operator_account` for why the fixture moves rather than the gate.
+    upgrade_operator_account(account_id)
 
     with account_context(account_id), get_session() as session:
         from mihomes.models.property import Property

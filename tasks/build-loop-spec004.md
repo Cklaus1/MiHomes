@@ -389,9 +389,35 @@ exists before the trial needs it), **G3 before G4** (the ledger exists before th
 > A8 carries a guard on itself: a second test asserts Pro and Free actually have different limits,
 > or A8 would pass while proving nothing about the distinction.
 
-### [ ] G8 — Step 8: real limits — *dep: G7* — **the exit criterion's first half**
-- [ ] G8.1 · §6 Step 8 · A1 · **swap the active table to `PLAN_LIMITS_PHASE3`** (C4 — a one-line change, not a rewrite) · verify: `tests/unit/test_limits.py::test_free_gates`
-- [ ] G8.2 · §6 Step 8 · A3 · every `Denied` names an upgrade target (rule 4) · verify: `tests/unit/test_limits.py::test_denied_names_target`
+### [x] G8 — Step 8: real limits — *dep: G7* — **the exit criterion's first half** — *11 tests; 2044 → 2055; A1 mutation-verified (12 red); commit `<G8>`*
+- [x] G8.1 · §6 Step 8 · A1 · the §3.1 numbers become the active table · verify: `tests/unit/test_limits.py::test_free_gates` ✓
+- [x] G8.2 · §6 Step 8 · A3 · every `Denied` names an upgrade target (rule 4) · verify: `tests/unit/test_limits.py::test_denied_names_target` ✓ — **plus** `test_the_named_target_actually_allows_it`: naming a plan that would still deny is worse than naming none
+- [x] G8.3 · **C4 corrected** · — · ~96 test outcomes moved, not one line · verify: below
+
+> **C4 was stale in our favour and this is the correction.** It said Step 8 was *"a one-line swap,
+> not a rewrite"* — true of the **production** change, false of the total change. Probing the flip
+> first: **15 failures + 81 errors**. Every one was a fixture creating a second property as setup
+> for something unrelated to billing, so **the fixtures moved, not the gate**.
+>
+> Two provisioning paths, found by enumeration: `_make_account`/`_create_account` now take a plan
+> (`DEFAULT_FIXTURE_PLAN = "estate"`), and the CLI operator database — bootstrapped on Free per
+> `ONBOARDING:143` — is raised by a shared fixture across its five modules. **Tests about Free must
+> now say so explicitly**; defaulting to `free` would make every unrelated test a billing test.
+>
+> **Collapsed to one table rather than aliased.** `PLAN_LIMITS = PLAN_LIMITS_PHASE3` would make
+> `test_tables_declare_identical_keys` pass vacuously — same object — losing the drift gate in the
+> same commit that makes the table real. `_phase2_free()` is deleted instead. Checked first:
+> `roles_allowed` has **zero consumers**, so no SPEC-003 staff test is affected.
+>
+> **Two tests rewritten, not deleted** — they asserted the inverse, and one's docstring said it
+> *"would fail the day someone activates the Phase 3 numbers without meaning to"*. Old names kept
+> in the docstrings so the change of intent is legible. Same precedent as SPEC-003's `len(MATRIX)`
+> move.
+>
+> **Mutation shape mattered here:** a permissive fixture default could have made A1 vacuous — the
+> exact hole §0.4 exists to close. Flipping Free back to permissive turns **12 tests** red. A1's
+> tests also resolve against the **live binding** rather than passing `table=`, because Step 8's
+> whole content is which table is active.
 
 ### [ ] G9 — Step 9: close the `agent_stream` bypass — *dep: none — MUST precede G10*
 - [ ] G9.1 · §6 Step 9 · A10 · route `agent.py:78` through `get_provider()`; declare `stream` on the `AIProvider` Protocol (F8) · verify: `tests/unit/test_ai_metering.py::test_no_factory_bypass`
@@ -465,9 +491,9 @@ what differs before deciding which.
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**Steps 1–7 landed.** Suite at **2044 passed, 3 skipped, 2 xfailed, 0 failed** (baseline 1945).
-Resume at **G8.1** — real limits, which per C4 is a one-line swap of which table `limits.py`
-binds as active. This is the exit criterion's first half.
+**Steps 1–8 landed — the gates are live.** Suite at **2055 passed, 3 skipped, 2 xfailed, 0
+failed** (baseline 1945). Condition D re-verified explicitly: `test_smoke_all_tools.py` 18 passed.
+Resume at **G9.1** — close the `agent_stream` bypass (`agent.py:78`), which **must** precede G10.
 
 | Group | State | Commit |
 |---|---|---|
@@ -478,9 +504,11 @@ binds as active. This is the exit criterion's first half.
 | G5 — idempotency, out-of-order | ✅ 12 tests | `38c3633` |
 | G6 — checkout, portal, plan page | ✅ 11 tests | `6aae48a` |
 | G7 — status mapping, single writer | ✅ 26 tests | `5995d9b` |
-| G8 onward | ⬜ not started | — |
+| G8 — real limits, gates live | ✅ 11 tests | `<G8>` |
+| G9 onward | ⬜ not started | — |
 
-**Criteria discharged so far:** A2, A4, A5, A6, A7, A8, A27, A28, A29, A30. Twenty-one remain.
+**Criteria discharged so far:** A1, A2, A3, A4, A5, A6, A7, A8, A27, A28, A29, A30. Nineteen
+remain — A11 (the definition of done) and A31 (the exit criterion) among them.
 
 ## 3. Circuit breaker (conventions §3)
 

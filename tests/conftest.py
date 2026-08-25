@@ -99,7 +99,27 @@ def engine(_pg_engine):
     return _pg_engine
 
 
-def _make_account(conn, *, slug: str, name: str) -> uuid.UUID:
+#: The plan the shared fixtures provision. **Deliberately not `free`** — SPEC-004 Step 8.
+#:
+#: Phase 2's limits were permissive for every plan, so `plan='free'` in a fixture meant
+#: "unlimited". Step 8 made `PRICING` §3.1's real numbers live, and Free is **1 home / 3 seats** —
+#: which turned ~96 test outcomes red at once, almost all of them fixtures creating a second
+#: property as ordinary setup for something unrelated to billing.
+#:
+#: The gate was right and the fixtures encoded a stale assumption, so the fixtures move rather
+#: than the gate. `estate` is the permissive tier, which restores the Phase 2 meaning of "a
+#: general-purpose account that does not get in the way".
+#:
+#: **Tests about Free must say so explicitly** — `_create_account(..., plan="free")`. That
+#: asymmetry is the point: a limit test that silently inherited its plan from a shared default
+#: could pass for the wrong reason, and defaulting to `free` would make every unrelated test a
+#: billing test.
+DEFAULT_FIXTURE_PLAN = "estate"
+
+
+def _make_account(
+    conn, *, slug: str, name: str, plan: str = DEFAULT_FIXTURE_PLAN
+) -> uuid.UUID:
     """Insert an account with raw SQL.
 
     Deliberately not via the ORM: the ORM path will soon be tenant-scoped (G8), and
@@ -110,14 +130,16 @@ def _make_account(conn, *, slug: str, name: str) -> uuid.UUID:
     conn.execute(
         text(
             "INSERT INTO accounts (id, slug, name, type, plan, created_at, updated_at) "
-            "VALUES (:id, :slug, :name, 'household', 'free', now(), now())"
+            "VALUES (:id, :slug, :name, 'household', :plan, now(), now())"
         ),
-        {"id": account_id, "slug": slug, "name": name},
+        {"id": account_id, "slug": slug, "name": name, "plan": plan},
     )
     return account_id
 
 
-def _create_account(engine, *, prefix: str, name: str) -> uuid.UUID:
+def _create_account(
+    engine, *, prefix: str, name: str, plan: str = DEFAULT_FIXTURE_PLAN
+) -> uuid.UUID:
     """Create and COMMIT an account, then close the connection.
 
     The commit has to complete *before* the fixture yields. Yielding from inside
@@ -128,7 +150,7 @@ def _create_account(engine, *, prefix: str, name: str) -> uuid.UUID:
     """
     with engine.begin() as conn:
         return _make_account(
-            conn, slug=f"{prefix}-{uuid.uuid4().hex[:8]}", name=name
+            conn, slug=f"{prefix}-{uuid.uuid4().hex[:8]}", name=name, plan=plan
         )
 
 
@@ -297,6 +319,43 @@ def cli_database():
         )
         conn.exec_driver_sql(f'DROP DATABASE IF EXISTS "{cli_db}"')
     admin.dispose()
+
+
+@pytest.fixture(scope="session")
+def upgrade_operator_account():
+    """Raise the CLI/demo database's bootstrapped account to the permissive plan.
+
+    **A fixture, not an importable helper**, for the reason `seed_estate` records two functions
+    below: `tests/` has no `__init__.py`, so `tests/integration/` cannot `from conftest import`
+    anything — but every module can see a root-conftest fixture. Tried the import first and it
+    failed with `ModuleNotFoundError` across five modules at once.
+
+    **Session-scoped** because its five consumers are module-scoped `autouse` fixtures, and a
+    function-scoped fixture cannot be requested from a wider scope. Safe at session scope
+    precisely because it holds no state — it returns a callable that takes the account id, so
+    there is nothing to leak between modules.
+
+    Five modules drive the real CLI against `cli_database`, and `init_db()` bootstraps its
+    account on **Free** — correctly, because `ONBOARDING:143` says billing never blocks
+    onboarding. SPEC-004 Step 8 made Free a real 1-home limit, and `load_demo_data` seeds a
+    multi-property estate, so demo seeding now trips the gate on its second property.
+
+    The gate is right: an account on Free genuinely may not hold four homes. What plan the
+    *operator's* local database runs on is a fixture decision, and seeding four properties while
+    claiming to be Free is the contradiction. Shared here rather than copied into each module —
+    the same reasoning `web_client_factory` records, where four hand-rolled copies all broke the
+    same way at once.
+    """
+    def _upgrade(account_id) -> None:
+        import mihomes.db as db_mod
+
+        with db_mod.get_engine().begin() as conn:
+            conn.execute(
+                text("UPDATE accounts SET plan = :plan WHERE id = :id"),
+                {"plan": DEFAULT_FIXTURE_PLAN, "id": account_id},
+            )
+
+    return _upgrade
 
 
 @pytest.fixture

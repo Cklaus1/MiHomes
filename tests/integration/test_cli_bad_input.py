@@ -31,7 +31,7 @@ BAD = "not-a-date"
 
 
 @pytest.fixture(scope="module", autouse=True)
-def setup_db(cli_database):
+def setup_db(cli_database, upgrade_operator_account):
     """Initialize the CLI database and load demo data once per module.
 
     `cli_database` (root conftest) owns the dedicated Postgres database and sets `DATABASE_URL`,
@@ -49,6 +49,10 @@ def setup_db(cli_database):
     from mihomes.db import get_engine
     from mihomes.tenancy.bootstrap import ensure_default_account
     account_id = ensure_default_account(get_engine())
+    # SPEC-004 Step 8: the bootstrapped account is Free, and Free is now a real 1-home limit.
+    # Demo seeding creates several properties, so raise the operator database's plan — see
+    # `conftest.upgrade_operator_account` for why the fixture moves rather than the gate.
+    upgrade_operator_account(account_id)
 
     with account_context(account_id):
         with get_session() as session:

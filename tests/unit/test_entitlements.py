@@ -65,18 +65,25 @@ class TestLimitsTables:
         assert free["max_seats"] == 3
         assert free["staff_invites_allowed"] is False
 
-    def test_phase2_table_gates_nothing(self):
-        """D18/N8 — *"Nothing flips."*
+    def test_the_active_table_gates_free(self):
+        """**Rewritten at SPEC-004 Step 8 — this test asserted the inverse.**
 
-        Pinning Phase 2's permissiveness makes Phase 3's activation a visible, deliberate diff
-        rather than something that quietly already happened.
+        It was `test_phase2_table_gates_nothing`, pinning D18/N8's *"Nothing flips"*: Free had
+        unlimited homes, staff invites allowed, ratings on. That was correct for Phase 2, where
+        every account was `free` and gating the product would have locked out every user with no
+        paid tier to upgrade to — and pinning it made Phase 3's activation a visible, deliberate
+        diff instead of something that quietly already happened.
+
+        **This is that diff.** Rewritten rather than deleted, so the change of intent is legible
+        in the history: the same three values, now asserted the other way, are exactly what
+        "Phase 3 turns the gates on" means.
         """
         free = PLAN_LIMITS["free"]
-        assert free["staff_invites_allowed"] is True, (
-            "§1.4: staff invites work in Phase 2 precisely because nothing gates them yet"
+        assert free["staff_invites_allowed"] is False, (
+            "§3.1: Free does not include the staff role — the gate is live as of Phase 3"
         )
-        assert free["max_homes"] > 1
-        assert free["vendor_ratings"] is True, "N8: declared, wired to nothing until Phase 3"
+        assert free["max_homes"] == 1, "§3.1's one non-placeholder number"
+        assert free["vendor_ratings"] is False, "D12: enforced per the PRD, superseding N8"
 
     def test_unlimited_is_a_ceiling_not_infinity(self):
         """`PRICING` §3.1's note: a real ceiling still catches runaway cost and abuse.
@@ -178,15 +185,29 @@ class TestCanContract:
         """
         assert isinstance(can(FakeAccount(), "task.manage"), Allowed)
 
-    def test_phase2_active_table_denies_nothing(self):
-        """D18 — with the *active* table, `can()` allows the three Free→Pro triggers.
+    def test_the_active_table_denies_the_free_to_pro_triggers(self):
+        """**A1** — with the *active* table, `can()` denies the Free→Pro triggers.
 
-        This is the assertion that would fail the day someone activates the Phase 3 numbers
-        without meaning to.
+        **Rewritten at Step 8**, and its previous name says what changed:
+        `test_phase2_active_table_denies_nothing` was the assertion that *"would fail the day
+        someone activates the Phase 3 numbers without meaning to"*. Step 8 activates them on
+        purpose, so the test now asserts the activation rather than guarding against it.
+
+        Denials are checked with `isinstance`, not truthiness: `Denied.__bool__` returns `False`,
+        so `assert not can(...)` would also pass on `None` or on a decision object that forgot
+        its type — and both would be bugs this test exists to catch.
         """
         free = FakeAccount(plan="free")
-        assert can(free, "invite.staff")
-        assert can(free, "property.add", {"current_homes": 4})
+
+        assert isinstance(can(free, "invite.staff"), Denied), (
+            "Free excludes the staff role (§3.1)"
+        )
+        assert isinstance(can(free, "property.add", {"current_homes": 1}), Denied), (
+            "Free allows one home; the second is the upgrade trigger"
+        )
+        # The first home must still be creatable — a gate that denied *every* home would pass
+        # the two assertions above while making the product unusable on signup.
+        assert isinstance(can(free, "property.add", {"current_homes": 0}), Allowed)
 
 
 class TestIndependentGates:

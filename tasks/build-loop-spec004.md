@@ -389,7 +389,7 @@ exists before the trial needs it), **G3 before G4** (the ledger exists before th
 > A8 carries a guard on itself: a second test asserts Pro and Free actually have different limits,
 > or A8 would pass while proving nothing about the distinction.
 
-### [x] G8 — Step 8: real limits — *dep: G7* — **the exit criterion's first half** — *11 tests; 2044 → 2055; A1 mutation-verified (12 red); commit `<G8>`*
+### [x] G8 — Step 8: real limits — *dep: G7* — **the exit criterion's first half** — *11 tests; 2044 → 2055; A1 mutation-verified (12 red); commit `4cd5043`*
 - [x] G8.1 · §6 Step 8 · A1 · the §3.1 numbers become the active table · verify: `tests/unit/test_limits.py::test_free_gates` ✓
 - [x] G8.2 · §6 Step 8 · A3 · every `Denied` names an upgrade target (rule 4) · verify: `tests/unit/test_limits.py::test_denied_names_target` ✓ — **plus** `test_the_named_target_actually_allows_it`: naming a plan that would still deny is worse than naming none
 - [x] G8.3 · **C4 corrected** · — · ~96 test outcomes moved, not one line · verify: below
@@ -504,7 +504,7 @@ Resume at **G9.1** — close the `agent_stream` bypass (`agent.py:78`), which **
 | G5 — idempotency, out-of-order | ✅ 12 tests | `38c3633` |
 | G6 — checkout, portal, plan page | ✅ 11 tests | `6aae48a` |
 | G7 — status mapping, single writer | ✅ 26 tests | `5995d9b` |
-| G8 — real limits, gates live | ✅ 11 tests | `<G8>` |
+| G8 — real limits, gates live | ✅ 11 tests | `4cd5043` |
 | G9 onward | ⬜ not started | — |
 
 **Criteria discharged so far:** A1, A2, A3, A4, A5, A6, A7, A8, A27, A28, A29, A30. Nineteen

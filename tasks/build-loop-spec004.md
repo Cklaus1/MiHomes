@@ -728,7 +728,7 @@ treats as a red gate.
 | G15 — the four billing emails | ✅ 20 tests | `3b11c17` |
 | G16 — the three feature gates | ✅ 12 tests | `4e0af61` |
 | G17+G18 — importer gate, **A31** | ✅ 5 tests | `a0146e5` |
-| G-Final — compound stop | ✅ all five conditions | `<GFINAL>` |
+| G-Final — compound stop | ✅ all five conditions | `fb4d962` |
 
 **All 31 criteria discharged** — A1 through A31, including **A11** (the definition of done) and
 **A31** (the exit criterion). G-Final proves it formally.

@@ -143,8 +143,16 @@ def _expire_trial(session, account) -> None:
 
     **Nothing is deleted.** An account that ran four homes on trial keeps all four, over-limit and
     read-only per `PRICING` §4.3 — the same non-destructive shape as a voluntary downgrade.
+
+    **`subscription_status` must be cleared too**, and the first version of this function did not
+    — a Step 13 gap found by writing A19's test. `_STATUS_TO_EFFECTIVE_PLAN` maps `trialing` to
+    *"the account's own plan"*, so an expired account left at `trialing` would resolve against
+    whatever `plan` says. It reverts to `free` here, so nothing leaked; but the moment anything
+    read the status directly — a banner, a webhook comparison, the reconcile sweep — it would have
+    said an ended trial was still running.
     """
     account.plan = "free"
+    account.subscription_status = None
     account.trial_ends_at = None
     session.commit()
     logger.info("trial expired for account %s", account.id)

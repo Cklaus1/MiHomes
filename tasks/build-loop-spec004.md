@@ -535,10 +535,35 @@ exists before the trial needs it), **G3 before G4** (the ledger exists before th
 > One account's failure must not abort the sweep: errors are logged per account and it continues,
 > or one unreachable Stripe customer strands every account after it in the list.
 
-### [ ] G13 — Step 13: the trial state machine — *dep: G12*
-- [ ] G13.1 · §6 Step 13 · A17 · a trial grants Pro entitlements with **no Stripe subscription existing** (F3) · verify: `tests/integration/test_trial.py::test_cardless_trial_entitlements`
-- [ ] G13.2 · §6 Step 13 · A18 · one trial per account, ever (`trial_used_at`) · verify: `tests/integration/test_trial.py::test_one_trial_ever`
-- [ ] G13.3 · §6 Step 13 · A19 · expiry downgrades and surfaces over-limit, dropping nothing · verify: `tests/integration/test_trial.py::test_expiry_is_nondestructive`
+### [x] G13 — Step 13: the trial state machine — *dep: G12* — *13 tests; 2121 → 2134; 2 arms mutation-verified; commit `<G13>`*
+- [x] G13.1 · §6 Step 13 · A17 · a trial grants Pro entitlements with **no Stripe subscription existing** (F3) · verify: `tests/integration/test_trial.py::test_cardless_trial_entitlements` ✓
+- [x] G13.2 · §6 Step 13 · A18 · one trial per account, ever (`trial_used_at`) · verify: `tests/integration/test_trial.py::test_one_trial_ever` ✓
+- [x] G13.3 · §6 Step 13 · A19 · expiry downgrades and surfaces over-limit, dropping nothing · verify: `tests/integration/test_trial.py::test_expiry_is_nondestructive` ✓
+- [x] G13.4 · **found here** · — · `_expire_trial` left `subscription_status="trialing"` — a Step 12 gap · verify: `tests/integration/test_trial.py::test_expiry_clears_the_trialing_status` ✓
+
+> **A17's phrasing is the test: "no Stripe subscription *existing*."** The absence is the
+> assertion — a trial that quietly created a Customer would grant the right entitlements and pass
+> any test that only checked `can()`, while making `start_checkout` reuse a customer built before
+> anyone agreed to pay.
+>
+> **The trial needed no special case**, which is the interesting part: `trialing` already maps to
+> *"the account's own plan"*, so `plan="pro"` grants real Pro limits through the ordinary path. A
+> trial-shaped branch in `can()` would be a second mechanism answering an answered question.
+>
+> **A18 refuses on history, not state.** Trial → convert → cancel leaves an account that looks
+> exactly like a new Free one; a plan check hands it a second trial. Mutation-verified: the plan
+> check turns two tests red.
+>
+> **A19: "tidy up the surplus" is the wrong move** and the intuitive implementation.
+> Mutation-verified by making expiry delete the extra homes. The test also asserts the over-limit
+> state is *visible* — the next home is refused — rather than silent.
+>
+> `is_on_trial` checks the **date**, not just the status: a trial ending at 03:00 is over at
+> 03:00, not when the sweep runs. The sweep tidies up; it does not enforce.
+>
+> Started on the first gated action (§4.2), and the gate **re-asks** `can()` rather than assuming
+> the trial started — without that, every Free account would get unlimited homes by hitting the
+> limit twice.
 
 ### [ ] G14 — Step 14: downgrade + restricted mode — *dep: G13*
 - [ ] G14.1 · §6 Step 14 · A20 · **D9** — surplus read-only, core home editable, **nothing deleted**, all three arrival paths · verify: `tests/integration/test_downgrade.py::test_nothing_deleted`
@@ -587,9 +612,9 @@ what differs before deciding which.
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**Steps 1–12 landed.** Suite at **2121 passed, 3 skipped, 2 xfailed, 0 failed** (baseline 1945).
-Resume at **G13.1** — the trial state machine. G12's sweep is its only clock (F3), and
-`jobs._expire_trial` is the half it already drives.
+**Steps 1–13 landed.** Suite at **2134 passed, 3 skipped, 2 xfailed, 0 failed** (baseline 1945).
+Resume at **G14.1** — downgrade and restricted mode (A20): surplus read-only, core home editable,
+nothing deleted, across all three arrival paths.
 
 | Group | State | Commit |
 |---|---|---|
@@ -605,10 +630,11 @@ Resume at **G13.1** — the trial state machine. G12's sweep is its only clock (
 | G10 — **the meter (A11)** | ✅ 29 tests | `61812f2` |
 | G11 — overage, ceiling, nudges | ✅ 13 tests | `408e43b` |
 | G12 — scheduled jobs | ✅ 13 tests | `44f1d35` |
-| G13 onward | ⬜ not started | — |
+| G13 — the trial state machine | ✅ 13 tests | `<G13>` |
+| G14 onward | ⬜ not started | — |
 
-**Criteria discharged so far:** A1–A8, A9, A10, **A11**, A12–A16, A26–A30. Ten remain:
-A17–A25 and **A31, the exit criterion.**
+**Criteria discharged so far:** A1–A17, A18, A19, A26–A30. Seven remain: A20–A25 and
+**A31, the exit criterion.**
 
 ## 3. Circuit breaker (conventions §3)
 

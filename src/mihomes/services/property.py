@@ -40,7 +40,23 @@ def _check_home_entitlement(session: Session) -> None:
 
     decision = can(account, "property.add", {"current_homes": current})
     if isinstance(decision, Denied):
-        raise EntitlementError(decision)
+        # **§4.2's "first gated action" — the trial starts here, not at signup.**
+        #
+        # *"A trial that starts at signup is often burned before the 2nd home or first staff hire
+        # appears."* This is that moment: the user has just been refused the exact thing a trial
+        # would grant, so the clock starts while they actually need Pro.
+        #
+        # Re-asked rather than assumed granted. `maybe_start_trial` refuses an account that has
+        # already used its trial or is a paying customer, and re-running `can()` is what keeps
+        # this honest: if the trial did not start, or started and still would not allow the
+        # action, the original denial stands.
+        from mihomes.services.billing.trial import maybe_start_trial
+
+        if maybe_start_trial(session, account, action="property.add"):
+            decision = can(account, "property.add", {"current_homes": current})
+
+        if isinstance(decision, Denied):
+            raise EntitlementError(decision)
 
 
 class EntitlementError(Exception):

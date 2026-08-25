@@ -613,7 +613,7 @@ exists before the trial needs it), **G3 before G4** (the ledger exists before th
 > A control test confirms an account **within** its limits gets no over-limit warning — otherwise
 > `over_limit` could be hardcoded true and every other assertion would still pass.
 
-### [x] G16 — Step 16: the three feature gates — *dep: G8* — *12 tests; 2167 → 2179; 1 arm mutation-verified after **three** vacuity fixes; commit `<G16>`*
+### [x] G16 — Step 16: the three feature gates — *dep: G8* — *12 tests; 2167 → 2179; 1 arm mutation-verified after **three** vacuity fixes; commit `4e0af61`*
 - [x] G16.1 · §6 Step 16 · A22 · ratings gated at **context assembly**, not the route (N11) — live path `services/vendor.py` *and* `vendor_rating.py`'s three dead ones (F6) · verify: `tests/integration/test_feature_gates.py::test_free_gets_no_ratings` ✓
 - [x] G16.2 · §6 Step 16 · A22 · both pages **still load** on Free · verify: `tests/integration/test_feature_gates.py::test_ratings_gated_pages_load` ✓
 - [x] G16.3 · §6 Step 16 · A23 · `due_date` denied on Free; an **undated** work order succeeds (D13) · verify: `tests/integration/test_feature_gates.py::test_due_date_gate` ✓
@@ -691,7 +691,7 @@ refuse an over-limit import rather than creating an account §4.3 has no languag
 | G13 — the trial state machine | ✅ 13 tests | `b69983a` |
 | G14 — restricted mode | ✅ 13 tests | `681daa0` |
 | G15 — the four billing emails | ✅ 20 tests | `3b11c17` |
-| G16 — the three feature gates | ✅ 12 tests | `<G16>` |
+| G16 — the three feature gates | ✅ 12 tests | `4e0af61` |
 | G17 onward | ⬜ not started | — |
 
 **Criteria discharged so far:** A1–A24, A26–A30. Two remain: **A25** (the importer gate) and

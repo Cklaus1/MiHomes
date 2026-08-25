@@ -486,7 +486,7 @@ exists before the trial needs it), **G3 before G4** (the ledger exists before th
 > Four SPEC-003 gates fired, all correctly, including U7's census demanding the two new models be
 > acknowledged as denied-to-staff — the right outcome, since usage rows are billing data.
 
-### [x] G11 — Step 11: overage behaviour — *dep: G10* — *13 tests; 2095 → 2108; 2 arms mutation-verified; commit `<G11>`*
+### [x] G11 — Step 11: overage behaviour — *dep: G10* — *13 tests; 2095 → 2108; 2 arms mutation-verified; commit `408e43b`*
 - [x] G11.1 · §6 Step 11 · A14 · soft cap passes, hard ceiling denies, each nudge fires once · verify: `tests/integration/test_overage.py::test_ceiling_and_nudges` ✓
 - [x] G11.2 · §6 Step 11 · A15 · **N10** — system-initiated calls never metered or denied · verify: `tests/integration/test_overage.py::test_system_calls_exempt` ✓
 - [x] G11.3 · §6 Step 11 · A26 · two concurrent calls at the cap: the counter cannot lose an increment · verify: `tests/integration/test_overage.py::test_concurrent_at_cap` ✓
@@ -584,7 +584,7 @@ which **must** precede G13: the card-less trial has no other trigger (F3).
 | G8 — real limits, gates live | ✅ 11 tests | `4cd5043` |
 | G9 — factory bypass closed | ✅ 11 tests | `9402cd7` |
 | G10 — **the meter (A11)** | ✅ 29 tests | `61812f2` |
-| G11 — overage, ceiling, nudges | ✅ 13 tests | `<G11>` |
+| G11 — overage, ceiling, nudges | ✅ 13 tests | `408e43b` |
 | G12 onward | ⬜ not started | — |
 
 **Criteria discharged so far:** A1, A2, A3, A4, A5, A6, A7, A8, A10, **A11**, A12, A13, A14,

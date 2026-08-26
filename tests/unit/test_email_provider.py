@@ -8,9 +8,11 @@ much as the behaviour.
 """
 
 import dataclasses
+import inspect
 
 import pytest
 
+from mihomes.services.email.console_provider import ConsoleProvider
 from mihomes.services.email.provider import (
     EmailAuthError,
     EmailProvider,
@@ -19,6 +21,7 @@ from mihomes.services.email.provider import (
     EmailSendError,
     get_email_provider,
 )
+from mihomes.services.email.resend_provider import ResendProvider
 
 
 def test_unknown_provider_raises():
@@ -113,3 +116,67 @@ def test_provider_accepts_a_list_of_recipients():
     provider = get_email_provider("console")
     result = provider.send(["a@b.com", "c@d.com"], "S", "<p>h</p>", text="h")
     assert result.provider == "console"
+
+
+# --- SPEC-005 Step 1 (D11/N1): the one widening the set makes ---------------------------
+
+
+def _send_params(func) -> dict[str, inspect.Parameter]:
+    """`send`'s parameters, minus `self`."""
+    return {n: p for n, p in inspect.signature(func).parameters.items() if n != "self"}
+
+
+def test_headers_is_the_only_widening():
+    """N1 — D11 authorises exactly one additive keyword, and this is the gate on it.
+
+    Asserted as **set equality** against the frozen SPEC-001 signature plus `headers`,
+    not as `"headers" in params`. The containment form would pass just as happily after
+    someone adds `attachments`, `tags`, `template` or `send_batch` — which is the exact
+    drift N1 exists to prevent, because the moment a provider does more than transport a
+    rendered message, failover breaks (BILLING §2.1, D1).
+
+    Both concrete implementations are checked, not just the Protocol: an implementation
+    that dropped the kwarg would still satisfy `isinstance`, because `runtime_checkable`
+    compares attribute *names* and never signatures.
+    """
+    expected = {"to", "subject", "html", "text", "reply_to", "headers"}
+
+    for owner in (EmailProvider, ConsoleProvider, ResendProvider):
+        params = _send_params(owner.send)
+        assert set(params) == expected, f"{owner.__name__}.send widened beyond D11"
+
+        headers = params["headers"]
+        # Additive means defaulted: every existing call site keeps working untouched.
+        assert headers.default is None, f"{owner.__name__} made headers required"
+        assert headers.kind is inspect.Parameter.KEYWORD_ONLY
+
+
+def test_console_provider_prints_the_headers_it_is_given(capsys):
+    """Step 1's own verification: `ConsoleProvider` emits a header dict when given one.
+
+    Printed rather than summarised, for the same reason both body parts are printed —
+    the dev loop is the only place these are observable before Step 9 wires them up.
+    """
+    provider = get_email_provider("console")
+    provider.send(
+        "a@b.com",
+        "S",
+        "<p>h</p>",
+        text="h",
+        headers={"List-Unsubscribe": "<https://mihomes.ai/u/tok>"},
+    )
+
+    out = capsys.readouterr().out
+    assert "List-Unsubscribe: <https://mihomes.ai/u/tok>" in out
+
+
+def test_a_send_without_headers_mentions_no_unsubscribe(capsys):
+    """The default is absence, not an empty header — A18's transactional half in embryo.
+
+    A provider that emitted `List-Unsubscribe:` with an empty value would satisfy "the
+    kwarg is optional" while putting an unsubscribe header on every receipt.
+    """
+    provider = get_email_provider("console")
+    provider.send("a@b.com", "S", "<p>h</p>", text="h")
+
+    assert "List-Unsubscribe" not in capsys.readouterr().out

@@ -71,8 +71,18 @@ class EmailProvider(Protocol):
         *,
         text: str | None = None,
         reply_to: str | None = None,
+        headers: dict[str, str] | None = None,
     ) -> EmailResult:
-        """Send a pre-rendered message. Returns the provider message id."""
+        """Send a pre-rendered message. Returns the provider message id.
+
+        `headers` carries per-message SMTP headers the caller has already decided on —
+        today only List-Unsubscribe / List-Unsubscribe-Post (RFC 8058). It does NOT make
+        the provider a renderer: the value is a finished dict, exactly as `html` is
+        finished markup. The Protocol stays transport-only (D1).
+
+        **This is the only widening the set makes** (SPEC-005 D11/N1). Attachments, tags,
+        scheduling, templates and `send_batch` belong in `EmailService` or nowhere.
+        """
         ...
 
 

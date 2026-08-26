@@ -43,6 +43,7 @@ class ResendProvider:
         *,
         text: str | None = None,
         reply_to: str | None = None,
+        headers: dict[str, str] | None = None,
     ) -> EmailResult:
         import resend
 
@@ -58,6 +59,10 @@ class ResendProvider:
             params["text"] = text
         if reply_to:
             params["reply_to"] = reply_to
+        if headers:
+            # Resend's own key for per-message SMTP headers. Omitted entirely when empty
+            # so a transactional send carries no List-Unsubscribe (SPEC-005 A18).
+            params["headers"] = dict(headers)
 
         try:
             sent = resend.Emails.send(params)

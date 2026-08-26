@@ -263,8 +263,8 @@ Protocol change is one line and six later steps depend on it); **Step 5 before S
 anything reads its tables); **Step 7 before Step 8** (export exists before deletion offers it);
 **Step 12 before Step 13** (the gate exists before the scheduled send is gated).
 
-### [ ] G1 — Step 1: the Protocol widening — *dep: none*
-- [ ] G1.1 · §6 Step 1 · — · `EmailProvider.send()` gains **exactly one** additive keyword, `headers: dict[str,str] | None = None` (D11); both implementations pass it through, `ConsoleProvider` prints it · verify: `tests/unit/test_email_provider.py::test_headers_is_the_only_widening`
+### [x] G1 — Step 1: the Protocol widening — *dep: none*
+- [x] G1.1 · §6 Step 1 · — · `EmailProvider.send()` gains **exactly one** additive keyword, `headers: dict[str,str] | None = None` (D11); both implementations pass it through, `ConsoleProvider` prints it · verify: `tests/unit/test_email_provider.py::test_headers_is_the_only_widening`
 
 > **G1 carries no §8 criterion, deliberately.** Step 1's *Verify* line cites A18, but A18's declared
 > test is `test_unsubscribe.py` — Step 9's file, because a header kwarg that nothing populates
@@ -363,12 +363,14 @@ condition (delete), untested arm (add the test), inert difference (document with
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**Not started — one correction commit in.** Pre-flight complete (§0.6), baseline measured
+**In progress — G1 done, G2 next.** Pre-flight complete (§0.6), baseline measured
 (2184 passed), harness written, and §1's DAG **rewritten from a derived join** after the
 hand-typed version proved wrong in three ways (§0.5). `py scripts/spec005_reconcile.py` exits 0:
 36/36 criteria gated, every gate pointing at the test §8 declares.
 
-Resume at **G1.1**. Run the reconciler after every group commit, not only at G-Final.
+**G1 complete** (Protocol widening, mutation-checked five ways, suite 2187). Resume at **G2.1**
+— suppression at `EmailService._send`. Run the reconciler after every group commit, not only at
+G-Final.
 
 ## 3. Circuit breaker (conventions §3)
 

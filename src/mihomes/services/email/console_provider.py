@@ -31,6 +31,7 @@ class ConsoleProvider:
         *,
         text: str | None = None,
         reply_to: str | None = None,
+        headers: dict[str, str] | None = None,
     ) -> EmailResult:
         recipients = ", ".join(to) if isinstance(to, list) else to
         message_id = new_message_id()
@@ -45,6 +46,10 @@ class ConsoleProvider:
         ]
         if reply_to:
             lines.append(f"Reply-To: {reply_to}")
+        # Printed, not summarised: SPEC-005 Step 1's verification is that a header dict
+        # given to this provider is visible, the same reason the text part is printed.
+        for name, value in (headers or {}).items():
+            lines.append(f"{name}: {value}")
         lines += [
             f"Subject:  {subject}",
             f"Id:       {message_id}",

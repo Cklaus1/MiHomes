@@ -92,6 +92,55 @@ derived test asserts the three-way partition is total regardless.
 
 ---
 
+### 0.5 The criteria column is derived — because the first version of it was typed
+
+The first draft of §1's DAG assigned its criteria and `verify:` columns **by hand**. Measured
+against §8, it was wrong in three ways at once:
+
+- **Ten criteria — A1 through A10 — had no gate at all.** Not missing *work*: every one belongs to
+  a group that already existed (suppression, outbox, export, deletion). They were simply never
+  written down, so condition B would have passed a DAG covering 26 of 36.
+- **Seven groups claimed the wrong labels.** G1 claimed A19 (a Step 3 criterion), G10 claimed A16
+  (Step 4's), G12 claimed A11 (Step 2's). Every mutation-check in those groups would have aimed at
+  the wrong criterion.
+- **Nineteen `verify:` paths named files the spec does not use.** `test_drips.py` for §9's
+  `test_campaigns.py`; `test_deliverability.py` for `test_docs_dns.py`; `tests/integration/` for
+  four files §9 places in `tests/unit/`.
+
+**What actually failed is worth more than the fix.** C7 — *"parse `A\d+[a-z]?`, never
+range-check"* — was correct, and the pre-flight ran `probe_labels.py` to establish it. But that
+probe enumerated **only the spec's labels**: the left-hand side of a comparison whose right-hand
+side was never built. A verification that could not fail, written by the same pre-flight whose
+stated purpose was closing exactly that shape. §0.4 exists to catch it in the implementation; it
+arrived one level up, in the checking.
+
+So F.3b is now a committed script, `scripts/spec005_reconcile.py`, and it runs **after every group
+commit** rather than once at G-Final. It joins three sources and exits non-zero on any disagreement:
+
+| Source | Authoritative for |
+|---|---|
+| **§8** | what each label means, and **which test discharges it** |
+| **§9** | which **directory** that test lives in — §8 gives bare basenames |
+| **§1** | what this DAG claims |
+
+Three judgment calls, made once and recorded so they are not re-litigated:
+
+- **A21 is dual-cited** by §6 Steps 2 and 6. It gates at **G6.2**: the criterion is that the
+  migration omits a policy, and the migration is Step 6's.
+- **A9's file disagrees between §8 and §9.** §8 names `test_deletion.py::test_cancel`; §9 puts the
+  "cancel window" under `test_privacy_routes.py`. **§8 wins** — it names the test, §9 only
+  describes coverage — so A9 gates at G8.3 and A8 at G8.4.
+- **G6.1 cannot use `test_pg_baseline.py`.** §9 states plainly that no existing test exercises
+  Alembic and A30 needs `test_migration_phase4.py` with **its own engine**. The first draft pointed
+  at the existing baseline test, which builds schema from `Base.metadata` and would have proved
+  nothing about the migration.
+
+**G1 keeps an empty criteria cell on purpose.** Step 1's *Verify* line cites A18, but A18's declared
+test is Step 9's `test_unsubscribe.py` — a `headers` kwarg nothing populates proves nothing. G1 is
+enabling-only, and its own test guards N1 instead.
+
+---
+
 ## 0.6 PRE-FLIGHT RE-VERIFICATION (conventions §3.1) — measured at HEAD `661f6f5`, 2026-08-25
 
 **SPEC-005 was written 2026-08-04 and its §0.1 is now false — for the fourth spec running.** It
@@ -132,7 +181,7 @@ numeric set happens to be gapless, so a range check would report a clean pass wh
 looked at two criteria. That is the exact false-green shape §0.4 exists to close, arriving in the
 verification script rather than the code.
 
-**F.3b parses §8's table for `A\d+[a-z]?` and compares that set against the DAG.**
+**F.3b parses §8's table for `A\d+[a-z]?` and compares that set against the DAG** — as `scripts/spec005_reconcile.py`, run after every group commit. Stating the rule was not enough: see §0.5 for what happened when it was stated and only half-executed.
 
 ### C8 — SPEC-005's fail-closed inheritance is the largest yet
 
@@ -204,75 +253,91 @@ list is long and why A31 exists to keep it honest.
 Conventions §1.3: **one step per group by default**; the group commit is the resume point.
 Format is conventions §4: `checkbox + ID · spec-ref · criteria · imperative · verify:`.
 
-**Ordering constraints the spec names as load-bearing:** **Step 5 before Steps 10, 11 and 13**
-(the scheduler exists before three workloads need it); **Step 6 before 7–14** (the migration
-before anything reads its tables); **Steps 1–4 before 10–11** (transport, suppression, delivery
-log and outbox before any lifecycle mail uses them).
+**The criteria and verify columns are derived, not typed** — see §0.5. `scripts/spec005_reconcile.py`
+joins §8 (which label means what, and which test discharges it) with §9 (which directory that test
+lives in) and fails if this table disagrees with either. Run it after every group commit.
+
+**Ordering constraints the spec names as load-bearing:** **Step 1 before everything email** (the
+Protocol change is one line and six later steps depend on it); **Step 5 before Steps 10, 11 and 13**
+(the scheduler exists before three workloads need it); **Step 6 before 7–14** (the migration before
+anything reads its tables); **Step 7 before Step 8** (export exists before deletion offers it);
+**Step 12 before Step 13** (the gate exists before the scheduled send is gated).
 
 ### [ ] G1 — Step 1: the Protocol widening — *dep: none*
-- [ ] G1.1 · §6 Step 1 · A19 · `EmailProvider.send()` gains **exactly one** additive keyword, `headers: dict[str,str] | None = None` (D11); both implementations keep working · verify: `tests/unit/test_email_provider.py::test_headers_is_the_only_widening`
+- [ ] G1.1 · §6 Step 1 · — · `EmailProvider.send()` gains **exactly one** additive keyword, `headers: dict[str,str] | None = None` (D11); both implementations pass it through, `ConsoleProvider` prints it · verify: `tests/unit/test_email_provider.py::test_headers_is_the_only_widening`
 
-### [ ] G2 — Step 2: suppression — *dep: G1*
-- [ ] G2.1 · §6 Step 2 · A22,A23 · checked at **`EmailService._send`** — one choke point, so no `send_*` can forget it (D13); **absolute for lifecycle mail, inapplicable to transactional** · verify: `tests/integration/test_suppression.py`
+> **G1 carries no §8 criterion, deliberately.** Step 1's *Verify* line cites A18, but A18's declared
+> test is `test_unsubscribe.py` — Step 9's file, because a header kwarg that nothing populates
+> proves nothing. G1 is enabling-only; **A18 lands at G9.1**. Its own test guards N1 (*"do not widen
+> the Protocol beyond `headers`"*), which no §8 row covers.
+
+### [ ] G2 — Step 2: suppression, the `klass` choke point, and the HMAC token — *dep: G1*
+- [ ] G2.1 · §6 Step 2 · A1,A2 · suppression checked at **`EmailService._send`** — one choke point, so no `send_*` can forget it (D13); **absolute for lifecycle mail, inapplicable to transactional** · verify: `tests/unit/test_suppression.py::test_lifecycle_suppressed` + `::test_transactional_ignores_suppression`
+- [ ] G2.2 · §6 Step 2 · A3 · `_send`'s `klass` is **keyword-only and never defaulted** — a default is how lifecycle mail silently becomes unsuppressible · verify: `tests/unit/test_email_service.py::test_klass_required`
+- [ ] G2.3 · §6 Step 2 · A22,A11 · `suppress` twice is a no-op; the unsubscribe token is HMAC-signed and a forged one is rejected · verify: `tests/unit/test_suppression.py::test_idempotent` + `::test_token_hmac`
 
 ### [ ] G3 — Step 3: the delivery log — *dep: G2*
-- [ ] G3.1 · §6 Step 3 · A24 · every send records an attempt; `SAAS_PRD:168`'s third observability surface (D7) · verify: `tests/integration/test_delivery_log.py`
+- [ ] G3.1 · §6 Step 3 · A19 · every send records **exactly one** attempt carrying the provider message id; `SAAS_PRD:168`'s third observability surface (D7) · verify: `tests/integration/test_delivery_log.py::test_one_row_per_send`
 
 ### [ ] G4 — Step 4: the outbox — *dep: G3*
-- [ ] G4.1 · §6 Step 4 · A25,A26 · **a real table with a worker, not an in-process retry loop** (D12) — an in-process retry dies with the request and cannot survive a deploy · verify: `tests/integration/test_outbox.py`
+- [ ] G4.1 · §6 Step 4 · A4,A5 · **a real table with a worker, not an in-process retry loop** (D12) — an in-process retry dies with the request and cannot survive a deploy; and a send failure never rolls back its caller's transaction · verify: `tests/unit/test_outbox.py::test_retry_preserves_message` + `::test_send_failure_does_not_rollback`
+- [ ] G4.2 · §6 Step 4 · A16 · the five-rung backoff ladder; the fifth failure sets `failed_at` and the row **stops being selected** · verify: `tests/unit/test_outbox.py::test_backoff_ladder`
 
 ### [ ] G5 — Step 5: the scheduler — *dep: G4 — MUST precede G10, G11, G13*
-- [ ] G5.1 · §6 Step 5 · A15,A17 · `drain-outbox`, `dunning`, `drips`, `weekly-digest` on SPEC-004's `mihomes jobs`; **G-jobs** enumerates workloads from the Typer app · verify: `tests/integration/test_jobs.py::test_every_workload_is_idempotent`
-- [ ] G5.2 · **U10** · — · Fly's mechanism **cannot be confirmed from the repo** — split per conventions §3.3: the interface half ships, the infra confirmation is recorded as an unmet gate · verify: §0.8 U10
+- [ ] G5.1 · §6 Step 5 · A15 · **G-jobs** enumerates workloads **from the tree** and asserts each is registered and reachable — a seventh added later must fail the suite · verify: `tests/unit/test_jobs_enumeration.py::test_all_workloads_scheduled`
+- [ ] G5.2 · §6 Step 5 · A17 · `drain-outbox`, `dunning`, `drips`, `weekly-digest` on SPEC-004's `mihomes jobs`; every subcommand a no-op on a second consecutive run · verify: `tests/integration/test_jobs.py::test_idempotent`
+- [ ] G5.3 · **U10** · — · Fly's mechanism **cannot be confirmed from the repo** — split per conventions §3.3: the interface half ships and A15/A17 prove it, the infra confirmation is recorded as an unmet gate · verify: §0.8 U10
 
 ### [ ] G6 — Step 6: the migration — *dep: G5 — MUST precede G7–G14*
-- [ ] G6.1 · §6 Step 6 · A30 · §4.4's five tables, four RLS policies, one carve-out; applies and reverts · verify: `tests/integration/test_pg_baseline.py::test_upgrade_then_downgrade_is_clean`
-- [ ] G6.2 · §6 Step 6 · A21 · `email_suppressions` has **no** policy — a suppressed address must stay suppressed after the account that surfaced it is gone · verify: `tests/unit/test_email_tenancy.py::test_suppressions_not_rls`
+- [ ] G6.1 · §6 Step 6 · A30 · §4.4's five tables, four RLS policies, one carve-out; **its own engine running real Alembic up and down** — §9 states no existing test exercises Alembic, so `test_pg_baseline.py` cannot discharge this · verify: `tests/integration/test_migration_phase4.py::test_up_down`
+- [ ] G6.2 · §6 Step 6 · A21 · `email_suppressions` has **no** policy — a suppressed address must stay suppressed after the account that surfaced it is gone · verify: `tests/unit/test_email_tenancy.py::test_suppression_not_rls`
 - [ ] G6.3 · C8 · — · five `ENTITY_CLASSES` entries, registry entries, **three pinned counts** raised with reasons · verify: `tests/unit/test_matrix.py::test_every_model_is_classified`
 
 ### [ ] G7 — Step 7: data export — *dep: G6*
-- [ ] G7.1 · §6 Step 7 · A27 · `build_export` from `Base.metadata` under the scoped session — **never** `csv_io.export_csv` (5/28 tables, unfiltered) or `backup.create_backup` (whole DB + media) · verify: `tests/integration/test_export.py::test_every_tenant_table_is_exported`
-- [ ] G7.2 · §6 Step 7 · A27 · **G-export** — a second account's rows never appear · verify: same module
+- [ ] G7.1 · §6 Step 7 · A27 · **G-export** — `build_export` enumerates from `Base.metadata` under the scoped session; **never** `csv_io.export_csv` (5/28 tables, unfiltered) or `backup.create_backup` (whole DB + media) · verify: `tests/integration/test_export.py::test_covers_all_tenant_tables`
+- [ ] G7.2 · §6 Step 7 · A6,A26 · no row belonging to another account appears anywhere in the bundle; documents are presigned references, not inlined bytes · verify: `tests/integration/test_export.py::test_no_cross_tenant_rows` + `::test_tenant_isolation`
 
 ### [ ] G8 — Step 8: deletion — *dep: G7*
-- [ ] G8.1 · §6 Step 8 · A28 · two-phase `requested` → (grace) → `purged`; the purge enumerates from `Base.metadata` (D15) · verify: `tests/integration/test_deletion.py::test_every_tenant_table_is_purged`
-- [ ] G8.2 · §6 Step 8 · A28 · **G-purge** — the three-way partition is **total**, and `ANONYMIZE` is declared-but-empty (`DEFERRED (SPEC-008)`), never conflated with a skip · verify: same module
-- [ ] G8.3 · §6 Step 8 · A29,A29b · owner-only (D8); export offered first (D6) · verify: `tests/integration/test_deletion.py`
+- [ ] G8.1 · §6 Step 8 · A28 · **G-purge** — the purge enumerates from `Base.metadata` and applies **exactly one** disposition per table; the three-way partition is **total**, and `ANONYMIZE` is declared-but-empty (`DEFERRED (SPEC-008)`), never conflated with a skip (D18) · verify: `tests/integration/test_deletion.py::test_purge_dispositions_all_tables`
+- [ ] G8.2 · §6 Step 8 · A7,A29,A29b · zero rows survive in every `DELETE` table; `account_deletion_requests` and `email_suppressions` survive **untouched**; no account-referencing column on a **global** table still points at the purged account · verify: `tests/integration/test_deletion.py::test_purge_complete` + `::test_deliberate_survivors` + `::test_no_dangling_global_refs`
+- [ ] G8.3 · §6 Step 8 · A9,A10 · the `requested → grace → purged` state machine; a cancel restores normal service; **storage objects are deleted before their rows** — the reverse orphans blobs no row names · verify: `tests/integration/test_deletion.py::test_cancel` + `::test_storage_before_rows`
+- [ ] G8.4 · §6 Step 8 · A8 · deletion is **owner-only** (D8); admin and staff denied; export offered first (D6) · verify: `tests/integration/test_privacy_routes.py::test_owner_only`
 
 ### [ ] G9 — Step 9: unsubscribe — *dep: G2, G6*
-- [ ] G9.1 · §6 Step 9 · A18 · RFC 8058 one-click `List-Unsubscribe-Post`; signed token, no session · verify: `tests/integration/test_unsubscribe.py`
-- [ ] G9.2 · C9 · — · second `PERMANENT_ALLOWLIST` entry **plus** its `ALLOWLIST_MECHANISMS` reason; check whether the Host/Origin exemption already covers the path · verify: `tests/unit/test_route_declarations.py::test_every_allowlisted_module_names_its_mechanism`
+- [ ] G9.1 · §6 Step 9 · A18 · RFC 8058 one-click `List-Unsubscribe-Post`; **lifecycle carries both headers, transactional carries neither**; one click, no confirmation page · verify: `tests/integration/test_unsubscribe.py::test_headers_by_class`
+- [ ] G9.2 · C9 · — · second `PERMANENT_ALLOWLIST` entry **plus** its `ALLOWLIST_MECHANISMS` reason (a signed token); check whether the Host/Origin exemption already covers the path · verify: `tests/unit/test_route_declarations.py::test_every_allowlisted_module_names_its_mechanism`
 
 ### [ ] G10 — Step 10: the dunning ladder — *dep: G5, G6*
-- [ ] G10.1 · §6 Step 10 · A16 · escalating `dunning_2`/`dunning_3`/`dunning_final`; Phase 3 sends one `payment_failed`, the ladder is this phase's (SPEC-004 B2) · verify: `tests/integration/test_dunning.py`
+- [ ] G10.1 · §6 Step 10 · A23,A24 · one `invoice.payment_failed` produces **one** immediate email and the rest on the `BILLING` §5 schedule; recovery mid-ladder stops the sequence · verify: `tests/integration/test_dunning.py::test_ladder_schedule` + `::test_recovery_stops_ladder`
 
 ### [ ] G11 — Step 11: the drip machinery — *dep: G5, G9*
-- [ ] G11.1 · §6 Step 11 · A14,A14b · enrolment, scheduling, suppression, unsubscribe — **mechanism only**; content is O1 and lands in config · verify: `tests/integration/test_drips.py`
+- [ ] G11.1 · §6 Step 11 · A25 · enrolment, `due_sends`, sequence shortening — **mechanism only**, content is O1 and lands in config; each step sends once and never twice · verify: `tests/unit/test_campaigns.py::test_no_duplicate_steps`
 
 ### [ ] G12 — Step 12: two Estate gates — *dep: G6*
-- [ ] G12.1 · §6 Step 12 · A11,A12 · `predictive_maintenance` and `audit_export` as `can()` call sites (D10/D16) · verify: `tests/integration/test_estate_gates.py`
+- [ ] G12.1 · §6 Step 12 · A12 · `predictive_maintenance` and `audit_export` as `can()` call sites; Free and Pro denied, Estate allowed, on **both** (D10/D16) · verify: `tests/unit/test_estate_gates.py::test_gate_matrix`
+- [ ] G12.2 · §6 Step 12 · A13 · **`record_change` still fires for every account on every plan** — the check that catches gating the wrong function (F6) · verify: `tests/unit/test_estate_gates.py::test_audit_write_ungated`
 
 ### [ ] G13 — Step 13: the weekly digest job — *dep: G5, G12*
-- [ ] G13.1 · §6 Step 13 · A13 · `weekly_ai_report` enforced as a **send, not a gate** (D16) — the key names no scheduled anything, so the job must exist first · verify: `tests/integration/test_weekly_digest.py`
+- [ ] G13.1 · §6 Step 13 · A14,A14b · `weekly_ai_report` enforced as a **send, not a gate** (D16): Estate receives it weekly, Pro does not, and the on-request route at `web/routes/ai.py:311` works on **every** plan — Estate buys the schedule, not the feature · verify: `tests/integration/test_weekly_digest.py::test_scheduled_send_gated` + `::test_on_request_ungated`
 
 ### [ ] G14 — Step 14: `audit_export` end to end — *dep: G12*
-- [ ] G14.1 · §6 Step 14 · A34 · the gate sits on the **read/export** path, never on `record_change` — gating that would break every write in the app (F6) · verify: `tests/integration/test_audit_export.py`
+- [ ] G14.1 · §6 Step 14 · A34 · route + CLI; every `Denied` names an `upgrade_target`. The gate sits on the **read/export** path, never on `record_change` — gating that would break every write in the app (F6) · verify: `tests/unit/test_estate_gates.py::test_denied_names_target`
 
 ### [ ] G15 — Step 15: observability and error handling — *dep: none*
-- [ ] G15.1 · §6 Step 15 · A31 · real `dictConfig` (JSON in prod), FastAPI handlers **extending** the two that exist (C4), `error.html`, and **`/healthz` added to the product app** (C2 — it is landing-only today) · verify: `tests/web/test_error_handling.py`
-- [ ] G15.2 · §6 Step 15 · A32 · no bare swallow **in the request path** — scoped per C3 to `web/` + the services its routes reach, not the 154 tree-wide · verify: `tests/unit/test_no_silent_swallows.py`
+- [ ] G15.1 · §6 Step 15 · A31 · real `dictConfig` (JSON in prod), FastAPI handlers **extending** the two that exist (C4), `error.html`, and **`/healthz` added to the product app** (C2 — it is landing-only today); one structured log record with a request id · verify: `tests/unit/test_errors.py::test_handler_and_log`
+- [ ] G15.2 · §6 Step 15 · A32 · no bare swallow **in the request path** — scoped per C3 to `web/` + the services its routes reach, not the 154 tree-wide · verify: `tests/unit/test_errors.py::test_no_silent_swallow`
 
 ### [ ] G16 — Step 16: the deliverability check — *dep: none*
-- [ ] G16.1 · §6 Step 16 · A20 · **B1's edit** — delete `adkim=s; aspf=s` from `GTM:273`; D17's documentation test, not a live DNS query · verify: `tests/unit/test_deliverability.py`
+- [ ] G16.1 · §6 Step 16 · A20 · **B1's edit** — delete `adkim=s; aspf=s` from `GTM:273`; D17's documentation test, not a live DNS query · verify: `tests/unit/test_docs_dns.py::test_dmarc_relaxed`
 
 ### [ ] G17 — Step 17: the GA readiness surface — *dep: all* — **the exit criterion**
-- [ ] G17.1 · §6 Step 17 · A33 · one surface enumerating the six `SAAS_PRD:189-196` gates with status, the three §1.6 inbound gates **explicitly unresolved** where they are · verify: `tests/integration/test_ga_readiness.py::test_no_false_green`
+- [ ] G17.1 · §6 Step 17 · A33 · one surface enumerating the six `SAAS_PRD:189-196` gates with status, the three §1.6 inbound gates **explicitly unresolved** where they are; **none reports a false green** · verify: `tests/integration/test_ga_readiness.py::test_all_gates_tracked`
 
 ### [ ] G-Final — Compound-stop verification (conventions §4.1)
 - [ ] F.1 · full-suite `pytest -q` green (condition C)
 - [ ] F.2 · every §8 criterion green by its own named test (condition E) — **all 36, run by node id**
 - [ ] F.3a · walk §6 top-to-bottom: every step has a task (condition B, steps) — **17 steps**
-- [ ] F.3b · walk §8 top-to-bottom: every criterion has a gate (condition B, criteria) — **parse `A\d+[a-z]?`, never range-check (C7)**
+- [ ] F.3b · `py scripts/spec005_reconcile.py` exits 0 (condition B, criteria) — **derived, never range-checked (C7)**
 - [ ] F.4 · smoke green (condition D)
 - [ ] F.5 · write end-of-run report `tasks/build-loop-spec005-report.md` (§5)
 
@@ -287,6 +352,7 @@ log and outbox before any lifecycle mail uses them).
 | **G8** | **G-purge, three-way partition total** | a missed table is a regulatory finding, not a bug report |
 | **G5** | **G-jobs enumerated from the Typer app** | a sixth workload added later skipping the idempotence gate |
 | **G15** | A32 scoped to the request path (C3) | one criterion becoming a 154-site refactor |
+| **every** | `py scripts/spec005_reconcile.py` after each group commit | the DAG drifting from §8 — which it already did once, §0.5 |
 
 **Mutation-check every security-, money- and privacy-relevant arm**: break it, confirm red,
 restore. SPEC-004 found four tests green for the wrong reason this way — A22 was vacuous three
@@ -297,8 +363,12 @@ condition (delete), untested arm (add the test), inert difference (document with
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**Not started.** Pre-flight complete (§0.6), baseline measured (2184 passed), harness written.
-Resume at **G1.1**.
+**Not started — one correction commit in.** Pre-flight complete (§0.6), baseline measured
+(2184 passed), harness written, and §1's DAG **rewritten from a derived join** after the
+hand-typed version proved wrong in three ways (§0.5). `py scripts/spec005_reconcile.py` exits 0:
+36/36 criteria gated, every gate pointing at the test §8 declares.
+
+Resume at **G1.1**. Run the reconciler after every group commit, not only at G-Final.
 
 ## 3. Circuit breaker (conventions §3)
 

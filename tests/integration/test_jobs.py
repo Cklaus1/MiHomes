@@ -45,7 +45,7 @@ def _state(plan="pro", status="active", sub_id="sub_1") -> SubscriptionState:
 
 
 class TestReconcileIsIdempotent:
-    def test_idempotent(self, session, account_a):
+    def test_reconcile_is_idempotent(self, session, account_a):
         """**A16** — the second consecutive run corrects nothing.
 
         Idempotence here is not a property bolted on: `reconcile` re-fetches and compares, so
@@ -268,3 +268,125 @@ class TestTheCommandsExist:
         for command in app.registered_commands:
             params = set(inspect.signature(command.callback).parameters)
             assert "account" not in params, f"{command.name} must not take --account"
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════
+# SPEC-005 G5 · §6 Step 5 — A17: EVERY `jobs` subcommand is a no-op on a second run
+# ══════════════════════════════════════════════════════════════════════════════════════════
+#
+# **Module-level, and at this file's own node id**, because §8 declares A17 as
+# `test_jobs.py::test_idempotent`. The class-nested `test_idempotent` above shadowed that name
+# while covering only `reconcile` — so `pytest tests/integration/test_jobs.py::test_idempotent`
+# did not resolve, and the one it would have run asserted a sixth of the criterion. Renamed to
+# `test_reconcile_is_idempotent`, which is what it actually claims.
+#
+# **Driving the real CLI**, unlike the service-layer tests above. This file's docstring gives the
+# reason for that choice — a sweep that writes leaks across the modules sharing `cli_database` —
+# and it holds for a sweep that writes. A17 runs each command twice and compares what it
+# reported, which needs the *entrypoint*: SPEC-004's own bug was that every service test passed
+# while `mihomes jobs` exited 1 on any multi-account install.
+#
+# **Enumerated from `SCHEDULE`** (G-jobs), never listed: a hand-written list lets a seventh
+# workload skip this gate silently, which is the rot A15 exists to prevent one level up.
+
+import re  # noqa: E402
+
+from typer.testing import CliRunner  # noqa: E402
+
+from mihomes.cli import app as _root  # noqa: E402
+from mihomes.cli.jobs import SCHEDULE  # noqa: E402
+from mihomes.db import get_engine, get_session, init_db  # noqa: E402
+
+
+@pytest.fixture(scope="module")
+def jobs_cli(cli_database, upgrade_operator_account):
+    """The dedicated CLI database, migrated, with the bootstrapped account raised.
+
+    Module-scoped and **not autouse**: the service-layer tests above use the shared `session`
+    fixture and must not be moved onto this database.
+    """
+    init_db()
+    from mihomes.tenancy.bootstrap import ensure_default_account
+
+    upgrade_operator_account(ensure_default_account(get_engine()))
+    yield
+
+
+def _invoke(name: str):
+    """Run `mihomes jobs <name>` exactly as a crontab line would."""
+    return CliRunner().invoke(_root, ["jobs", name])
+
+
+def _counts(output: str) -> list[str]:
+    """The numbers a run reported.
+
+    Compared between runs rather than parsed into meaning: each command words its summary
+    differently, and what A17 needs is that the second run said the same thing as the first.
+    """
+    return re.findall(r"\d+", output)
+
+
+@pytest.mark.parametrize("name", sorted(SCHEDULE))
+def test_idempotent(name, jobs_cli):
+    """**A17** — every `jobs` subcommand is a no-op on a second consecutive run.
+
+    Not "the second run does nothing" — `reconcile` re-fetches from the provider every time by
+    design. What must hold for a cron line is that running it again **changes** nothing, which
+    is what identical counts across two consecutive runs demonstrate.
+    """
+    first = _invoke(name)
+    assert first.exit_code == 0, f"`mihomes jobs {name}` failed:\n{first.output}"
+
+    second = _invoke(name)
+    assert second.exit_code == 0, f"second run of `{name}` failed:\n{second.output}"
+
+    assert _counts(second.output) == _counts(first.output), (
+        f"`mihomes jobs {name}` is not idempotent — the second consecutive run reported "
+        f"different numbers.\nfirst:  {first.output.strip()}\nsecond: {second.output.strip()}"
+    )
+
+
+def test_the_idempotence_gate_covers_every_registered_workload():
+    """**G-jobs** — the parametrization must not drift from the Typer app.
+
+    `test_jobs_enumeration.py` proves `SCHEDULE` equals the registered commands; asserted here
+    too, so that if the two come apart the failure names *this* gate rather than surfacing as a
+    workload that quietly stopped being tested.
+    """
+    from mihomes.cli.jobs import app as jobs_app
+
+    assert set(SCHEDULE) == {c.name for c in jobs_app.registered_commands}
+
+
+def test_multi_account_is_covered_without_polluting_the_shared_database(jobs_cli):
+    """SPEC-004's entrypoint bug, re-asserted for the four new workloads.
+
+    `mihomes jobs` was registered, mounted, and exited 1 on any install with more than one
+    account, because the root callback bound a tenant before the subcommand ran. Every unit
+    test passed. The gate only fires when there is a choice to make, so one account proves
+    nothing.
+
+    The second account is created and removed **inside this test**, in a `finally`. An earlier
+    version created it in a module fixture and left it behind — `cli_database` is shared for
+    the whole session, so `test_report_upcoming` then failed with *"This install has 2
+    accounts, so --account is required"*. Passing alone, failing in the suite.
+    """
+    from mihomes.models.account import Account
+
+    with get_session() as session:
+        extra = Account(name="Second Estate", slug="second-estate", plan="free")
+        session.add(extra)
+        session.commit()
+        extra_id = extra.id
+
+    try:
+        for name in sorted(SCHEDULE):
+            result = _invoke(name)
+            assert result.exit_code == 0, (
+                f"`mihomes jobs {name}` must run without --account on a multi-account "
+                f"install. Output: {result.output}"
+            )
+    finally:
+        with get_session() as session:
+            session.query(Account).filter(Account.id == extra_id).delete()
+            session.commit()

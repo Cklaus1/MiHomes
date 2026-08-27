@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -124,7 +125,7 @@ def _due(session: Session, *, limit: int, now: datetime) -> list[EmailOutbox]:
 
 def drain(
     session: Session,
-    provider: EmailProvider,
+    provider: "EmailProvider | Callable[[], EmailProvider]",
     *,
     limit: int = 100,
     now: datetime,
@@ -141,6 +142,11 @@ def drain(
     successful send happens once Step 4 lands.
     """
     result = DrainResult()
+
+    # A zero-arg callable is a *factory*, resolved on first real send — so a run with nothing
+    # due never constructs a provider and never needs its credentials. An object with `.send`
+    # is used directly, which is what every test passes.
+    resolve = provider if callable(provider) and not hasattr(provider, "send") else lambda: provider
 
     for row in _due(session, limit=limit, now=now):
         # Suppression is re-checked at send time, not trusted from enqueue time. An address
@@ -168,7 +174,7 @@ def drain(
             continue
 
         try:
-            send_result = provider.send(row.to_address, subject, html, text=text)
+            send_result = resolve().send(row.to_address, subject, html, text=text)
         except EmailSendError as exc:
             row.attempts += 1
             row.last_error = str(exc)
@@ -235,12 +241,29 @@ def drain_all(
     with session_factory() as session:
         account_ids = list(session.execute(select(Account.id)).scalars())
 
+    # **Constructed once, and only when there is something to send.**
+    #
+    # Two bugs, both found by running `mihomes jobs drain-outbox` rather than by testing
+    # `drain`. Calling `provider_factory()` per account meant a missing `RESEND_API_KEY`
+    # produced one error *per account* — N identical tracebacks, none of which said the real
+    # problem — and it meant an install with an empty queue could not run the job at all.
+    #
+    # An empty queue needing no credentials is the case that matters: until a sending domain
+    # is verified (§0.8 U7) that is every install, and a nightly cron line failing with
+    # "RESEND_API_KEY is not set" trains an operator to ignore this job's mail.
+    provider_holder: list = []
+
+    def provider():
+        if not provider_holder:
+            provider_holder.append(provider_factory())
+        return provider_holder[0]
+
     for account_id in account_ids:
         try:
             with account_context(account_id), session_factory() as session:
                 one = drain(
                     session,
-                    provider_factory(),
+                    provider,
                     limit=limit,
                     now=now,
                     record_delivery=record_delivery,

@@ -295,10 +295,10 @@ anything reads its tables); **Step 7 before Step 8** (export exists before delet
 - [x] G4.1 · §6 Step 4 · A4,A5 · **a real table with a worker, not an in-process retry loop** (D12) — an in-process retry dies with the request and cannot survive a deploy; and a send failure never rolls back its caller's transaction · verify: `tests/unit/test_outbox.py::test_retry_preserves_message` + `::test_send_failure_does_not_rollback`
 - [x] G4.2 · §6 Step 4 · A16 · the five-rung backoff ladder; the fifth failure sets `failed_at` and the row **stops being selected** · verify: `tests/unit/test_outbox.py::test_backoff_ladder`
 
-### [ ] G5 — Step 5: the scheduler — *dep: G4 — MUST precede G10, G11, G13*
-- [ ] G5.1 · §6 Step 5 · A15 · **G-jobs** enumerates workloads **from the tree** and asserts each is registered and reachable — a seventh added later must fail the suite · verify: `tests/unit/test_jobs_enumeration.py::test_all_workloads_scheduled`
-- [ ] G5.2 · §6 Step 5 · A17 · `drain-outbox`, `dunning`, `drips`, `weekly-digest` on SPEC-004's `mihomes jobs`; every subcommand a no-op on a second consecutive run · verify: `tests/integration/test_jobs.py::test_idempotent`
-- [ ] G5.3 · **U10** · — · Fly's mechanism **cannot be confirmed from the repo** — split per conventions §3.3: the interface half ships and A15/A17 prove it, the infra confirmation is recorded as an unmet gate · verify: §0.8 U10
+### [x] G5 — Step 5: the scheduler — *dep: G4 — MUST precede G10, G11, G13*
+- [x] G5.1 · §6 Step 5 · A15 · **G-jobs** enumerates workloads **from the tree** and asserts each is registered and reachable — a seventh added later must fail the suite · verify: `tests/unit/test_jobs_enumeration.py::test_all_workloads_scheduled`
+- [x] G5.2 · §6 Step 5 · A17 · `drain-outbox`, `dunning`, `drips`, `weekly-digest` on SPEC-004's `mihomes jobs`; every subcommand a no-op on a second consecutive run · verify: `tests/integration/test_jobs.py::test_idempotent`
+- [!] G5.3 · **U10** · — · Fly's mechanism **cannot be confirmed from the repo** — split per conventions §3.3: the interface half ships and A15/A17 prove it, the infra confirmation is recorded as an unmet gate · verify: §0.8 U10
 
 ### [ ] G6 — Step 6: the migration — *dep: G5 — MUST precede G7–G14*
 - [ ] G6.1 · §6 Step 6 · A30 · §4.4's five tables, four RLS policies, one carve-out; **its own engine running real Alembic up and down** — §9 states no existing test exercises Alembic, so `test_pg_baseline.py` cannot discharge this · verify: `tests/integration/test_migration_phase4.py::test_up_down`
@@ -375,7 +375,7 @@ condition (delete), untested arm (add the test), inert difference (document with
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**In progress — G1–G4 done, G5 next.** Pre-flight complete (§0.6), baseline measured
+**In progress — G1–G5 done, G6 next.** Pre-flight complete (§0.6), baseline measured
 (2184 passed), harness written, and §1's DAG **rewritten from a derived join** after the
 hand-typed version proved wrong in three ways (§0.5). `py scripts/spec005_reconcile.py` exits 0:
 36/36 criteria gated, every gate pointing at the test §8 declares.
@@ -390,8 +390,14 @@ into `drain` at G4 unchanged; mutation-checked six ways; suite **2224 passed**.
 attempt, mutation-checked eleven ways; suite **2246 passed**. **G2's mutations re-run and A1's
 vacuum closed** (§2.2 D5).
 
-Resume at **G5.1** — the scheduler. `outbox.drain_all` exists and is what `mihomes jobs
-drain-outbox` should call.
+**G5 complete** — four new workloads, `SCHEDULE` as the one source of truth, `mihomes cron
+setup` derived from it, mutation-checked eight ways; suite **2265 passed**. G5.3 is `[!]`:
+U10's infra half cannot be answered from the repo (§0.8), and the interface half is what A15/A17
+prove.
+
+Resume at **G6.1** — the migration. Note that §4.4's five tables are already three-fifths
+shipped by D1's split (`0012`, `0013`, `0014`), so G6 covers `campaign_enrolments` and
+`account_deletion_requests` plus A30's round-trip over **every** Phase 4 revision.
 
 Run `py scripts/spec005_reconcile.py --collect` after every group commit, not only at G-Final.
 
@@ -453,6 +459,43 @@ never send. A1 now asserts both halves.
 
 **The rule this earns: re-run every earlier group's mutations after a group that moves a call
 site.** A tick is not permanent; it is a claim about code that later groups can invalidate.
+
+**D6 — A15's "deployment manifest" is `mihomes cron setup`, and it was already wrong.** The spec
+says each workload must be *"registered in the deployment manifest"*. There is no product
+`fly.toml` (only the landing app's) and no schedule declared anywhere, so the manifest is
+`cli/cron.py` — the one place the repo tells an operator what to schedule.
+
+**It listed four commands, and neither `jobs reconcile` nor `jobs trial-sweep` was among them.**
+SPEC-004 added both workloads and neither reached it. Nothing failed; nothing could. That is
+precisely the silent drift A15 was written against, having already happened one phase earlier.
+`cron setup` now renders from `jobs.SCHEDULE`, and A15 asserts the two agree.
+
+**D7 — a second instance of SPEC-004's entrypoint bug, found the same way.** `mihomes cron setup`
+prints text and reads nothing, but it inherited the root callback's tenant gate — so on any
+multi-account install the one command that tells an operator what to schedule exited 1. Found by
+A15 *invoking* it; every previous test of its output had constructed the panel directly.
+
+**Two more bugs, both "a job with nothing to do fails rather than reporting zero":**
+
+- `reconcile` constructed the Stripe provider before checking whether any account had a customer,
+  so on every install without Stripe configured (§0.8 U6 — that is all of them today) a nightly
+  cron line exited 1 with `STRIPE_SECRET_KEY is not set`.
+- `drain_all` constructed the email provider **per account**, so a missing `RESEND_API_KEY`
+  produced one traceback per account and an empty queue could not be drained at all.
+
+Both now resolve their provider lazily, on first real work. Cron mails a failure every night, and
+an operator who learns to filter this job's mail is the actual cost.
+
+**D8 — A17's node id had to move, and the test it shadowed was a sixth of the criterion.** §8
+declares A17 as `test_jobs.py::test_idempotent`; that name existed but was nested in
+`TestReconcileIsIdempotent`, so the bare node id did not resolve *and* the test it named covered
+one workload of six. Renamed to `test_reconcile_is_idempotent`, and A17 now sits at module level
+parametrized over `SCHEDULE`.
+
+**A test that polluted a shared fixture** — worth recording because it passed alone. A17's first
+version created a second account in a module fixture; `cli_database` is shared across five CLI
+modules for the whole session, so `test_report_upcoming` then failed with *"This install has 2
+accounts"*. The second account is now created and removed inside the one test that needs it.
 
 ## 3. Circuit breaker (conventions §3)
 

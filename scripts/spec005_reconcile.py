@@ -134,7 +134,17 @@ def unresolved_node_ids(node_ids: list[str]) -> list[str]:
         for line in (proc.stdout + proc.stderr).splitlines()
         if "::" in line
     }
-    return sorted(missing_files + [n for n in node_ids if n not in collected
+    # A parametrized test collects as `path::name[param]`, never as the bare node id §8
+    # declares — but `pytest path::name` runs every case, so the bare form IS resolvable.
+    # Matching on the `[` prefix rather than exact equality is what makes A17 (parametrized
+    # over SCHEDULE) count as resolving; exact matching flagged it while `pytest <node id>`
+    # ran seven tests successfully.
+    def resolves(node_id: str) -> bool:
+        return node_id in collected or any(
+            c.startswith(node_id + "[") for c in collected
+        )
+
+    return sorted(missing_files + [n for n in node_ids if not resolves(n)
                                    and n.split("::")[0] in existing])
 
 

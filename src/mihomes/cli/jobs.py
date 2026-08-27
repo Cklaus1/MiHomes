@@ -39,6 +39,158 @@ logger = logging.getLogger(__name__)
 app = typer.Typer(name="jobs", help="Scheduled maintenance jobs (billing, trials)")
 
 
+# ── SPEC-005 §6 Step 5 — the four Phase 4 workloads ────────────────────────
+#
+# **The scheduler is this phase's definition of done** (A15). The spec's own framing:
+#
+#   > A scheduler that never fires is indistinguishable from a system with nothing to do. The
+#   > trial sweep, the reconciliation sweep, the outbox drain, the dunning ladder, the drips and
+#   > the weekly digest are six workloads with one trigger. If that trigger is misconfigured,
+#   > every one of them stops, no exception is raised, no test fails, and the first signal is a
+#   > customer asking why they were never told their card failed.
+#
+# So `SCHEDULE` below is data, and `test_jobs_enumeration.py` derives its check from the Typer
+# app rather than from a list a human maintains. **That gate has already caught something**: at
+# the time it was written, `mihomes cron setup` — the only place this repo tells an operator
+# what to schedule — listed four commands, none of which was `reconcile` or `trial-sweep`.
+# SPEC-004 added both and neither reached the manifest, which is exactly the silent drift A15
+# describes, having already happened once before the criterion existed to catch it.
+
+
+#: Every `jobs` workload, with the cadence an operator should schedule it at.
+#:
+#: **The single source of truth for scheduling.** `mihomes cron setup` prints from this, and
+#: `test_all_workloads_scheduled` walks the Typer app and asserts every registered command
+#: appears here — so a seventh workload added without a cadence fails the suite rather than
+#: silently never running.
+#:
+#: Cadences are defaults, not assertions about the deployment: SPEC-004 D15's assumption about
+#: Fly's scheduled-machine mechanism is **still unverified** (§0.8 U10), and what is asserted
+#: here is that each command is idempotent, so running it more or less often than this is safe.
+SCHEDULE: dict[str, tuple[str, str]] = {
+    # name: (cron expression, why this cadence)
+    "drain-outbox": (
+        "*/5 * * * *",
+        "Queued mail should leave within minutes; the backoff ladder handles a provider "
+        "outage, so a frequent drain costs nothing when there is nothing to send.",
+    ),
+    "dunning": (
+        "0 10 * * *",
+        "The BILLING §5 ladder is measured in days. Once daily, mid-morning, so a customer "
+        "reads 'your card failed' at a time they can act on it.",
+    ),
+    "drips": (
+        "0 9 * * *",
+        "Drip steps are scheduled in days (O1 sets the content and intervals). Daily is the "
+        "finest granularity the sequence can use.",
+    ),
+    "weekly-digest": (
+        "0 8 * * 1",
+        "Monday morning, matching `mihomes ai review`'s existing weekly slot. D16: Estate buys "
+        "the schedule, not the feature.",
+    ),
+    "trial-sweep": (
+        "0 6 * * *",
+        "The card-less trial's ONLY clock (F3). Daily, early, so an expiry is acted on the day "
+        "it happens rather than up to a week late.",
+    ),
+    "reconcile": (
+        "0 3 * * *",
+        "The backstop for a dropped webhook (BILLING §6). Nightly and off-peak: it re-fetches "
+        "from the provider, so it is the most expensive of the six and the least urgent.",
+    ),
+}
+
+
+@app.command("drain-outbox")
+def drain_outbox(
+    limit: int = typer.Option(
+        100, "--limit", help="Maximum messages to send per account in one run."
+    ),
+) -> None:
+    """Send queued mail. **The only path from the outbox to a provider** (D12/N2).
+
+    Idempotent by construction (A17): a sent row is stamped `sent_at` in the same transaction,
+    so a second consecutive run selects nothing. Nothing needs to remember that it already ran.
+
+    Sweeps per account for the same reason `reconcile` does, and for one more: an account-less
+    read of a tenant table returns **zero rows** under RLS — measured — so a global drain would
+    report success having sent nothing at all.
+    """
+    from datetime import UTC, datetime
+
+    from mihomes.db import get_session
+    from mihomes.services.email import get_email_provider
+    from mihomes.services.email.outbox import drain_all
+
+    result = drain_all(
+        get_session,
+        get_email_provider,
+        limit=limit,
+        now=datetime.now(UTC),
+    )
+
+    rprint(
+        f"Drained {result.sent} message(s); {result.failed} rescheduled; "
+        f"{result.exhausted} gave up; {result.suppressed} suppressed."
+    )
+    for err in result.errors:
+        logger.error("drain-outbox: %s", err)
+
+
+@app.command("dunning")
+def dunning(
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Report what would be sent without sending it."
+    ),
+) -> None:
+    """Advance the dunning ladder for accounts whose payment failed.
+
+    **Step 10 fills this in.** Registered here because Step 5 must come first: the spec makes
+    the ordering load-bearing (*"Step 5 before Steps 10, 11 and 13"*), and a workload whose
+    command does not exist cannot be scheduled, tested for idempotence, or enumerated by A15.
+
+    Deliberately a no-op that reports zero rather than a `NotImplementedError`: a scheduler
+    calling this before Step 10 lands must not page anyone.
+    """
+    rprint("Dunning ladder: 0 account(s) advanced. (Step 10 wires the ladder.)")
+    if dry_run:
+        rprint("[dim]--dry-run had no effect: nothing is sent yet.[/dim]")
+
+
+@app.command("drips")
+def drips(
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Report what would be sent without sending it."
+    ),
+) -> None:
+    """Send due drip-campaign steps.
+
+    **Step 11 fills this in**, and its content is O1 — a founder decision, not a build task.
+    Registered now for the same reason as `dunning`.
+    """
+    rprint("Drips: 0 enrolment(s) advanced. (Step 11 wires the campaigns.)")
+    if dry_run:
+        rprint("[dim]--dry-run had no effect: nothing is sent yet.[/dim]")
+
+
+@app.command("weekly-digest")
+def weekly_digest(
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Report who would receive it without sending."
+    ),
+) -> None:
+    """Send the weekly AI digest to accounts whose plan includes it.
+
+    **Step 13 fills this in**, after Step 12's gate exists. D16 enforces this as a *send*, not
+    a gate: the on-request route stays available on every plan (A14b), and what Estate buys is
+    the schedule.
+    """
+    rprint("Weekly digest: 0 account(s) sent. (Step 13 wires the digest.)")
+    if dry_run:
+        rprint("[dim]--dry-run had no effect: nothing is sent yet.[/dim]")
+
+
 @app.command("reconcile")
 def reconcile(
     dry_run: bool = typer.Option(
@@ -58,6 +210,21 @@ def reconcile(
     from mihomes.services.billing.provider import BillingProviderError, get_billing_provider
     from mihomes.services.billing.service import apply_subscription_state
 
+    accounts = _accounts_with_customers()
+
+    # **Nothing to reconcile is success, not a configuration error.**
+    #
+    # The provider was constructed before this check, so on an install with no Stripe
+    # customers — which is every install until the founder sets Stripe up (§0.8 U6) — a
+    # nightly `mihomes jobs reconcile` exited 1 with "STRIPE_SECRET_KEY is not set". Cron
+    # mails that failure every night, and an operator learns to filter this job's mail.
+    #
+    # Found by A17 invoking the command, not by testing the sweep: every service-layer test
+    # passed, because they construct a provider themselves.
+    if not accounts:
+        rprint("Reconciled 0 account(s); corrected 0; 0 failed.")
+        return
+
     try:
         provider = get_billing_provider("stripe")
     except BillingProviderError as exc:
@@ -65,7 +232,7 @@ def reconcile(
         raise typer.Exit(1) from None
 
     checked = corrected = failed = 0
-    for account_id, customer_id in _accounts_with_customers():
+    for account_id, customer_id in accounts:
         checked += 1
         try:
             state = provider.get_subscription(customer_id=customer_id)

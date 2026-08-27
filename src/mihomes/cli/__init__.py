@@ -61,7 +61,12 @@ def main(
     #
     # Found by running the command rather than by testing the service functions it wraps: the
     # sweep logic was green while the entrypoint could not be invoked at all.
-    if ctx.invoked_subcommand == "jobs":
+    #
+    # **`cron` is the same shape, found the same way.** `mihomes cron setup` prints crontab
+    # lines and reads nothing — but it inherited the tenant gate, so on a multi-account install
+    # the one command that tells an operator what to schedule exited 1. Found by SPEC-005 A15
+    # invoking it, not by reading: every test of its output had constructed the panel directly.
+    if ctx.invoked_subcommand in ("jobs", "cron"):
         return
 
     _bind_account(ctx, account)

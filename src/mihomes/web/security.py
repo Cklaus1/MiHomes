@@ -65,9 +65,24 @@ class HostAndOriginGuardMiddleware(BaseHTTPMiddleware):
         #    Scoped to the prefix rather than the exact path so a second provider's endpoint
         #    inherits it; the constant lives beside the route so a rename cannot silently re-arm
         #    the guards and take production webhooks down.
+        # 0b. RFC 8058 one-click unsubscribe, for the same reason and by the same argument
+        #     (SPEC-005 Step 9). A mail client POSTs from its own infrastructure to the public
+        #     hostname and sends no Origin — so it is not a browser the user is driving, and
+        #     both guards' threat models miss it exactly as they miss Stripe.
+        #
+        #     **Measured before adding it**: a POST to `/unsubscribe` with `Host: mihomes.ai`
+        #     returned `400 Invalid Host` while `/webhooks/...` passed. The webhook prefix does
+        #     not cover this path, which is the question SPEC-005 C9 left open.
+        #
+        #     CSRF is not weakened: the route reads no cookie and trusts no caller identity. Its
+        #     authentication is an HMAC over the address (N9), and the worst a forged request can
+        #     achieve is unsubscribing an address whose token the attacker already holds.
+        from mihomes.web.routes.unsubscribe import UNSUBSCRIBE_PATH_PREFIX
         from mihomes.web.routes.webhooks import WEBHOOK_PATH_PREFIX
 
-        if request.url.path.startswith(WEBHOOK_PATH_PREFIX):
+        if request.url.path.startswith(
+            (WEBHOOK_PATH_PREFIX, UNSUBSCRIBE_PATH_PREFIX)
+        ):
             return await call_next(request)
 
         # 1. Host guard (DNS-rebinding): reject non-loopback hosts outright.

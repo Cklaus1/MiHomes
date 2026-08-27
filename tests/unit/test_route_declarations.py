@@ -48,6 +48,14 @@ PERMANENT_ALLOWLIST: dict[str, str] = {
         "session. Distinct from `auth`, which is excused because identity does not *yet* exist; "
         "here identity is irrelevant and always will be."
     ),
+    "mihomes.web.routes.unsubscribe": (
+        "A mail client is not a user either. RFC 8058's one-click POST arrives from the "
+        "provider's infrastructure with no cookie and no principal, and the recipient may not "
+        "have an account at all — an invited staff member's address can be suppressed before "
+        "they ever sign in. Authenticated by an HMAC token over the address (N9); requiring a "
+        "session would make opt-out available only to people who are already customers, which "
+        "is precisely backwards."
+    ),
 }
 
 #: How each permanently-allowlisted module authenticates instead of a declared action.
@@ -69,6 +77,10 @@ ALLOWLIST_MECHANISMS: dict[str, str] = {
     ),
     "mihomes.web.routes.webhooks": (
         "HMAC signature verification over the raw request body, against STRIPE_WEBHOOK_SECRET"
+    ),
+    "mihomes.web.routes.unsubscribe": (
+        "HMAC token over the normalized email address, against MIHOMES_SECRET_KEY — verified "
+        "with `compare_digest` before anything is written"
     ),
 }
 

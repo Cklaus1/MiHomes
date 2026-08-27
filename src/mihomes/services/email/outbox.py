@@ -41,7 +41,7 @@ from sqlalchemy.orm import Session
 from mihomes.models.email_outbox import BACKOFF_LADDER, MAX_ATTEMPTS, EmailOutbox
 from mihomes.services.email.provider import EmailProvider, EmailSendError
 from mihomes.services.email.render import render_template
-from mihomes.services.email.suppression import is_suppressed
+from mihomes.services.email.suppression import is_suppressed, unsubscribe_headers
 from mihomes.tenancy.context import require_account
 
 __all__ = ["DrainResult", "drain", "enqueue", "next_attempt_after"]
@@ -174,7 +174,24 @@ def drain(
             continue
 
         try:
-            send_result = resolve().send(row.to_address, subject, html, text=text)
+            # RFC 8058 headers, for lifecycle mail only (A18/D13). Built here rather than
+            # stamped on the row at enqueue time, so the token's lifetime is the message's and
+            # a key rotation does not strand mail that was already queued.
+            headers = None
+            if row.klass == "lifecycle":
+                try:
+                    headers = unsubscribe_headers(row.to_address)
+                except Exception:
+                    # No signing key configured. Loud, because lifecycle mail without a way to
+                    # unsubscribe is the thing B4 exists to prevent — but not fatal: the
+                    # alternative is every drip and digest stuck in the queue behind it.
+                    logger.exception(
+                        "outbox: could not build unsubscribe headers (template=%s)",
+                        row.template,
+                    )
+            send_result = resolve().send(
+                row.to_address, subject, html, text=text, headers=headers
+            )
         except EmailSendError as exc:
             row.attempts += 1
             row.last_error = str(exc)

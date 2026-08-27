@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hmac
 import logging
+import os
 from datetime import UTC, datetime
 from hashlib import sha256
 
@@ -38,6 +39,7 @@ from mihomes.models.email_suppression import SUPPRESSION_REASONS, EmailSuppressi
 
 __all__ = [
     "InvalidUnsubscribeToken",
+    "unsubscribe_headers",
     "is_suppressed",
     "suppress",
     "unsubscribe_token",
@@ -88,6 +90,36 @@ def verify_unsubscribe_token(address: str, token: str) -> None:
     """
     if not hmac.compare_digest(unsubscribe_token(address), token or ""):
         raise InvalidUnsubscribeToken("unsubscribe token does not match the address")
+
+
+#: Where the unsubscribe link points. An env var rather than a constant because the value differs
+#: per deployment and appears in mail that outlives any one release — a hard-coded host in a sent
+#: email cannot be corrected later.
+UNSUBSCRIBE_BASE_URL_ENV = "MIHOMES_BASE_URL"
+DEFAULT_BASE_URL = "https://app.mihomes.ai"
+
+
+def unsubscribe_headers(address: str) -> dict[str, str]:
+    """RFC 8058's two headers for one recipient.
+
+    **Both, or neither.** `List-Unsubscribe` alone is the older RFC 2369 form, which mailbox
+    providers render as a link rather than a one-click button; `List-Unsubscribe-Post` is what
+    promotes it. The second without the first is meaningless, and the first without the second
+    silently downgrades every unsubscribe to a multi-step flow — which is the deliverability
+    cost N10 is about, arriving through a different door.
+
+    Lives here rather than in `EmailService` because the token does: `outbox.drain` needs these
+    headers at send time and `service.py` already imports `outbox`, so building them there
+    would be a circular import. Measured, not predicted — the first version raised one.
+    """
+    from urllib.parse import urlencode
+
+    base = os.environ.get(UNSUBSCRIBE_BASE_URL_ENV, DEFAULT_BASE_URL).rstrip("/")
+    query = urlencode({"email": address, "token": unsubscribe_token(address)})
+    return {
+        "List-Unsubscribe": f"<{base}/unsubscribe?{query}>",
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+    }
 
 
 def is_suppressed(session: Session, address: str) -> bool:

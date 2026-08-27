@@ -40,6 +40,7 @@ from mihomes.web.routes import calendar as calendar_route
 from mihomes.web.routes import inventory as inventory_route
 from mihomes.web.routes import library as library_route
 from mihomes.web.routes import privacy as privacy_route
+from mihomes.web.routes import unsubscribe as unsubscribe_route
 from mihomes.web.routes import weather as weather_route
 from mihomes.web.routes import webhooks as webhooks_route
 from mihomes.web.security import HostAndOriginGuardMiddleware
@@ -119,6 +120,10 @@ def create_app() -> FastAPI:
     # every row an account holds is the same authority as ending the account, and reusing the
     # row avoids a 21st matrix key for a distinction without a security difference.
     app.include_router(privacy_route.router)
+    # SPEC-005 Step 9 — RFC 8058 one-click unsubscribe. Allowlisted: a mail client is not
+    # a user, so there is no cookie, principal or account for the matrix to consult. It is
+    # authenticated by an HMAC token over the address (N9) — see the module docstring.
+    app.include_router(unsubscribe_route.router)
     # Sign-in / sign-out (G12). No prefix: these paths are fixed by the OAuth redirect URI
     # registered with Google, so they cannot move without reconfiguring the provider.
     app.include_router(auth_route.router)

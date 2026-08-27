@@ -315,9 +315,9 @@ anything reads its tables); **Step 7 before Step 8** (export exists before delet
 - [x] G8.3 · §6 Step 8 · A9,A10 · the `requested → grace → purged` state machine; a cancel restores normal service; **storage objects are deleted before their rows** — the reverse orphans blobs no row names · verify: `tests/integration/test_deletion.py::test_cancel` + `::test_storage_before_rows`
 - [x] G8.4 · §6 Step 8 · A8 · deletion is **owner-only** (D8); admin and staff denied; export offered first (D6) · verify: `tests/integration/test_privacy_routes.py::test_owner_only`
 
-### [ ] G9 — Step 9: unsubscribe — *dep: G2, G6*
-- [ ] G9.1 · §6 Step 9 · A18 · RFC 8058 one-click `List-Unsubscribe-Post`; **lifecycle carries both headers, transactional carries neither**; one click, no confirmation page · verify: `tests/integration/test_unsubscribe.py::test_headers_by_class`
-- [ ] G9.2 · C9 · — · second `PERMANENT_ALLOWLIST` entry **plus** its `ALLOWLIST_MECHANISMS` reason (a signed token); check whether the Host/Origin exemption already covers the path · verify: `tests/unit/test_route_declarations.py::test_every_allowlisted_module_names_its_mechanism`
+### [x] G9 — Step 9: unsubscribe — *dep: G2, G6*
+- [x] G9.1 · §6 Step 9 · A18 · RFC 8058 one-click `List-Unsubscribe-Post`; **lifecycle carries both headers, transactional carries neither**; one click, no confirmation page · verify: `tests/integration/test_unsubscribe.py::test_headers_by_class`
+- [x] G9.2 · C9 · — · second `PERMANENT_ALLOWLIST` entry **plus** its `ALLOWLIST_MECHANISMS` reason (a signed token); check whether the Host/Origin exemption already covers the path · verify: `tests/unit/test_route_declarations.py::TestAllowlistDiscipline::test_every_allowlisted_module_names_its_mechanism`
 
 ### [ ] G10 — Step 10: the dunning ladder — *dep: G5, G6*
 - [ ] G10.1 · §6 Step 10 · A23,A24 · one `invoice.payment_failed` produces **one** immediate email and the rest on the `BILLING` §5 schedule; recovery mid-ladder stops the sequence · verify: `tests/integration/test_dunning.py::test_ladder_schedule` + `::test_recovery_stops_ladder`
@@ -375,7 +375,7 @@ condition (delete), untested arm (add the test), inert difference (document with
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**In progress — G1–G8 done, G9 next.** Pre-flight complete (§0.6), baseline measured
+**In progress — G1–G9 done, G10 next.** Pre-flight complete (§0.6), baseline measured
 (2184 passed), harness written, and §1's DAG **rewritten from a derived join** after the
 hand-typed version proved wrong in three ways (§0.5). `py scripts/spec005_reconcile.py` exits 0:
 36/36 criteria gated, every gate pointing at the test §8 declares.
@@ -407,8 +407,12 @@ prove.
 mutation-checked ten ways; suite **2317 passed**. `SAAS_PRD:193`'s GA gate — export *and*
 deletion — is now met.
 
-Resume at **G9.1** — unsubscribe. Note C9: the RFC 8058 POST is the second `PERMANENT_ALLOWLIST`
-entry, and `ALLOWLIST_MECHANISMS` requires it to name what authenticates instead.
+**G9 complete** — the RFC 8058 route, both headers on lifecycle mail and neither on
+transactional, the second `PERMANENT_ALLOWLIST` entry with its mechanism, and its **own**
+Host/Origin exemption; mutation-checked nine ways; suite **2327 passed**.
+
+Resume at **G10.1** — the dunning ladder. It depends on G5's `dunning` workload, which is
+registered and currently a no-op reporting zero.
 
 Run `py scripts/spec005_reconcile.py --collect` after every group commit, not only at G-Final.
 
@@ -610,6 +614,37 @@ connection while the `session` fixture holds an open transaction meant its INSER
 `account_deletion_requests` blocked the fixture's teardown DELETE on the same table — pytest hung
 with no output at all, diagnosed from `pg_stat_activity`. Seeding through the test's own session
 removes both the second connection and the teardown.
+
+**C9's open question, answered by measurement: the webhook exemption does NOT cover
+`/unsubscribe`.** The harness left it open — *"check whether `WEBHOOK_PATH_PREFIX`'s exemption
+already covers it or a second prefix is needed — do not assume either."*
+
+Probed before writing the route: a POST to `/unsubscribe` with `Host: mihomes.ai` returned
+**400 Invalid Host**, while `/webhooks/stripe` passed the guard and reached its handler. So the
+route carries `UNSUBSCRIBE_PATH_PREFIX`, exempt by the same argument the webhook uses — a mail
+client POSTing from its own infrastructure to the public hostname is not a browser the user is
+driving, and neither guard's threat model reaches it. CSRF is unweakened: the route reads no
+cookie and trusts no caller identity.
+
+**D14 — the header builder lives in `suppression.py`, not `EmailService`.** The obvious home was
+the service, and it was a circular import: `service.py` already imports `outbox.py`, and `drain`
+is where the headers must be built (at send time, so the token's lifetime is the message's rather
+than the queue's). `suppression.py` already owns the token and both modules import from it.
+Measured, not predicted — the first arrangement raised `ImportError` on the first import.
+
+**Two things the route gets deliberately right, both from N-rules:**
+
+- **The GET renders a form and suppresses nothing** (N10's corollary). Mail clients and scanners
+  prefetch links; a prefetched GET that unsubscribed would opt out people who never clicked.
+  RFC 8058's one-click path is the POST.
+- **Both query parameters are HTML-escaped.** They arrive unauthenticated and land in HTML
+  attributes — the textbook reflection shape. That a legitimate caller only sends an address and
+  a hex digest says nothing about what an attacker sends.
+
+**A node id in the DAG did not resolve.** G9.2's verify cell named
+`test_route_declarations.py::test_every_allowlisted_module_names_its_mechanism`; the test is
+nested in `TestAllowlistDiscipline`. Corrected in the DAG rather than by moving the test — this
+one is not an §8 criterion, so `--collect` does not check it, which is exactly why it slipped.
 
 ## 3. Circuit breaker (conventions §3)
 

@@ -300,10 +300,10 @@ anything reads its tables); **Step 7 before Step 8** (export exists before delet
 - [x] G5.2 · §6 Step 5 · A17 · `drain-outbox`, `dunning`, `drips`, `weekly-digest` on SPEC-004's `mihomes jobs`; every subcommand a no-op on a second consecutive run · verify: `tests/integration/test_jobs.py::test_idempotent`
 - [!] G5.3 · **U10** · — · Fly's mechanism **cannot be confirmed from the repo** — split per conventions §3.3: the interface half ships and A15/A17 prove it, the infra confirmation is recorded as an unmet gate · verify: §0.8 U10
 
-### [ ] G6 — Step 6: the migration — *dep: G5 — MUST precede G7–G14*
-- [ ] G6.1 · §6 Step 6 · A30 · §4.4's five tables, four RLS policies, one carve-out; **its own engine running real Alembic up and down** — §9 states no existing test exercises Alembic, so `test_pg_baseline.py` cannot discharge this · verify: `tests/integration/test_migration_phase4.py::test_up_down`
+### [x] G6 — Step 6: the migration — *dep: G5 — MUST precede G7–G14*
+- [x] G6.1 · §6 Step 6 · A30 · §4.4's five tables, four RLS policies, one carve-out; **its own engine running real Alembic up and down** — §9 states no existing test exercises Alembic, so `test_pg_baseline.py` cannot discharge this · verify: `tests/integration/test_migration_phase4.py::test_up_down`
 - [x] G6.2 · §6 Step 6 · A21 · `email_suppressions` has **no** policy — a suppressed address must stay suppressed after the account that surfaced it is gone · verify: `tests/unit/test_email_tenancy.py::test_suppression_not_rls`
-- [ ] G6.3 · C8 · — · five `ENTITY_CLASSES` entries, registry entries, **three pinned counts** raised with reasons · verify: `tests/unit/test_matrix.py::test_every_model_is_classified`
+- [x] G6.3 · C8 · — · five `ENTITY_CLASSES` entries, registry entries, **three pinned counts** raised with reasons · verify: `tests/unit/test_matrix.py::test_every_model_is_classified`
 
 ### [ ] G7 — Step 7: data export — *dep: G6*
 - [ ] G7.1 · §6 Step 7 · A27 · **G-export** — `build_export` enumerates from `Base.metadata` under the scoped session; **never** `csv_io.export_csv` (5/28 tables, unfiltered) or `backup.create_backup` (whole DB + media) · verify: `tests/integration/test_export.py::test_covers_all_tenant_tables`
@@ -375,7 +375,7 @@ condition (delete), untested arm (add the test), inert difference (document with
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**In progress — G1–G5 done, G6 next.** Pre-flight complete (§0.6), baseline measured
+**In progress — G1–G6 done, G7 next.** Pre-flight complete (§0.6), baseline measured
 (2184 passed), harness written, and §1's DAG **rewritten from a derived join** after the
 hand-typed version proved wrong in three ways (§0.5). `py scripts/spec005_reconcile.py` exits 0:
 36/36 criteria gated, every gate pointing at the test §8 declares.
@@ -395,9 +395,12 @@ setup` derived from it, mutation-checked eight ways; suite **2265 passed**. G5.3
 U10's infra half cannot be answered from the repo (§0.8), and the interface half is what A15/A17
 prove.
 
-Resume at **G6.1** — the migration. Note that §4.4's five tables are already three-fifths
-shipped by D1's split (`0012`, `0013`, `0014`), so G6 covers `campaign_enrolments` and
-`account_deletion_requests` plus A30's round-trip over **every** Phase 4 revision.
+**G6 complete** — `CampaignEnrolment` + `AccountDeletionRequest` in `0015`, and A30 running
+**real Alembic up→down→up** for the first time in this repo; mutation-checked six ways; suite
+**2277 passed**. All five §4.4 tables now exist.
+
+Resume at **G7.1** — data export. `build_export` enumerates from `Base.metadata` filtered by
+`TenantOwned`, never `csv_io.export_csv` (5/28 tables, unfiltered) or `backup.create_backup`.
 
 Run `py scripts/spec005_reconcile.py --collect` after every group commit, not only at G-Final.
 
@@ -496,6 +499,36 @@ parametrized over `SCHEDULE`.
 version created a second account in a module fixture; `cli_database` is shared across five CLI
 modules for the whole session, so `test_report_upcoming` then failed with *"This install has 2
 accounts"*. The second account is now created and removed inside the one test that needs it.
+
+**D9 — the deletion record takes the mixin's CASCADE, and the first design was wrong.** §5.4
+lists `account_deletion_requests` under `PRESERVE`: it is the proof a deletion was honoured, so it
+outlives the data it describes. That reads like an argument for a `SET NULL` FK and a nullable
+column — and `test_each_tenant_table_has_account_id` rejects exactly that, because every tenant
+table's `account_id` must be NOT NULL.
+
+The gate was right and the design was solving an imagined problem. §5.4's purge enumerates
+`Base.metadata` **filtered by `TenantOwned`**, and `accounts` is a `GLOBAL_TABLES` entry outside
+that sweep — so the purge empties an account's tables and **never deletes the account row**. The
+cascade cannot fire. Ordinary `TenantOwned` shape, no override.
+
+Worth stating because the question decided the table's class: had the purge deleted the account
+row, `TenantOwned` would have been impossible in any form (CASCADE destroys the proof, RESTRICT
+blocks the purge, SET NULL needs the forbidden column) and this would have been the
+`processed_webhook_events` shape — `GLOBAL_TABLES`, nullable `account_id`, no FK. Read from §5.4
+rather than pattern-matched.
+
+**A mutation that read GREEN because it broke the wrong source of truth.** "Unique constraint
+dropped from the enrolment" mutated the *model*; the test asserts the live catalogue after
+`upgrade head`, and the migration still declared the constraint — so the database still had it,
+and GREEN was the honest answer. Retargeted at the migration. The model/migration disagreement is
+`test_baseline_matches_metadata`'s job, not this gate's.
+
+**A30 is stronger than §4.4 asked for.** The single-migration version could only assert one
+revision applies and reverts. The split (D1) means `test_migration_phase4.py` enumerates Phase 4's
+revisions **from the versions directory** and round-trips them — up, down past the first one, and
+up again. The replay is what catches a `downgrade` that leaves an index, policy or trigger behind:
+it fails with "already exists" rather than passing quietly. §9 records that no existing test
+exercised Alembic at all; this is the first.
 
 ## 3. Circuit breaker (conventions §3)
 

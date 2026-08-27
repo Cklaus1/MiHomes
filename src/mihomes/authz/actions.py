@@ -264,6 +264,7 @@ def _entity_classes() -> dict[type, EntityClass]:
     see, which is F4's shape reached through a child table.
     """
     from mihomes.models.account import Account
+    from mihomes.models.account_deletion import AccountDeletionRequest
     from mihomes.models.ai_conversation import AIConversation
     from mihomes.models.ai_usage import AIUsageEvent, AIUsageRollup
     from mihomes.models.alert import Alert
@@ -277,6 +278,7 @@ def _entity_classes() -> dict[type, EntityClass]:
     from mihomes.models.contract import Contract
     from mihomes.models.document import Document
     from mihomes.models.document_access import DocumentAccess
+    from mihomes.models.email_campaign import CampaignEnrolment
     from mihomes.models.email_delivery import EmailDelivery
     from mihomes.models.email_outbox import EmailOutbox
     from mihomes.models.email_suppression import EmailSuppression
@@ -447,6 +449,18 @@ def _entity_classes() -> dict[type, EntityClass]:
         # feeds: a queued row carries `to_address` and a `template` naming which billing
         # event is about to fire, so it is the delivery log one moment earlier.
         EmailOutbox: account,
+
+        # SPEC-005 §4.2 — drip enrolment. `ACCOUNT_LEVEL`: which marketing sequence the
+        # household is being sent, and how far through it they are, is a fact about the
+        # *owner's* relationship with the vendor. It tells a staff member nothing they
+        # need and something the owner did not choose to share.
+        CampaignEnrolment: account,
+
+        # SPEC-005 §4.3 — the deletion state machine. `ACCOUNT_LEVEL`, and this one is the
+        # least ambiguous of the set: a pending request to delete the entire estate is
+        # owner-only by A8, and a housekeeper learning the household is closing its account
+        # from a data page rather than from their employer is the wrong way to find out.
+        AccountDeletionRequest: account,
     }
 
 

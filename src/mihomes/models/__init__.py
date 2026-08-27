@@ -78,6 +78,9 @@ class SlugMixin:
 # carries a ForeignKey to it, so it must be defined before they are configured.
 # `users` and `sessions` are GLOBAL (D3) — read before account context exists.
 from mihomes.models.account import Account  # noqa: E402, F401
+from mihomes.models.account_deletion import (  # noqa: E402, F401
+    AccountDeletionRequest,
+)
 from mihomes.models.ai_conversation import AIConversation  # noqa: E402, F401
 from mihomes.models.ai_usage import AIUsageEvent, AIUsageRollup  # noqa: E402, F401
 from mihomes.models.alert import Alert  # noqa: E402, F401
@@ -91,6 +94,9 @@ from mihomes.models.consumable import Consumable, ConsumablePriceEntry  # noqa: 
 from mihomes.models.contract import Contract  # noqa: E402, F401
 from mihomes.models.document import Document  # noqa: E402, F401
 from mihomes.models.document_access import DocumentAccess  # noqa: E402, F401
+from mihomes.models.email_campaign import (  # noqa: E402, F401
+    CampaignEnrolment,
+)
 from mihomes.models.email_delivery import (  # noqa: E402, F401
     EmailDelivery,
 )

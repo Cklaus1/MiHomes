@@ -77,7 +77,7 @@ from mihomes.tenancy.registry import ASSOCIATION_TABLES, GLOBAL_TABLES, TENANT_T
 # carve-out `GLOBAL_TABLES` records, because a Stripe event is recorded before we know whose it is.
 # Each raise is acknowledged here in the same commit as its migration, which is the whole point of
 # writing the number as a literal: it makes an *accidental* addition visible.
-EXPECTED_TENANT_TABLE_COUNT = 47
+EXPECTED_TENANT_TABLE_COUNT = 49
 
 
 # --------------------------------------------------------------------------------------

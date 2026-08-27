@@ -87,6 +87,10 @@ TEST_ONLY_TABLES = frozenset({"dummy"})
 # `membership_property_scopes`, which Step 1 itself adds.
 TENANT_TABLES = frozenset({
     # --- domain ---------------------------------------------------------
+    # SPEC-005 §4.3 — the deletion record. Tenant-scoped while the account exists, and
+    # `PRESERVE` in §5.4's purge: it is the proof a deletion was honoured. Its CASCADE FK
+    # never fires, because the purge sweeps `TenantOwned` tables and `accounts` is global.
+    "account_deletion_requests",
     "ai_conversations",
     # SPEC-004 §4.2 — the AI usage meter. Tenant-scoped, unlike the webhook ledger above:
     # a usage row is only ever created *while* an account is bound (a user made a call), so
@@ -113,6 +117,7 @@ TENANT_TABLES = frozenset({
     # GLOBAL_TABLES above: a delivery record is about one account's mail and is purged
     # with that account, whereas the suppression list belongs to an address and must
     # outlive every account that ever surfaced it.
+    "campaign_enrolments",
     "email_deliveries",
     "email_outbox",
     "documents",

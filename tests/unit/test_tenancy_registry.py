@@ -253,7 +253,7 @@ def test_registry_size_is_asserted_explicitly():
     Each raise happened in the same commit as its migration. The count exists so that *forgetting*
     to register a table fails loudly, which only works if raising it is a conscious act.
     """
-    assert len(TENANT_TABLES) == 47, (
+    assert len(TENANT_TABLES) == 49, (
         f"expected 45 tenant-owned tables, registry has {len(TENANT_TABLES)} — "
         "if a table was legitimately added or removed, update this number and say why"
     )

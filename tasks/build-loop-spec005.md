@@ -305,9 +305,9 @@ anything reads its tables); **Step 7 before Step 8** (export exists before delet
 - [x] G6.2 · §6 Step 6 · A21 · `email_suppressions` has **no** policy — a suppressed address must stay suppressed after the account that surfaced it is gone · verify: `tests/unit/test_email_tenancy.py::test_suppression_not_rls`
 - [x] G6.3 · C8 · — · five `ENTITY_CLASSES` entries, registry entries, **three pinned counts** raised with reasons · verify: `tests/unit/test_matrix.py::test_every_model_is_classified`
 
-### [ ] G7 — Step 7: data export — *dep: G6*
-- [ ] G7.1 · §6 Step 7 · A27 · **G-export** — `build_export` enumerates from `Base.metadata` under the scoped session; **never** `csv_io.export_csv` (5/28 tables, unfiltered) or `backup.create_backup` (whole DB + media) · verify: `tests/integration/test_export.py::test_covers_all_tenant_tables`
-- [ ] G7.2 · §6 Step 7 · A6,A26 · no row belonging to another account appears anywhere in the bundle; documents are presigned references, not inlined bytes · verify: `tests/integration/test_export.py::test_no_cross_tenant_rows` + `::test_tenant_isolation`
+### [x] G7 — Step 7: data export — *dep: G6*
+- [x] G7.1 · §6 Step 7 · A27 · **G-export** — `build_export` enumerates from `Base.metadata` under the scoped session; **never** `csv_io.export_csv` (5/28 tables, unfiltered) or `backup.create_backup` (whole DB + media) · verify: `tests/integration/test_export.py::test_covers_all_tenant_tables`
+- [x] G7.2 · §6 Step 7 · A6,A26 · no row belonging to another account appears anywhere in the bundle; documents are presigned references, not inlined bytes · verify: `tests/integration/test_export.py::test_no_cross_tenant_rows` + `::test_tenant_isolation`
 
 ### [ ] G8 — Step 8: deletion — *dep: G7*
 - [ ] G8.1 · §6 Step 8 · A28 · **G-purge** — the purge enumerates from `Base.metadata` and applies **exactly one** disposition per table; the three-way partition is **total**, and `ANONYMIZE` is declared-but-empty (`DEFERRED (SPEC-008)`), never conflated with a skip (D18) · verify: `tests/integration/test_deletion.py::test_purge_dispositions_all_tables`
@@ -375,7 +375,7 @@ condition (delete), untested arm (add the test), inert difference (document with
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**In progress — G1–G6 done, G7 next.** Pre-flight complete (§0.6), baseline measured
+**In progress — G1–G7 done, G8 next.** Pre-flight complete (§0.6), baseline measured
 (2184 passed), harness written, and §1's DAG **rewritten from a derived join** after the
 hand-typed version proved wrong in three ways (§0.5). `py scripts/spec005_reconcile.py` exits 0:
 36/36 criteria gated, every gate pointing at the test §8 declares.
@@ -399,8 +399,13 @@ prove.
 **real Alembic up→down→up** for the first time in this repo; mutation-checked six ways; suite
 **2277 passed**. All five §4.4 tables now exist.
 
-Resume at **G7.1** — data export. `build_export` enumerates from `Base.metadata` filtered by
-`TenantOwned`, never `csv_io.export_csv` (5/28 tables, unfiltered) or `backup.create_backup`.
+**G7 complete** — `privacy/export.py`, the owner-only route, mutation-checked six ways; suite
+**2292 passed**. A6 caught a **real cross-tenant leak in my own first implementation** (§2.2 D11).
+
+Resume at **G8.1** — deletion. **Build the populated-account fixture first**: §9 is explicit that
+*"a purge test against an account with three rows proves nothing"*, and unlike A27 — which is
+asserted against the registry and so cannot go vacuous on a thin seed — A28 needs real rows in
+every table it claims to have emptied.
 
 Run `py scripts/spec005_reconcile.py --collect` after every group commit, not only at G-Final.
 
@@ -529,6 +534,44 @@ revisions **from the versions directory** and round-trips them — up, down past
 up again. The replay is what catches a `downgrade` that leaves an index, policy or trigger behind:
 it fails with "already exists" rather than passing quietly. §9 records that no existing test
 exercised Alembic at all; this is the first.
+
+**D11 — A6 caught a real cross-tenant leak, in the export written to satisfy it.** The first
+`build_export` read every table with `select(table)` on the Core `Table` object. It returned
+**three accounts' properties**.
+
+`tenancy/session.py` applies its tenant filter through `with_loader_criteria`, which binds to a
+*mapped class* — a Core `Table` select is invisible to it. The test suite connects as `postgres`,
+a superuser, and superusers bypass RLS unconditionally even under `FORCE ROW LEVEL SECURITY`. So
+the ORM filter was the only thing filtering, and a Core select had stepped around it.
+
+**Stated precisely: production connects as a non-superuser, so RLS would have caught this.** What
+failed is the defence-in-depth layer D14 actually names — *"assembled from the ORM under the
+scoped session"* — which is the right finding without inflating it into a live breach.
+
+Mapped classes now go through `select(model)`. The two association tables cannot: they have no
+class, so `with_loader_criteria` cannot reach them and RLS is their *only* protection — which,
+under a superuser test connection, is none. They are filtered explicitly, and
+`test_association_tables_are_filtered_by_account` seeds a foreign row to prove it. Without that
+seed the filter was untested: deleting it left all nine tests green.
+
+**An inert mutation, documented rather than left as a puzzle** (conventions §2): routing mapped
+classes down the association branch is *also* correct, because that branch filters explicitly. The
+leak was never "Core tables", it was "no filter". The branch stands because D14 says ORM, and
+because a mapped read that silently stopped being filtered is a bug in the app-wide guarantee that
+the export should surface rather than paper over.
+
+**D10 — Step 7 says "Owner-only route" and no §8 criterion covers it.** A8 is Step 8's, about
+deletion. So F.3a would pass on a G7 that shipped only the service. `test_privacy_routes.py` is
+the gate that makes the step's own words checkable; it reuses row 16 (`account.delete`) rather
+than adding a 21st matrix key, because downloading every row an account holds is the same
+authority as ending the account.
+
+**Committed test data broke three tests a module away — the second time this run.** `test_export`'s
+seeds commit deliberately (the point is data the test's session could not otherwise see), and
+committed rows do not roll back. `test_archive`'s `get_stats` counts `audit_log` across the whole
+database and asserted `4 == 2`; `test_trial`'s fixtures assume a known estate. Both seeds are now
+context managers that delete what they wrote — including the audit rows the service layer
+legitimately produced.
 
 ## 3. Circuit breaker (conventions §3)
 

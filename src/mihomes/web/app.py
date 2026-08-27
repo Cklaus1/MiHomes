@@ -39,6 +39,7 @@ from mihomes.web.routes import billing as billing_route
 from mihomes.web.routes import calendar as calendar_route
 from mihomes.web.routes import inventory as inventory_route
 from mihomes.web.routes import library as library_route
+from mihomes.web.routes import privacy as privacy_route
 from mihomes.web.routes import weather as weather_route
 from mihomes.web.routes import webhooks as webhooks_route
 from mihomes.web.security import HostAndOriginGuardMiddleware
@@ -114,6 +115,10 @@ def create_app() -> FastAPI:
     # SPEC-004 Step 6 — checkout, portal, plan page. Owner-only via `billing.manage` (row 15),
     # enforced app-wide by `enforce_declared_action` rather than by a check in the handlers.
     app.include_router(billing_route.router)
+    # SPEC-005 Step 7 — data export. Owner-only via `account.delete` (row 16): downloading
+    # every row an account holds is the same authority as ending the account, and reusing the
+    # row avoids a 21st matrix key for a distinction without a security difference.
+    app.include_router(privacy_route.router)
     # Sign-in / sign-out (G12). No prefix: these paths are fixed by the OAuth redirect URI
     # registered with Google, so they cannot move without reconfiguring the provider.
     app.include_router(auth_route.router)

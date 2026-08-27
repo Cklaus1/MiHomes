@@ -65,22 +65,33 @@ def spec_manifest(spec: str) -> dict[str, str]:
     return out
 
 
-def dag_rows(harness: str) -> list[tuple[str, str, list[str], str]]:
-    """The DAG's task lines: (id, spec-ref, claimed labels, verify target)."""
+def dag_rows(harness: str) -> list[tuple[str, str, list[str], str, bool]]:
+    """The DAG's task lines: (id, spec-ref, claimed labels, verify target, done).
+
+    `done` is the checkbox, and it is what makes the `--collect` check both sound and
+    tightening: a node id is only expected to resolve once the task claiming it is `[x]`.
+    """
     body = harness.split("## 1. Task DAG")[1].split("## 2. Group-specific gates")[0]
     rows = []
     for line in body.splitlines():
-        m = re.match(r"- \[.\] (G[\w.\-]+) · ([^·]+) · ([^·]+) · .*?verify: (.+?)\s*$", line)
+        m = re.match(
+            r"- \[([ x!])\] (G[\w.\-]+) · ([^·]+) · ([^·]+) · .*?verify: (.+?)\s*$", line
+        )
         if m:
-            gid, ref, crit, verify = (g.strip() for g in m.groups())
-            rows.append((gid, ref, LABEL_RE.findall(crit), verify.strip("`")))
+            box, gid, ref, crit, verify = m.groups()
+            rows.append(
+                (gid.strip(), ref.strip(), LABEL_RE.findall(crit), verify.strip().strip("`"),
+                 box in "x!")
+            )
     return rows
 
 
-def declared_node_ids(criteria: dict, manifest: dict) -> list[str]:
-    """Every §8 test, as a runnable pytest node id."""
+def declared_node_ids(criteria: dict, manifest: dict, labels=None) -> list[str]:
+    """§8's tests as runnable pytest node ids, optionally restricted to `labels`."""
     ids = []
-    for _label, (_text, declared) in criteria.items():
+    for label, (_text, declared) in criteria.items():
+        if labels is not None and label not in labels:
+            continue
         basename = declared.split("::")[0]
         directory = manifest.get(basename)
         if directory and "::" in declared:
@@ -88,29 +99,34 @@ def declared_node_ids(criteria: dict, manifest: dict) -> list[str]:
     return sorted(set(ids))
 
 
-def unresolved_node_ids(node_ids: list[str]) -> tuple[list[str], list[str]]:
-    """Split into (unbuilt, drifted).
+def unresolved_node_ids(node_ids: list[str]) -> list[str]:
+    """Which of the given node ids pytest cannot collect.
 
-    **Only node ids whose file already exists are checked.** A missing file means that group
-    has not been built yet, which is the normal mid-run state and not a defect. A file that
-    exists but does not contain the declared test is the defect — that is precisely G2's bug,
-    where A1/A2 were written into `test_email_service.py` while §8 declares them in
-    `test_suppression.py`, and `pytest <node id>` answered "not found".
+    The caller passes only node ids for **completed** tasks, so anything that fails to
+    collect here is drift, not unbuilt work.
 
-    Collected with `--collect-only` per existing file rather than parsed out of the source:
-    a test can be produced by a fixture, a parametrize, or a class, and a `grep` for `def
-    test_x` would miss all three and report a false failure.
+    **Keyed on DAG state rather than file existence**, which the first version got wrong:
+    `tests/integration/test_jobs.py` already exists from SPEC-004 while §8's `test_idempotent`
+    inside it belongs to G5, so a file-existence rule reports drift where the truth is "not
+    built yet". Checkbox state cannot false-positive that way, and it tightens as the run
+    proceeds instead of staying permissive.
+
+    Collected with `--collect-only` rather than parsed from source: a test can come from a
+    fixture, a parametrize or a class, and a `grep` for `def test_x` would miss all three.
     """
     import subprocess
 
-    unbuilt = [n for n in node_ids if not (ROOT / n.split("::")[0]).exists()]
-    present = [n for n in node_ids if n not in unbuilt]
-    if not present:
-        return unbuilt, []
+    if not node_ids:
+        return []
 
-    files = sorted({n.split("::")[0] for n in present})
+    files = sorted({n.split("::")[0] for n in node_ids})
+    existing = [f for f in files if (ROOT / f).exists()]
+    missing_files = [n for n in node_ids if n.split("::")[0] not in existing]
+    if not existing:
+        return missing_files
+
     proc = subprocess.run(
-        [sys.executable, "-m", "pytest", "--collect-only", "-q", "--color=no", *files],
+        [sys.executable, "-m", "pytest", "--collect-only", "-q", "--color=no", *existing],
         capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=ROOT,
     )
     collected = {
@@ -118,8 +134,8 @@ def unresolved_node_ids(node_ids: list[str]) -> tuple[list[str], list[str]]:
         for line in (proc.stdout + proc.stderr).splitlines()
         if "::" in line
     }
-    drifted = [n for n in present if n not in collected]
-    return unbuilt, drifted
+    return sorted(missing_files + [n for n in node_ids if n not in collected
+                                   and n.split("::")[0] in existing])
 
 
 def main() -> int:
@@ -134,7 +150,7 @@ def main() -> int:
 
     # --- B, criteria half: every §8 label is claimed by exactly one task ------------------
     claimed: dict[str, list[str]] = {}
-    for gid, _ref, labels, _verify in rows:
+    for gid, _ref, labels, _verify, _done in rows:
         for label in labels:
             claimed.setdefault(label, []).append(gid)
 
@@ -151,7 +167,7 @@ def main() -> int:
     doubled = {c: g for c, g in claimed.items() if len(g) > 1 and c in criteria}
 
     # --- E, the pointing half: each task's verify target matches §8's declared test -------
-    for gid, _ref, labels, verify in rows:
+    for gid, _ref, labels, verify, _done in rows:
         if not labels:
             continue  # G5.2/G6.3/G9.2 discharge a pre-flight correction, not an §8 label
         if verify.startswith("same module"):
@@ -168,16 +184,17 @@ def main() -> int:
                 failures.append(f"{gid} ({label}): verify={verify!r} but §8+§9 say {want!r}")
 
     if "--collect" in sys.argv:
-        node_ids = declared_node_ids(criteria, manifest)
-        unbuilt, drifted = unresolved_node_ids(node_ids)
+        done_labels = {lab for _g, _r, labs, _v, done in rows if done for lab in labs}
+        node_ids = declared_node_ids(criteria, manifest, labels=done_labels)
+        drifted = unresolved_node_ids(node_ids)
         if drifted:
             failures.append(
-                f"{len(drifted)} declared node ids do not resolve in a file that exists "
-                f"(condition E would fail on each): {drifted}"
+                f"{len(drifted)} node ids for COMPLETED tasks do not resolve (condition E "
+                f"would fail on each): {drifted}"
             )
         print(
-            f"collect: {len(node_ids) - len(unbuilt) - len(drifted)}/{len(node_ids)} resolve, "
-            f"{len(unbuilt)} not built yet"
+            f"collect: {len(node_ids) - len(drifted)}/{len(node_ids)} node ids for completed "
+            f"tasks resolve ({len(criteria) - len(done_labels)} criteria not built yet)"
         )
 
     print(f"§8 criteria: {len(criteria)}   DAG tasks: {len(rows)}   gated: {len(claimed)}")

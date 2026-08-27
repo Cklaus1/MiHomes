@@ -1,4 +1,4 @@
-"""Privacy routes — data export today, deletion at Step 8 (SPEC-005 §5.4, D8).
+"""Privacy routes — data export and account deletion (SPEC-005 §5.4, D8).
 
 **Owner-only, via row 16's `account.delete`.** Not a new matrix key: the row already exists,
 already reads `(owner=ALLOW, admin=DENY, staff=DENY)`, and already means "may end this account's
@@ -21,11 +21,11 @@ import json
 import logging
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy.orm import Session
 
 from mihomes.authz.declare import Access, declares
-from mihomes.services.privacy import build_export
+from mihomes.services.privacy import build_export, cancel_deletion, request_deletion
 from mihomes.web.deps import get_db, require_authenticated
 
 logger = logging.getLogger(__name__)
@@ -74,4 +74,51 @@ def export_account(
                 f'attachment; filename="mihomes-export-{bundle.account_id}.json"'
             )
         },
+    )
+
+
+@router.post("/privacy/delete")
+@declares(PRIVACY_ACTION, Access.ACCOUNT)
+def request_account_deletion(
+    request: Request,
+    principal=require_authenticated(),
+    db: Session = Depends(get_db),
+):
+    """Start the deletion clock. **Deletes nothing** (D15).
+
+    `PRICING` §4.4 requires the export to be offered first, and the response says so rather than
+    assuming the caller knows: a customer who deletes without exporting has lost data they were
+    entitled to take with them, and there is no second chance to mention it.
+
+    The grace period is O2 — open, and a config value either way. What is fixed here is the
+    state machine: `requested` now, `purged` only after `purge_after`, cancellable throughout.
+    """
+    record = request_deletion(db, principal.account_id, principal.user_id)
+
+    return JSONResponse(
+        {
+            "state": "requested",
+            "requested_at": record.requested_at.isoformat(),
+            "purge_after": record.purge_after.isoformat(),
+            "export_first": "/privacy/export",
+            "cancel": "/privacy/delete/cancel",
+        }
+    )
+
+
+@router.post("/privacy/delete/cancel")
+@declares(PRIVACY_ACTION, Access.ACCOUNT)
+def cancel_account_deletion(
+    request: Request,
+    principal=require_authenticated(),
+    db: Session = Depends(get_db),
+):
+    """Stop a pending deletion (A9). Idempotent; refuses once the purge has run."""
+    cancelled = cancel_deletion(db, principal.account_id)
+
+    return JSONResponse(
+        {
+            "state": "cancelled" if cancelled else "nothing_to_cancel",
+            "cancelled": cancelled,
+        }
     )

@@ -309,11 +309,11 @@ anything reads its tables); **Step 7 before Step 8** (export exists before delet
 - [x] G7.1 · §6 Step 7 · A27 · **G-export** — `build_export` enumerates from `Base.metadata` under the scoped session; **never** `csv_io.export_csv` (5/28 tables, unfiltered) or `backup.create_backup` (whole DB + media) · verify: `tests/integration/test_export.py::test_covers_all_tenant_tables`
 - [x] G7.2 · §6 Step 7 · A6,A26 · no row belonging to another account appears anywhere in the bundle; documents are presigned references, not inlined bytes · verify: `tests/integration/test_export.py::test_no_cross_tenant_rows` + `::test_tenant_isolation`
 
-### [ ] G8 — Step 8: deletion — *dep: G7*
-- [ ] G8.1 · §6 Step 8 · A28 · **G-purge** — the purge enumerates from `Base.metadata` and applies **exactly one** disposition per table; the three-way partition is **total**, and `ANONYMIZE` is declared-but-empty (`DEFERRED (SPEC-008)`), never conflated with a skip (D18) · verify: `tests/integration/test_deletion.py::test_purge_dispositions_all_tables`
-- [ ] G8.2 · §6 Step 8 · A7,A29,A29b · zero rows survive in every `DELETE` table; `account_deletion_requests` and `email_suppressions` survive **untouched**; no account-referencing column on a **global** table still points at the purged account · verify: `tests/integration/test_deletion.py::test_purge_complete` + `::test_deliberate_survivors` + `::test_no_dangling_global_refs`
-- [ ] G8.3 · §6 Step 8 · A9,A10 · the `requested → grace → purged` state machine; a cancel restores normal service; **storage objects are deleted before their rows** — the reverse orphans blobs no row names · verify: `tests/integration/test_deletion.py::test_cancel` + `::test_storage_before_rows`
-- [ ] G8.4 · §6 Step 8 · A8 · deletion is **owner-only** (D8); admin and staff denied; export offered first (D6) · verify: `tests/integration/test_privacy_routes.py::test_owner_only`
+### [x] G8 — Step 8: deletion — *dep: G7*
+- [x] G8.1 · §6 Step 8 · A28 · **G-purge** — the purge enumerates from `Base.metadata` and applies **exactly one** disposition per table; the three-way partition is **total**, and `ANONYMIZE` is declared-but-empty (`DEFERRED (SPEC-008)`), never conflated with a skip (D18) · verify: `tests/integration/test_deletion.py::test_purge_dispositions_all_tables`
+- [x] G8.2 · §6 Step 8 · A7,A29,A29b · zero rows survive in every `DELETE` table; `account_deletion_requests` and `email_suppressions` survive **untouched**; no account-referencing column on a **global** table still points at the purged account · verify: `tests/integration/test_deletion.py::test_purge_complete` + `::test_deliberate_survivors` + `::test_no_dangling_global_refs`
+- [x] G8.3 · §6 Step 8 · A9,A10 · the `requested → grace → purged` state machine; a cancel restores normal service; **storage objects are deleted before their rows** — the reverse orphans blobs no row names · verify: `tests/integration/test_deletion.py::test_cancel` + `::test_storage_before_rows`
+- [x] G8.4 · §6 Step 8 · A8 · deletion is **owner-only** (D8); admin and staff denied; export offered first (D6) · verify: `tests/integration/test_privacy_routes.py::test_owner_only`
 
 ### [ ] G9 — Step 9: unsubscribe — *dep: G2, G6*
 - [ ] G9.1 · §6 Step 9 · A18 · RFC 8058 one-click `List-Unsubscribe-Post`; **lifecycle carries both headers, transactional carries neither**; one click, no confirmation page · verify: `tests/integration/test_unsubscribe.py::test_headers_by_class`
@@ -375,7 +375,7 @@ condition (delete), untested arm (add the test), inert difference (document with
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**In progress — G1–G7 done, G8 next.** Pre-flight complete (§0.6), baseline measured
+**In progress — G1–G8 done, G9 next.** Pre-flight complete (§0.6), baseline measured
 (2184 passed), harness written, and §1's DAG **rewritten from a derived join** after the
 hand-typed version proved wrong in three ways (§0.5). `py scripts/spec005_reconcile.py` exits 0:
 36/36 criteria gated, every gate pointing at the test §8 declares.
@@ -402,10 +402,13 @@ prove.
 **G7 complete** — `privacy/export.py`, the owner-only route, mutation-checked six ways; suite
 **2292 passed**. A6 caught a **real cross-tenant leak in my own first implementation** (§2.2 D11).
 
-Resume at **G8.1** — deletion. **Build the populated-account fixture first**: §9 is explicit that
-*"a purge test against an account with three rows proves nothing"*, and unlike A27 — which is
-asserted against the registry and so cannot go vacuous on a thin seed — A28 needs real rows in
-every table it claims to have emptied.
+**G8 complete** — the state machine, the three-disposition purge, the deletion routes, and a
+**derived** populated-account fixture (one row in all 49 tenant tables, from `Base.metadata`);
+mutation-checked ten ways; suite **2317 passed**. `SAAS_PRD:193`'s GA gate — export *and*
+deletion — is now met.
+
+Resume at **G9.1** — unsubscribe. Note C9: the RFC 8058 POST is the second `PERMANENT_ALLOWLIST`
+entry, and `ALLOWLIST_MECHANISMS` requires it to name what authenticates instead.
 
 Run `py scripts/spec005_reconcile.py --collect` after every group commit, not only at G-Final.
 
@@ -572,6 +575,41 @@ committed rows do not roll back. `test_archive`'s `get_stats` counts `audit_log`
 database and asserted `4 == 2`; `test_trial`'s fixtures assume a known estate. Both seeds are now
 context managers that delete what they wrote — including the audit rows the service layer
 legitimately produced.
+
+**D12 — A7 and A28 contradict each other read literally, and the test says which reading wins.**
+A7 is *"a purge leaves zero rows in every `TenantOwned` table"*; `account_deletion_requests` is
+`TenantOwned` **and** `PRESERVE`, and A29 requires that same row to survive. The two are
+consistent only if A7 means the tables the purge *deletes*. Scoped to the `DELETE` disposition,
+stated in the test rather than resolved silently.
+
+**D13 — three of my own tests were green for the wrong reason, each caught by mutation.**
+
+- **A10 asserted zero storage deletions and passed.** The seeder's synthetic `file_path` was not
+  a storage key — `is_storage_key` requires the `{account_id}/` prefix — so the purge skipped
+  every document and "storage was called" had nothing to be true about. The fixture now builds a
+  real key with `build_key`.
+- **The ANONYMIZE branch was untestable while empty**, so §6 Step 8's own instruction applies:
+  *"it is exercised by a fixture table until SPEC-008 supplies the first real one."* Deleting the
+  entire branch left every test green until that fixture test existed.
+- **And that test was itself vacuous at first**: it nulled a column the seeder had already left
+  NULL, so "is None afterwards" was true beforehand. It now sets the column non-NULL first.
+
+**§5.4's NOT NULL warning arrived exactly on schedule.** Pointing ANONYMIZE at `notes.content`
+raised `NotNullViolation` on the first run — *"a NOT NULL column cannot be anonymized, and that is
+discovered at implementation time if nobody says so first."* Recorded in
+`ANONYMIZED_TABLES`' docstring as measurement rather than caution, because SPEC-008's
+`VendorReview` must declare its author columns NULLABLE and now has empirical grounds.
+
+**A29b is derived, because its answer is "none" today.** §5.4: *"There are none today; SPEC-008
+adds the first."* An assertion over an empty literal cannot fail. `account_referencing_global_columns()`
+discovers the columns from `GLOBAL_TABLES` at run time and `purge` consumes whatever it returns,
+so the mechanism exists before the first member arrives rather than after.
+
+**The populated-account fixture deadlocked the suite before it worked.** Committing on a second
+connection while the `session` fixture holds an open transaction meant its INSERT into
+`account_deletion_requests` blocked the fixture's teardown DELETE on the same table — pytest hung
+with no output at all, diagnosed from `pg_stat_activity`. Seeding through the test's own session
+removes both the second connection and the teardown.
 
 ## 3. Circuit breaker (conventions §3)
 

@@ -13,6 +13,7 @@ import pytest
 from sqlalchemy import select, text
 
 from mihomes.crypto import EncryptionUnavailable
+from mihomes.models.email_outbox import EmailOutbox
 from mihomes.models.email_suppression import EmailSuppression
 from mihomes.services.email import EmailService
 from mihomes.services.email.provider import EmailResult
@@ -23,6 +24,7 @@ from mihomes.services.email.suppression import (
     unsubscribe_token,
     verify_unsubscribe_token,
 )
+from mihomes.tenancy.context import account_context
 
 
 class RecordingProvider:
@@ -179,6 +181,12 @@ def test_no_key_refuses_rather_than_minting_an_unsigned_token(monkeypatch):
 
 # --- A1/A2: the transactional/lifecycle split at the choke point -------------------------
 #
+# **Every one of these drains.** After Step 4 `_send` enqueues and never touches the
+# provider, so `assert provider.calls == []` is true whether or not suppression works —
+# A1 would become a criterion that cannot fail. Asserting on what the provider received
+# after a drain is what keeps both halves real, and the mutation `_send stops checking
+# suppression` is what proves it: it must stay RED.
+#
 # These live here because §8 declares them here, not because this is the module that owns
 # the mechanism — D13 puts that at `EmailService._send`, and these tests reach across to
 # call it. The first draft put them next to the choke point on exactly that reasoning, and
@@ -187,7 +195,7 @@ def test_no_key_refuses_rather_than_minting_an_unsigned_token(monkeypatch):
 # in the wrong file is a criterion with no gate.
 
 
-def test_transactional_ignores_suppression(session):
+def test_transactional_ignores_suppression(session, account_a):
     """A2 — transactional mail to a suppressed address **is** sent (N3).
 
     A receipt for money taken, a deletion confirmation and an export link are not marketing.
@@ -195,40 +203,67 @@ def test_transactional_ignores_suppression(session):
     """
     suppress(session, "alex@example.com", reason="unsubscribe")
     provider = RecordingProvider()
+    service = EmailService(provider, session=session)
 
-    EmailService(provider, session=session)._send(
-        "alex@example.com", "welcome",
-        {"account_name": "A", "dashboard_url": "u", "name": None},
-        klass="transactional",
-    )
+    with account_context(account_a):
+        service._send(
+            "alex@example.com", "welcome",
+            {"account_name": "A", "dashboard_url": "u", "name": None},
+            klass="transactional",
+        )
+        service.drain()
 
     assert len(provider.calls) == 1
 
 
-def test_lifecycle_suppressed(session):
+def test_lifecycle_suppressed(session, account_a):
     """A1 — lifecycle mail to a suppressed address is not sent (D13)."""
     suppress(session, "alex@example.com", reason="unsubscribe")
     provider = RecordingProvider()
+    service = EmailService(provider, session=session)
 
-    EmailService(provider, session=session)._send(
-        "alex@example.com", "welcome",
-        {"account_name": "A", "dashboard_url": "u", "name": None},
-        klass="lifecycle",
-    )
+    with account_context(account_a):
+        service._send(
+            "alex@example.com", "welcome",
+            {"account_name": "A", "dashboard_url": "u", "name": None},
+            klass="lifecycle",
+        )
+        # **Both assertions are load-bearing, and the second is why.**
+        #
+        # `provider.calls == []` alone went vacuous the moment Step 4 landed: `_send` enqueues
+        # and never touches the provider, so it held whether or not the enqueue-time check
+        # existed. Caught by re-running this group's mutations after G4 — `_send stops
+        # checking suppression` flipped from RED to GREEN, on a criterion already ticked.
+        #
+        # Nothing was queued is the part `_send` actually decides. `drain` re-checks
+        # suppression too (an address can be suppressed while mail waits), so without this
+        # line the two checks make each other untestable: remove either and the other covers
+        # for it while the outbox quietly fills with mail that will never be sent.
+        queued = session.execute(select(EmailOutbox)).scalars().all()
+        assert queued == [], "a suppressed lifecycle message must not be queued at all"
+
+        service.drain()
 
     assert provider.calls == []
 
 
-def test_lifecycle_to_an_unsuppressed_address_is_sent(session):
+def test_lifecycle_to_an_unsuppressed_address_is_sent(session, account_a):
     """The other half of A1 — without this, a `_send` that dropped every lifecycle message
     would pass `test_lifecycle_suppressed` and look correct."""
     provider = RecordingProvider()
+    service = EmailService(provider, session=session)
 
-    EmailService(provider, session=session)._send(
-        "someone-else@example.com", "welcome",
-        {"account_name": "A", "dashboard_url": "u", "name": None},
-        klass="lifecycle",
-    )
+    with account_context(account_a):
+        service._send(
+            "someone-else@example.com", "welcome",
+            {"account_name": "A", "dashboard_url": "u", "name": None},
+            klass="lifecycle",
+        )
+        # The mirror of the assertion above: an unsuppressed address IS queued. Without it,
+        # a `_send` that queued nothing at all would satisfy the suppressed case perfectly.
+        assert len(session.execute(select(EmailOutbox)).scalars().all()) == 1
+
+        service.drain()
 
     assert len(provider.calls) == 1
 

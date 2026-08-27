@@ -477,6 +477,7 @@ class TestModelsWithNoPropertyLinkageAreDenied:
             # `EmailSuppression` is **not** here — it is `GLOBAL`, outside this partition
             # entirely, because suppression belongs to an address rather than an account.
             "EmailDelivery",
+            "EmailOutbox",
         }, (
             "the set of models denied outright has changed. Each one is a model staff can no "
             "longer read at all (or can now read) — confirm which, and why, before updating this."

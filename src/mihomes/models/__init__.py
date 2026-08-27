@@ -94,6 +94,7 @@ from mihomes.models.document_access import DocumentAccess  # noqa: E402, F401
 from mihomes.models.email_delivery import (  # noqa: E402, F401
     EmailDelivery,
 )
+from mihomes.models.email_outbox import EmailOutbox  # noqa: E402, F401
 from mihomes.models.email_suppression import (  # noqa: E402, F401
     EmailSuppression,
 )

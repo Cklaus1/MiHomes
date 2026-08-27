@@ -69,11 +69,15 @@ from mihomes.tenancy.registry import ASSOCIATION_TABLES, GLOBAL_TABLES, TENANT_T
 #                                        one account's mail and is purged with it, whereas a
 #                                        suppression belongs to an ADDRESS and must outlive every
 #                                        account that ever surfaced it
+#   47  `email_outbox`       (SPEC-005) — the queue BILLING §2.4 names and never specifies
+#                                        (0014, D12). Its index leads with account_id, unlike
+#                                        §4.1's declaration: a global due-row scan returns zero
+#                                        rows under RLS, so drain binds per account
 # The webhook ledger (`processed_webhook_events`, 0010) is **not** here — it is global by the
 # carve-out `GLOBAL_TABLES` records, because a Stripe event is recorded before we know whose it is.
 # Each raise is acknowledged here in the same commit as its migration, which is the whole point of
 # writing the number as a literal: it makes an *accidental* addition visible.
-EXPECTED_TENANT_TABLE_COUNT = 46
+EXPECTED_TENANT_TABLE_COUNT = 47
 
 
 # --------------------------------------------------------------------------------------

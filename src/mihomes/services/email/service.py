@@ -17,6 +17,8 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from mihomes.models.email_delivery import EmailDelivery
+from mihomes.services.email.outbox import drain as outbox_drain
+from mihomes.services.email.outbox import enqueue
 from mihomes.services.email.provider import (
     EmailProvider,
     EmailResult,
@@ -84,12 +86,51 @@ class EmailService:
                 logger.info("lifecycle email suppressed: template=%s", template)
                 return
 
+        # **Enqueue, never send** (D12/N2). Step 4 moved the provider call into
+        # `outbox.drain`: a send inside a web request makes a slow provider a slow page and a
+        # failed provider a failed checkout, and an in-process retry dies with the request.
+        #
+        # Rendering moves with it. The row carries the render *context*, so a template fix
+        # repairs mail that is already queued (§4.1) — which also means a broken template no
+        # longer silently drops a message here, it fails loudly at drain time where the row
+        # records why.
+        if self.session is None:
+            # Transactional mail with no session: the landing app's waitlist confirmation,
+            # which exists before any account does and has no queue to sit in. Sent inline,
+            # the one remaining direct provider call.
+            self._send_inline(to, template, data, **provider_kwargs)
+            return
+
+        try:
+            account_id = require_account()
+        except LookupError:
+            # No account bound and a session present — a CLI job or a test that forgot to
+            # bind. Inline rather than dropped: the message still matters, and an outbox row
+            # with no owner could never be drained (RLS would never select it).
+            self._send_inline(to, template, data, **provider_kwargs)
+            return
+
+        enqueue(
+            self.session,
+            to=to,
+            template=template,
+            context=data,
+            klass=klass,
+            account_id=account_id,
+            now=datetime.now(UTC),
+        )
+        logger.info("email queued: template=%s klass=%s", template, klass)
+
+    def _send_inline(self, to: str, template: str, data: dict, **provider_kwargs) -> None:
+        """Render and send immediately, with no outbox row.
+
+        The narrow path for mail that has no account to queue under. It keeps SPEC-001's
+        waitlist confirmation working unchanged and is deliberately not reachable from
+        anything that has a session and a bound account — N2 owns that case.
+        """
         try:
             subject, html, text = render_template(template, data)
         except Exception:
-            # A template fault is our bug, not the recipient's problem, and it is
-            # not recoverable by retrying. Log with the key and move on rather
-            # than taking down the request that triggered it.
             logger.exception("email template render failed: template=%s to=%s", template, to)
             return
 
@@ -99,17 +140,27 @@ class EmailService:
             logger.exception("email send failed: template=%s to=%s", template, to)
             return
 
-        # A19: exactly one row per **send**, written here — immediately after the provider
-        # accepted the message and nowhere else. Step 4 relocates the `provider.send()` call
-        # above into the outbox's `drain`, and this write moves with it, unchanged: four
-        # failed rungs of the backoff ladder produce no rows, and the fifth attempt that
-        # succeeds produces one. Recording at enqueue time instead would log a delivery for
-        # mail that never sent.
         self._record_delivery(to, template, result)
-
         logger.info(
             "email sent: template=%s to=%s provider=%s id=%s",
             template, to, result.provider, result.provider_message_id,
+        )
+
+    def drain(self, *, now: datetime | None = None, limit: int = 100):
+        """Send this account's queued mail. The other half of `_send` (D12).
+
+        A method on the service rather than a bare call to `outbox.drain` so the delivery
+        write stays here: A19's "exactly one row per send" now happens inside the drain, and
+        `_record_delivery` is what the outbox calls back into.
+        """
+        return outbox_drain(
+            self.session,
+            self.provider,
+            limit=limit,
+            now=now or datetime.now(UTC),
+            record_delivery=lambda row, result: self._record_delivery(
+                row.to_address, row.template, result
+            ),
         )
 
     def _record_delivery(self, to: str, template: str, result: EmailResult) -> None:

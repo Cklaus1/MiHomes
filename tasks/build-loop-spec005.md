@@ -291,9 +291,9 @@ anything reads its tables); **Step 7 before Step 8** (export exists before delet
 ### [x] G3 — Step 3: the delivery log — *dep: G2*
 - [x] G3.1 · §6 Step 3 · A19 · every send records **exactly one** attempt carrying the provider message id; `SAAS_PRD:168`'s third observability surface (D7) · verify: `tests/integration/test_delivery_log.py::test_one_row_per_send`
 
-### [ ] G4 — Step 4: the outbox — *dep: G3*
-- [ ] G4.1 · §6 Step 4 · A4,A5 · **a real table with a worker, not an in-process retry loop** (D12) — an in-process retry dies with the request and cannot survive a deploy; and a send failure never rolls back its caller's transaction · verify: `tests/unit/test_outbox.py::test_retry_preserves_message` + `::test_send_failure_does_not_rollback`
-- [ ] G4.2 · §6 Step 4 · A16 · the five-rung backoff ladder; the fifth failure sets `failed_at` and the row **stops being selected** · verify: `tests/unit/test_outbox.py::test_backoff_ladder`
+### [x] G4 — Step 4: the outbox — *dep: G3*
+- [x] G4.1 · §6 Step 4 · A4,A5 · **a real table with a worker, not an in-process retry loop** (D12) — an in-process retry dies with the request and cannot survive a deploy; and a send failure never rolls back its caller's transaction · verify: `tests/unit/test_outbox.py::test_retry_preserves_message` + `::test_send_failure_does_not_rollback`
+- [x] G4.2 · §6 Step 4 · A16 · the five-rung backoff ladder; the fifth failure sets `failed_at` and the row **stops being selected** · verify: `tests/unit/test_outbox.py::test_backoff_ladder`
 
 ### [ ] G5 — Step 5: the scheduler — *dep: G4 — MUST precede G10, G11, G13*
 - [ ] G5.1 · §6 Step 5 · A15 · **G-jobs** enumerates workloads **from the tree** and asserts each is registered and reachable — a seventh added later must fail the suite · verify: `tests/unit/test_jobs_enumeration.py::test_all_workloads_scheduled`
@@ -375,7 +375,7 @@ condition (delete), untested arm (add the test), inert difference (document with
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**In progress — G1–G3 done, G4 next.** Pre-flight complete (§0.6), baseline measured
+**In progress — G1–G4 done, G5 next.** Pre-flight complete (§0.6), baseline measured
 (2184 passed), harness written, and §1's DAG **rewritten from a derived join** after the
 hand-typed version proved wrong in three ways (§0.5). `py scripts/spec005_reconcile.py` exits 0:
 36/36 criteria gated, every gate pointing at the test §8 declares.
@@ -386,7 +386,12 @@ green early, discharged by G2's own migration (§2.2 D1). **G3 complete** — `E
 migration `0013`, the write placed adjacent to the successful `provider.send()` so it travels
 into `drain` at G4 unchanged; mutation-checked six ways; suite **2224 passed**.
 
-Resume at **G4.1** — the outbox.
+**G4 complete** — `EmailOutbox` + `0014`, `_send` enqueues, the ladder pinned attempt by
+attempt, mutation-checked eleven ways; suite **2246 passed**. **G2's mutations re-run and A1's
+vacuum closed** (§2.2 D5).
+
+Resume at **G5.1** — the scheduler. `outbox.drain_all` exists and is what `mihomes jobs
+drain-outbox` should call.
 
 Run `py scripts/spec005_reconcile.py --collect` after every group commit, not only at G-Final.
 
@@ -415,6 +420,39 @@ only for files that already exist — a missing file is an unbuilt group, not a 
 
 **The lesson, third time in this run:** a check that compares two of the three artifacts will pass
 while the third disagrees with both.
+
+**D3 — the outbox index leads with `account_id`, and `drain` is per account.** §4.1 declares
+`Index("ix_email_outbox_due", "next_attempt_at", "sent_at")` and §5.3's `drain(session, *, limit,
+now)` takes no account — together, a global "every due row, oldest first" sweep.
+
+**Measured through the app role with the GUC cleared: that query returns zero rows.** The RLS
+predicate is `account_id = NULL`, which is NULL rather than true, for every row. So the index would
+serve a query that can never return anything, and `test_composite_indexes_lead_with_account_id`
+rejects it besides. An `EXPECTED_NON_LEADING` exemption would have been buying an exception for a
+query that cannot run.
+
+`drain` binds an account; `drain_all` sweeps accounts — the pattern `cli/jobs.py` already uses for
+`reconcile` and `trial-sweep`.
+
+**D4 — the spec contradicts itself on render timing, and §4.1 wins.** §5.2 orders `_send` as
+*"suppression check → render → unsubscribe headers → enqueue"*; §4.1 says the `context` column
+holds *"the render CONTEXT, not the rendered html … Rendered at SEND time, not enqueue time, so a
+template fix repairs queued mail."* Both cannot hold. The model comment is load-bearing — it is the
+reason the column is JSON — so suppression is checked at enqueue and rendering happens in `drain`.
+
+**D5 — A1 went vacuous when G4 landed, and the mutation check is what found it.** `_send` stops
+touching the provider at Step 4, so `test_lifecycle_suppressed`'s `assert provider.calls == []`
+held whether or not the suppression check existed. Re-running `mutate_g2.py` after G4 flipped
+`_send stops checking suppression` from RED to GREEN — **on a criterion already ticked**.
+
+Diagnosed per conventions §2 as an *untested arm*, not a redundant condition: the enqueue-time
+check still decides whether a row is queued at all, and `drain` re-checks because an address can be
+suppressed while mail waits. Without an assertion on the queue, the two checks make each other
+untestable — remove either and the other covers for it while the outbox fills with mail that will
+never send. A1 now asserts both halves.
+
+**The rule this earns: re-run every earlier group's mutations after a group that moves a call
+site.** A tick is not permanent; it is a claim about code that later groups can invalidate.
 
 ## 3. Circuit breaker (conventions §3)
 

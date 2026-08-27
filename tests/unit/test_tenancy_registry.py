@@ -245,12 +245,15 @@ def test_registry_size_is_asserted_explicitly():
       it is here; `email_suppressions` (0012) is **not**, because suppression belongs to an
       address and must outlive every account that ever surfaced it.
 
+    - **47** `email_outbox` — the queue `BILLING` §2.4 names and never specifies (0014, D12).
+      Tenant because a queued message belongs to the account it is about.
+
     The webhook ledger is **not** here — it is global, by the carve-out `GLOBAL_TABLES` records.
 
     Each raise happened in the same commit as its migration. The count exists so that *forgetting*
     to register a table fails loudly, which only works if raising it is a conscious act.
     """
-    assert len(TENANT_TABLES) == 46, (
+    assert len(TENANT_TABLES) == 47, (
         f"expected 45 tenant-owned tables, registry has {len(TENANT_TABLES)} — "
         "if a table was legitimately added or removed, update this number and say why"
     )

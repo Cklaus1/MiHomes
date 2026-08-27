@@ -114,6 +114,7 @@ TENANT_TABLES = frozenset({
     # with that account, whereas the suppression list belongs to an address and must
     # outlive every account that ever surfaced it.
     "email_deliveries",
+    "email_outbox",
     "documents",
     "event_guests",
     "events",

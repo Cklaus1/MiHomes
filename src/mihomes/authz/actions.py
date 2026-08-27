@@ -278,6 +278,7 @@ def _entity_classes() -> dict[type, EntityClass]:
     from mihomes.models.document import Document
     from mihomes.models.document_access import DocumentAccess
     from mihomes.models.email_delivery import EmailDelivery
+    from mihomes.models.email_outbox import EmailOutbox
     from mihomes.models.email_suppression import EmailSuppression
     from mihomes.models.event import Event, EventGuest, Guest
     from mihomes.models.insurance import InsurancePolicy
@@ -441,6 +442,11 @@ def _entity_classes() -> dict[type, EntityClass]:
         # housekeeper the household's card has failed three times. Neither is estate data
         # anyone needs to do their job.
         EmailDelivery: account,
+
+        # SPEC-005 §4.1 — the outbox. Same class and same reason as the delivery log it
+        # feeds: a queued row carries `to_address` and a `template` naming which billing
+        # event is about to fire, so it is the delivery log one moment earlier.
+        EmailOutbox: account,
     }
 
 

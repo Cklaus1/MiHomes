@@ -142,7 +142,8 @@ def test_upgrade_then_downgrade_is_clean(scratch_db):
     # an account, so it must outlive the account that surfaced it.
     # `email_deliveries` (0013, A19) -> 52: tenant-scoped, so unlike 0012 it carries both an
     # RLS policy and a drift-guard trigger.
-    assert len(first["tables"]) == 52, first["tables"]
+    # `email_outbox` (0014, D12) -> 53.
+    assert len(first["tables"]) == 53, first["tables"]
     assert len(first["enums"]) == 22
     assert first["guard_fns"] == ["mihomes_assert_account_matches_parent"]
 

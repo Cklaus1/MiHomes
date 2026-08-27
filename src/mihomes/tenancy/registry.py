@@ -109,6 +109,11 @@ TENANT_TABLES = frozenset({
     # which is what `check_registry()` exists to force — an unregistered tenant table gets no RLS
     # policy and no A21 coverage, a readable cross-tenant surface reported as green.
     "document_access",
+    # SPEC-005 §4.1 — the delivery log. Tenant-scoped, unlike `email_suppressions` in
+    # GLOBAL_TABLES above: a delivery record is about one account's mail and is purged
+    # with that account, whereas the suppression list belongs to an address and must
+    # outlive every account that ever surfaced it.
+    "email_deliveries",
     "documents",
     "event_guests",
     "events",

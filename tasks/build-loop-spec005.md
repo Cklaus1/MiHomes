@@ -199,6 +199,18 @@ must be answered, not routed around:
 All three counts fired correctly during SPEC-004 and cost thirty seconds each. **Budget for them
 with reasons, do not argue with them.**
 
+**Measured at G3: there is a seventh, and C8 missed it.** `test_u7_enforcement.py::test_the_no_linkage_group_is_exactly_the_models_with_neither_shape`
+pins the set of models staff are denied outright, and a new `ACCOUNT_LEVEL` model with no
+property linkage lands in it. It fired on `EmailDelivery` and was right to: `template` names
+which billing event occurred, so `dunning_3` would tell a housekeeper the household's card has
+failed three times.
+
+It did **not** fire at G2, which is the part worth carrying forward — `EmailSuppression` is
+`GLOBAL`, outside that partition entirely. So the gate a new model trips depends on its entity
+class, and G2's clean run is not evidence the next model will have one. **Four tenant tables
+remain** (`email_outbox`, `campaign_enrolments`, `account_deletion_requests`, and Step 4's), and
+each should expect all four counts plus this.
+
 ### C9 — Step 9's unsubscribe is the second `PERMANENT_ALLOWLIST` entry
 
 RFC 8058 one-click unsubscribe is a **POST with no session** — the same shape as SPEC-004's Stripe
@@ -276,8 +288,8 @@ anything reads its tables); **Step 7 before Step 8** (export exists before delet
 - [x] G2.2 · §6 Step 2 · A3 · `_send`'s `klass` is **keyword-only and never defaulted** — a default is how lifecycle mail silently becomes unsuppressible · verify: `tests/unit/test_email_service.py::test_klass_required`
 - [x] G2.3 · §6 Step 2 · A22,A11 · `suppress` twice is a no-op; the unsubscribe token is HMAC-signed and a forged one is rejected · verify: `tests/unit/test_suppression.py::test_idempotent` + `::test_token_hmac`
 
-### [ ] G3 — Step 3: the delivery log — *dep: G2*
-- [ ] G3.1 · §6 Step 3 · A19 · every send records **exactly one** attempt carrying the provider message id; `SAAS_PRD:168`'s third observability surface (D7) · verify: `tests/integration/test_delivery_log.py::test_one_row_per_send`
+### [x] G3 — Step 3: the delivery log — *dep: G2*
+- [x] G3.1 · §6 Step 3 · A19 · every send records **exactly one** attempt carrying the provider message id; `SAAS_PRD:168`'s third observability surface (D7) · verify: `tests/integration/test_delivery_log.py::test_one_row_per_send`
 
 ### [ ] G4 — Step 4: the outbox — *dep: G3*
 - [ ] G4.1 · §6 Step 4 · A4,A5 · **a real table with a worker, not an in-process retry loop** (D12) — an in-process retry dies with the request and cannot survive a deploy; and a send failure never rolls back its caller's transaction · verify: `tests/unit/test_outbox.py::test_retry_preserves_message` + `::test_send_failure_does_not_rollback`
@@ -363,14 +375,18 @@ condition (delete), untested arm (add the test), inert difference (document with
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**In progress — G1 and G2 done, G3 next.** Pre-flight complete (§0.6), baseline measured
+**In progress — G1–G3 done, G4 next.** Pre-flight complete (§0.6), baseline measured
 (2184 passed), harness written, and §1's DAG **rewritten from a derived join** after the
 hand-typed version proved wrong in three ways (§0.5). `py scripts/spec005_reconcile.py` exits 0:
 36/36 criteria gated, every gate pointing at the test §8 declares.
 
 **G1 complete** (Protocol widening, mutation-checked five ways). **G2 complete** — suppression,
 the `klass` choke point, the HMAC token, mutation-checked ten ways; suite **2213 passed**. A21 is
-green early, discharged by G2's own migration (§2.2 D1). Resume at **G3.1** — the delivery log.
+green early, discharged by G2's own migration (§2.2 D1). **G3 complete** — `EmailDelivery`,
+migration `0013`, the write placed adjacent to the successful `provider.send()` so it travels
+into `drain` at G4 unchanged; mutation-checked six ways; suite **2224 passed**.
+
+Resume at **G4.1** — the outbox.
 
 Run `py scripts/spec005_reconcile.py --collect` after every group commit, not only at G-Final.
 

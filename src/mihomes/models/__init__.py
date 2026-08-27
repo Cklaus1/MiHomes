@@ -91,6 +91,9 @@ from mihomes.models.consumable import Consumable, ConsumablePriceEntry  # noqa: 
 from mihomes.models.contract import Contract  # noqa: E402, F401
 from mihomes.models.document import Document  # noqa: E402, F401
 from mihomes.models.document_access import DocumentAccess  # noqa: E402, F401
+from mihomes.models.email_delivery import (  # noqa: E402, F401
+    EmailDelivery,
+)
 from mihomes.models.email_suppression import (  # noqa: E402, F401
     EmailSuppression,
 )

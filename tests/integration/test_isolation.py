@@ -64,11 +64,16 @@ from mihomes.tenancy.registry import ASSOCIATION_TABLES, GLOBAL_TABLES, TENANT_T
 #                                        Materialized, not derived: `archive.py` DELETEs
 #                                        `ai_conversations` (F10), so a derived count would reset
 #                                        a customer's usage the moment they archived
+#   46  `email_deliveries`   (SPEC-005) — the per-message delivery record (0013, A19). Tenant,
+#                                        unlike `email_suppressions` (0012): a delivery is about
+#                                        one account's mail and is purged with it, whereas a
+#                                        suppression belongs to an ADDRESS and must outlive every
+#                                        account that ever surfaced it
 # The webhook ledger (`processed_webhook_events`, 0010) is **not** here — it is global by the
 # carve-out `GLOBAL_TABLES` records, because a Stripe event is recorded before we know whose it is.
 # Each raise is acknowledged here in the same commit as its migration, which is the whole point of
 # writing the number as a literal: it makes an *accidental* addition visible.
-EXPECTED_TENANT_TABLE_COUNT = 45
+EXPECTED_TENANT_TABLE_COUNT = 46
 
 
 # --------------------------------------------------------------------------------------

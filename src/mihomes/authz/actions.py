@@ -277,6 +277,7 @@ def _entity_classes() -> dict[type, EntityClass]:
     from mihomes.models.contract import Contract
     from mihomes.models.document import Document
     from mihomes.models.document_access import DocumentAccess
+    from mihomes.models.email_delivery import EmailDelivery
     from mihomes.models.email_suppression import EmailSuppression
     from mihomes.models.event import Event, EventGuest, Guest
     from mihomes.models.insurance import InsurancePolicy
@@ -432,6 +433,14 @@ def _entity_classes() -> dict[type, EntityClass]:
         # were.
         AIUsageEvent: account,
         AIUsageRollup: account,
+
+        # SPEC-005 §4.1 — the delivery log. `ACCOUNT_LEVEL`, the same class as the AI meter
+        # above and for a closely related reason: the row records that a message was sent to
+        # an address about this account's billing, trial or subscription. `to_address` is the
+        # owner's, and the `template` names which billing event occurred — "dunning_3" tells a
+        # housekeeper the household's card has failed three times. Neither is estate data
+        # anyone needs to do their job.
+        EmailDelivery: account,
     }
 
 

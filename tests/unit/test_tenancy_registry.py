@@ -241,12 +241,16 @@ def test_registry_size_is_asserted_explicitly():
       rather than derived because `archive.py` DELETEs `ai_conversations` (F10), so a derived
       count would reset a customer's usage when they archive.
 
+    - **46** `email_deliveries` — SPEC-005's per-message delivery record (0013, A19). Tenant, so
+      it is here; `email_suppressions` (0012) is **not**, because suppression belongs to an
+      address and must outlive every account that ever surfaced it.
+
     The webhook ledger is **not** here — it is global, by the carve-out `GLOBAL_TABLES` records.
 
     Each raise happened in the same commit as its migration. The count exists so that *forgetting*
     to register a table fails loudly, which only works if raising it is a conscious act.
     """
-    assert len(TENANT_TABLES) == 45, (
+    assert len(TENANT_TABLES) == 46, (
         f"expected 45 tenant-owned tables, registry has {len(TENANT_TABLES)} — "
         "if a table was legitimately added or removed, update this number and say why"
     )

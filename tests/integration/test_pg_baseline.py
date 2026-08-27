@@ -140,7 +140,9 @@ def test_upgrade_then_downgrade_is_clean(scratch_db):
     # SPEC-005 adds `email_suppressions` (0012, D13) -> 51: the second table in the tree
     # with no RLS policy (A21), global because suppression belongs to an ADDRESS rather than
     # an account, so it must outlive the account that surfaced it.
-    assert len(first["tables"]) == 51, first["tables"]
+    # `email_deliveries` (0013, A19) -> 52: tenant-scoped, so unlike 0012 it carries both an
+    # RLS policy and a drift-guard trigger.
+    assert len(first["tables"]) == 52, first["tables"]
     assert len(first["enums"]) == 22
     assert first["guard_fns"] == ["mihomes_assert_account_matches_parent"]
 

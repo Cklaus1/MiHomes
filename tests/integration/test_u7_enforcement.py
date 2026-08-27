@@ -468,6 +468,15 @@ class TestModelsWithNoPropertyLinkageAreDenied:
             # so an Estate plan buys more calls and never the right to read whose they were.
             "AIUsageEvent",
             "AIUsageRollup",
+            # SPEC-005 §4.1 — the delivery log (0013, A19). Denied outright, for the same
+            # reason as the meter above and one of its own: `template` names which billing
+            # event fired, so "dunning_3" tells a housekeeper the household's card has been
+            # declined three times, and `to_address` is the owner's. Neither is estate data
+            # anyone needs to do their job.
+            #
+            # `EmailSuppression` is **not** here — it is `GLOBAL`, outside this partition
+            # entirely, because suppression belongs to an address rather than an account.
+            "EmailDelivery",
         }, (
             "the set of models denied outright has changed. Each one is a model staff can no "
             "longer read at all (or can now read) — confirm which, and why, before updating this."

@@ -13,11 +13,18 @@ launch where every signup succeeds and no mail ever arrives.
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from mihomes.services.email.provider import EmailProvider, EmailSendError
+from mihomes.models.email_delivery import EmailDelivery
+from mihomes.services.email.provider import (
+    EmailProvider,
+    EmailResult,
+    EmailSendError,
+)
 from mihomes.services.email.render import render_template
 from mihomes.services.email.suppression import is_suppressed
+from mihomes.tenancy.context import require_account
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -92,10 +99,60 @@ class EmailService:
             logger.exception("email send failed: template=%s to=%s", template, to)
             return
 
+        # A19: exactly one row per **send**, written here — immediately after the provider
+        # accepted the message and nowhere else. Step 4 relocates the `provider.send()` call
+        # above into the outbox's `drain`, and this write moves with it, unchanged: four
+        # failed rungs of the backoff ladder produce no rows, and the fifth attempt that
+        # succeeds produces one. Recording at enqueue time instead would log a delivery for
+        # mail that never sent.
+        self._record_delivery(to, template, result)
+
         logger.info(
             "email sent: template=%s to=%s provider=%s id=%s",
             template, to, result.provider, result.provider_message_id,
         )
+
+    def _record_delivery(self, to: str, template: str, result: EmailResult) -> None:
+        """Write the `EmailDelivery` row. Never raises — logging a send must not fail it.
+
+        The same discipline as `_send`'s own error handling (§5.3, BILLING §2.4): the message
+        has already left. Losing the record of it is bad; turning a delivered email into a
+        500 for the request that triggered it is worse, and no retry can un-send the mail.
+
+        Flushed rather than committed, so the row joins the caller's transaction — a webhook
+        handler recording a receipt commits the delivery row with its own work, atomically.
+        """
+        if self.session is None:
+            # The landing app has no product session (SPEC-001 D1/D3). Debug rather than
+            # error, unlike the lifecycle-suppression branch: there the missing session means
+            # a message went out that should not have, here it means one went out untracked.
+            logger.debug("delivery not recorded: no session (template=%s)", template)
+            return
+
+        try:
+            account_id = require_account()
+        except LookupError:
+            # `current_account` has no default and raises when unset — the module's
+            # deliberate fail-closed shape. Caught explicitly rather than read with a falsy
+            # check, so the unscoped path is visible in the code (tenancy/context.py says
+            # exactly this). The landing app and CLI jobs both reach here legitimately.
+            logger.debug("delivery not recorded: no account bound (template=%s)", template)
+            return
+
+        try:
+            self.session.add(
+                EmailDelivery(
+                    account_id=account_id,
+                    to_address=to,
+                    template=template,
+                    sent_at=datetime.now(UTC),
+                    provider=result.provider,
+                    provider_message_id=result.provider_message_id,
+                )
+            )
+            self.session.flush()
+        except Exception:
+            logger.exception("failed to record delivery: template=%s", template)
 
     def send_waitlist_confirmation(
         self, to: str, *, confirm_url: str, position: int | None = None

@@ -271,10 +271,10 @@ anything reads its tables); **Step 7 before Step 8** (export exists before delet
 > proves nothing. G1 is enabling-only; **A18 lands at G9.1**. Its own test guards N1 (*"do not widen
 > the Protocol beyond `headers`"*), which no §8 row covers.
 
-### [ ] G2 — Step 2: suppression, the `klass` choke point, and the HMAC token — *dep: G1*
-- [ ] G2.1 · §6 Step 2 · A1,A2 · suppression checked at **`EmailService._send`** — one choke point, so no `send_*` can forget it (D13); **absolute for lifecycle mail, inapplicable to transactional** · verify: `tests/unit/test_suppression.py::test_lifecycle_suppressed` + `::test_transactional_ignores_suppression`
-- [ ] G2.2 · §6 Step 2 · A3 · `_send`'s `klass` is **keyword-only and never defaulted** — a default is how lifecycle mail silently becomes unsuppressible · verify: `tests/unit/test_email_service.py::test_klass_required`
-- [ ] G2.3 · §6 Step 2 · A22,A11 · `suppress` twice is a no-op; the unsubscribe token is HMAC-signed and a forged one is rejected · verify: `tests/unit/test_suppression.py::test_idempotent` + `::test_token_hmac`
+### [x] G2 — Step 2: suppression, the `klass` choke point, and the HMAC token — *dep: G1*
+- [x] G2.1 · §6 Step 2 · A1,A2 · suppression checked at **`EmailService._send`** — one choke point, so no `send_*` can forget it (D13); **absolute for lifecycle mail, inapplicable to transactional** · verify: `tests/unit/test_suppression.py::test_lifecycle_suppressed` + `::test_transactional_ignores_suppression`
+- [x] G2.2 · §6 Step 2 · A3 · `_send`'s `klass` is **keyword-only and never defaulted** — a default is how lifecycle mail silently becomes unsuppressible · verify: `tests/unit/test_email_service.py::test_klass_required`
+- [x] G2.3 · §6 Step 2 · A22,A11 · `suppress` twice is a no-op; the unsubscribe token is HMAC-signed and a forged one is rejected · verify: `tests/unit/test_suppression.py::test_idempotent` + `::test_token_hmac`
 
 ### [ ] G3 — Step 3: the delivery log — *dep: G2*
 - [ ] G3.1 · §6 Step 3 · A19 · every send records **exactly one** attempt carrying the provider message id; `SAAS_PRD:168`'s third observability surface (D7) · verify: `tests/integration/test_delivery_log.py::test_one_row_per_send`
@@ -290,7 +290,7 @@ anything reads its tables); **Step 7 before Step 8** (export exists before delet
 
 ### [ ] G6 — Step 6: the migration — *dep: G5 — MUST precede G7–G14*
 - [ ] G6.1 · §6 Step 6 · A30 · §4.4's five tables, four RLS policies, one carve-out; **its own engine running real Alembic up and down** — §9 states no existing test exercises Alembic, so `test_pg_baseline.py` cannot discharge this · verify: `tests/integration/test_migration_phase4.py::test_up_down`
-- [ ] G6.2 · §6 Step 6 · A21 · `email_suppressions` has **no** policy — a suppressed address must stay suppressed after the account that surfaced it is gone · verify: `tests/unit/test_email_tenancy.py::test_suppression_not_rls`
+- [x] G6.2 · §6 Step 6 · A21 · `email_suppressions` has **no** policy — a suppressed address must stay suppressed after the account that surfaced it is gone · verify: `tests/unit/test_email_tenancy.py::test_suppression_not_rls`
 - [ ] G6.3 · C8 · — · five `ENTITY_CLASSES` entries, registry entries, **three pinned counts** raised with reasons · verify: `tests/unit/test_matrix.py::test_every_model_is_classified`
 
 ### [ ] G7 — Step 7: data export — *dep: G6*
@@ -337,7 +337,7 @@ anything reads its tables); **Step 7 before Step 8** (export exists before delet
 - [ ] F.1 · full-suite `pytest -q` green (condition C)
 - [ ] F.2 · every §8 criterion green by its own named test (condition E) — **all 36, run by node id**
 - [ ] F.3a · walk §6 top-to-bottom: every step has a task (condition B, steps) — **17 steps**
-- [ ] F.3b · `py scripts/spec005_reconcile.py` exits 0 (condition B, criteria) — **derived, never range-checked (C7)**
+- [ ] F.3b · `py scripts/spec005_reconcile.py --collect` exits 0 (condition B, criteria) — **derived, never range-checked (C7)**; `--collect` also proves every declared node id resolves
 - [ ] F.4 · smoke green (condition D)
 - [ ] F.5 · write end-of-run report `tasks/build-loop-spec005-report.md` (§5)
 
@@ -363,14 +363,42 @@ condition (delete), untested arm (add the test), inert difference (document with
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**In progress — G1 done, G2 next.** Pre-flight complete (§0.6), baseline measured
+**In progress — G1 and G2 done, G3 next.** Pre-flight complete (§0.6), baseline measured
 (2184 passed), harness written, and §1's DAG **rewritten from a derived join** after the
 hand-typed version proved wrong in three ways (§0.5). `py scripts/spec005_reconcile.py` exits 0:
 36/36 criteria gated, every gate pointing at the test §8 declares.
 
-**G1 complete** (Protocol widening, mutation-checked five ways, suite 2187). Resume at **G2.1**
-— suppression at `EmailService._send`. Run the reconciler after every group commit, not only at
-G-Final.
+**G1 complete** (Protocol widening, mutation-checked five ways). **G2 complete** — suppression,
+the `klass` choke point, the HMAC token, mutation-checked ten ways; suite **2213 passed**. A21 is
+green early, discharged by G2's own migration (§2.2 D1). Resume at **G3.1** — the delivery log.
+
+Run `py scripts/spec005_reconcile.py --collect` after every group commit, not only at G-Final.
+
+## 2.2 DEVIATIONS from the spec, with the measurement that forced each
+
+**D1 — §4.4's single migration is split by owning step.** §4.4 describes one Phase 4 migration
+creating five tables. It cannot be built that way: `test_pg_baseline.py::test_baseline_matches_metadata`
+compares `Base.metadata` against the migrated schema and fails the moment a model exists without a
+migration. The suppression model lands at Step 2 and the outbox at Step 4, so one Step 6 migration
+would leave the suite red across four groups. Measured, not predicted — it fired on G2's first run.
+
+So each table ships with its own revision, which is also how SPEC-004 shipped `0010` and `0011`.
+`0012_email_suppressions` is G2's. **A21 is therefore green at G2 rather than G6**, and A30 covers
+every Phase 4 migration's round-trip rather than one — strictly stronger, since each is exercised
+independently.
+
+**D2 — F.3b gained `--collect`, because the reconciler passed while a node id did not resolve.**
+G2's A1/A2 were written into `test_email_service.py`, next to the choke point they test, while §8
+declares them in `test_suppression.py`. `scripts/spec005_reconcile.py` compared the DAG against the
+spec and reported OK; `pytest tests/unit/test_suppression.py::test_lifecycle_suppressed` answered
+*"not found"*. Condition E caught it, one group after the script that exists to catch it.
+
+The same half-a-comparison shape as §0.5, one layer in: the script checked two **documents**
+against each other and never asked whether the test it named existed. `--collect` closes it, and
+only for files that already exist — a missing file is an unbuilt group, not a defect.
+
+**The lesson, third time in this run:** a check that compares two of the three artifacts will pass
+while the third disagrees with both.
 
 ## 3. Circuit breaker (conventions §3)
 

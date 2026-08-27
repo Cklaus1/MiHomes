@@ -9,6 +9,7 @@ launch looks healthy while no mail ever arrives. A10 tests the route-level
 behaviour; these tests pin the service contract underneath it.
 """
 
+import inspect
 import logging
 
 import pytest
@@ -29,9 +30,10 @@ class RecordingProvider:
     def __init__(self):
         self.calls = []
 
-    def send(self, to, subject, html, *, text=None, reply_to=None):
+    def send(self, to, subject, html, *, text=None, reply_to=None, headers=None):
         self.calls.append(
-            {"to": to, "subject": subject, "html": html, "text": text}
+            {"to": to, "subject": subject, "html": html, "text": text,
+             "headers": headers}
         )
         return EmailResult(provider_message_id="rec-1", provider=self.provider_name)
 
@@ -107,7 +109,7 @@ def test_template_fault_does_not_raise_to_the_caller(caplog):
 
     class BadTemplateService(EmailService):
         def send_broken(self, to):
-            self._send(to, "definitely_not_a_template", {})
+            self._send(to, "definitely_not_a_template", {}, klass="transactional")
 
     with caplog.at_level(logging.ERROR):
         BadTemplateService(RecordingProvider()).send_broken("alex@example.com")
@@ -122,3 +124,70 @@ def test_position_is_optional():
         "alex@example.com", confirm_url=CONFIRM_URL
     )
     assert len(provider.calls) == 1
+
+
+# --- SPEC-005 Step 2 (D13/A3): `klass` is required at the choke point --------------------
+
+
+def test_klass_required():
+    """A3 — `_send` cannot be called without an explicit `klass`.
+
+    Asserted as a `TypeError` from the signature itself, not a runtime check inside the body.
+    A default would silently pick a suppression policy for every future call site, and there is
+    no safe default to pick: a suppressed receipt is a billing dispute, an unsuppressed drip is
+    a CAN-SPAM violation. Keyword-only as well as required, so it can never be passed
+    positionally into `data`'s slot by a caller who miscounted arguments.
+    """
+    service = EmailService(RecordingProvider())
+
+    with pytest.raises(TypeError, match="klass"):
+        service._send("a@b.com", "welcome", {})  # type: ignore[call-arg]
+
+    params = inspect.signature(EmailService._send).parameters
+    assert params["klass"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert params["klass"].default is inspect.Parameter.empty
+
+
+def test_an_unknown_klass_is_refused_rather_than_treated_as_transactional():
+    """A third class must not fail open into the unsuppressed branch.
+
+    `if klass == "lifecycle"` alone would treat any typo — `"life_cycle"`, `"marketing"` — as
+    transactional and send it, which is the wrong direction to be wrong in. The membership check
+    against MESSAGE_CLASSES is what makes a typo loud.
+    """
+    service = EmailService(RecordingProvider())
+
+    with pytest.raises(ValueError, match="unknown message class"):
+        service._send("a@b.com", "welcome", {}, klass="marketing")
+
+
+def test_every_send_method_declares_a_class():
+    """Every public `send_*` reaches `_send` with a `klass`, enumerated from the class.
+
+    Derived rather than listed: a ninth `send_*` added without a class fails here instead of
+    at whatever call site first exercises it in production. The check is that the method runs
+    to completion against a recording provider — `_send` raises `TypeError` when `klass` is
+    missing, so a method that forgot it cannot pass.
+    """
+    service = EmailService(RecordingProvider(), session=None)
+    senders = [
+        name for name in dir(EmailService)
+        if name.startswith("send_") and callable(getattr(EmailService, name))
+    ]
+    assert len(senders) >= 8, senders
+
+    for name in senders:
+        method = getattr(service, name)
+        kwargs = {
+            p.name: _dummy_for(p.name)
+            for p in inspect.signature(method).parameters.values()
+            if p.name != "to" and p.default is inspect.Parameter.empty
+        }
+        method("someone@example.com", **kwargs)
+
+
+def _dummy_for(name: str):
+    """A plausible value for a required kwarg, by name."""
+    if name in {"position", "days_left", "step", "home_count", "max_homes"}:
+        return 1
+    return f"{name}-value"

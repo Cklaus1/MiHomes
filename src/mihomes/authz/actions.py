@@ -277,6 +277,7 @@ def _entity_classes() -> dict[type, EntityClass]:
     from mihomes.models.contract import Contract
     from mihomes.models.document import Document
     from mihomes.models.document_access import DocumentAccess
+    from mihomes.models.email_suppression import EmailSuppression
     from mihomes.models.event import Event, EventGuest, Guest
     from mihomes.models.insurance import InsurancePolicy
     from mihomes.models.invite import Invite
@@ -404,6 +405,21 @@ def _entity_classes() -> dict[type, EntityClass]:
         # is never used to decide who may read the row. Nobody reads this table as content — it
         # exists so an event is processed once.
         ProcessedWebhookEvent: EntityClass.GLOBAL,
+
+        # SPEC-005 §4.1 — the suppression list. `GLOBAL`, and for a reason unlike either
+        # existing carve-out: `sessions` and `processed_webhook_events` are global because
+        # they are read *before* account context exists. This one is global because
+        # **suppression is a property of an address, not of an account**. Someone who
+        # unsubscribes or files a complaint must stay suppressed when they later appear
+        # under a second account — as an invited staff member, a second signup, a vendor
+        # contact. Per-tenant scoping would re-mail a complainer the first time they were
+        # invited elsewhere, which is how a sending domain gets blocklisted.
+        #
+        # The row carries no `account_id` at all, so there is nothing here to filter on:
+        # unlike the webhook ledger, this needs no "the nullable column is not tenancy"
+        # caveat. An address and a reason, and nothing else about the person.
+        EmailSuppression: EntityClass.GLOBAL,
+
 
         # SPEC-004 §4.2 — the AI usage meter. `ACCOUNT_LEVEL` ("✗ for staff"), and the fit is
         # exact rather than convenient: these rows are **billing data**. `calls_used` against a

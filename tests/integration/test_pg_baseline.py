@@ -137,7 +137,10 @@ def test_upgrade_then_downgrade_is_clean(scratch_db):
     # The count is pinned deliberately: it is what makes an *accidental* table addition visible,
     # so raising it is a decision recorded in the same commit as the migration, never a silent
     # adjustment to make a run go green.
-    assert len(first["tables"]) == 50, first["tables"]
+    # SPEC-005 adds `email_suppressions` (0012, D13) -> 51: the second table in the tree
+    # with no RLS policy (A21), global because suppression belongs to an ADDRESS rather than
+    # an account, so it must outlive the account that surfaced it.
+    assert len(first["tables"]) == 51, first["tables"]
     assert len(first["enums"]) == 22
     assert first["guard_fns"] == ["mihomes_assert_account_matches_parent"]
 

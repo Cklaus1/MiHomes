@@ -52,8 +52,25 @@ __all__ = [
 #             downgraded twice with no error anywhere. Its nullable `account_id` is a
 #             record of what the event resolved to, not a tenancy column — it is never
 #             consulted to decide who may read the row.
+#   email_suppressions
+#             SPEC-005 D13, and the reason is unlike either above: those two are global
+#             because they are read BEFORE account context exists. This one is global
+#             because suppression is a property of an ADDRESS, not of an account. Someone
+#             who unsubscribes or files a spam complaint must stay suppressed when they
+#             later appear under a second account — invited as staff, signing up again, a
+#             vendor contact. Per-tenant scoping would re-mail a complainer the first time
+#             they were invited elsewhere, which is how a sending domain gets blocklisted.
+#             It carries no account_id at all, so unlike the webhook ledger there is no
+#             "the nullable column is not tenancy" caveat to make.
 GLOBAL_TABLES = frozenset(
-    {"users", "sessions", "waitlist", "accounts", "processed_webhook_events"}
+    {
+        "users",
+        "sessions",
+        "waitlist",
+        "accounts",
+        "processed_webhook_events",
+        "email_suppressions",
+    }
 )
 
 # Not a real table: `tests/unit/test_slug.py` defines a throwaway `DummyModel` on the

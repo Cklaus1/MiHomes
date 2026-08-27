@@ -13,19 +13,70 @@ launch where every signup succeeds and no mail ever arrives.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from mihomes.services.email.provider import EmailProvider, EmailSendError
 from mihomes.services.email.render import render_template
+from mihomes.services.email.suppression import is_suppressed
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+
+#: The two message classes. `lifecycle` is suppressible, `transactional` is not (D13/N3).
+#:
+#: Declared as data rather than checked inline so `_send`'s validation and the tests that
+#: enumerate the classes read from one place: a third class added here without a suppression
+#: decision fails `test_klass_required`'s membership check rather than silently defaulting to
+#: whichever branch the `if` happened to take.
+MESSAGE_CLASSES = ("lifecycle", "transactional")
 
 logger = logging.getLogger(__name__)
 
 
 class EmailService:
-    def __init__(self, provider: EmailProvider) -> None:
+    def __init__(
+        self, provider: EmailProvider, session: "Session | None" = None
+    ) -> None:
         self.provider = provider
+        # Optional so the landing app — a separate one-table tree with no product session
+        # (SPEC-001 D1/D3) — keeps constructing this service unchanged. `_send` treats a
+        # missing session as "cannot check", which is why the *absence* is loud: see below.
+        self.session = session
 
-    def _send(self, to: str, template: str, data: dict) -> None:
-        """Render and dispatch. Catches EmailSendError, logs, never raises to the caller."""
+    def _send(
+        self, to: str, template: str, data: dict, *, klass: str, **provider_kwargs
+    ) -> None:
+        """Render and dispatch. Catches EmailSendError, logs, never raises to the caller.
+
+        **`klass` is required and keyword-only, never defaulted** (D13, A3). A default would
+        silently pick a suppression policy for every future call site, and picking wrong is bad
+        in both directions: a suppressed receipt is a billing dispute, an unsuppressed drip is a
+        CAN-SPAM violation. There is no safe default, so there is no default.
+
+        **This is the single choke point** the suppression check lives at. Putting it in each
+        `send_*` method would work until the next one forgot — and the failure would be silent
+        mail going to someone who asked to stop, which nothing raises about.
+        """
+        if klass not in MESSAGE_CLASSES:
+            raise ValueError(
+                f"unknown message class {klass!r}; expected one of {MESSAGE_CLASSES}"
+            )
+
+        if klass == "lifecycle":
+            if self.session is None:
+                # Refuse rather than send. A lifecycle send with no way to check the list is
+                # exactly the case that mails a complainer, and failing open here would make
+                # every future caller that forgot the session into a silent CAN-SPAM problem.
+                # Transactional mail is unaffected: it is not suppressible, so it needs no list.
+                logger.error(
+                    "lifecycle email not sent: no session to check suppression "
+                    "(template=%s)", template,
+                )
+                return
+            if is_suppressed(self.session, to):
+                logger.info("lifecycle email suppressed: template=%s", template)
+                return
+
         try:
             subject, html, text = render_template(template, data)
         except Exception:
@@ -36,7 +87,7 @@ class EmailService:
             return
 
         try:
-            result = self.provider.send(to, subject, html, text=text)
+            result = self.provider.send(to, subject, html, text=text, **provider_kwargs)
         except EmailSendError:
             logger.exception("email send failed: template=%s to=%s", template, to)
             return
@@ -58,6 +109,10 @@ class EmailService:
             to,
             "waitlist_confirmation",
             {"confirm_url": confirm_url, "position": position},
+            # D13: The double opt-in confirmation IS the consent step (D7). Suppressing it would mean an
+            # address that unsubscribed could never subscribe again — and there is nothing to
+            # suppress yet, because they have not consented to anything.
+            klass="transactional",
         )
 
     # ── SPEC-003 §6 Step 12 — the three Phase 2 mail types ────────────────────
@@ -69,6 +124,8 @@ class EmailService:
             to,
             "welcome",
             {"account_name": account_name, "dashboard_url": dashboard_url, "name": name},
+            # D13: Sent once, on account creation. A record of an account existing in their name.
+            klass="transactional",
         )
 
     def send_staff_invite(
@@ -91,6 +148,9 @@ class EmailService:
                 "role": role,
                 "inviter_name": inviter_name,
             },
+            # D13: Carries the only copy of the plaintext token — suppressing it strands the invitation
+            # with no way to recover it (D5).
+            klass="transactional",
         )
 
     def send_invite_accepted(
@@ -114,6 +174,9 @@ class EmailService:
                 "role": role,
                 "invited_email": invited_email,
             },
+            # D13: A security notice to the inviter, carrying §6.3's mismatch warning. Withholding it on
+            # an unsubscribe would silence exactly the signal that catches a stolen invite.
+            klass="transactional",
         )
 
     # ── SPEC-004 §6 Step 15 — the four billing mails ──────────────────────────
@@ -145,6 +208,8 @@ class EmailService:
                 "billing_url": billing_url,
                 "period_end": period_end,
             },
+            # D13: A receipt for money taken. N3 names this one directly: not marketing, and owed.
+            klass="transactional",
         )
 
     def send_payment_failed(self, to: str, *, plan: str, billing_url: str,
@@ -160,6 +225,9 @@ class EmailService:
             to,
             "payment_failed",
             {"plan": plan, "billing_url": billing_url, "grace_days": grace_days},
+            # D13: The card was declined. A customer who unsubscribed from marketing still needs to know
+            # their payment failed, or they lose access without ever being told why.
+            klass="transactional",
         )
 
     def send_trial_ending(self, to: str, *, days_left: int, ends_on: str, billing_url: str,
@@ -185,6 +253,9 @@ class EmailService:
                     home_count is not None and max_homes is not None and home_count > max_homes
                 ),
             },
+            # D13: Access is about to change and a choice must be made before it does (§4.3). Consequence
+            # of a contract, not a campaign.
+            klass="transactional",
         )
 
     def send_subscription_cancelled(self, to: str, *, plan: str, billing_url: str,
@@ -200,4 +271,6 @@ class EmailService:
             to,
             "subscription_cancelled",
             {"plan": plan, "billing_url": billing_url, "active_until": active_until},
+            # D13: Confirms a subscription ended and until when. The record of a billing state change.
+            klass="transactional",
         )

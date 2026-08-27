@@ -18,6 +18,13 @@ Three sources are joined:
 * **§9** — the test manifest: ``{basename: tests/unit | tests/integration}``. Authoritative for
   where a test file lives. §8 gives bare basenames; §9 is the only place the directory is stated.
 * **§6** — the sequenced steps, for the step→group mapping the DAG declares.
+
+`--collect` adds the fourth check, and it is the one the first version lacked: that each declared
+node id **resolves to a real test**. Without it the script compared two documents to each other
+and passed while `pytest <node id>` said "not found" — G2 shipped A1/A2 into the right module for
+the mechanism and the wrong module for §8, and only condition E caught it. Same half-a-comparison
+shape as §0.5, one layer further in. It shells out to pytest, so it is opt-in rather than the
+default: the document-level checks stay instant.
 """
 
 from __future__ import annotations
@@ -70,6 +77,51 @@ def dag_rows(harness: str) -> list[tuple[str, str, list[str], str]]:
     return rows
 
 
+def declared_node_ids(criteria: dict, manifest: dict) -> list[str]:
+    """Every §8 test, as a runnable pytest node id."""
+    ids = []
+    for _label, (_text, declared) in criteria.items():
+        basename = declared.split("::")[0]
+        directory = manifest.get(basename)
+        if directory and "::" in declared:
+            ids.append(f"{directory}/{declared}")
+    return sorted(set(ids))
+
+
+def unresolved_node_ids(node_ids: list[str]) -> tuple[list[str], list[str]]:
+    """Split into (unbuilt, drifted).
+
+    **Only node ids whose file already exists are checked.** A missing file means that group
+    has not been built yet, which is the normal mid-run state and not a defect. A file that
+    exists but does not contain the declared test is the defect — that is precisely G2's bug,
+    where A1/A2 were written into `test_email_service.py` while §8 declares them in
+    `test_suppression.py`, and `pytest <node id>` answered "not found".
+
+    Collected with `--collect-only` per existing file rather than parsed out of the source:
+    a test can be produced by a fixture, a parametrize, or a class, and a `grep` for `def
+    test_x` would miss all three and report a false failure.
+    """
+    import subprocess
+
+    unbuilt = [n for n in node_ids if not (ROOT / n.split("::")[0]).exists()]
+    present = [n for n in node_ids if n not in unbuilt]
+    if not present:
+        return unbuilt, []
+
+    files = sorted({n.split("::")[0] for n in present})
+    proc = subprocess.run(
+        [sys.executable, "-m", "pytest", "--collect-only", "-q", "--color=no", *files],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=ROOT,
+    )
+    collected = {
+        line.strip().replace("\\", "/")
+        for line in (proc.stdout + proc.stderr).splitlines()
+        if "::" in line
+    }
+    drifted = [n for n in present if n not in collected]
+    return unbuilt, drifted
+
+
 def main() -> int:
     spec = SPEC.read_text(encoding="utf-8")
     harness = HARNESS.read_text(encoding="utf-8")
@@ -114,6 +166,19 @@ def main() -> int:
             want = f"{directory}/{declared}"
             if not verify.startswith(f"{directory}/{basename}"):
                 failures.append(f"{gid} ({label}): verify={verify!r} but §8+§9 say {want!r}")
+
+    if "--collect" in sys.argv:
+        node_ids = declared_node_ids(criteria, manifest)
+        unbuilt, drifted = unresolved_node_ids(node_ids)
+        if drifted:
+            failures.append(
+                f"{len(drifted)} declared node ids do not resolve in a file that exists "
+                f"(condition E would fail on each): {drifted}"
+            )
+        print(
+            f"collect: {len(node_ids) - len(unbuilt) - len(drifted)}/{len(node_ids)} resolve, "
+            f"{len(unbuilt)} not built yet"
+        )
 
     print(f"§8 criteria: {len(criteria)}   DAG tasks: {len(rows)}   gated: {len(claimed)}")
     if doubled:

@@ -14,6 +14,7 @@ and Phase 3 supplies billing state; nothing here consults it.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timezone
 
@@ -49,6 +50,9 @@ STEP_DASHBOARD = 6
 #: Steps a user cannot skip. Everything else is optional by design, so "not completed" is not the
 #: same as "not finished" — see `current_step`.
 MANDATORY_STEPS = (STEP_CREATE_ACCOUNT, STEP_ADD_HOME)
+
+
+logger = logging.getLogger(__name__)
 
 
 def suggested_account_name(user) -> str:
@@ -204,4 +208,19 @@ def create_account_step(
     session.flush()
 
     complete_step(session, account.id, STEP_CREATE_ACCOUNT)
+
+    # SPEC-005 Step 11 — *"enrolment on account creation"*. **No §8 criterion covers this**:
+    # A25 is "each step sends once and never twice", which a drip system with zero enrolments
+    # satisfies perfectly. Wired here rather than recorded as a gap, because the seam is one
+    # line and the alternative is a mechanism nothing ever starts (harness §2.2 D17).
+    #
+    # Failures are swallowed: a marketing sequence must never be able to fail account creation,
+    # which is the one irreversible step in onboarding.
+    try:
+        from mihomes.services.email.campaigns import enrol
+
+        enrol(session, account.id, "onboarding")
+    except Exception:
+        logger.exception("could not enrol account %s in the onboarding drip", account.id)
+
     return account

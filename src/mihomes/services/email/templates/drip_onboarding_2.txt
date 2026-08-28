@@ -1,0 +1,11 @@
+Hi,
+
+The homes are the easy part. What makes an estate hard to run is everything
+attached to them — the contracts that renew, the vendor nobody can remember the
+name of, the warranty that expires in eleven months.
+
+If you add one contract with its renewal date, MiHomes will tell you about it
+before it lapses. That is the whole trick, and it works for exactly as many
+things as you put in.
+
+Step 2 of {{ total_steps|default(3) }}.

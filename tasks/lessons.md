@@ -687,3 +687,17 @@ Review this at the start of each session.
   demanding the change be acknowledged rather than absorbed. Every one was correct and every one
   cost thirty seconds. **Rule:** when adding a model or table, expect the pinned counts to fail and
   budget for updating them *with the reason*, not for arguing with them.
+
+- **Never run two pytest invocations against the same databases at once.** The full suite was
+  running in the background while I ran `tests/integration` in the foreground to chase an
+  unrelated question. The second run's session-scoped fixtures **dropped and recreated**
+  `mihomes_test_cli` and rebuilt schema underneath the first, producing 11 failures and 11 errors
+  — `relation "accounts" does not exist`, `database "mihomes_test_cli" does not exist`, a landing
+  `/healthz` returning 503 — spread across `test_rls`, `test_webhooks`, `test_jobs` and
+  `test_landing_app`. Every one of them passed in isolation.
+
+  The cost is not the wasted run; it is that the failures look exactly like a real regression in
+  the tenancy layer, which is where a phase like this would most expect one. **Rule:** when a
+  suite is running in the background, do not touch the database from the foreground — read code,
+  write tests, prepare commits, and wait. If a question genuinely needs a query, wait for the run
+  to finish first.

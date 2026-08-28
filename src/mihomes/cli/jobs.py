@@ -164,14 +164,43 @@ def drips(
         False, "--dry-run", help="Report what would be sent without sending it."
     ),
 ) -> None:
-    """Send due drip-campaign steps.
+    """Send due drip-campaign steps (SPEC-005 Step 11).
 
-    **Step 11 fills this in**, and its content is O1 — a founder decision, not a build task.
-    Registered now for the same reason as `dunning`.
+    Sweeps per account for the same reason every other workload does: an account-less read of a
+    tenant table returns zero rows under RLS, so a global pass would report success having sent
+    nothing.
+
+    Mail is **enqueued**, not sent — `drain-outbox` delivers it. So this job is idempotent by
+    the same mechanism as everything else: a step advances the enrolment in the same transaction
+    as the enqueue, and a second run finds nothing due.
     """
-    rprint("Drips: 0 enrolment(s) advanced. (Step 11 wires the campaigns.)")
-    if dry_run:
-        rprint("[dim]--dry-run had no effect: nothing is sent yet.[/dim]")
+    from datetime import UTC, datetime
+
+    from mihomes.services.email import get_email_provider
+    from mihomes.services.email.campaigns import send_due_steps
+    from mihomes.services.email.service import EmailService
+
+    now = datetime.now(UTC)
+    advanced = failed = 0
+
+    for account_id, _ in _all_accounts():
+        try:
+            with _account_session(account_id) as (session, _account):
+                if dry_run:
+                    from mihomes.services.email.campaigns import due_sends
+
+                    advanced += len(due_sends(session, now=now))
+                    continue
+                advanced += send_due_steps(
+                    session, EmailService(get_email_provider(), session=session), now=now
+                )
+                session.commit()
+        except Exception:
+            failed += 1
+            logger.exception("drips: failed for account %s", account_id)
+
+    verb = "would advance" if dry_run else "advanced"
+    rprint(f"Drips: {verb} {advanced} enrolment(s); {failed} failed.")
 
 
 @app.command("weekly-digest")
@@ -323,6 +352,23 @@ def _expire_trial(session, account) -> None:
     account.trial_ends_at = None
     session.commit()
     logger.info("trial expired for account %s", account.id)
+
+
+def _all_accounts() -> list[tuple[object, str | None]]:
+    """Every account. The drip sweep visits all of them, not only paying ones.
+
+    `_accounts_with_customers` and `_accounts_with_trials` are billing-shaped filters; an
+    onboarding drip is for people who have just signed up and therefore have neither.
+    """
+    from sqlalchemy import select
+
+    from mihomes.db import get_session
+    from mihomes.models.account import Account
+
+    with get_session() as session:
+        return list(
+            session.execute(select(Account.id, Account.stripe_customer_id)).all()
+        )
 
 
 def _accounts_with_customers() -> list[tuple[object, str]]:

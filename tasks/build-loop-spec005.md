@@ -322,8 +322,8 @@ anything reads its tables); **Step 7 before Step 8** (export exists before delet
 ### [x] G10 — Step 10: the dunning ladder — *dep: G5, G6*
 - [x] G10.1 · §6 Step 10 · A23,A24 · one `invoice.payment_failed` produces **one** immediate email and the rest on the `BILLING` §5 schedule; recovery mid-ladder stops the sequence · verify: `tests/integration/test_dunning.py::test_ladder_schedule` + `::test_recovery_stops_ladder`
 
-### [ ] G11 — Step 11: the drip machinery — *dep: G5, G9*
-- [ ] G11.1 · §6 Step 11 · A25 · enrolment, `due_sends`, sequence shortening — **mechanism only**, content is O1 and lands in config; each step sends once and never twice · verify: `tests/unit/test_campaigns.py::test_no_duplicate_steps`
+### [x] G11 — Step 11: the drip machinery — *dep: G5, G9*
+- [x] G11.1 · §6 Step 11 · A25 · enrolment, `due_sends`, sequence shortening — **mechanism only**, content is O1 and lands in config; each step sends once and never twice · verify: `tests/unit/test_campaigns.py::test_no_duplicate_steps`
 
 ### [ ] G12 — Step 12: two Estate gates — *dep: G6*
 - [ ] G12.1 · §6 Step 12 · A12 · `predictive_maintenance` and `audit_export` as `can()` call sites; Free and Pro denied, Estate allowed, on **both** (D10/D16) · verify: `tests/unit/test_estate_gates.py::test_gate_matrix`
@@ -375,20 +375,20 @@ condition (delete), untested arm (add the test), inert difference (document with
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**In progress — G1–G10 done, G11 next.** Pre-flight complete (§0.6), baseline measured
+**In progress — G1–G11 done, G12 next.** Pre-flight complete (§0.6), baseline measured
 (2184 passed), harness written, and §1's DAG **rewritten from a derived join** after the
 hand-typed version proved wrong in three ways (§0.5). `py scripts/spec005_reconcile.py` exits 0:
 36/36 criteria gated, every gate pointing at the test §8 declares.
 
 **G1 complete** (Protocol widening, mutation-checked five ways). **G2 complete** — suppression,
 the `klass` choke point, the HMAC token, mutation-checked ten ways; suite **2213 passed**. A21 is
-green early, discharged by G2's own migration (§2.2 D1). **G3 complete** — `EmailDelivery`,
+green early, discharged by G2's own migration (§2.2 BD1). **G3 complete** — `EmailDelivery`,
 migration `0013`, the write placed adjacent to the successful `provider.send()` so it travels
 into `drain` at G4 unchanged; mutation-checked six ways; suite **2224 passed**.
 
 **G4 complete** — `EmailOutbox` + `0014`, `_send` enqueues, the ladder pinned attempt by
 attempt, mutation-checked eleven ways; suite **2246 passed**. **G2's mutations re-run and A1's
-vacuum closed** (§2.2 D5).
+vacuum closed** (§2.2 BD5).
 
 **G5 complete** — four new workloads, `SCHEDULE` as the one source of truth, `mihomes cron
 setup` derived from it, mutation-checked eight ways; suite **2265 passed**. G5.3 is `[!]`:
@@ -400,7 +400,7 @@ prove.
 **2277 passed**. All five §4.4 tables now exist.
 
 **G7 complete** — `privacy/export.py`, the owner-only route, mutation-checked six ways; suite
-**2292 passed**. A6 caught a **real cross-tenant leak in my own first implementation** (§2.2 D11).
+**2292 passed**. A6 caught a **real cross-tenant leak in my own first implementation** (§2.2 BD11).
 
 **G8 complete** — the state machine, the three-disposition purge, the deletion routes, and a
 **derived** populated-account fixture (one row in all 49 tenant tables, from `Base.metadata`);
@@ -414,14 +414,23 @@ Host/Origin exemption; mutation-checked nine ways; suite **2327 passed**.
 **G10 complete** — the four-rung ladder on the outbox, three new templates, and the webhook
 seam SPEC-004 left open; mutation-checked eleven ways; suite **2349 passed**.
 
-Resume at **G11.1** — the drip machinery (`campaigns.py`, `due_sends`, the `drips` job).
-Mechanism only: the content is O1 and lands in config.
+**G11 complete** — `campaigns.py`, enrolment on account creation, the `drips` job, three
+placeholder templates; mutation-checked ten ways.
+
+Resume at **G12.1** — the two Estate gates (`predictive_maintenance.run`, `audit.export`).
+Note F6: `run_predictive_maintenance` has **zero callers**, so its gate has no live surface —
+placed exactly as SPEC-004 D14 placed the dead vendor_rating gates.
 
 Run `py scripts/spec005_reconcile.py --collect` after every group commit, not only at G-Final.
 
 ## 2.2 DEVIATIONS from the spec, with the measurement that forced each
 
-**D1 — §4.4's single migration is split by owning step.** §4.4 describes one Phase 4 migration
+> **Labelled `BDn` — build deviation — not `Dn`.** The spec has its own `D1`–`D18` (design
+> decisions) and these were originally numbered in the same namespace, so "D13" meant the
+> suppression decision in one paragraph and "three of my own tests were vacuous" in the next.
+> Two collided outright. Same hazard §0.2 records for the five unrelated `O1`s in this set.
+
+**BD1 — §4.4's single migration is split by owning step.** §4.4 describes one Phase 4 migration
 creating five tables. It cannot be built that way: `test_pg_baseline.py::test_baseline_matches_metadata`
 compares `Base.metadata` against the migrated schema and fails the moment a model exists without a
 migration. The suppression model lands at Step 2 and the outbox at Step 4, so one Step 6 migration
@@ -432,7 +441,7 @@ So each table ships with its own revision, which is also how SPEC-004 shipped `0
 every Phase 4 migration's round-trip rather than one — strictly stronger, since each is exercised
 independently.
 
-**D2 — F.3b gained `--collect`, because the reconciler passed while a node id did not resolve.**
+**BD2 — F.3b gained `--collect`, because the reconciler passed while a node id did not resolve.**
 G2's A1/A2 were written into `test_email_service.py`, next to the choke point they test, while §8
 declares them in `test_suppression.py`. `scripts/spec005_reconcile.py` compared the DAG against the
 spec and reported OK; `pytest tests/unit/test_suppression.py::test_lifecycle_suppressed` answered
@@ -445,7 +454,7 @@ only for files that already exist — a missing file is an unbuilt group, not a 
 **The lesson, third time in this run:** a check that compares two of the three artifacts will pass
 while the third disagrees with both.
 
-**D3 — the outbox index leads with `account_id`, and `drain` is per account.** §4.1 declares
+**BD3 — the outbox index leads with `account_id`, and `drain` is per account.** §4.1 declares
 `Index("ix_email_outbox_due", "next_attempt_at", "sent_at")` and §5.3's `drain(session, *, limit,
 now)` takes no account — together, a global "every due row, oldest first" sweep.
 
@@ -458,13 +467,13 @@ query that cannot run.
 `drain` binds an account; `drain_all` sweeps accounts — the pattern `cli/jobs.py` already uses for
 `reconcile` and `trial-sweep`.
 
-**D4 — the spec contradicts itself on render timing, and §4.1 wins.** §5.2 orders `_send` as
+**BD4 — the spec contradicts itself on render timing, and §4.1 wins.** §5.2 orders `_send` as
 *"suppression check → render → unsubscribe headers → enqueue"*; §4.1 says the `context` column
 holds *"the render CONTEXT, not the rendered html … Rendered at SEND time, not enqueue time, so a
 template fix repairs queued mail."* Both cannot hold. The model comment is load-bearing — it is the
 reason the column is JSON — so suppression is checked at enqueue and rendering happens in `drain`.
 
-**D5 — A1 went vacuous when G4 landed, and the mutation check is what found it.** `_send` stops
+**BD5 — A1 went vacuous when G4 landed, and the mutation check is what found it.** `_send` stops
 touching the provider at Step 4, so `test_lifecycle_suppressed`'s `assert provider.calls == []`
 held whether or not the suppression check existed. Re-running `mutate_g2.py` after G4 flipped
 `_send stops checking suppression` from RED to GREEN — **on a criterion already ticked**.
@@ -478,7 +487,7 @@ never send. A1 now asserts both halves.
 **The rule this earns: re-run every earlier group's mutations after a group that moves a call
 site.** A tick is not permanent; it is a claim about code that later groups can invalidate.
 
-**D6 — A15's "deployment manifest" is `mihomes cron setup`, and it was already wrong.** The spec
+**BD6 — A15's "deployment manifest" is `mihomes cron setup`, and it was already wrong.** The spec
 says each workload must be *"registered in the deployment manifest"*. There is no product
 `fly.toml` (only the landing app's) and no schedule declared anywhere, so the manifest is
 `cli/cron.py` — the one place the repo tells an operator what to schedule.
@@ -488,7 +497,7 @@ SPEC-004 added both workloads and neither reached it. Nothing failed; nothing co
 precisely the silent drift A15 was written against, having already happened one phase earlier.
 `cron setup` now renders from `jobs.SCHEDULE`, and A15 asserts the two agree.
 
-**D7 — a second instance of SPEC-004's entrypoint bug, found the same way.** `mihomes cron setup`
+**BD7 — a second instance of SPEC-004's entrypoint bug, found the same way.** `mihomes cron setup`
 prints text and reads nothing, but it inherited the root callback's tenant gate — so on any
 multi-account install the one command that tells an operator what to schedule exited 1. Found by
 A15 *invoking* it; every previous test of its output had constructed the panel directly.
@@ -504,7 +513,7 @@ A15 *invoking* it; every previous test of its output had constructed the panel d
 Both now resolve their provider lazily, on first real work. Cron mails a failure every night, and
 an operator who learns to filter this job's mail is the actual cost.
 
-**D8 — A17's node id had to move, and the test it shadowed was a sixth of the criterion.** §8
+**BD8 — A17's node id had to move, and the test it shadowed was a sixth of the criterion.** §8
 declares A17 as `test_jobs.py::test_idempotent`; that name existed but was nested in
 `TestReconcileIsIdempotent`, so the bare node id did not resolve *and* the test it named covered
 one workload of six. Renamed to `test_reconcile_is_idempotent`, and A17 now sits at module level
@@ -515,7 +524,7 @@ version created a second account in a module fixture; `cli_database` is shared a
 modules for the whole session, so `test_report_upcoming` then failed with *"This install has 2
 accounts"*. The second account is now created and removed inside the one test that needs it.
 
-**D9 — the deletion record takes the mixin's CASCADE, and the first design was wrong.** §5.4
+**BD9 — the deletion record takes the mixin's CASCADE, and the first design was wrong.** §5.4
 lists `account_deletion_requests` under `PRESERVE`: it is the proof a deletion was honoured, so it
 outlives the data it describes. That reads like an argument for a `SET NULL` FK and a nullable
 column — and `test_each_tenant_table_has_account_id` rejects exactly that, because every tenant
@@ -545,7 +554,7 @@ up again. The replay is what catches a `downgrade` that leaves an index, policy 
 it fails with "already exists" rather than passing quietly. §9 records that no existing test
 exercised Alembic at all; this is the first.
 
-**D11 — A6 caught a real cross-tenant leak, in the export written to satisfy it.** The first
+**BD11 — A6 caught a real cross-tenant leak, in the export written to satisfy it.** The first
 `build_export` read every table with `select(table)` on the Core `Table` object. It returned
 **three accounts' properties**.
 
@@ -570,7 +579,7 @@ leak was never "Core tables", it was "no filter". The branch stands because D14 
 because a mapped read that silently stopped being filtered is a bug in the app-wide guarantee that
 the export should surface rather than paper over.
 
-**D10 — Step 7 says "Owner-only route" and no §8 criterion covers it.** A8 is Step 8's, about
+**BD10 — Step 7 says "Owner-only route" and no §8 criterion covers it.** A8 is Step 8's, about
 deletion. So F.3a would pass on a G7 that shipped only the service. `test_privacy_routes.py` is
 the gate that makes the step's own words checkable; it reuses row 16 (`account.delete`) rather
 than adding a 21st matrix key, because downloading every row an account holds is the same
@@ -583,13 +592,13 @@ database and asserted `4 == 2`; `test_trial`'s fixtures assume a known estate. B
 context managers that delete what they wrote — including the audit rows the service layer
 legitimately produced.
 
-**D12 — A7 and A28 contradict each other read literally, and the test says which reading wins.**
+**BD12 — A7 and A28 contradict each other read literally, and the test says which reading wins.**
 A7 is *"a purge leaves zero rows in every `TenantOwned` table"*; `account_deletion_requests` is
 `TenantOwned` **and** `PRESERVE`, and A29 requires that same row to survive. The two are
 consistent only if A7 means the tables the purge *deletes*. Scoped to the `DELETE` disposition,
 stated in the test rather than resolved silently.
 
-**D13 — three of my own tests were green for the wrong reason, each caught by mutation.**
+**BD13 — three of my own tests were green for the wrong reason, each caught by mutation.**
 
 - **A10 asserted zero storage deletions and passed.** The seeder's synthetic `file_path` was not
   a storage key — `is_storage_key` requires the `{account_id}/` prefix — so the purge skipped
@@ -629,7 +638,7 @@ client POSTing from its own infrastructure to the public hostname is not a brows
 driving, and neither guard's threat model reaches it. CSRF is unweakened: the route reads no
 cookie and trusts no caller identity.
 
-**D14 — the header builder lives in `suppression.py`, not `EmailService`.** The obvious home was
+**BD14 — the header builder lives in `suppression.py`, not `EmailService`.** The obvious home was
 the service, and it was a circular import: `service.py` already imports `outbox.py`, and `drain`
 is where the headers must be built (at send time, so the token's lifetime is the message's rather
 than the queue's). `suppression.py` already owns the token and both modules import from it.
@@ -649,7 +658,7 @@ Measured, not predicted — the first arrangement raised `ImportError` on the fi
 nested in `TestAllowlistDiscipline`. Corrected in the DAG rather than by moving the test — this
 one is not an §8 criterion, so `--collect` does not check it, which is exactly why it slipped.
 
-**D15 — §5.2 lists `send_dunning` as lifecycle. It ships transactional.**
+**BD15 — §5.2 lists `send_dunning` as lifecycle. It ships transactional.**
 
 §5.2's grouping is explicit: *"Lifecycle mail — every one of these is `klass="lifecycle"`"*, with
 `send_dunning` under it. That contradicts D13's own criterion — *"a receipt for money taken is not
@@ -666,7 +675,7 @@ docstring calls wrong and costly.
 Rungs 2–4 are rung 1 escalating about the same unpaid invoice. **One sequence, one class**, and
 the two could not have differed whichever way it went.
 
-**D16 — Step 10's third verify clause has no §8 criterion.** *"The ladder never outlives the
+**BD16 — Step 10's third verify clause has no §8 criterion.** *"The ladder never outlives the
 subscription that started it"* is neither A23 (the schedule) nor A24 (recovery), so F.3a would
 have passed on a Step 10 that shipped without it — the same gap G7's owner-only route had. Built
 rather than deferred: `subscription.cancelled` joins `RECOVERY_EVENT_TYPES`, because two more
@@ -687,6 +696,39 @@ reads as a conflict.
 **The seam SPEC-004 left open.** `send_payment_failed` existed with **no caller**: no email was
 wired to any billing event at all. A23 assumes "a single `invoice.payment_failed` produces one
 email", so G10 had to build both halves — the ladder and the webhook hook that starts it.
+
+**BD17 — "enrolment on account creation" has no §8 criterion, and it is the load-bearing half.**
+A25 is *"a drip sends each step once and never twice"*, which a drip system with **zero
+enrolments** satisfies perfectly: nothing sent, nothing sent twice. Step 11 also says *"enrolment
+on account creation"*, and nothing in §8 covers whether an account is ever enrolled.
+
+**Third instance of this shape in one phase**, after G7's owner-only route and G10's third verify
+clause. Wired into `create_account_step` with its own test rather than recorded as a gap — the
+seam is one line, and the alternative is a mechanism nothing ever starts.
+
+Failures there are swallowed: account creation is the one irreversible step in onboarding, and a
+marketing sequence must never be able to fail it. Mutation-checked in both directions.
+
+**The sequences are a module constant, not `configurations` rows.** `configurations` is a
+**tenant** table and a drip sequence is product-wide, so storing it there means a row per account
+drifting apart silently, with no answer to "what does the onboarding sequence say" that is true
+for everyone. Declared as data with placeholder templates, the same shape as `BACKOFF_LADDER` and
+the dunning `LADDER`. O1 replaces the copy and the intervals; **the mechanism does not change**,
+which is what makes the openness harmless (conventions §3.3).
+
+**Step 11's verify cites A22, which is about something else.** A22's declared test is
+`test_suppression.py::test_idempotent` — suppressing an address twice is a no-op — and it is
+already green from G2. The clause Step 11 means is *"a suppressed address receives nothing"*,
+which is **A1**'s, enforced at the choke point. Asserted here under its own name rather than
+re-gating A22, because a drip is the canonical lifecycle message and the one D13 was written
+about.
+
+**A test of mine asserted the tenant layer working and called it a bug.** The enrolment test read
+`CampaignEnrolment` on the `session` fixture's binding while `create_account_step` had created a
+*different* account — so the ORM filter correctly hid the row, and the test reported
+`NoResultFound` on an enrolment that existed. Probed to distinguish "not created" from "not
+visible": the raw table held it, the scoped session saw zero. The test now reads under the new
+account's context.
 
 ## 3. Circuit breaker (conventions §3)
 

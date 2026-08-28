@@ -1,0 +1,10 @@
+Hi,
+
+You set up MiHomes a day ago. The fastest way to see whether it earns its keep
+is to put one real thing in it — a property, and one document you would
+otherwise have to go looking for.
+
+Most people start with the home they think about most, not the one that is
+easiest to enter.
+
+Step 1 of {{ total_steps|default(3) }}.

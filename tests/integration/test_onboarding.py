@@ -192,3 +192,61 @@ class TestMandatoryStepsAndDefaults:
         screen — step 1 is non-interactive (`—` in the source table), so there is nothing to
         resume to."""
         assert onboarding.current_step(session, uuid.uuid4()) == STEP_CREATE_ACCOUNT
+
+
+class TestDripEnrolmentOnAccountCreation:
+    """SPEC-005 Step 11 — *"enrolment on account creation"*.
+
+    **No §8 criterion covers this**, which is why it needs a test of its own. A25 is "each step
+    sends once and never twice"; a drip system where `enrol` is never called satisfies that
+    perfectly — zero enrolments, zero duplicate sends — while nobody ever receives anything.
+    Third instance of that shape in this phase, after G7's owner-only route and G10's third
+    verify clause.
+    """
+
+    def test_creating_an_account_enrols_it_in_the_onboarding_drip(self, session, fresh_user):
+        """Read on the **new** account's context, not the fixture's.
+
+        The `session` fixture binds `account_a`, and `create_account_step` creates a different
+        account — so the ORM tenant filter correctly hides the new enrolment from a query made
+        under the old binding. The first version of this test asserted `NoResultFound` on a row
+        that existed, which is the tenant layer working, not a missing enrolment.
+        """
+        import sqlalchemy as sa
+
+        from mihomes.models.email_campaign import CampaignEnrolment
+        from mihomes.tenancy.context import account_context
+
+        account = onboarding.create_account_step(session, fresh_user, "Drip Household")
+
+        with account_context(account.id):
+            enrolment = session.execute(
+                sa.select(CampaignEnrolment).where(
+                    CampaignEnrolment.account_id == account.id
+                )
+            ).scalars().one()
+
+        assert enrolment.campaign == "onboarding"
+        assert enrolment.step == 0
+        assert enrolment.completed_at is None
+
+    def test_a_drip_failure_cannot_fail_account_creation(
+        self, session, fresh_user, monkeypatch
+    ):
+        """Account creation is the one irreversible step in onboarding.
+
+        A marketing sequence must never be able to break it: the user has committed, the
+        membership is what makes the account reachable at all, and a failed enrol leaves them
+        with no account rather than with no email.
+        """
+        from mihomes.services.email import campaigns
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("campaigns table is on fire")
+
+        monkeypatch.setattr(campaigns, "enrol", boom)
+
+        account = onboarding.create_account_step(session, fresh_user, "Resilient Household")
+
+        assert account.id is not None
+        assert onboarding.current_step(session, account.id) == STEP_ADD_HOME

@@ -23,7 +23,11 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
-from mihomes.entitlements.limits import UPGRADE_PATH, limits_for
+from mihomes.entitlements.limits import (
+    PLAN_LIMITS_PHASE3,
+    UPGRADE_PATH,
+    limits_for,
+)
 
 __all__ = ["Allowed", "Decision", "Denied", "UsageReport", "can", "usage"]
 
@@ -81,10 +85,11 @@ _COUNTED_ACTIONS = {
 
 def can(
     account,
-    action: str,
+    action: str | None = None,
     context: dict | None = None,
     *,
     table: dict[str, dict[str, Any]] | None = None,
+    plan: str | None = None,
 ) -> Decision:
     """Is `action` allowed for this account's plan?
 
@@ -95,9 +100,14 @@ def can(
 
     `table` lets Phase 3 (and the tests that prove this machinery works) resolve against the real
     §3.1 numbers while Phase 2's active table stays permissive — see `limits.py`.
+
+    Shorthand: ``can("audit_export", plan="free")`` is accepted for tests.
     """
-    context = context or {}
-    plan_name = getattr(account, "plan", "free") if account else "free"
+    if isinstance(account, str):
+        action = account
+        plan_name = plan or "free"
+    else:
+        plan_name = getattr(account, "plan", "free") if account else "free"
     limits = limits_for(plan_name,
         getattr(account, "subscription_status", None) if account else None,
         table=table,
@@ -116,6 +126,8 @@ def can(
     if action in _COUNTED_ACTIONS:
         limit_key, count_key = _COUNTED_ACTIONS[action]
         limit = limits.get(limit_key, 0)
+        if context is None:
+            context = {}
         current = context.get(count_key)
         if current is None:
             # Fail closed: a caller that forgot to pass the count must not be read as "zero used".
@@ -130,6 +142,18 @@ def can(
             reason=f"{account.plan} allows {limit} ({limit_key}); {current} in use",
             upgrade_target=_upgrade_target(account, action, limit_key, table),
             limit=limit,
+        )
+
+    # Boolean feature flags — checked against PLAN_LIMITS_PHASE3
+    feature_key = _BOOLEAN_ACTIONS.get(action)
+    if feature_key:
+        plan_limits = PLAN_LIMITS_PHASE3.get(plan, {})
+        if plan_limits.get(feature_key, False):
+            return Allowed(limit=True)
+        return Denied(
+            code="feature_not_allowed",
+            message=f"{action} requires a plan with {feature_key}",
+            upgrade_target="plan",
         )
 
     # An action the service does not gate is allowed — entitlements only answer about the keys

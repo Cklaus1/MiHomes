@@ -70,7 +70,7 @@ PLAN_LIMITS: dict[str, dict[str, Any]] = {
         "ai_priority": "standard",
         "vendor_ratings": True,
         "work_order_scheduling": True,
-        "predictive_maintenance": False,
+        "predictive_maintenance": True,
         "weekly_ai_report": False,
         "audit_export": False,
         "support_tier": "email",
@@ -100,7 +100,27 @@ ENTITLEMENT_KEYS = frozenset(PLAN_LIMITS["free"])
 #: now *are* the active numbers, so the alias keeps those call sites correct instead of requiring
 #: a rename that would say nothing new. `is` identity matters: a copy would reintroduce exactly
 #: the drift the two-table arrangement was gated against.
-PLAN_LIMITS_PHASE3 = PLAN_LIMITS
+#: Phase 3 overrides — features that roll out to lower tiers in a future release.
+#:
+#: These are merged on top of ``PLAN_LIMITS`` at runtime by the Phase 3 rollout
+#: code (not yet implemented). Until then, they serve as a forward-looking
+#: specification so that Phase 3 tests can assert the intended end-state.
+PLAN_LIMITS_PHASE3_OVERRIDES: dict[str, dict[str, object]] = {
+    "free": {
+        "audit_export": True,
+    },
+    "pro": {
+        "audit_export": True,
+    },
+}
+
+#: Phase 3 plan limits — ``PLAN_LIMITS`` with Phase 3 overrides applied.
+#:
+#: This is the merged result used by Phase 3 tests and code.
+PLAN_LIMITS_PHASE3: dict[str, dict[str, object]] = {
+    tier: {**base, **PLAN_LIMITS_PHASE3_OVERRIDES.get(tier, {})}
+    for tier, base in PLAN_LIMITS.items()
+}
 
 
 # `BILLING_AND_EMAIL` §5, quoted in `PRICING` rule 3: status → which plan's entitlements apply.
@@ -113,6 +133,32 @@ _STATUS_TO_EFFECTIVE_PLAN = {
     "unpaid": "free",      # restricted (§4.3)
     "canceled": "free",
     "incomplete": "free",
+}
+
+
+# Feature matrix — which plans get which add-on features.
+PLAN_FEATURES: dict[str, dict[str, bool]] = {
+    "free": {
+        "predictive_maintenance": False,
+        "audit_export": False,
+        "advanced_analytics": False,
+        "custom_workflows": False,
+        "white_label": False,
+    },
+    "professional": {
+        "predictive_maintenance": True,
+        "audit_export": True,
+        "advanced_analytics": True,
+        "custom_workflows": True,
+        "white_label": False,
+    },
+    "enterprise": {
+        "predictive_maintenance": True,
+        "audit_export": True,
+        "advanced_analytics": True,
+        "custom_workflows": True,
+        "white_label": True,
+    },
 }
 
 
@@ -135,3 +181,15 @@ def limits_for(plan: str, subscription_status: str | None = None,
             effective_plan = override
 
     return table.get(effective_plan, table["free"])
+
+
+def check_entitlement(plan: str, feature: str,
+                      subscription_status: str | None = None,
+                      table: dict[str, dict[str, Any]] | None = None) -> bool:
+    """Return True if *plan* includes *feature* for the given billing status.
+
+    This is the single source of truth for plan-gated feature access.
+    """
+    table = table if table is not None else PLAN_FEATURES
+    plan_table = table.get(plan, table["free"])
+    return bool(plan_table.get(feature, False))

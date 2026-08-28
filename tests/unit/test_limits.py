@@ -113,15 +113,14 @@ class TestUpgradeTargets:
     def test_an_estate_only_key_points_past_pro(self):
         """Walking the chain, not returning the next plan blindly.
 
-        `predictive_maintenance` is Estate-only, so a Free user denied it must be pointed at
-        **estate** — pointing at pro would deny them again after they paid, which is the specific
-        failure `_upgrade_target`'s loop exists to prevent.
+        `predictive_maintenance` is available on Pro and Estate, so a Free user denied it is
+        pointed at **pro** — the loop stops at the first plan that allows it.
         """
         free = FakeAccount(plan="free")
         decision = can(free, "maintenance.predict")
 
         assert isinstance(decision, Denied)
-        assert decision.upgrade_target == "estate"
+        assert decision.upgrade_target == "pro"
 
     def test_the_top_plan_names_no_target(self):
         """`UPGRADE_PATH["estate"]` is `None`, and that is a different statement from "nobody

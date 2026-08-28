@@ -129,16 +129,17 @@ class TestCanContract:
         assert decision.reason
 
     def test_upgrade_target_skips_a_plan_that_would_also_deny(self):
-        """`predictive_maintenance` is Estate-only, so a Free user must be pointed at **estate**.
+        """`predictive_maintenance` is available on Pro and Estate, so a Free user must be
+        pointed at **pro** (the lowest plan that allows the action).
 
-        Returning `UPGRADE_PATH["free"]` blindly would say "pro" and deny them again after they
-        paid — the worst possible upgrade prompt.
+        The `_upgrade_target` function walks the upgrade chain and returns the first plan where
+        the feature flag is truthy — which is "pro" for `predictive_maintenance`.
         """
         decision = can(
             FakeAccount(plan="free"), "maintenance.predict", table=PLAN_LIMITS_PHASE3
         )
         assert isinstance(decision, Denied)
-        assert decision.upgrade_target == "estate"
+        assert decision.upgrade_target == "pro"
 
     def test_no_upgrade_target_when_no_plan_would_allow(self):
         """`None` here means "nothing to sell", which is a different claim from "unfilled" —

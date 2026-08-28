@@ -14,10 +14,10 @@ from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 
-from mihomes.models.asset import Asset, AssetCondition, AssetType
+from mihomes.entitlements import check_entitlement
 from mihomes.models.alert import Alert, AlertSeverity, AlertStatus
+from mihomes.models.asset import Asset, AssetCondition, AssetType
 from mihomes.models.task import Task, TaskPriority, TaskStatus
-
 
 # ── Thresholds ────────────────────────────────────────────────────────────────
 
@@ -134,8 +134,18 @@ def scan_assets(session: Session) -> list[MaintenanceFlag]:
     return sorted(flags, key=lambda f: _risk_order(f.risk_level))
 
 
-def run_predictive_maintenance(session: Session) -> MaintenanceScanResult:
-    """Scan assets and create alerts + tasks for new findings. Returns summary."""
+def run_predictive_maintenance(
+        session: Session,
+        *,
+        account,
+) -> MaintenanceScanResult:
+    """Scan assets and create alerts + tasks for new findings. Returns summary.
+
+    Plan gate: requires ``predictive_maintenance`` entitlement (enterprise+).
+    Enforced at function entry, before any reads or writes.
+    """
+    check_entitlement(account, "predictive_maintenance")
+
     flags = scan_assets(session)
     alerts_created = 0
     tasks_created = 0

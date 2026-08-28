@@ -97,9 +97,9 @@ def can(
     §3.1 numbers while Phase 2's active table stays permissive — see `limits.py`.
     """
     context = context or {}
-    limits = limits_for(
-        getattr(account, "plan", "free"),
-        getattr(account, "subscription_status", None),
+    plan_name = getattr(account, "plan", "free") if account else "free"
+    limits = limits_for(plan_name,
+        getattr(account, "subscription_status", None) if account else None,
         table=table,
     )
 
@@ -108,7 +108,7 @@ def can(
         if limits.get(key):
             return Allowed(limit=True)
         return Denied(
-            reason=f"{action} is not available on the {account.plan} plan",
+            reason=f"{action} is not available on the {plan_name} plan",
             upgrade_target=_upgrade_target(account, action, key, table),
             limit=False,
         )
@@ -215,3 +215,20 @@ def usage(account, meter: str, *, session=None) -> UsageReport:
 #: change, and an unknown meter resolves to `limit=None` — "not measured" — instead of silently
 #: borrowing the AI limit.
 _METER_LIMIT_KEYS = {"ai_calls": "ai_calls_per_month"}
+
+
+def check_entitlement(account, feature: str) -> Allowed:
+    """Raise ``PermissionError`` if the account is not entitled to *feature*.
+
+    Returns ``Allowed()`` on success so callers can chain:
+    ``check_entitlement(account, "ai")`` → ``Allowed()``.
+
+    This is the gate that SPEC-005 Phase 3 requires for every AI feature
+    (predictive maintenance, audit log, billing trial). It delegates to
+    ``can()`` and raises when the feature is denied.
+    """
+    if not can(account, feature):
+        raise PermissionError(
+            f"Account '{getattr(account, 'id', 'unknown')}' is not entitled to '{feature}'"
+        )
+    return Allowed()

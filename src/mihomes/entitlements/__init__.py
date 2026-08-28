@@ -20,6 +20,7 @@ from mihomes.entitlements.service import (
     Denied,
     UsageReport,
     can,
+    check_entitlement,
     usage,
 )
 
@@ -33,6 +34,7 @@ __all__ = [
     "Denied",
     "UsageReport",
     "can",
+    "check_entitlement",
     "limits_for",
     "usage",
 ]

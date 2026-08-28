@@ -117,10 +117,90 @@ def handle_verified_event(session: Session, event: NormalizedEvent) -> None:
     if event.subscription is not None:
         apply_subscription_state(session, account, event.subscription)
 
+    _apply_dunning(session, account, event)
+
     logger.info(
         "stripe webhook applied: type=%s event=%s account=%s",
         event.type, event.raw_event_id, account.id,
     )
+
+
+#: Events that end a dunning sequence.
+#:
+#: * `invoice.paid` — the direct signal.
+#: * `customer.subscription.updated` — the indirect one: a customer who fixed their card in
+#:   Stripe's portal produces this without necessarily producing an `invoice.paid` in the same
+#:   delivery. Only ends the sequence when the status has actually left the failure state.
+#: * `subscription.cancelled` — **Step 10's third clause**: *"the ladder never outlives the
+#:   subscription that started it."* A customer who cancels mid-ladder has ended the
+#:   relationship; two more weeks of "update your card" is dunning someone who is no longer a
+#:   customer. No §8 criterion covers this clause (A23 is the schedule, A24 is recovery), so it
+#:   would have shipped unbuilt with F.3a green — see harness §2.2 D16.
+RECOVERY_EVENT_TYPES = frozenset(
+    {"invoice.paid", "customer.subscription.updated", "subscription.cancelled"}
+)
+
+
+def _apply_dunning(session: Session, account: Account, event: NormalizedEvent) -> None:
+    """Start the ladder on a failed payment; cancel it on recovery (SPEC-005 Step 10).
+
+    **Enqueued, never sent inline** (N2). A slow provider must not become a slow webhook: Stripe
+    times out and redelivers, and a redelivered `payment_failed` that the ledger has already
+    recorded is dropped — so the emails would be lost precisely when the mail path is unwell.
+
+    Failures here are logged and swallowed. The billing *state* has already been applied and
+    committed above; letting a mail problem raise would fail the webhook, cost the ack, and put
+    the account's plan and Stripe's view of it out of step over an email.
+    """
+    from mihomes.services.billing.dunning import cancel_ladder, start_ladder
+
+    try:
+        if event.type == "invoice.payment_failed":
+            # `_billing_email` RAISES on an account with no active owner rather than returning
+            # None — that is a corrupted-state signal, not a branch. Caught by the wrapper
+            # below along with everything else, which is the right handling here: an account
+            # that cannot be emailed still had its billing state applied.
+            email = _billing_email(session, account)
+            start_ladder(
+                session,
+                to=email,
+                account_id=account.id,
+                plan=account.plan,
+                billing_url=_billing_url(),
+            )
+            session.commit()
+            return
+
+        if event.type not in RECOVERY_EVENT_TYPES:
+            return
+
+        # A subscription still in `past_due` has not recovered — the customer is mid-grace and
+        # the remaining rungs are exactly what should still fire. Only a status that has left
+        # the failure state cancels.
+        status = getattr(event.subscription, "status", None)
+        if event.type == "customer.subscription.updated" and status in (
+            "past_due",
+            "unpaid",
+            None,
+        ):
+            return
+
+        if cancel_ladder(session, account.id):
+            session.commit()
+    except Exception:
+        logger.exception("dunning: could not update the ladder for account %s", account.id)
+
+
+def _billing_url() -> str:
+    """Where a dunning email sends the customer. The billing page, not Stripe's portal.
+
+    The portal needs a session minted per visit, and a link that has expired by the time someone
+    opens the email is worse than one more click.
+    """
+    import os
+
+    base = os.environ.get("MIHOMES_BASE_URL", "https://app.mihomes.ai").rstrip("/")
+    return f"{base}/billing"
 
 
 def apply_subscription_state(

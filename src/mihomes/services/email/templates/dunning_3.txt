@@ -1,0 +1,16 @@
+Hi,
+
+We still have not been able to take payment for your MiHomes
+{{ plan|capitalize }} plan.
+
+If this is not resolved, the account will move to read-only when the grace
+period ends. Nothing is deleted — your homes, documents and history all stay
+exactly as they are, and everything comes back the moment a payment goes
+through.
+
+Update your payment method:
+
+{{ billing_url }}
+
+Trouble with the card, or need an invoice instead? Reply to this email and we
+will sort it out.

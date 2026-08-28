@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block subject %}Your MiHomes {{ plan|capitalize }} account is now read-only{% endblock %}
+
+{% block content %}
+  <p style="margin:0 0 16px;">Hi,</p>
+
+  <p style="margin:0 0 24px;">
+    We were not able to take payment for your MiHomes
+    <strong>{{ plan|capitalize }}</strong> plan, so the account has moved to
+    read-only.
+  </p>
+
+  {# Rung 4 of 4 — the last one. It reports a state that has ALREADY changed, which
+     is why the subject says "is" and not "will be": a final notice that still warns
+     about the future is a fourth warning, not a conclusion.
+
+     Two things it must be unambiguous about, because this is the email a customer
+     reads months later when they come back. Their data is intact, and the way back
+     is one action. A final notice that reads as an ending loses the customer who
+     would have returned. #}
+  <p style="margin:0 0 24px;">
+    You can still sign in and read everything — homes, documents, work orders and
+    history are all exactly where you left them. <strong>Nothing has been
+    deleted.</strong> What is paused is adding and changing.
+  </p>
+
+  <p style="margin:0 0 28px;">
+    <a href="{{ billing_url }}"
+       style="display:inline-block;background:#1c1c1a;color:#ffffff;
+              text-decoration:none;padding:12px 22px;border-radius:6px;
+              font-weight:500;">Reactivate the account</a>
+  </p>
+
+  <p style="margin:0;color:#6b6b66;font-size:14px;">
+    This is the last automatic email we will send about this. If the timing is bad
+    or the card is the problem, reply — we would rather hear from you than lose you.
+  </p>
+{% endblock %}

@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+
+{% block subject %}Still can't take payment for MiHomes {{ plan|capitalize }}{% endblock %}
+
+{% block content %}
+  <p style="margin:0 0 16px;">Hi,</p>
+
+  <p style="margin:0 0 24px;">
+    We tried again and still could not take payment for your MiHomes
+    <strong>{{ plan|capitalize }}</strong> plan.
+  </p>
+
+  {# Rung 2 of 4. Escalation is in the FACTS, not the tone: this one says the retry
+     already happened, which the first email could only promise. A customer who
+     ignored the first because "it will sort itself out" has now been told it did
+     not. Nothing about their access has changed yet, and saying so is still what
+     keeps them from assuming they are locked out and giving up (D10). #}
+  <p style="margin:0 0 24px;">
+    Your account is still working normally, but this will not resolve on its own —
+    the card on file needs updating.
+  </p>
+
+  <p style="margin:0 0 28px;">
+    <a href="{{ billing_url }}"
+       style="display:inline-block;background:#1c1c1a;color:#ffffff;
+              text-decoration:none;padding:12px 22px;border-radius:6px;
+              font-weight:500;">Update payment method</a>
+  </p>
+
+  <p style="margin:0;color:#6b6b66;font-size:14px;">
+    If you have just updated it, you can ignore this — we stop these as soon as a
+    payment goes through.
+  </p>
+{% endblock %}

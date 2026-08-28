@@ -319,8 +319,8 @@ anything reads its tables); **Step 7 before Step 8** (export exists before delet
 - [x] G9.1 · §6 Step 9 · A18 · RFC 8058 one-click `List-Unsubscribe-Post`; **lifecycle carries both headers, transactional carries neither**; one click, no confirmation page · verify: `tests/integration/test_unsubscribe.py::test_headers_by_class`
 - [x] G9.2 · C9 · — · second `PERMANENT_ALLOWLIST` entry **plus** its `ALLOWLIST_MECHANISMS` reason (a signed token); check whether the Host/Origin exemption already covers the path · verify: `tests/unit/test_route_declarations.py::TestAllowlistDiscipline::test_every_allowlisted_module_names_its_mechanism`
 
-### [ ] G10 — Step 10: the dunning ladder — *dep: G5, G6*
-- [ ] G10.1 · §6 Step 10 · A23,A24 · one `invoice.payment_failed` produces **one** immediate email and the rest on the `BILLING` §5 schedule; recovery mid-ladder stops the sequence · verify: `tests/integration/test_dunning.py::test_ladder_schedule` + `::test_recovery_stops_ladder`
+### [x] G10 — Step 10: the dunning ladder — *dep: G5, G6*
+- [x] G10.1 · §6 Step 10 · A23,A24 · one `invoice.payment_failed` produces **one** immediate email and the rest on the `BILLING` §5 schedule; recovery mid-ladder stops the sequence · verify: `tests/integration/test_dunning.py::test_ladder_schedule` + `::test_recovery_stops_ladder`
 
 ### [ ] G11 — Step 11: the drip machinery — *dep: G5, G9*
 - [ ] G11.1 · §6 Step 11 · A25 · enrolment, `due_sends`, sequence shortening — **mechanism only**, content is O1 and lands in config; each step sends once and never twice · verify: `tests/unit/test_campaigns.py::test_no_duplicate_steps`
@@ -375,7 +375,7 @@ condition (delete), untested arm (add the test), inert difference (document with
 
 ## 2.1 RUN STATE — where a resuming session picks up
 
-**In progress — G1–G9 done, G10 next.** Pre-flight complete (§0.6), baseline measured
+**In progress — G1–G10 done, G11 next.** Pre-flight complete (§0.6), baseline measured
 (2184 passed), harness written, and §1's DAG **rewritten from a derived join** after the
 hand-typed version proved wrong in three ways (§0.5). `py scripts/spec005_reconcile.py` exits 0:
 36/36 criteria gated, every gate pointing at the test §8 declares.
@@ -411,8 +411,11 @@ deletion — is now met.
 transactional, the second `PERMANENT_ALLOWLIST` entry with its mechanism, and its **own**
 Host/Origin exemption; mutation-checked nine ways; suite **2327 passed**.
 
-Resume at **G10.1** — the dunning ladder. It depends on G5's `dunning` workload, which is
-registered and currently a no-op reporting zero.
+**G10 complete** — the four-rung ladder on the outbox, three new templates, and the webhook
+seam SPEC-004 left open; mutation-checked eleven ways; suite **2349 passed**.
+
+Resume at **G11.1** — the drip machinery (`campaigns.py`, `due_sends`, the `drips` job).
+Mechanism only: the content is O1 and lands in config.
 
 Run `py scripts/spec005_reconcile.py --collect` after every group commit, not only at G-Final.
 
@@ -645,6 +648,45 @@ Measured, not predicted — the first arrangement raised `ImportError` on the fi
 `test_route_declarations.py::test_every_allowlisted_module_names_its_mechanism`; the test is
 nested in `TestAllowlistDiscipline`. Corrected in the DAG rather than by moving the test — this
 one is not an §8 criterion, so `--collect` does not check it, which is exactly why it slipped.
+
+**D15 — §5.2 lists `send_dunning` as lifecycle. It ships transactional.**
+
+§5.2's grouping is explicit: *"Lifecycle mail — every one of these is `klass="lifecycle"`"*, with
+`send_dunning` under it. That contradicts D13's own criterion — *"a receipt for money taken is not
+marketing and must send regardless of unsubscribe state; a drip is, and must not"* — and it
+contradicts this run: SPEC-005 G2 classified rung 1, SPEC-004's `payment_failed`, as
+**transactional**, with the reason inline.
+
+The discriminating question is whether a **suppressed** address needs rungs 2–4. It does. Under
+D13 suppression is absolute for lifecycle mail, so an unsubscribed customer would be told once
+that their card had failed and then silenced while their access lapsed — the exact failure G2's
+reasoning names. A18 would also put `List-Unsubscribe` on "your payment failed", which G9's own
+docstring calls wrong and costly.
+
+Rungs 2–4 are rung 1 escalating about the same unpaid invoice. **One sequence, one class**, and
+the two could not have differed whichever way it went.
+
+**D16 — Step 10's third verify clause has no §8 criterion.** *"The ladder never outlives the
+subscription that started it"* is neither A23 (the schedule) nor A24 (recovery), so F.3a would
+have passed on a Step 10 that shipped without it — the same gap G7's owner-only route had. Built
+rather than deferred: `subscription.cancelled` joins `RECOVERY_EVENT_TYPES`, because two more
+weeks of "update your card" after someone has cancelled is dunning a person who is no longer a
+customer.
+
+**No new table, and that is the design.** §4.4's five tables are all shipped and none is a
+sequence table; N12 forbids an `accounts` migration. `EmailOutbox` already carries
+`next_attempt_at`, `klass`, `template` and `context` — a row due in seven days **is** a scheduled
+send. So the ladder enqueues four rows and `drain-outbox` sends each as it comes due, which makes
+A23 close to structural rather than something the ladder enforces.
+
+`next_attempt_at` does double duty: it is also the backoff field, so a rung due in seven days that
+then fails delivery is rescheduled to +1 minute. That composes correctly — dunning picks the first
+attempt, backoff owns retries after it — and is commented, because two schedules sharing a column
+reads as a conflict.
+
+**The seam SPEC-004 left open.** `send_payment_failed` existed with **no caller**: no email was
+wired to any billing event at all. A23 assumes "a single `invoice.payment_failed` produces one
+email", so G10 had to build both halves — the ladder and the webhook hook that starts it.
 
 ## 3. Circuit breaker (conventions §3)
 

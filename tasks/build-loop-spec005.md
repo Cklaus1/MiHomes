@@ -325,9 +325,9 @@ anything reads its tables); **Step 7 before Step 8** (export exists before delet
 ### [x] G11 — Step 11: the drip machinery — *dep: G5, G9*
 - [x] G11.1 · §6 Step 11 · A25 · enrolment, `due_sends`, sequence shortening — **mechanism only**, content is O1 and lands in config; each step sends once and never twice · verify: `tests/unit/test_campaigns.py::test_no_duplicate_steps`
 
-### [ ] G12 — Step 12: two Estate gates — *dep: G6*
-- [ ] G12.1 · §6 Step 12 · A12 · `predictive_maintenance` and `audit_export` as `can()` call sites; Free and Pro denied, Estate allowed, on **both** (D10/D16) · verify: `tests/unit/test_estate_gates.py::test_gate_matrix`
-- [ ] G12.2 · §6 Step 12 · A13 · **`record_change` still fires for every account on every plan** — the check that catches gating the wrong function (F6) · verify: `tests/unit/test_estate_gates.py::test_audit_write_ungated`
+### [x] G12 — Step 12: two Estate gates — *dep: G6*
+- [x] G12.1 · §6 Step 12 · A12 · `predictive_maintenance` and `audit_export` as `can()` call sites; Free and Pro denied, Estate allowed, on **both** (D10/D16) · verify: `tests/unit/test_estate_gates.py::test_gate_matrix`
+- [x] G12.2 · §6 Step 12 · A13 · **`record_change` still fires for every account on every plan** — the check that catches gating the wrong function (F6) · verify: `tests/unit/test_estate_gates.py::test_audit_write_ungated`
 
 ### [ ] G13 — Step 13: the weekly digest job — *dep: G5, G12*
 - [ ] G13.1 · §6 Step 13 · A14,A14b · `weekly_ai_report` enforced as a **send, not a gate** (D16): Estate receives it weekly, Pro does not, and the on-request route at `web/routes/ai.py:311` works on **every** plan — Estate buys the schedule, not the feature · verify: `tests/integration/test_weekly_digest.py::test_scheduled_send_gated` + `::test_on_request_ungated`
@@ -417,9 +417,24 @@ seam SPEC-004 left open; mutation-checked eleven ways; suite **2349 passed**.
 **G11 complete** — `campaigns.py`, enrolment on account creation, the `drips` job, three
 placeholder templates; mutation-checked ten ways.
 
-Resume at **G12.1** — the two Estate gates (`predictive_maintenance.run`, `audit.export`).
-Note F6: `run_predictive_maintenance` has **zero callers**, so its gate has no live surface —
-placed exactly as SPEC-004 D14 placed the dead vendor_rating gates.
+**G12 complete** — and it found four defects in code that already claimed Step 12 was done
+(§2.2 BD18). The `predictive_maintenance` gate was a **no-op on every plan**; `pro` carried an
+Estate key; `can()` and `_upgrade_target` defaulted to different tables, so a denial named a
+plan that also denied; and `audit.export` swallowed its own denial. Mutation-checked three
+ways; 61 passed across the affected area.
+
+Resume at **G13.1** — the weekly digest job. Note the survey findings that change its shape:
+`cli/jobs.py`'s `weekly-digest` is a **print-only stub** (`"Weekly digest: 0 account(s) sent."`,
+no imports, no DB), `generate_estate_digest` (`services/ai/reports.py:208`) has **no** gate and
+must keep none (N8), and its route is `POST /ai/estate-digest` (`web/routes/ai.py:388`) carrying
+only the RBAC declaration `ai.use`. **`tests/conftest.py` sets `DEFAULT_FIXTURE_PLAN = "estate"`
+and there are no per-plan account fixtures** — so A14's "a Pro account does not receive it" needs
+an explicitly-planned account or it passes vacuously.
+
+Also carried forward for the groups after it: **G16's B1 edit is already applied** — `GTM:273`
+reads `v=DMARC1; p=none; rua=mailto:dmarc@mihomes.ai` with no `adkim=s; aspf=s`, so G16 is the
+D17 documentation *test* only. And **`SAAS_PRD:190-195` is five bullets, not six** — G17/A33
+must enumerate what the doc actually contains.
 
 Run `py scripts/spec005_reconcile.py --collect` after every group commit, not only at G-Final.
 
@@ -729,6 +744,64 @@ about.
 `NoResultFound` on an enrolment that existed. Probed to distinguish "not created" from "not
 visible": the raw table held it, the scoped session saw zero. The test now reads under the new
 account's context.
+
+**BD18 — Step 12 was already "done", and none of it worked. Four defects, all measured.**
+
+The tree arrived at G12 with `audit.py`'s module docstring already reading *"Step 12 (SPEC-005
+Phase 4): gated on Estate plan"*. Every part of that claim was false in a different way.
+
+1. **The `predictive_maintenance` gate allowed every plan.** It passed
+   `check_entitlement(account, "predictive_maintenance")` — an entitlement **key** where `can()`
+   keys `_BOOLEAN_ACTIONS` on **actions**. The string matched neither `_BOOLEAN_ACTIONS` nor
+   `_COUNTED_ACTIONS`, fell through to `can()`'s closing `return Allowed()`, and returned Allowed
+   for Free. The action is `maintenance.predict`. **The spec's own §5.5 carries the same wrong
+   string** (`predictive_maintenance.run`), as did the abandoned pre-G12 work in the stash — so
+   an A12 written from the spec verbatim would have passed vacuously against a dead gate.
+
+2. **`PLAN_LIMITS["pro"]["predictive_maintenance"]` was `True`.** `PRICING:89-91` writes all three
+   Estate keys `false | false | true`, and D10 is *"enforced exactly as `PRICING` §3.1 writes
+   them"*. **§0.6 recorded these three keys as ✅ verified `False` on Free *and Pro*** — a
+   pre-flight verification that passed while the tree disagreed with it. Third instance of §0.5's
+   shape in this run, and the second to land in the *checking* rather than the code.
+
+3. **`can()` and `_upgrade_target` defaulted to different tables.** `can()` resolves through
+   `limits_for`, defaulting to `PLAN_LIMITS`; `_upgrade_target` defaulted to
+   `PLAN_LIMITS_PHASE3`, whose overrides granted `audit_export` to free **and** pro. Measured: a
+   Free account denied `audit.export` was told to upgrade to **Pro, which also denies it** —
+   exactly the failure `_upgrade_target`'s docstring exists to prevent, arriving through the
+   defaults rather than through the walk. Fixed at the **default** (the class of bug) rather than
+   by deleting the override (this instance); the override was emptied as well, because it
+   contradicted `PRICING:91` and nothing had rolled it out.
+
+4. **`audit.export` swallowed its denial and returned `[]`.** An empty list is indistinguishable
+   from "this account has no audit rows", so a Pro owner saw a working, empty export rather than
+   a paywall — and the `upgrade_target` was discarded, which A34 needs at the route and CLI.
+   Now raises **`EntitlementDenied`**, a new `PermissionError` subclass carrying the `Denied`
+   intact. **G14 depends on this**: built on a bare `PermissionError`, A34 would have been
+   unreachable. No caller outside the module used `export`; the 20 services that import from
+   `audit` all take `record_change`/`diff_instance`/`snapshot_instance`.
+
+Also deleted an unreachable block in `can()` after the first `_BOOLEAN_ACTIONS` return — it read
+`plan` instead of `plan_name` and built `Denied(code=…, message=…)` against a three-field
+dataclass, so it would have raised `TypeError` had control ever reached it.
+
+**Two acceptance-adjacent tests edited, named because that should be visible.**
+`test_entitlements.py::test_upgrade_target_skips_a_plan_that_would_also_deny` and
+`test_limits.py::test_an_estate_only_key_points_past_pro` both asserted `upgrade_target == "pro"`.
+Their names and docstrings argue *for* the fix — "an estate-only key", "skips a plan that would
+also deny" — and only the expected value was wrong: they were pinning defect 2. Both now assert
+`"estate"`, and the second gained the round-trip the docstring is really about (*the plan named
+must actually allow it*), which is the assertion that catches defect 3 rather than restating it.
+
+**A13 asserts by execution, not by grep.** It calls `record_change` under every plan, then
+monkeypatches both `can` and `check_entitlement` to raise. A gate introduced through a helper, a
+decorator or an import alias survives a text search and fails that.
+
+**Two of my own test bugs, both caught by running it.** `entity_id` is a UUID column since
+SPEC-002 D2's int→UUID remap, so a synthetic `1` was rejected by the *database* rather than by
+the gate — a failure that reads like A13 breaking when nothing about entitlements had changed.
+And `audit_log.action` is `varchar(10)`, so `"updated-on-free"` truncated. Neither was visible by
+reading either file.
 
 ## 3. Circuit breaker (conventions §3)
 

@@ -1,10 +1,16 @@
-"""Audit log service — record changes to any entity."""
+"""Audit log service — record changes to any entity.
 
-from datetime import date, datetime
+Step 12 (SPEC-005 Phase 4): gated on Estate plan for ``predictive_maintenance.run``
+and ``audit.export``.  Every account (Free, Pro, Estate) still fires
+:func:`record_change` (A13).
+"""
+
+from datetime import date, datetime, timedelta, timezone
 from enum import Enum
 
 from sqlalchemy.orm import Session
 
+from mihomes.entitlements import service as entitlements
 from mihomes.models.audit_log import AuditLog
 
 
@@ -76,6 +82,44 @@ def record_change(
     )
     session.add(entry)
     return entry
+
+
+def export(
+        session: Session,
+        *,
+        account,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        action: str | None = None,
+    ) -> list[AuditLog]:
+        """Export audit log entries for the account.
+
+        **G12-2: Role gate — `audit.export` requires `role` in ``["admin", "owner"]``.**
+        Gate fires at the function entry, before any reads.
+
+        See SPEC-005 Phase 4 §G12.
+        """
+        # Step 12: Estate gate — audit.export
+        try:
+            entitlements.check_entitlement(account, "audit.export")
+        except PermissionError:
+            return []
+
+        from sqlalchemy import select
+
+        stmt = select(AuditLog).where(
+            AuditLog.account_id == account.id,
+        )
+        if start_date:
+            stmt = stmt.where(AuditLog.timestamp >= datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc))
+        if end_date:
+            next_day = end_date + timedelta(days=1)
+            stmt = stmt.where(AuditLog.timestamp < datetime.combine(next_day, datetime.min.time(), tzinfo=timezone.utc))
+        if action:
+            stmt = stmt.where(AuditLog.action == action)
+
+        stmt = stmt.order_by(AuditLog.timestamp.desc())
+        return list(session.scalars(stmt).unique())
 
 
 def _serialize_value(value):

@@ -289,7 +289,7 @@ Cloud API is proven before Baileys — today's only working WhatsApp transport �
 ### [ ] G1 — Step 1: the link-token table — *dep: G0*
 - [ ] G1.1 · §6 Step 1 · A3 · `GatewayLinkToken` + migration, RLS included; **`PGUUID` not `String(36)`** (C8), and no `telegram_links` DDL (N9, §0.3); its own engine running real Alembic up→down→up · verify: `tests/integration/test_migration_gateway_links.py::test_up_down`
 - [ ] G1.2 · §6 Step 1 · A4 · **hash only, never the raw code** (N8) — a raw token reaches neither the table nor a log record · verify: `tests/unit/test_linking.py::test_token_hashed_only`
-- [ ] G1.3 · C8 · — · one `ENTITY_CLASSES` entry, `TENANT_TABLES` entry, **three pinned counts +1**, and an `EXPECTED_NON_LEADING` entry for the `token_hash` unique **with its reason** · verify: `tests/unit/test_matrix.py::test_every_model_is_classified`
+- [ ] G1.3 · C8 · — · one `ENTITY_CLASSES` entry, `TENANT_TABLES` entry, **three pinned counts +1**, and an `EXPECTED_NON_LEADING` entry for the `token_hash` unique **with its reason** · verify: `tests/unit/test_matrix.py::TestEntityClassification::test_every_model_is_classified`
 
 ### [ ] G2 — Step 2: sender identity — *dep: G1 — MUST precede G3*
 - [ ] G2.1 · §6 Step 2 · A5 · `resolve_sender` and the **one legitimate unscoped lookup** (§5.1) — which account to scope to is precisely what is being determined · verify: `tests/unit/test_identity.py::test_resolves_single_account`
@@ -372,9 +372,13 @@ signature, which every responder calls.
 ## 2.1 RUN STATE — where a resuming session picks up
 
 **AUTHORED, NOT RUN.** Pre-flight complete (§0.6, eleven findings re-measured — nine hold, six
-corrected), `scripts/spec006_reconcile.py` written and its parsers verified against the real spec
-(25 criteria, 13 manifest entries, every label resolving to a directory). **No SPEC-006 source code
-has been written.**
+corrected), `scripts/spec006_reconcile.py` written, its parsers verified against the real spec
+(25 criteria, 13 manifest entries, every label resolving to a directory), and **the gate itself
+mutation-checked five ways** (§2.2 BD5) — a reconciler nobody has seen fail is decoration.
+
+`py scripts/spec006_reconcile.py --collect` exits 0: **25/25 criteria gated**, 1/25 node ids
+resolving (only A2 exists — nothing is built yet). `tests/unit/test_spec006_reconciler.py` is
+green, 6 passed. **No SPEC-006 source code has been written.**
 
 **Start at G0.** Do not start at G1: G0 exists because the prerequisite's own verification step
 (A2) names a node id that does not resolve, and that must be corrected before it is trusted.
@@ -416,7 +420,29 @@ production"*; there is no production Cloud API deployment and O1 is unresolved. 
 (G-baileys) are built so the line holds at cutover, but discharging them now would be recording a
 green that means nothing. Split per conventions §3.3, the same shape as SPEC-005 G5.3's U10.
 
-**BD5 — F11's six test files are real, but two are named for their subject.** A first sweep for
+**BD5 — the reconciler carries two exemption tables, and both are mutation-gated.** Correcting
+§8's wrong node ids (BD2) means the script must permit a *documented* disagreement, and permitting
+disagreement is the one thing a reconciler must not do casually. Both tables therefore have an
+expiry test (`tests/unit/test_spec006_reconciler.py`), and both were mutation-checked before being
+believed:
+
+| # | Mutation | Result |
+|---|---|---|
+| M1 | ungate A11 — the definition of done | ✅ RED: *"declared in §8 but NO DAG task gates it"* |
+| M2 | point A11's gate at a plausible-but-wrong test name | ✅ RED, naming both what the DAG says and what §8 declares |
+| M3 | point A2 at a name **neither** §8 nor the correction allows | ✅ RED — the table permits exactly one verified name, not any name |
+| M4 | remove a `PENDING_TESTS_IN_EXISTING_FILES` entry | ✅ RED: its unresolved node id surfaces immediately |
+| M5 | add an entry whose test **already resolves** (a stale exemption) | ✅ RED: *"now RESOLVES, so the group has landed. Remove it — leaving it exempts a real node id from the collect check forever."* |
+
+M5 is the one worth keeping in mind: it is the failure mode where a run finishes green having
+stopped checking. **G-Final's F.3b must run with `PENDING_TESTS_IN_EXISTING_FILES` empty.**
+
+**BD6 — `--collect` found a wrong node id in this harness, written by me.** G1.3 named
+`test_matrix.py::test_every_model_is_classified`; the test is nested in `TestEntityClassification`.
+Precisely the defect the pre-flight had just caught four times in the spec, reproduced in the
+harness written to catch it — and caught only because `--collect` executes rather than reads.
+
+**BD7 — F11's six test files are real, but two are named for their subject.** A first sweep for
 `test_gateway*` found four and suggested the spec had over-counted. `test_telegram_client.py` and
 `test_whatsapp_drain.py` are the other two. Recorded so the next session does not re-derive a
 false discrepancy — and as a reminder that a glob is a hypothesis, not a census.

@@ -49,10 +49,26 @@ LABEL_RE = re.compile(r"A\d+[a-z]?")
 # `pytest --collect-only` against the real file, and the harness records it in §0.6 C6 where a
 # reader meets it.
 #
-# `test_the_corrections_are_still_needed` in tests/unit/test_docs_gateway_prds.py keeps this
-# honest: if a spec edit ever makes one of these names correct, the entry becomes a lie that
-# silently permits real drift, and the test fails until it is deleted. An override table with no
-# expiry is how a one-time correction becomes permanent blindness.
+# `tests/unit/test_spec006_reconciler.py::TestCorrectionsExpire` keeps this honest: if a spec
+# edit ever makes one of these names correct, the entry becomes a lie that silently permits real
+# drift, and that test fails until it is deleted. An override table with no expiry is how a
+# one-time correction becomes permanent blindness.
+# Tasks whose test is NEW but lives in a file that already exists (§9's "extend, do not replace").
+#
+# `--collect` treats a missing *file* as an unbuilt group, which is correct. It cannot make the
+# same inference for a missing *test in a present file* — that is indistinguishable from the
+# wrong-name defect C6 found four times. So the distinction is declared rather than guessed.
+#
+# **Each entry must be deleted the moment its group lands.** An entry that outlives its group
+# silently exempts a real node id from the collect check — the same "sanctioned disagreement"
+# hazard as SPEC_NODE_ID_CORRECTIONS below, and the reason G-Final's F.3b must run with this set
+# empty. Verified by mutation (M4): removing an entry turns its unresolved node id red.
+PENDING_TESTS_IN_EXISTING_FILES = {
+    "G4.2",  # A12 — test_gateway_safety.py, new: trust scoped to an account
+    "G4.3",  # A13 — test_gateway_property_resolution.py, new: unchanged under tenancy
+    "G8.1",  # A21 — test_staff_pto.py, new: notify_staff's fallback ladder
+}
+
 SPEC_NODE_ID_CORRECTIONS = {
     # A2 is the load-bearing one: it is the *prerequisite's own* verification step (§6 P2,
     # "the six existing gateway test files pass (A2)"), so trusting §8 would gate the
@@ -211,6 +227,9 @@ def main() -> int:
                     cwd=ROOT,
                 )
                 if r.returncode != 0:
+                    if task_id in PENDING_TESTS_IN_EXISTING_FILES:
+                        unbuilt += 1  # C6: a new test in an existing file, not yet written
+                        continue
                     problems.append(
                         f"{task_id}: node id `{nid}` does not resolve "
                         f"(file exists, test name wrong)"

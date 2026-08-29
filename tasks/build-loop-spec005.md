@@ -350,13 +350,13 @@ anything reads its tables); **Step 7 before Step 8** (export exists before delet
 ### [x] G17 — Step 17: the GA readiness surface — *dep: all* — **the exit criterion**
 - [x] G17.1 · §6 Step 17 · A33 · one surface enumerating the six `SAAS_PRD:189-196` gates with status, the three §1.6 inbound gates **explicitly unresolved** where they are; **none reports a false green** · verify: `tests/integration/test_ga_readiness.py::test_all_gates_tracked`
 
-### [ ] G-Final — Compound-stop verification (conventions §4.1)
-- [ ] F.1 · full-suite `pytest -q` green (condition C)
-- [ ] F.2 · every §8 criterion green by its own named test (condition E) — **all 36, run by node id**
-- [ ] F.3a · walk §6 top-to-bottom: every step has a task (condition B, steps) — **17 steps**
-- [ ] F.3b · `py scripts/spec005_reconcile.py --collect` exits 0 (condition B, criteria) — **derived, never range-checked (C7)**; `--collect` also proves every declared node id resolves
-- [ ] F.4 · smoke green (condition D)
-- [ ] F.5 · write end-of-run report `tasks/build-loop-spec005-report.md` (§5)
+### [x] G-Final — Compound-stop verification (conventions §4.1)
+- [x] F.1 · full-suite `pytest -q` green (condition C) — **2405 passed, 3 skipped, 2 xfailed, 0 failed** (329s). Baseline 2184; +221 tests, no new skip. **Red on the first run** — 9 failures from this phase's own logging config (§2.2 BD21)
+- [x] F.2 · every §8 criterion green by its own named test (condition E) — **all 36, run by node id**
+- [x] F.3a · walk §6 top-to-bottom: every step has a task (condition B, steps) — **17 steps**
+- [x] F.3b · `py scripts/spec005_reconcile.py --collect` exits 0 (condition B, criteria) — **derived, never range-checked (C7)**; `--collect` also proves every declared node id resolves
+- [x] F.4 · smoke green (condition D)
+- [x] F.5 · write end-of-run report `tasks/build-loop-spec005-report.md` (§5)
 
 ---
 
@@ -450,9 +450,17 @@ the first version of the test failed on both (§2.2 BD20).
 transcribing them. **The harness's own "five bullets" was wrong — there are six** (§2.2 BD20),
 which is exactly what deriving rather than typing exists to catch.
 
-**All 17 steps built.** `py scripts/spec005_reconcile.py --collect` reports **36/36 node ids
-resolve, 0 criteria unbuilt**. G-Final is the remaining work: F.1 (full suite), F.2 (every
-criterion by node id), F.4 (smoke), F.5 (the report).
+**COMPLETE.** All 17 steps built and G-Final green:
+
+- **F.1** — `2405 passed, 3 skipped, 2 xfailed, 0 failed` (329s). Baseline was 2184, so this
+  phase added **221 tests and no new skip**. Red on its first run; see BD21.
+- **F.2/F.3b** — `spec005_reconcile.py --collect`: **36/36 node ids resolve, 0 unbuilt**.
+- **F.3a** — 17 of 17 §6 steps tasked.
+- **F.4** — smoke green (18 passed).
+- **F.5** — `tasks/build-loop-spec005-report.md`.
+
+**What remains is not build work.** `mihomes ga-readiness` reports **3 of 6 GA gates met**; the
+other three are founder decisions (§0.8 U1, U2, U7) and the command exits 1 while any is open.
 
 Superseded note, kept because it was the resume pointer: the survey findings that shaped G13 —
 `cli/jobs.py`'s `weekly-digest` is a **print-only stub** (`"Weekly digest: 0 account(s) sent."`,

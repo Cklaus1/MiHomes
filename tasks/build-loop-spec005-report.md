@@ -1,9 +1,7 @@
 # SPEC-005 build-loop report — Phase 4: Polish + Email Lifecycle + GA
 
-**Status:** all 17 steps built; 36/36 acceptance criteria gated, every node id resolving.
-**Condition C (full suite) is the remaining gate** — its first run was red (§3.6), the cause was
-fixed, and the confirming run is recorded in §6. Do not read this report as "complete" until §6
-carries a green count.
+**Status:** COMPLETE. All 17 steps built, 36/36 acceptance criteria gated and green, full suite
+**2405 passed / 3 skipped / 2 xfailed / 0 failed** (baseline 2184 — 221 tests added, no new skips).
 **Branch:** `worktree-spec-build-harness`. **Base:** `661f6f5` (SPEC-004 complete).
 **Spec:** `docs/specs/SPEC-005-phase4-polish-email-ga.md`
 
@@ -41,7 +39,7 @@ Bold rows are this session's work (G1–G11 landed earlier in the run).
 |---|---|---|
 | **A** | Every checkbox `[x]` or `[!]` | ✅ — G5.3 is `[!]` (U10, infra half unanswerable from the repo) |
 | **B** | Every §6 step tasked, every §8 criterion gated | ✅ — 17 steps; `spec005_reconcile.py --collect` exits 0 |
-| **C** | Full suite green including this spec's tests | ⏳ — **red on the first run** (9 failed, from this phase's own logging config); fixed, confirming run in §6 |
+| **C** | Full suite green including this spec's tests | ✅ — **2405 passed, 0 failed** (329s). Red on its first run (9 failed, from this phase's own logging config, §3.6); fixed and re-run |
 | **D** | Smoke green | ✅ — `test_smoke_all_tools.py` |
 | **E** | Every §8 criterion green by its own named test | ✅ — **36/36 node ids resolve** |
 
@@ -195,8 +193,9 @@ Also carried, and **not** made safe by this phase (§10):
 
 ## 6. Verification
 
-- **F.1** — full suite. **Red on its first run (9 failed / 2394 passed), all from this
-  phase's own logging config**; fixed and re-run — see §3.6 and BD21.
+- **F.1** — ✅ **2405 passed, 3 skipped, 2 xfailed, 0 failed** in 329s. Baseline was 2184, so
+  this phase added 221 tests and introduced no new skip. **Red on its first run** (9 failed /
+  2394 passed), all from this phase's own logging config — see §3.6 and BD21.
 - **F.2** — all 36 §8 criteria green by their own node ids (`--collect` resolves 36/36).
 - **F.3a** — 17 of 17 §6 steps tasked.
 - **F.3b** — `py scripts/spec005_reconcile.py --collect` exits 0.

@@ -19,9 +19,14 @@ earlier phases' were not:
 > whole database and looks like a working feature. **A deletion that misses a table** leaves
 > personal data behind and is a regulatory finding, not a bug report.
 
-**Exit criteria:** the six-bullet **GA definition of done** (`SAAS_PRD:189-196`) — the only spec in
-the set whose exit criteria were written before the spec was. **A33** is the gate that proves them
-present and none falsely green.
+**Exit criteria:** the **GA definition of done** (`SAAS_PRD:189-196`) — the only spec in the set
+whose exit criteria were written before the spec was. **A33** is the gate that proves them present
+and none falsely green.
+
+**Six bullets, measured at G17.** The count is deliberately not restated as a number anywhere the
+code reads: `services/ga_readiness.py` parses them from the PRD, because a transcribed list is
+correct the day it is written and silently wrong afterwards. A mid-run survey of this repo
+reported "five", and only the derivation caught it (§2.2 BD20).
 
 ---
 
@@ -335,15 +340,15 @@ anything reads its tables); **Step 7 before Step 8** (export exists before delet
 ### [x] G14 — Step 14: `audit_export` end to end — *dep: G12*
 - [x] G14.1 · §6 Step 14 · A34 · route + CLI; every `Denied` names an `upgrade_target`. The gate sits on the **read/export** path, never on `record_change` — gating that would break every write in the app (F6) · verify: `tests/unit/test_estate_gates.py::test_denied_names_target`
 
-### [ ] G15 — Step 15: observability and error handling — *dep: none*
-- [ ] G15.1 · §6 Step 15 · A31 · real `dictConfig` (JSON in prod), FastAPI handlers **extending** the two that exist (C4), `error.html`, and **`/healthz` added to the product app** (C2 — it is landing-only today); one structured log record with a request id · verify: `tests/unit/test_errors.py::test_handler_and_log`
-- [ ] G15.2 · §6 Step 15 · A32 · no bare swallow **in the request path** — scoped per C3 to `web/` + the services its routes reach, not the 154 tree-wide · verify: `tests/unit/test_errors.py::test_no_silent_swallow`
+### [x] G15 — Step 15: observability and error handling — *dep: none*
+- [x] G15.1 · §6 Step 15 · A31 · real `dictConfig` (JSON in prod), FastAPI handlers **extending** the two that exist (C4), `error.html`, and **`/healthz` added to the product app** (C2 — it is landing-only today); one structured log record with a request id · verify: `tests/unit/test_errors.py::test_handler_and_log`
+- [x] G15.2 · §6 Step 15 · A32 · no bare swallow **in the request path** — scoped per C3 to `web/` + the services its routes reach, not the 154 tree-wide · verify: `tests/unit/test_errors.py::test_no_silent_swallow`
 
-### [ ] G16 — Step 16: the deliverability check — *dep: none*
-- [ ] G16.1 · §6 Step 16 · A20 · **B1's edit** — delete `adkim=s; aspf=s` from `GTM:273`; D17's documentation test, not a live DNS query · verify: `tests/unit/test_docs_dns.py::test_dmarc_relaxed`
+### [x] G16 — Step 16: the deliverability check — *dep: none*
+- [x] G16.1 · §6 Step 16 · A20 · **B1's edit** — delete `adkim=s; aspf=s` from `GTM:273`; D17's documentation test, not a live DNS query · verify: `tests/unit/test_docs_dns.py::test_dmarc_relaxed`
 
-### [ ] G17 — Step 17: the GA readiness surface — *dep: all* — **the exit criterion**
-- [ ] G17.1 · §6 Step 17 · A33 · one surface enumerating the six `SAAS_PRD:189-196` gates with status, the three §1.6 inbound gates **explicitly unresolved** where they are; **none reports a false green** · verify: `tests/integration/test_ga_readiness.py::test_all_gates_tracked`
+### [x] G17 — Step 17: the GA readiness surface — *dep: all* — **the exit criterion**
+- [x] G17.1 · §6 Step 17 · A33 · one surface enumerating the six `SAAS_PRD:189-196` gates with status, the three §1.6 inbound gates **explicitly unresolved** where they are; **none reports a false green** · verify: `tests/integration/test_ga_readiness.py::test_all_gates_tracked`
 
 ### [ ] G-Final — Compound-stop verification (conventions §4.1)
 - [ ] F.1 · full-suite `pytest -q` green (condition C)
@@ -432,15 +437,22 @@ untouched (N8). Mutation-checked two ways; **the first A14 was green with the ga
 `upgrade_target` that G12's `EntitlementDenied` carries. Verified live: Estate 200, Pro 402.
 **The source-level A34 was green with the fix deleted** — it matched the log line (§2.2 BD19).
 
-Resume at **G15.1** — observability. The survey's measurements for it: `logging_config.py`
-exports only `setup_logging()`, uses imperative `getLogger` + `RotatingFileHandler` with **no
-`dictConfig` and no JSON**; `web/app.py` registers exactly **two** handlers (`EntityNotFoundError`
-→404 at :148, `AmbiguousIdentifierError`→400 at :152) and has **zero** routes of its own, so
-`/healthz` must be *added* (it exists only on the landing app, `landing/routes.py:41`);
-`web/errors.py` and `templates/error.html` do not exist. A32 stays scoped to `web/` per C3.
+**G15 complete** — one `dictConfig` with a JSON formatter, `web/errors.py` (request id,
+catch-all handler, `/healthz`), and `error.html`. **Nine silent swallows found in the request
+path and not one was `except Exception: pass`** (§2.2 BD20). Two spec claims corrected by
+measurement (C2, C4).
 
-Then **G16** (the D17 DMARC documentation test — B1's edit is already applied) and **G17**
-(the GA readiness surface, over five bullets).
+**G16 complete** — the D17 documentation test. B1's edit was already applied, so this is the
+regression gate. Two documents legitimately quote the defective record to argue against it, and
+the first version of the test failed on both (§2.2 BD20).
+
+**G17 complete** — `mihomes ga-readiness`, parsing the bullets from `SAAS_PRD.md` rather than
+transcribing them. **The harness's own "five bullets" was wrong — there are six** (§2.2 BD20),
+which is exactly what deriving rather than typing exists to catch.
+
+**All 17 steps built.** `py scripts/spec005_reconcile.py --collect` reports **36/36 node ids
+resolve, 0 criteria unbuilt**. G-Final is the remaining work: F.1 (full suite), F.2 (every
+criterion by node id), F.4 (smoke), F.5 (the report).
 
 Superseded note, kept because it was the resume pointer: the survey findings that shaped G13 —
 `cli/jobs.py`'s `weekly-digest` is a **print-only stub** (`"Weekly digest: 0 account(s) sent."`,
@@ -843,6 +855,57 @@ when nothing happened at all.**
 negative — did not raise, was not called, is None — ask what it would take for the assertion to
 be *vacuously* true, and make the positive case a parameter of the same test. Every one of these
 was invisible by reading and immediate under mutation.
+
+**BD20 — G15–G17: what the last three groups found, and the one pattern joining them.**
+
+Every one of these was found by *running* something rather than reading it, which is the same
+lesson BD7 recorded about `mihomes cron setup` and BD19 about vacuous assertions.
+
+**G15 — nine silent swallows, none of them `except Exception: pass`.** The shape everyone greps
+for did not occur once. What occurred nine times was a handler that set a *user-facing* error
+string and told the operator nothing: an AI call degrading to "AI isn't configured", a weather
+forecast falling back to `None`. Those are not crashes, which is why a hardening pass looking
+for crashes left every one — and they are precisely N15's failure, where the customer sees the
+problem and the operator never does. Found by an **AST walk asking whether the handler logs or
+re-raises**; a grep for `pass` finds zero of the nine.
+
+Two live bugs the probe caught before any test existed: `mihomes.db` exposes `get_engine()`, not
+a module-level `engine`, so the first `/healthz` raised `ImportError` on every call; and the HTML
+500 came back with **no `X-Request-ID`**, because an unhandled exception unwinds *past* the
+middleware and its header assignment never runs — on the one response a support ticket most
+needs the reference for.
+
+C2 and C4 both corrected: `/healthz` existed only on the landing app and had to be *added*, and
+two exception handlers already existed, so Step 15 extends rather than introduces. `/healthz` is
+the third `PERMANENT_ALLOWLIST` entry, and the declaration gate fired on it immediately — exactly
+the fail-closed inheritance C8 predicted.
+
+**G16 — the test's first version failed on two documents that were right.** `PRD_REVIEW.md` §A6
+and SPEC-005 §2.1 both quote the defective DMARC record *in order to argue against it*; a naive
+scan reads the diagnosis as the disease. Excluded by path, never by pattern: the tempting filter
+("skip records containing an ellipsis") would also skip a real record somebody abbreviated while
+pasting, which is this file's entire subject. The exclusion has its own test — it must keep
+pointing at a document that says "do not set", and must keep matching something.
+
+**G17 — the harness's own count was wrong.** §0.3 and this file both said the GA definition of
+done was five bullets. It is **six**. The surface parses them from `SAAS_PRD.md`, so the miscount
+surfaced on the first run instead of being frozen into the gate and under-reporting GA forever.
+That is N5's rule (never enumerate by hand) arriving in the readiness surface rather than in the
+export or the purge.
+
+Two more live bugs, both from invoking the command: **the tenant gate for the third time this
+run** — `ga-readiness` reads a markdown file and no database, but inherited the root callback's
+account gate, so on a multi-account install the command answering "can we launch" exited 1 with a
+list of account slugs (BD7's shape, third instance, third separate discovery) — and **Rich
+deleting the text it was asked to print**: two bullets open with `**[regression check, not new
+work]**`, and `rprint` parses `[...]` as a style tag, so the operator read a gate with its most
+important qualifier silently removed.
+
+**The pattern across all three groups, stated once:** every defect here was invisible to reading
+the code and immediate on execution. Three of them (BD7's tenant gate, the missing request id,
+Rich's markup) were in the *presentation* layer, which no unit test of the underlying service
+would ever touch — which is why Step 17's "a single command or page" is a requirement about a
+surface, and why A33 is tested through the Typer app rather than by calling `render()`.
 
 ## 3. Circuit breaker (conventions §3)
 

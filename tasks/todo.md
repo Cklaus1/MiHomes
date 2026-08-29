@@ -28,9 +28,16 @@ Last updated: 2026-08-06
 criterion gated · full suite green · smoke *(N/A this phase — declared, not dropped)* · all 18
 §8 criteria green by their own named tests. No intermediate review stops.
 
-**Remaining specs** (`docs/specs/`): SPEC-002 … SPEC-008 are unharnessed. Author each one's
-harness after the preceding run's lessons land. SPEC-007 does not exist by design. SPEC-006 is
-blocked on an unowned human decision (reconcile `telegram-bot` with `origin/main`).
+**Remaining specs** (`docs/specs/`): SPEC-008 is unharnessed. Author each one's harness after the
+preceding run's lessons land. SPEC-007 does not exist by design.
+
+**SPEC-006 — harness authored 2026-08-29, not run.** `tasks/build-loop-spec006.md` +
+`scripts/spec006_reconcile.py` (25/25 criteria gated, mutation-checked five ways). **The blocker
+above was half right and the distinction matters**: `telegram-bot` ↔ `origin/main` is still
+unreconciled (30 ahead / 13 behind, unowned) — but the pre-flight *measured* every module §3–§5
+consumes as present on `worktree-spec-build-harness`, so the build can proceed here. Harness §0.2
+says at length why "the code is here" is not "the branches are reconciled", and carries the
+reconciliation as U1 so a green run cannot be read as closing it.
 
 ---
 

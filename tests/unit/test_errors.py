@@ -214,6 +214,74 @@ def test_logging_is_one_dictconfig():
     assert set(config["formatters"]) >= {"plain", "json"}
 
 
+def test_the_config_owns_no_stream_handler():
+    """No `StreamHandler`, and this is a regression gate rather than a style rule.
+
+    The first version of this config had a console handler. `StreamHandler` binds whatever
+    `sys.stderr` *is* at construction time and keeps that object — so once anything replaces the
+    stream, every emit raises `ValueError: I/O operation on closed file`, and **a failed emit
+    aborts the record before the remaining handlers run**. The durable file handler lost the
+    record too.
+
+    That cost nine failures in the full suite, all of them passing in isolation, all reading as
+    "the code did not log" when the code had logged. `ext://sys.stderr` does not fix it — that
+    is resolved at configuration time as well.
+    """
+    handlers = logging_dict_config()["handlers"]
+
+    for name, spec in handlers.items():
+        assert "StreamHandler" not in spec["class"], (
+            f"handler {name!r} is a StreamHandler. It binds a stream that outlives its "
+            "validity, and a failed emit takes the whole record down with it — including the "
+            "file handler that F7 exists to feed"
+        )
+
+    assert any("RotatingFileHandler" in s["class"] for s in handlers.values()), (
+        "the durable sink is the point: a swallowed error that reaches no file is "
+        "indistinguishable from one that was never raised"
+    )
+
+
+def test_records_reach_the_root_logger():
+    """`propagate` must stay **True** — the second half of the same nine failures.
+
+    `propagate: False` means nothing attached to the root ever sees a record from this tree:
+    not `caplog`, not a `basicConfig` in a script, not an operator's handler, not an aggregator
+    agent. The config here owns the only handler on `mihomes`, so the duplicate that False was
+    guarding against cannot occur — and the guard cost the ability to observe our own logs from
+    anywhere else, which is precisely backwards for an observability change.
+
+    Asserted by *capturing* rather than by reading the flag, so a future config that sets
+    `propagate: True` while breaking propagation some other way still fails.
+    """
+    import logging as _logging
+
+    from mihomes.logging_config import setup_logging
+
+    assert logging_dict_config()["loggers"]["mihomes"]["propagate"] is True
+
+    setup_logging()
+
+    records: list[_logging.LogRecord] = []
+
+    class _Capture(_logging.Handler):
+        def emit(self, record):
+            records.append(record)
+
+    root = _logging.getLogger()
+    handler = _Capture()
+    root.addHandler(handler)
+    try:
+        _logging.getLogger("mihomes.test_propagation").error("reached the root")
+    finally:
+        root.removeHandler(handler)
+
+    assert any(r.getMessage() == "reached the root" for r in records), (
+        "a record logged under `mihomes` never reached a root handler — caplog and every "
+        "external log consumer are blind to this application's own errors"
+    )
+
+
 @pytest.mark.parametrize(
     ("env", "expected"),
     [({"MIHOMES_ENV": "production"}, "json"), ({}, "plain")],

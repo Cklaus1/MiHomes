@@ -135,19 +135,46 @@ def logging_dict_config() -> dict[str, Any]:
                 "formatter": _format_name(),
                 "level": level,
             },
-            "console": {
-                "class": "logging.StreamHandler",
-                "formatter": _format_name(),
-                "level": level,
-            },
+            # **There is deliberately no console handler.**
+            #
+            # The first version had one, and it cost nine test failures that took a full-suite
+            # run to see. `logging.StreamHandler` binds whatever `sys.stderr` *is* when the
+            # handler is constructed and holds that object forever — so once anything replaces
+            # the stream (pytest's per-test capture being the obvious case, but `nohup`,
+            # daemonisation and a rotated systemd journal do it too), every emit fails with
+            # `ValueError: I/O operation on closed file`.
+            #
+            # The consequence is worse than a lost console line: **a failed emit aborts the
+            # record before the remaining handlers run**, so the file handler lost it as well.
+            # Nine tests asserting "this failure was logged" read as *the code did not log*
+            # when the code had logged perfectly — and every one of them passed in isolation.
+            # `ext://sys.stderr` does not fix it; that is resolved at configuration time too.
+            #
+            # A library's logging config has no business owning the terminal in any case. The
+            # durable sink is the rotating file — which is what F7 was about, since a swallowed
+            # error that reaches no file is indistinguishable from one never raised. A CLI that
+            # wants console output can add its own handler, where the process that owns the
+            # stream also owns its lifetime.
         },
         "loggers": {
             "mihomes": {
-                "handlers": ["file", "console"],
+                "handlers": ["file"],
                 "level": level,
-                # False: the root logger has no handler of ours, and propagating would duplicate
-                # every record if anything else configures one.
-                "propagate": False,
+                # **True**, and the first version had it False.
+                #
+                # The reasoning for False was "the root has no handler of ours, so propagating
+                # would duplicate records if anything else configures one". That trades a
+                # hypothetical duplicate for a real loss: `propagate: False` means **nothing
+                # attached to the root logger ever sees a record from this tree** — pytest's
+                # `caplog`, a `logging.basicConfig` in a script, an operator's own handler, or
+                # an aggregator agent that hooks the root.
+                #
+                # Measured: four tests asserting "this failure was logged" failed with an empty
+                # `caplog`, because the record reached the file handler and stopped there. The
+                # duplicate this guarded against never materialised — this config owns the only
+                # handler here — and the guard cost the ability to observe our own logs from
+                # anywhere else, which is the opposite of what F7 asked for.
+                "propagate": True,
             },
         },
     }

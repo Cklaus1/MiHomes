@@ -66,7 +66,12 @@ def main(
     # lines and reads nothing — but it inherited the tenant gate, so on a multi-account install
     # the one command that tells an operator what to schedule exited 1. Found by SPEC-005 A15
     # invoking it, not by reading: every test of its output had constructed the panel directly.
-    if ctx.invoked_subcommand in ("jobs", "cron"):
+    # **`ga-readiness` is the third instance, found the same way a third time.** It parses
+    # `SAAS_PRD.md` and reads no database at all, but inherited the tenant gate — so on a
+    # multi-account install the command that answers "can we launch" exited 1 with a list of
+    # account slugs. Caught by A33 *invoking* it; every check of its content had called
+    # `render()` directly, which is the same blind spot that hid the `cron` bug (BD7).
+    if ctx.invoked_subcommand in ("jobs", "cron", "ga-readiness"):
         return
 
     _bind_account(ctx, account)
@@ -190,6 +195,33 @@ def version_cmd():
     rprint(f"[bold]MiHomes[/bold] v{__version__}")
     rprint(f"Python {sys.version.split()[0]}")
     rprint(f"Database: {DB_PATH} ({'exists' if is_initialized() else 'not initialized'})")
+
+
+@app.command("ga-readiness")
+def ga_readiness_cmd():
+    """Where GA stands, against `SAAS_PRD.md`'s own definition of done (SPEC-005 Step 17).
+
+    **Reports what is outstanding, and exits 1 when anything is.** A command that always exits 0
+    is one an operator stops reading; the exit code is what lets "are we ready" be asked by
+    something other than a person.
+
+    It does **not** claim the blocked gates can be closed from here — three are founder
+    decisions and one is a legal document. What it guarantees is that none of them is silently
+    absent, which is A33's actual claim.
+    """
+    from mihomes.services.ga_readiness import Status, ga_gates, render
+
+    # **`print`, not `rprint`.** The bullets are markdown copied verbatim from the PRD and two of
+    # them open with `**[regression check, not new work]**` — Rich parses `[...]` as a style tag
+    # and *deletes* it, so the operator saw a gate with its most important qualifier silently
+    # removed. Measured: A33's "every bullet reaches the operator" assertion failed on exactly
+    # those two. Escaping would work; not asking Rich to render untrusted document text is
+    # simpler and cannot regress.
+    print(render())
+
+    outstanding = [g for g in ga_gates() if g.status is not Status.MET]
+    if outstanding:
+        raise typer.Exit(code=1)
 
 
 # Register sub-apps

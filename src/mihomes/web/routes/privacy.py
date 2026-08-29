@@ -106,6 +106,87 @@ def request_account_deletion(
     )
 
 
+#: Row 19. Owner and admin ALLOW, staff DENY — the key already exists and already means
+#: "may take this account's data out". Reused rather than adding a 21st, for the same reason
+#: `PRIVACY_ACTION` reuses row 16.
+#:
+#: **This is the RBAC half only.** D10 keeps the two gates independent and requires both to
+#: pass: `export.data` says *this role* may export, `audit.export` says *this plan* includes
+#: the audit log. An owner on Pro passes the first and fails the second, which is the whole
+#: point of the Estate tier.
+AUDIT_EXPORT_ACTION = "export.data"
+
+
+@router.get("/privacy/audit-export")
+@declares(AUDIT_EXPORT_ACTION, Access.ACCOUNT)
+def export_audit_log(
+    request: Request,
+    principal=require_authenticated(),
+    db: Session = Depends(get_db),
+):
+    """Download this account's audit log. **Estate-only** (SPEC-005 Step 14, A34).
+
+    The surface half of G12's gate: A12 proved the service denies, this proves a user who
+    reaches for it is told *what to do about it*. `PRICING` rule 4 — every `Denied` names the
+    plan that would allow it — is a statement about this response, not about the decision
+    object, and a 402 with no `upgrade_target` is where a paywall becomes a dead end.
+
+    **402, not 403.** 403 is the role gate's answer and is already spoken by `@declares` above;
+    reusing it here would make "your plan does not include this" indistinguishable from "your
+    role may not do this" — two different problems with two different fixes, one of which the
+    customer can solve by paying and the other they cannot.
+    """
+    from mihomes.entitlements.service import EntitlementDenied
+    from mihomes.models.account import Account
+    from mihomes.services.audit import export as export_audit
+
+    account = db.get(Account, principal.account_id)
+
+    try:
+        entries = export_audit(db, account=account)
+    except EntitlementDenied as denied:
+        # The decision travels intact from `can()` to here — which is why G12 raises
+        # `EntitlementDenied` rather than a bare `PermissionError`. A message string would have
+        # arrived with nothing to offer.
+        logger.info(
+            "audit export denied: account=%s upgrade_target=%s",
+            principal.account_id, denied.upgrade_target,
+        )
+        return JSONResponse(
+            status_code=402,
+            content={
+                "error": "plan_required",
+                "reason": str(denied),
+                "upgrade_target": denied.upgrade_target,
+            },
+        )
+
+    payload = [
+        {
+            "timestamp": entry.timestamp.isoformat(),
+            "entity_type": entry.entity_type,
+            "entity_id": str(entry.entity_id),
+            "action": entry.action,
+            "actor": entry.actor,
+            "changes": entry.changes,
+        }
+        for entry in entries
+    ]
+
+    logger.info("audit export downloaded: account=%s rows=%d",
+                principal.account_id, len(payload))
+
+    return Response(
+        content=json.dumps(payload, indent=2, default=str),
+        media_type="application/json",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="mihomes-audit-{principal.account_id}.json"'
+            )
+        },
+    )
+
+
 @router.post("/privacy/delete/cancel")
 @declares(PRIVACY_ACTION, Access.ACCOUNT)
 def cancel_account_deletion(

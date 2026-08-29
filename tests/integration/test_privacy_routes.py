@@ -161,3 +161,47 @@ def test_cancel_is_idempotent(owner):
     assert first["cancelled"] is True
     assert second["cancelled"] is False
     assert second["state"] == "nothing_to_cancel"
+
+
+# ── G14 / A34 — the audit export, at the surface a user reaches ────────────────
+#
+# `test_estate_gates.py::test_denied_names_target` asserts the *source* carries the upgrade
+# target, which cannot see a route that 500s on the way to saying so. These two drive it.
+# Measured before they were written: Estate → 200, Pro → 402 with `upgrade_target: estate`.
+
+
+def test_an_estate_owner_can_export_the_audit_log(owner, _pg_engine):
+    """The positive case. Without it, the denial test below cannot tell a working paywall from
+    a route that is broken for everybody."""
+    from sqlalchemy import text
+
+    with _pg_engine.begin() as conn:
+        conn.execute(text("UPDATE accounts SET plan = 'estate' WHERE slug LIKE 'acct-a%'"))
+
+    response = owner.get("/privacy/audit-export")
+
+    assert response.status_code == 200, response.text
+    assert "attachment" in response.headers.get("content-disposition", "")
+
+
+def test_a_pro_owner_is_denied_and_told_what_to_buy(owner, _pg_engine):
+    """**A34** at the route: the denial names the plan that would allow it.
+
+    402 rather than 403 on purpose — 403 is what the *role* gate returns, and a customer who
+    cannot tell "your plan lacks this" from "your role lacks this" cannot tell which of the two
+    they are able to fix.
+    """
+    from sqlalchemy import text
+
+    with _pg_engine.begin() as conn:
+        conn.execute(text("UPDATE accounts SET plan = 'pro' WHERE slug LIKE 'acct-a%'"))
+
+    response = owner.get("/privacy/audit-export")
+
+    assert response.status_code == 402, response.text
+
+    body = response.json()
+    assert body["error"] == "plan_required"
+    assert body["upgrade_target"] == "estate", (
+        "A34: the denial must name the plan that would allow it, not merely refuse"
+    )

@@ -101,6 +101,64 @@ def test_denied_names_a_plan_that_actually_allows(monkeypatch):
             )
 
 
+def test_denied_names_target():
+    """A34 — every `Denied` from an Estate gate names an `upgrade_target`, **at the surfaces**.
+
+    A12 covers the decision; this covers what a user actually reaches. The distinction is the
+    whole reason §8 gives A34 its own row: a service that denies correctly behind a route that
+    renders "403 Forbidden" has satisfied A12 and failed the customer.
+
+    Three things are asserted together because each alone is insufficient:
+
+    1. The **decision** carries a target (the mechanism).
+    2. The **route** puts it in the response body (`web/routes/privacy.py`).
+    3. The **CLI** prints it and exits distinguishably (`cli/audit.py`).
+
+    Checked against the source for 2 and 3 rather than by driving them — the live route is
+    exercised in `test_privacy_routes.py`, and what this asserts is that neither surface can
+    quietly stop carrying the field, which is a property of the code.
+    """
+    import inspect
+
+    from mihomes.cli import audit as audit_cli
+    from mihomes.web.routes import privacy as privacy_routes
+
+    # 1 — the mechanism. Both Estate gates, both non-Estate plans.
+    for action, _key in STEP_12_GATES:
+        for plan in ("free", "pro"):
+            decision = can(FakeAccount(plan), action)
+            assert isinstance(decision, Denied)
+            assert decision.upgrade_target == "estate", (
+                f"{plan}/{action} denied without naming the plan that would allow it"
+            )
+
+    # 2 — the route. `EntitlementDenied` carries the target; the response must **spend** it.
+    #
+    # Asserted on the response *content*, not on the function text. The first version grepped
+    # the whole source, and deleting `upgrade_target` from the JSON body left it green — the
+    # name still appeared in the `logger.info` call one line above. A denial logged and not
+    # sent is precisely the failure A34 is about, so the check has to distinguish the two.
+    route_src = inspect.getsource(privacy_routes.export_audit_log)
+    assert "EntitlementDenied" in route_src, (
+        "the route must catch the entitlement denial rather than let it 500"
+    )
+    assert '"upgrade_target": denied.upgrade_target' in route_src, (
+        "A34: the route must put the upgrade target in the response body — logging it tells "
+        "the operator and leaves the customer with a dead end"
+    )
+    assert "402" in route_src, (
+        "a plan denial must be distinguishable from the role gate's 403 — different problems, "
+        "and only one of them is fixable by paying"
+    )
+
+    # 3 — the CLI. Same denial, same obligation.
+    cli_src = inspect.getsource(audit_cli.export_audit)
+    assert "EntitlementDenied" in cli_src
+    assert "upgrade_target" in cli_src, (
+        "A34: the CLI denies without naming the upgrade target"
+    )
+
+
 def test_audit_write_ungated(session, account_a):
     """A13 — `record_change` fires for **every** account on **every** plan (F6, N7).
 

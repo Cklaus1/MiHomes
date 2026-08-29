@@ -75,6 +75,69 @@ def recent_audit(
         console.print(table)
 
 
+@app.command("export")
+def export_audit(
+    output: Optional[str] = typer.Option(
+        None, "--output", "-o", help="Write JSON here instead of stdout."
+    ),
+    days: Optional[int] = typer.Option(
+        None, "--days", "-d", help="Only entries from the last N days."
+    ),
+):
+    """Export this account's audit log as JSON. **Estate-only** (SPEC-005 Step 14, A34).
+
+    The CLI half of the same gate the route enforces. A34 requires the denial to name the
+    upgrade target *at both surfaces*, because an operator scripting against this command gets
+    the same dead end a customer would: "denied" with nothing to do about it is indistinguishable
+    from a bug.
+
+    Exits **2** on a plan denial rather than 1: a script can tell "you need a different plan"
+    from "the command failed", and only one of those is worth retrying.
+    """
+    import json as _json
+    from datetime import date, timedelta
+
+    from mihomes.entitlements.service import EntitlementDenied
+    from mihomes.models.account import Account
+    from mihomes.services.audit import export as _export
+    from mihomes.tenancy.context import require_account
+
+    start = date.today() - timedelta(days=days) if days else None
+
+    with get_session() as session:
+        account = session.get(Account, require_account())
+        try:
+            entries = _export(session, account=account, start_date=start)
+        except EntitlementDenied as denied:
+            console.print(f"[red]Audit export is not available on this plan.[/red] {denied}")
+            if denied.upgrade_target:
+                console.print(
+                    f"Upgrade to [bold]{denied.upgrade_target}[/bold] to enable it."
+                )
+            raise typer.Exit(code=2) from denied
+
+        payload = [
+            {
+                "timestamp": e.timestamp.isoformat(),
+                "entity_type": e.entity_type,
+                "entity_id": str(e.entity_id),
+                "action": e.action,
+                "actor": e.actor,
+                "changes": e.changes,
+            }
+            for e in entries
+        ]
+
+    rendered = _json.dumps(payload, indent=2, default=str)
+    if output:
+        from pathlib import Path
+
+        Path(output).write_text(rendered, encoding="utf-8")
+        console.print(f"Exported {len(payload)} entr(ies) to {output}.")
+    else:
+        console.print_json(rendered)
+
+
 def _format_changes(action: str, changes: dict | None, brief: bool = False) -> str:
     if not changes:
         return "-"

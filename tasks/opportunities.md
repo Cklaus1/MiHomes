@@ -1132,3 +1132,25 @@ What follows is what closing them turned up, which is more interesting than the 
   idempotent and safe to run twice — the half that is provable without one — but Fly's scheduled-
   machine mechanism has **not** been verified against their documentation, so the deployment shape
   remains a default with a named alternative rather than an asserted fact.
+
+- [DEFER][SPEC-005 U11] **~138 `except Exception` blocks outside the request path.** A32 is
+  scoped to `src/mihomes/web/` by C3 — 18 handlers, all of which now log or re-raise — because
+  scoping it to the whole tree would turn one acceptance criterion into a 154-site refactor
+  wearing its name. The remainder is real cleanup with no criterion attached.
+
+  **What G15 learned, and why the remainder is worth doing:** all nine offenders found in `web/`
+  were *not* the `except Exception: pass` shape anybody greps for. Each set a user-facing error
+  string and told the operator nothing — an AI call degrading to "AI isn't configured", a weather
+  forecast falling back to `None`. Those are not crashes, which is why a hardening pass looking
+  for crashes left every one of them.
+
+  The check that found them is reusable and cheap: an AST walk asking whether each
+  `ExceptHandler` for `Exception` **either logs or re-raises**, in
+  `tests/unit/test_errors.py::_swallows_silently`. Pointing it at `src/` rather than
+  `src/mihomes/web/` enumerates the remaining set in about a second.
+
+- [DEFER][SPEC-005 §10] **Observability is instrumentation, not alerting.** Step 15 makes the
+  system legible — one `dictConfig`, JSON in production, structured records, a request id on
+  every request and response, real exception handlers, `/healthz` on the product app. **Nobody is
+  paged.** `sentry-sdk` is config-gated and unconfigured, `PRD_REVIEW` E4 asked which monitoring
+  stack and no doc has answered. At GA someone still has to be watching.

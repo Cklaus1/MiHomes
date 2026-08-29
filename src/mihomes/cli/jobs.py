@@ -209,15 +209,113 @@ def weekly_digest(
         False, "--dry-run", help="Report who would receive it without sending."
     ),
 ) -> None:
-    """Send the weekly AI digest to accounts whose plan includes it.
+    """Send the weekly AI digest to accounts whose plan includes it (SPEC-005 Step 13).
 
-    **Step 13 fills this in**, after Step 12's gate exists. D16 enforces this as a *send*, not
-    a gate: the on-request route stays available on every plan (A14b), and what Estate buys is
-    the schedule.
+    **D16: this is a *send* gate, not a call gate.** `can(account, "report.weekly_ai")` is
+    checked here, before enqueuing — and `generate_estate_digest` is left completely ungated
+    (N8). A Pro user clicking "generate digest" on `POST /ai/estate-digest` still gets one;
+    what Estate buys is *the schedule*, which is what `PRICING:90` actually names. Gating the
+    function instead would paywall a button that works today for everyone, which SPEC-004 N9
+    already established as the wrong shape.
+
+    **The gate comes before the LLM call, not after.** Reversed, a Free account's digest would
+    be generated — at full inference cost — and then discarded, so the paywall would cost more
+    to enforce than to ignore.
+
+    Mail is **enqueued**, not sent: `drain-outbox` delivers it (D12/N2). Idempotence (A17) is
+    therefore the outbox's, not this job's.
     """
-    rprint("Weekly digest: 0 account(s) sent. (Step 13 wires the digest.)")
-    if dry_run:
-        rprint("[dim]--dry-run had no effect: nothing is sent yet.[/dim]")
+    from datetime import UTC, datetime, timedelta
+
+    from mihomes.entitlements import can
+
+    now = datetime.now(UTC)
+    end = now.date()
+    start = end - timedelta(days=DIGEST_WINDOW_DAYS)
+    period = f"{start.isoformat()} to {end.isoformat()}"
+
+    sent = skipped = failed = 0
+
+    for account_id, _ in _all_accounts():
+        try:
+            with _account_session(account_id) as (session, account):
+                decision = can(account, "report.weekly_ai")
+                if not decision:
+                    # Not an error and not silent: the count is reported below, so an operator
+                    # can tell "nobody is on Estate" from "the job did not run".
+                    skipped += 1
+                    logger.info(
+                        "weekly-digest: skipped account %s (%s); upgrade_target=%s",
+                        account_id, decision.reason, decision.upgrade_target,
+                    )
+                    continue
+
+                if dry_run:
+                    sent += 1
+                    continue
+
+                sent += _send_one_digest(session, account, start, end, period)
+                session.commit()
+        except Exception:
+            # Per-account, so one account's LLM failure does not strand every account after it —
+            # the rule every other workload here follows.
+            failed += 1
+            logger.exception("weekly-digest: failed for account %s", account_id)
+
+    verb = "would send to" if dry_run else "sent to"
+    rprint(
+        f"Weekly digest: {verb} {sent} account(s); "
+        f"{skipped} not on a plan that includes it; {failed} failed."
+    )
+
+
+#: How far back the scheduled digest looks. Seven days, matching the `0 8 * * 1` cadence in
+#: `SCHEDULE`: a weekly job reporting a non-weekly window would either double-count or leave
+#: gaps, and the two numbers drifting apart is invisible until a customer notices.
+DIGEST_WINDOW_DAYS = 7
+
+
+def _send_one_digest(session, account, start, end, period: str) -> int:
+    """Generate one account's digest and enqueue it. Returns 1 if enqueued, 0 if not.
+
+    Split out so the gate above reads as a gate rather than as twenty lines of generation, and
+    so a digest that comes back empty is a *decision* — an account with nothing to report gets
+    no mail, rather than a weekly email saying nothing happened.
+    """
+    from mihomes.services.ai.reports import generate_estate_digest
+    from mihomes.services.email import get_email_provider
+    from mihomes.services.email.service import EmailService
+
+    response = generate_estate_digest(session, start, end)
+    text = (getattr(response, "text", "") or "").strip()
+    if not text:
+        logger.info("weekly-digest: empty digest for account %s, nothing sent", account.id)
+        return 0
+
+    from mihomes.services.billing.service import _billing_email
+
+    EmailService(get_email_provider(), session=session).send_weekly_digest(
+        _billing_email(session, account),
+        digest_html=_as_html(text),
+        period=period,
+    )
+    return 1
+
+
+def _as_html(text: str) -> str:
+    """Wrap the model's plain prose in minimal markup.
+
+    Deliberately not a markdown renderer: the digest is paragraphs, and pulling a markdown
+    dependency into the mail path to render paragraphs would be the larger change. **Escaped
+    first** — the text is model output, which is not a trusted authoring surface, and the
+    template inserts the result with `|safe`.
+    """
+    from html import escape
+
+    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+    return "\n".join(
+        f'<p style="margin:0 0 16px;">{escape(p)}</p>' for p in paragraphs
+    )
 
 
 @app.command("reconcile")

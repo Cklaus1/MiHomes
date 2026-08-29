@@ -382,3 +382,29 @@ class EmailService:
             # D13: Confirms a subscription ended and until when. The record of a billing state change.
             klass="transactional",
         )
+
+    # ── SPEC-005 §6 Step 13 — the weekly digest ───────────────────────────────
+
+    def send_weekly_digest(self, to: str, *, digest_html: str,
+                           period: str | None = None) -> None:
+        """The scheduled estate digest — Estate's `weekly_ai_report` key (D16).
+
+        **`digest_html` arrives already rendered.** `generate_estate_digest` returns prose from
+        an LLM, and the caller owns turning that into markup; passing it through here keeps the
+        template a *layout* rather than a second renderer. It is inserted with `|safe`, which is
+        why the caller — not a user — must be the only source of it (see the template).
+
+        **Lifecycle, not transactional** (D13). This is the one email in the set that is
+        genuinely a *digest*: nothing has happened to the customer's account, no money moved, no
+        access is changing. Somebody who unsubscribes from mail like this is asking for exactly
+        this to stop, and A18 correctly puts `List-Unsubscribe` on it. That also makes it the
+        first lifecycle send with a real business trigger — the drips being placeholders (O1).
+        """
+        self._send(
+            to,
+            "weekly_digest",
+            {"digest_html": digest_html, "period": period},
+            # D13: A periodic summary nobody asked for individually. Suppressible, and it carries
+            # the RFC 8058 headers `drain` adds for lifecycle mail.
+            klass="lifecycle",
+        )

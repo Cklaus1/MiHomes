@@ -24,12 +24,37 @@ from datetime import date
 from typing import Any
 
 from mihomes.entitlements.limits import (
-    PLAN_LIMITS_PHASE3,
     UPGRADE_PATH,
     limits_for,
 )
 
-__all__ = ["Allowed", "Decision", "Denied", "UsageReport", "can", "usage"]
+__all__ = [
+    "Allowed",
+    "Decision",
+    "Denied",
+    "EntitlementDenied",
+    "UsageReport",
+    "can",
+    "usage",
+]
+
+
+class EntitlementDenied(PermissionError):
+    """A plan gate refused, **carrying the decision that refused it**.
+
+    A `PermissionError` with a message string loses `upgrade_target`, and `PRICING` rule 4 —
+    *"every `Denied` names the plan that would allow it"* — is about the surface the user
+    actually reaches. A route or CLI command that catches this can render the upgrade prompt;
+    one that catches a bare `PermissionError` can only say "no". That is the difference between
+    a paywall and a dead end (SPEC-005 A34).
+
+    Subclasses `PermissionError` so existing `except PermissionError` handlers keep working.
+    """
+
+    def __init__(self, decision: "Denied") -> None:
+        self.decision = decision
+        self.upgrade_target = decision.upgrade_target
+        super().__init__(decision.reason)
 
 
 @dataclass(frozen=True)
@@ -144,18 +169,6 @@ def can(
             limit=limit,
         )
 
-    # Boolean feature flags — checked against PLAN_LIMITS_PHASE3
-    feature_key = _BOOLEAN_ACTIONS.get(action)
-    if feature_key:
-        plan_limits = PLAN_LIMITS_PHASE3.get(plan, {})
-        if plan_limits.get(feature_key, False):
-            return Allowed(limit=True)
-        return Denied(
-            code="feature_not_allowed",
-            message=f"{action} requires a plan with {feature_key}",
-            upgrade_target="plan",
-        )
-
     # An action the service does not gate is allowed — entitlements only answer about the keys
     # §3.1 declares. RBAC is the gate for everything else, and conflating the two would make
     # D10's separation untrue.
@@ -169,9 +182,15 @@ def _upgrade_target(account, action: str, key: str, table) -> str | None:
     Estate-only keys: a Free user denied `predictive_maintenance` must be pointed at **estate**,
     not at pro, which would deny them again after they paid.
     """
-    from mihomes.entitlements.limits import PLAN_LIMITS_PHASE3
+    # **The same default `can()` resolved the denial against** — `limits_for`'s, which is
+    # `PLAN_LIMITS`. Defaulting to a *different* table here is how a denial names a plan that
+    # also denies: measured at SPEC-005 G12, a Free account denied `audit.export` was pointed at
+    # Pro, where `PLAN_LIMITS` denies it too. That is precisely the failure this function's
+    # docstring says it exists to prevent, and it arrived through the defaults rather than
+    # through the walk.
+    from mihomes.entitlements.limits import PLAN_LIMITS
 
-    resolution_table = table if table is not None else PLAN_LIMITS_PHASE3
+    resolution_table = table if table is not None else PLAN_LIMITS
 
     plan = getattr(account, "plan", "free")
     seen = set()

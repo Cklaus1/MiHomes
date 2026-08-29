@@ -129,17 +129,20 @@ class TestCanContract:
         assert decision.reason
 
     def test_upgrade_target_skips_a_plan_that_would_also_deny(self):
-        """`predictive_maintenance` is available on Pro and Estate, so a Free user must be
-        pointed at **pro** (the lowest plan that allows the action).
+        """`predictive_maintenance` is **Estate-only** (`PRICING:89`, `false | false | true`),
+        so a Free user must be pointed past Pro at **estate**.
 
-        The `_upgrade_target` function walks the upgrade chain and returns the first plan where
-        the feature flag is truthy — which is "pro" for `predictive_maintenance`.
+        `_upgrade_target` walks the chain and returns the first plan where the flag is truthy.
+        This asserted `"pro"` until SPEC-005 G12 measured the table against the doc: `pro`
+        carried `predictive_maintenance: True`, which is the divergence, and this expectation
+        was pinning it. The test's own name — *skips a plan that would also deny* — is the
+        behaviour being restored, not changed.
         """
         decision = can(
             FakeAccount(plan="free"), "maintenance.predict", table=PLAN_LIMITS_PHASE3
         )
         assert isinstance(decision, Denied)
-        assert decision.upgrade_target == "pro"
+        assert decision.upgrade_target == "estate"
 
     def test_no_upgrade_target_when_no_plan_would_allow(self):
         """`None` here means "nothing to sell", which is a different claim from "unfilled" —

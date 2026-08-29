@@ -11,6 +11,7 @@ from enum import Enum
 from sqlalchemy.orm import Session
 
 from mihomes.entitlements import service as entitlements
+from mihomes.entitlements.service import EntitlementDenied
 from mihomes.models.audit_log import AuditLog
 
 
@@ -92,18 +93,24 @@ def export(
         end_date: date | None = None,
         action: str | None = None,
     ) -> list[AuditLog]:
-        """Export audit log entries for the account.
+        """Export audit log entries for the account. Estate-only (SPEC-005 D10/A12).
 
-        **G12-2: Role gate — `audit.export` requires `role` in ``["admin", "owner"]``.**
-        Gate fires at the function entry, before any reads.
+        The gate is on **export**, never on `record_change` (N7/A13): that function has many
+        callers across the service layer and is written by nearly every mutation, so gating it
+        would make a Free account's *writes* fail. Same read-gate shape as SPEC-004 D14's
+        ratings.
 
-        See SPEC-005 Phase 4 §G12.
+        **Raises `EntitlementDenied` rather than returning `[]`.** Swallowing the denial was
+        the prior behaviour and it is worse than it looks: an empty list is indistinguishable
+        from "this account has no audit rows", so a Pro owner sees a working, empty export
+        rather than an upgrade prompt. It also discards the `upgrade_target`, which A34
+        requires every `Denied` to carry to the surfaces a user reaches — `PRICING` rule 4.
         """
-        # Step 12: Estate gate — audit.export
-        try:
-            entitlements.check_entitlement(account, "audit.export")
-        except PermissionError:
-            return []
+        # Step 12: Estate gate — audit.export. `can()` rather than `check_entitlement` because
+        # the decision carries `upgrade_target` and the bare `PermissionError` does not.
+        decision = entitlements.can(account, "audit.export")
+        if not decision:
+            raise EntitlementDenied(decision)
 
         from sqlalchemy import select
 

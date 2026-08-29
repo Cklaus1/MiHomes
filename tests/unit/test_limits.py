@@ -113,14 +113,19 @@ class TestUpgradeTargets:
     def test_an_estate_only_key_points_past_pro(self):
         """Walking the chain, not returning the next plan blindly.
 
-        `predictive_maintenance` is available on Pro and Estate, so a Free user denied it is
-        pointed at **pro** — the loop stops at the first plan that allows it.
+        `predictive_maintenance` is **Estate-only** (`PRICING:89`), so a Free user denied it is
+        pointed past Pro at **estate** — which is what this test's name has always claimed.
+        It asserted `"pro"` while the table wrongly granted the key to Pro; SPEC-005 G12
+        corrected the table, and the name now matches the assertion.
         """
         free = FakeAccount(plan="free")
         decision = can(free, "maintenance.predict")
 
         assert isinstance(decision, Denied)
-        assert decision.upgrade_target == "pro"
+        assert decision.upgrade_target == "estate"
+
+        # The round trip the docstring is really about: the plan named must actually allow it.
+        assert can(FakeAccount(plan=decision.upgrade_target), "maintenance.predict")
 
     def test_the_top_plan_names_no_target(self):
         """`UPGRADE_PATH["estate"]` is `None`, and that is a different statement from "nobody

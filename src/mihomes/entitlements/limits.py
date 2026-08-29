@@ -70,7 +70,12 @@ PLAN_LIMITS: dict[str, dict[str, Any]] = {
         "ai_priority": "standard",
         "vendor_ratings": True,
         "work_order_scheduling": True,
-        "predictive_maintenance": True,
+        # `PRICING:89` is `false | false | true` — Estate-only, like the two keys below it.
+        # This read `True` until SPEC-005 G12 measured it against the doc: an Estate key that
+        # Pro already had is a tier that sells nothing, and it made D10's "Free and Pro denied"
+        # untestable. §0.6 recorded the three keys as verified `False` on Free *and Pro*; that
+        # verification passed while this line disagreed with it.
+        "predictive_maintenance": False,
         "weekly_ai_report": False,
         "audit_export": False,
         "support_tier": "email",
@@ -105,14 +110,17 @@ ENTITLEMENT_KEYS = frozenset(PLAN_LIMITS["free"])
 #: These are merged on top of ``PLAN_LIMITS`` at runtime by the Phase 3 rollout
 #: code (not yet implemented). Until then, they serve as a forward-looking
 #: specification so that Phase 3 tests can assert the intended end-state.
-PLAN_LIMITS_PHASE3_OVERRIDES: dict[str, dict[str, object]] = {
-    "free": {
-        "audit_export": True,
-    },
-    "pro": {
-        "audit_export": True,
-    },
-}
+#:
+#: **Empty, and that is the correct content today.** It carried `audit_export: True` for both
+#: `free` and `pro`, which contradicts `PRICING:91` (`false | false | true`) and SPEC-005 D10
+#: ("enforced exactly as `PRICING` §3.1 writes them"). Nothing rolled it out; it was a
+#: forward-looking guess that `_upgrade_target` resolved against, so a Free denial named Pro
+#: while `can()` — resolving against `PLAN_LIMITS` — denied there too.
+#:
+#: Kept rather than deleted: the merge below is the mechanism a real Phase-N rollout needs, and
+#: an empty dict states "nothing is overridden" where no dict at all would leave the next reader
+#: to reinvent it.
+PLAN_LIMITS_PHASE3_OVERRIDES: dict[str, dict[str, object]] = {}
 
 #: Phase 3 plan limits — ``PLAN_LIMITS`` with Phase 3 overrides applied.
 #:

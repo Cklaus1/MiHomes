@@ -68,6 +68,9 @@ def weather_widget(request: Request, db: Session = Depends(get_db)):
             try:
                 forecast = get_forecast_for_property(db, prop)
             except Exception:
+                # N15: the page degrades to no forecast, which is correct; a provider outage
+                # that leaves no trace anywhere is not.
+                logger.exception("weather forecast failed for property %s", prop.slug)
                 forecast = None
             if forecast:
                 break
@@ -113,6 +116,9 @@ def weather_analyze(request: Request, db: Session = Depends(get_db)):
             try:
                 forecast = get_forecast_for_property(db, prop)
             except Exception:
+                # N15: the page degrades to no forecast, which is correct; a provider outage
+                # that leaves no trace anywhere is not.
+                logger.exception("weather forecast failed for property %s", prop.slug)
                 forecast = None
             if forecast:
                 break
@@ -138,6 +144,7 @@ def weather_analyze(request: Request, db: Session = Depends(get_db)):
                     "tasks": [t.title for t in created],
                 })
         except Exception as e:
+            logger.exception("weather AI advice failed")  # N15
             err = str(e)
             if "api_key" in err.lower() or "apikey" in err.lower() or "unauthorized" in err.lower() or "authentication" in err.lower():
                 ai_error = "AI API key not configured. Set it via CLI: mihomes config set anthropic.api_key <key>"

@@ -10,6 +10,7 @@ from fastapi.templating import Jinja2Templates
 from mihomes.config import ensure_dirs
 from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
 from mihomes.web.deps import enforce_declared_action
+from mihomes.web.errors import RequestIdMiddleware, register_error_handlers
 from mihomes.web.routes import ai as ai_route
 from mihomes.web.routes import (
     alerts,
@@ -70,6 +71,13 @@ def create_app() -> FastAPI:
     # Reject cross-site state-changing requests and non-loopback Host headers
     # (H30): defends the localhost app against browser CSRF and DNS rebinding.
     app.add_middleware(HostAndOriginGuardMiddleware)
+
+    # SPEC-005 Step 15 — a request id on every request, echoed in the response header, bound for
+    # anything that logs beneath it (A31). Added *after* the guard, so it is the **outermost**
+    # middleware: Starlette applies them in reverse registration order, and an id assigned
+    # outside the guard means even a rejected request carries one. A 400 nobody can correlate to
+    # a log line is the support ticket this exists to prevent.
+    app.add_middleware(RequestIdMiddleware)
 
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
@@ -152,6 +160,15 @@ def create_app() -> FastAPI:
     @app.exception_handler(AmbiguousIdentifierError)
     async def _ambiguous_identifier(request: Request, exc: AmbiguousIdentifierError):
         return PlainTextResponse(str(exc), status_code=400)
+
+    # SPEC-005 Step 15 — the catch-all handler and `/healthz` (A31).
+    #
+    # **Registered after the two above, and that is not an ordering dependency.** FastAPI
+    # dispatches an exception to the handler for its most specific matching type, so
+    # `EntityNotFoundError` keeps reaching `_entity_not_found` regardless of position; the
+    # generic handler catches what nothing else claimed. Written down because "registered last
+    # so it does not shadow" is the plausible-but-wrong reading.
+    register_error_handlers(app, templates=templates)
 
     return app
 

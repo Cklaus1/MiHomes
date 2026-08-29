@@ -56,6 +56,13 @@ PERMANENT_ALLOWLIST: dict[str, str] = {
         "session would make opt-out available only to people who are already customers, which "
         "is precisely backwards."
     ),
+    "mihomes.web.errors": (
+        "`/healthz` is the platform's liveness probe, not a user's request. Fly calls it before "
+        "any session exists — and must be able to call it when the *database* is down, which is "
+        "precisely when a declared action could not be resolved anyway. It is the one route "
+        "that is authenticated by nothing, which is why it returns nothing: a status string, no "
+        "DSN, no version, no counts. Everything it says is public because anyone can ask."
+    ),
 }
 
 #: How each permanently-allowlisted module authenticates instead of a declared action.
@@ -81,6 +88,10 @@ ALLOWLIST_MECHANISMS: dict[str, str] = {
     "mihomes.web.routes.unsubscribe": (
         "HMAC token over the normalized email address, against MIHOMES_SECRET_KEY — verified "
         "with `compare_digest` before anything is written"
+    ),
+    "mihomes.web.errors": (
+        "nothing, deliberately — and the route is safe to leave open because it reads no input "
+        "and returns no data: one of two fixed strings, chosen by whether `SELECT 1` succeeds"
     ),
 }
 

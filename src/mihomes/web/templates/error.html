@@ -1,0 +1,65 @@
+{# SPEC-005 Step 15 — the 500 page (A31).
+
+   **Deliberately does not extend `base.html`.** The base layout renders navigation from the
+   request's principal and account, and this page is what renders when something in that chain
+   has already failed — inheriting it risks the error page raising the second exception, which
+   FastAPI has nowhere left to send. A standalone page cannot fail that way.
+
+   No stack trace, no exception text, no request path. The request id is the whole contract: it
+   is what connects this page to the one structured log record the handler emitted, and it is
+   safe to show because it names a log line rather than describing what broke. #}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Something went wrong — MiHomes</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f6f6f4;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: #1c1c1a;
+    }
+    .card {
+      max-width: 30rem;
+      padding: 2.5rem;
+      text-align: left;
+    }
+    h1 { font-size: 1.35rem; margin: 0 0 .75rem; letter-spacing: -0.01em; }
+    p  { margin: 0 0 1rem; line-height: 1.55; }
+    .ref {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: .85rem;
+      color: #6b6b66;
+      background: #ecece8;
+      padding: .35rem .6rem;
+      border-radius: 4px;
+      display: inline-block;
+    }
+    a { color: #1c1c1a; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Something went wrong</h1>
+
+    <p>
+      This one is on us — the page could not be loaded. Nothing you were working on has been
+      lost, and trying again often works.
+    </p>
+
+    <p>
+      If it keeps happening, quote this reference and we can find exactly what failed:
+    </p>
+
+    <p><span class="ref">{{ request_id }}</span></p>
+
+    <p><a href="/">Back to the dashboard</a></p>
+  </div>
+</body>
+</html>

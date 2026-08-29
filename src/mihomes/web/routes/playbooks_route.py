@@ -1,5 +1,6 @@
 """Playbooks route — view and run operational playbooks."""
 
+import logging
 import re
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -11,6 +12,8 @@ from mihomes.authz.declare import declares
 from mihomes.services import property as prop_svc
 from mihomes.services.playbook import get_playbook, list_playbooks, run_playbook
 from mihomes.web.deps import get_db, templates
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -140,6 +143,7 @@ def playbook_run(
         db.commit()
         run_result = {"ok": True, "count": len(tasks), "titles": [t.title for t in tasks]}
     except Exception as e:
+        logger.exception("playbook run failed")  # N15
         run_result = {"ok": False, "error": str(e)}
 
     return templates.TemplateResponse(request, "playbook_detail.html", {

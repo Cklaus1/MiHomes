@@ -337,6 +337,9 @@ async def ai_ask(
         response_text = resp.text
         active_role = resp.role
     except Exception as e:
+        # N15: degraded deliberately (the user sees the error) but never silently — an AI
+        # provider that is down must be visible to an operator, not only to whoever asked.
+        logger.exception("ai ask failed")
         error = _ai_error(str(e))
 
     return templates.TemplateResponse(request, "partials/ai_message.html", {
@@ -373,6 +376,7 @@ async def situation_report(
         )
         report_text = resp.text
     except Exception as e:
+        logger.exception("ai report failed")  # N15
         error = _ai_error(str(e))
 
     return templates.TemplateResponse(request, "partials/report_output.html", {
@@ -424,6 +428,7 @@ async def estate_digest(
         )
         report_text = resp.text
     except Exception as e:
+        logger.exception("ai report failed")  # N15
         error = _ai_error(str(e))
 
     return templates.TemplateResponse(request, "partials/report_output.html", {
@@ -469,6 +474,7 @@ async def ai_ask_stream(
         else:
             system_prompt = primary_role.system_prompt
     except Exception as e:
+        logger.exception("ai stream setup failed")  # N15
         error_msg = _ai_error(str(e))
 
         def _err_gen():

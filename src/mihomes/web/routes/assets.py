@@ -1,5 +1,6 @@
 """Assets & Inventory routes."""
 
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
@@ -21,6 +22,8 @@ from mihomes.services import space as space_svc
 from mihomes.services.ai.assessors import parse_room_scan
 from mihomes.web.deps import get_db, templates
 from mihomes.web.forms import parse_money, read_document_upload, read_image_uploads
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -270,6 +273,7 @@ async def scan_room(
     except ValueError as e:
         error = str(e)  # upload validation / provider guard — already user-facing
     except Exception as e:  # external AI call boundary (mirrors ai.py)
+        logger.exception("asset scan failed")  # N15
         error = _ai_scan_error(str(e))
 
     return templates.TemplateResponse(

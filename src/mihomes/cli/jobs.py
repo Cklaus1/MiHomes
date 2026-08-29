@@ -144,18 +144,47 @@ def dunning(
         False, "--dry-run", help="Report what would be sent without sending it."
     ),
 ) -> None:
-    """Advance the dunning ladder for accounts whose payment failed.
+    """Report the state of in-flight dunning ladders.
 
-    **Step 10 fills this in.** Registered here because Step 5 must come first: the spec makes
-    the ordering load-bearing (*"Step 5 before Steps 10, 11 and 13"*), and a workload whose
-    command does not exist cannot be scheduled, tested for idempotence, or enumerated by A15.
+    **This job advances nothing, and that is Step 10's design rather than a gap** (BD16). The
+    ladder is *enqueue-driven*: `billing/dunning.py::start_ladder` writes all four rungs to the
+    outbox at once, each with its own `next_attempt_at`, and `drain-outbox` sends each as it
+    comes due. A row due in seven days **is** a scheduled send, so there is no per-run work for
+    a second job to do — which is also what makes A23's "one now, the rest on schedule" close to
+    structural rather than something this command enforces.
 
-    Deliberately a no-op that reports zero rather than a `NotImplementedError`: a scheduler
-    calling this before Step 10 lands must not page anyone.
+    Kept as a workload because it is the honest place to *observe* the ladders, and because A15
+    enumerates `SCHEDULE` from the Typer app: removing the command would mean removing its
+    schedule entry, and an operator would lose the one surface that answers "is anyone being
+    dunned right now".
+
+    The docstring this replaces said *"Step 10 fills this in"* and printed a hard-coded zero —
+    true when Step 5 registered the stub, and stale from the moment Step 10 landed. A command
+    that reports `0` unconditionally is indistinguishable from one with nothing to report.
     """
-    rprint("Dunning ladder: 0 account(s) advanced. (Step 10 wires the ladder.)")
+    from mihomes.services.billing.dunning import pending_rungs
+
+    accounts = 0
+    rungs = 0
+    failed = 0
+
+    for account_id, _ in _all_accounts():
+        try:
+            with _account_session(account_id) as (session, _account):
+                pending = pending_rungs(session, account_id)
+                if pending:
+                    accounts += 1
+                    rungs += len(pending)
+        except Exception:
+            failed += 1
+            logger.exception("dunning: failed to read ladder state for %s", account_id)
+
+    rprint(
+        f"Dunning: {accounts} account(s) mid-ladder, {rungs} rung(s) queued; {failed} failed. "
+        f"Delivery is `jobs drain-outbox`."
+    )
     if dry_run:
-        rprint("[dim]--dry-run had no effect: nothing is sent yet.[/dim]")
+        rprint("[dim]--dry-run had no effect: this command only reads.[/dim]")
 
 
 @app.command("drips")

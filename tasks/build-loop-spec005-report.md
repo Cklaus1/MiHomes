@@ -1,6 +1,9 @@
 # SPEC-005 build-loop report — Phase 4: Polish + Email Lifecycle + GA
 
-**Status:** COMPLETE — all 17 steps built, 36/36 acceptance criteria gated and green.
+**Status:** all 17 steps built; 36/36 acceptance criteria gated, every node id resolving.
+**Condition C (full suite) is the remaining gate** — its first run was red (§3.6), the cause was
+fixed, and the confirming run is recorded in §6. Do not read this report as "complete" until §6
+carries a green count.
 **Branch:** `worktree-spec-build-harness`. **Base:** `661f6f5` (SPEC-004 complete).
 **Spec:** `docs/specs/SPEC-005-phase4-polish-email-ga.md`
 
@@ -38,7 +41,7 @@ Bold rows are this session's work (G1–G11 landed earlier in the run).
 |---|---|---|
 | **A** | Every checkbox `[x]` or `[!]` | ✅ — G5.3 is `[!]` (U10, infra half unanswerable from the repo) |
 | **B** | Every §6 step tasked, every §8 criterion gated | ✅ — 17 steps; `spec005_reconcile.py --collect` exits 0 |
-| **C** | Full suite green including this spec's tests | ✅ — see §6 |
+| **C** | Full suite green including this spec's tests | ⏳ — **red on the first run** (9 failed, from this phase's own logging config); fixed, confirming run in §6 |
 | **D** | Smoke green | ✅ — `test_smoke_all_tools.py` |
 | **E** | Every §8 criterion green by its own named test | ✅ — **36/36 node ids resolve** |
 
@@ -100,7 +103,27 @@ a hardening pass looking for crashes left every one — and they are precisely N
 
 Found by an AST walk asking *does this handler log or re-raise*. A grep for `pass` finds zero.
 
-### 3.6 The presentation layer, three times (G15, G17)
+### 3.6 The full suite caught what nine group-scoped runs could not
+
+**F.1's first run came back 9 failed, 2394 passed** — every failure caused by `logging_config.py`,
+the file G15 introduced and G15's own tests had passed on. Both bugs were in the *configuration*
+rather than in any code under test:
+
+- A console `StreamHandler` bound `sys.stderr` at construction. Once pytest swapped the stream,
+  every emit raised `ValueError: I/O operation on closed file` — and **a failed emit aborts the
+  record before the remaining handlers run**, so the durable file handler lost it too. Nine tests
+  asserting "this failure was logged" read as *the code did not log*, pointing at seven modules
+  that had not changed.
+- `propagate: False` meant nothing on the root logger ever saw a record: not `caplog`, not a
+  script's `basicConfig`, not an operator's handler, not an aggregator. An observability change
+  that hid its own output from every external consumer.
+
+**The process lesson is the transferable one.** G15's tests passed, the web suite passed,
+`test_logging.py` passed — none of them *could* see this, because the interaction only exists
+when one module's global config outlives another module's test. A change to global state is not
+done until the global gate has run, which is exactly what condition C is for. Recorded as BD21.
+
+### 3.7 The presentation layer, three times (G15, G17)
 
 - **`/healthz` raised `ImportError` on every call** — `mihomes.db` exposes `get_engine()`, not a
   module-level `engine`.
@@ -116,7 +139,7 @@ the command answering *"can we launch"* exited 1 with a list of account slugs.
 Every one of these is invisible to a unit test of the underlying service. That is why A33 is
 driven through the Typer app rather than by calling `render()`.
 
-### 3.7 The harness's own count was wrong (G17)
+### 3.8 The harness's own count was wrong (G17)
 
 The GA definition of done was recorded as five bullets. It is **six**. `ga_readiness.py` parses
 them from `SAAS_PRD.md`, so the miscount surfaced on the first run instead of being frozen into
@@ -172,7 +195,8 @@ Also carried, and **not** made safe by this phase (§10):
 
 ## 6. Verification
 
-- **F.1** — full suite: see the run recorded in the final commit.
+- **F.1** — full suite. **Red on its first run (9 failed / 2394 passed), all from this
+  phase's own logging config**; fixed and re-run — see §3.6 and BD21.
 - **F.2** — all 36 §8 criteria green by their own node ids (`--collect` resolves 36/36).
 - **F.3a** — 17 of 17 §6 steps tasked.
 - **F.3b** — `py scripts/spec005_reconcile.py --collect` exits 0.

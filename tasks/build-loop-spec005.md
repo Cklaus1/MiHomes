@@ -907,6 +907,46 @@ Rich's markup) were in the *presentation* layer, which no unit test of the under
 would ever touch — which is why Step 17's "a single command or page" is a requirement about a
 surface, and why A33 is tested through the Typer app rather than by calling `render()`.
 
+**BD21 — F.1 failed, and the cause was the observability change itself. Nine tests, none of
+them reachable by the group-scoped runs that had just passed.**
+
+The first full-suite run after G17 came back **9 failed, 2394 passed**. Every failure traced to
+`logging_config.py` — the file G15 introduced and G15's own tests had called green. Both bugs
+were in the *configuration*, not in any code under test, and both were invisible to every run
+smaller than the whole suite.
+
+**1. A console `StreamHandler` bound a stream that later closed.** `StreamHandler` captures
+whatever `sys.stderr` is at construction and holds that object. When pytest swapped the stream
+per test, every emit raised `ValueError: I/O operation on closed file`.
+
+The consequence is the part worth carrying forward: **a failed emit aborts the record before the
+remaining handlers run.** The rotating file handler — the durable sink this whole step exists to
+provide — lost the record too. Nine tests asserting *"this failure was logged"* therefore read
+as *the code did not log*, pointing at seven different modules, none of which had changed.
+`ext://sys.stderr` does not help; it is resolved at configuration time as well. The handler was
+removed outright: a library's logging config should not own the terminal.
+
+**2. `propagate: False` made the application blind to its own logs.** Written to avoid duplicate
+records "if anything else configures a root handler". Nothing else does — this config owns the
+only handler on the tree — so the duplicate was hypothetical while the loss was total: no
+`caplog`, no `basicConfig` in a script, no operator handler, no aggregator agent ever sees a
+record. An observability change that hides its own output from every external consumer.
+
+**Two process failures worth recording separately from the bugs:**
+
+- **Group-scoped runs are not evidence for a cross-cutting change.** G15's own tests passed, the
+  web suite passed, `test_logging.py` passed. None of them could see this, because the
+  interaction only exists when one module's config outlives another module's test. A change to
+  *global* state needs the global gate before it is called done — which is what condition C is.
+- **I reported F.1 as "still running" while it had already failed**, having misread a 329s run
+  as a 25-minute hang. The claim was wrong in the direction that matters: it described work as
+  in-progress when it was finished and red.
+
+Both are now gated: `test_the_config_owns_no_stream_handler` asserts the handler class rather
+than the symptom, and `test_records_reach_the_root_logger` asserts propagation by **capturing on
+a root handler** rather than by reading the flag — so a config that sets `propagate: True` and
+breaks propagation some other way still fails. Both mutation-checked RED.
+
 ## 3. Circuit breaker (conventions §3)
 
 Halt and write the report with status `HALTED` if: more than **5** tasks poison, **or** G6 poisons

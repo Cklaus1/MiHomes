@@ -329,11 +329,11 @@ anything reads its tables); **Step 7 before Step 8** (export exists before delet
 - [x] G12.1 · §6 Step 12 · A12 · `predictive_maintenance` and `audit_export` as `can()` call sites; Free and Pro denied, Estate allowed, on **both** (D10/D16) · verify: `tests/unit/test_estate_gates.py::test_gate_matrix`
 - [x] G12.2 · §6 Step 12 · A13 · **`record_change` still fires for every account on every plan** — the check that catches gating the wrong function (F6) · verify: `tests/unit/test_estate_gates.py::test_audit_write_ungated`
 
-### [ ] G13 — Step 13: the weekly digest job — *dep: G5, G12*
-- [ ] G13.1 · §6 Step 13 · A14,A14b · `weekly_ai_report` enforced as a **send, not a gate** (D16): Estate receives it weekly, Pro does not, and the on-request route at `web/routes/ai.py:311` works on **every** plan — Estate buys the schedule, not the feature · verify: `tests/integration/test_weekly_digest.py::test_scheduled_send_gated` + `::test_on_request_ungated`
+### [x] G13 — Step 13: the weekly digest job — *dep: G5, G12*
+- [x] G13.1 · §6 Step 13 · A14,A14b · `weekly_ai_report` enforced as a **send, not a gate** (D16): Estate receives it weekly, Pro does not, and the on-request route at `web/routes/ai.py:311` works on **every** plan — Estate buys the schedule, not the feature · verify: `tests/integration/test_weekly_digest.py::test_scheduled_send_gated` + `::test_on_request_ungated`
 
-### [ ] G14 — Step 14: `audit_export` end to end — *dep: G12*
-- [ ] G14.1 · §6 Step 14 · A34 · route + CLI; every `Denied` names an `upgrade_target`. The gate sits on the **read/export** path, never on `record_change` — gating that would break every write in the app (F6) · verify: `tests/unit/test_estate_gates.py::test_denied_names_target`
+### [x] G14 — Step 14: `audit_export` end to end — *dep: G12*
+- [x] G14.1 · §6 Step 14 · A34 · route + CLI; every `Denied` names an `upgrade_target`. The gate sits on the **read/export** path, never on `record_change` — gating that would break every write in the app (F6) · verify: `tests/unit/test_estate_gates.py::test_denied_names_target`
 
 ### [ ] G15 — Step 15: observability and error handling — *dep: none*
 - [ ] G15.1 · §6 Step 15 · A31 · real `dictConfig` (JSON in prod), FastAPI handlers **extending** the two that exist (C4), `error.html`, and **`/healthz` added to the product app** (C2 — it is landing-only today); one structured log record with a request id · verify: `tests/unit/test_errors.py::test_handler_and_log`
@@ -423,7 +423,26 @@ Estate key; `can()` and `_upgrade_target` defaulted to different tables, so a de
 plan that also denied; and `audit.export` swallowed its own denial. Mutation-checked three
 ways; 61 passed across the affected area.
 
-Resume at **G13.1** — the weekly digest job. Note the survey findings that change its shape:
+**G13 complete** — the send gate on `weekly-digest`, `send_weekly_digest`, and the
+`weekly_digest` template pair. `generate_estate_digest` and `POST /ai/estate-digest` are
+untouched (N8). Mutation-checked two ways; **the first A14 was green with the gate deleted**
+(§2.2 BD19).
+
+**G14 complete** — `GET /privacy/audit-export` and `mihomes audit export`, both spending the
+`upgrade_target` that G12's `EntitlementDenied` carries. Verified live: Estate 200, Pro 402.
+**The source-level A34 was green with the fix deleted** — it matched the log line (§2.2 BD19).
+
+Resume at **G15.1** — observability. The survey's measurements for it: `logging_config.py`
+exports only `setup_logging()`, uses imperative `getLogger` + `RotatingFileHandler` with **no
+`dictConfig` and no JSON**; `web/app.py` registers exactly **two** handlers (`EntityNotFoundError`
+→404 at :148, `AmbiguousIdentifierError`→400 at :152) and has **zero** routes of its own, so
+`/healthz` must be *added* (it exists only on the landing app, `landing/routes.py:41`);
+`web/errors.py` and `templates/error.html` do not exist. A32 stays scoped to `web/` per C3.
+
+Then **G16** (the D17 DMARC documentation test — B1's edit is already applied) and **G17**
+(the GA readiness surface, over five bullets).
+
+Superseded note, kept because it was the resume pointer: the survey findings that shaped G13 —
 `cli/jobs.py`'s `weekly-digest` is a **print-only stub** (`"Weekly digest: 0 account(s) sent."`,
 no imports, no DB), `generate_estate_digest` (`services/ai/reports.py:208`) has **no** gate and
 must keep none (N8), and its route is `POST /ai/estate-digest` (`web/routes/ai.py:388`) carrying
@@ -802,6 +821,28 @@ SPEC-002 D2's int→UUID remap, so a synthetic `1` was rejected by the *database
 the gate — a failure that reads like A13 breaking when nothing about entitlements had changed.
 And `audit_log.action` is `varchar(10)`, so `"updated-on-free"` truncated. Neither was visible by
 reading either file.
+
+**BD19 — three of my own tests were green with the thing they test deleted, one per group.**
+
+BD13 recorded this shape at G8. It recurred at G13 and G14, and the pattern across all three is
+worth stating once rather than three times: **a test that asserts "nothing bad happened" passes
+when nothing happened at all.**
+
+- **G13's first A14** stubbed `_send_one_digest` with a raising function and asserted the job
+  *does not raise* for a Pro account. Deleting the send gate left it green — with the stub never
+  called for Estate either, "did not raise" was true whether or not the gate existed. Fixed by
+  making the stub **record** the plans it was called with and asserting on that list,
+  parametrized across all three plans, so the gate's removal turns Pro and Free red.
+- **G14's first A34** grepped the whole route function for `upgrade_target`. Deleting it from
+  the JSON body left it green, because the name still appeared in the `logger.info` one line
+  above — a route that *logs* the upgrade path and sends a body without it, which is exactly the
+  dead end A34 exists to prevent. Now asserted on the response content.
+- **G8's three** (BD13) were the same shape: an assertion whose subject was absent.
+
+**The rule this earns, stated as a check rather than a caution:** when a test's assertion is
+negative — did not raise, was not called, is None — ask what it would take for the assertion to
+be *vacuously* true, and make the positive case a parameter of the same test. Every one of these
+was invisible by reading and immediate under mutation.
 
 ## 3. Circuit breaker (conventions §3)
 

@@ -353,10 +353,29 @@ SPEC-006"; these are "**G1 created the file G3 writes into**", because §8 puts 
 tests in the same basename. Delete them when G3 lands; `TestPendingSetExpires` turns red if they
 outlive it.
 
-### [ ] G2 — Step 2: sender identity — *dep: G1 — MUST precede G3*
-- [ ] G2.1 · §6 Step 2 · A5 · `resolve_sender` and the **one legitimate unscoped lookup** (§5.1) — which account to scope to is precisely what is being determined · verify: `tests/unit/test_identity.py::test_resolves_single_account`
-- [ ] G2.2 · §6 Step 2 · A6 · **an unlinked sender raises `UnlinkedSender` and is never defaulted** (D12/N2) — the whole stake. Pair the negative with a positive (§0.5b): a *linked* sender in the same test resolves · verify: `tests/unit/test_identity.py::test_unlinked_fails_closed`
-- [ ] G2.3 · §6 Step 2 · A7 · a sender linked in two accounts (legitimate under D5) resolves **by chat**; a DM from them is refused as ambiguous, never guessed · verify: `tests/unit/test_identity.py::test_multi_account_sender`
+**G2 deviation.**
+
+| # | What was found | Resolution |
+|---|---|---|
+| **D6** | **`telegram_link_service.resolve_sender` already exists** (SPEC-003 §6 Step 16) with the same name and a **conflicting** unlinked behaviour: it returns `None` → `UNLINKED_ROLE = "staff"` under SPEC-003 **D16**, where A6 requires a raise. SPEC-006 never mentions D16 or that module — `grep` returns zero matches — so the spec does not say which wins | **Both kept; new module `gateways/identity.py` per §3's manifest.** The two cannot be unified: SPEC-003's takes `account_id` as an **input**, and A5's whole claim is that the account is the **output**. Opposite data flow, not a refactor. They also answer different questions — D16 asks *"which answers may an unlinked sender receive"* in a deployment where the account is already known (staff + empty scope is its fail-closed answer); D12 asks *"which account does this sender belong to"*, which has no safe default. `telegram_link_service.py` is live on the Telegram path and is left untouched |
+
+**Which resolver governs which ingress — settle it here, not at G5.** After G5 there will be two
+ingress paths with opposite unlinked semantics, and that is safe only while each stays on its own
+side:
+
+| Ingress | Resolver | Unlinked sender |
+|---|---|---|
+| `cli/telegram.py monitor` (short polling, single-tenant, account known from config) | `telegram_link_service.sender_authz` → `resolve_sender` | `staff` + **empty** scope (D16) — most restrictive available, fails closed on *"which answers"* |
+| `POST /webhooks/telegram` (G5, multi-tenant, account is what's being discovered) | `gateways.identity.resolve_sender` | **raises `UnlinkedSender`** (D12/N2) — there is no safe default for *"whose estate"* |
+
+**G5 must not call `sender_authz` at the webhook edge**, and G6's cutover is what eventually
+retires the polling path's exemption. Until then the D16 branch is reachable and correct for the
+transport it serves.
+
+### [x] G2 — Step 2: sender identity — *dep: G1 — MUST precede G3*
+- [x] G2.1 · §6 Step 2 · A5 · `resolve_sender` and the **one legitimate unscoped lookup** (§5.1) — which account to scope to is precisely what is being determined · verify: `tests/unit/test_identity.py::test_resolves_single_account`
+- [x] G2.2 · §6 Step 2 · A6 · **an unlinked sender raises `UnlinkedSender` and is never defaulted** (D12/N2) — the whole stake. Pair the negative with a positive (§0.5b): a *linked* sender in the same test resolves · verify: `tests/unit/test_identity.py::test_unlinked_fails_closed`
+- [x] G2.3 · §6 Step 2 · A7 · a sender linked in two accounts (legitimate under D5) resolves **by chat**; a DM from them is refused as ambiguous, never guessed · verify: `tests/unit/test_identity.py::test_multi_account_sender`
 
 ### [ ] G3 — Step 3: the linking flow — *dep: G2*
 - [ ] G3.1 · §6 Step 3 · A8 · **G-refusals** — expired, replayed, wrong-gateway and cross-account codes each fail with a **distinct** message, not four paths into one generic error · verify: `tests/unit/test_linking.py::test_refusal_matrix`

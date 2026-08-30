@@ -478,6 +478,19 @@ class TestModelsWithNoPropertyLinkageAreDenied:
             # entirely, because suppression belongs to an address rather than an account.
             "EmailDelivery",
             "EmailOutbox",
+            # SPEC-006 §4.1 — the gateway link code (0016, A3). Denied outright, and this gate
+            # firing on it is the correct outcome rather than a cost to accept: issuing a code
+            # is account-level administration, gated by §5.2 on
+            # `can(account, "gateway.link.issue")` — owner/admin only — and the row names which
+            # membership a pending code will bind to, which is org-chart information a
+            # housekeeper neither needs nor was offered. There is no staff-facing read of this
+            # table at all.
+            #
+            # The one lookup that runs with **no** account bound is redemption, which resolves
+            # a token before it knows whose it is (§4.2's carve-out, the same shape
+            # `telegram_links`' sender lookup already uses). That is a deliberately unscoped
+            # session, not something this filter should try to serve.
+            "GatewayLinkToken",
             "CampaignEnrolment",
             "AccountDeletionRequest",
         }, (

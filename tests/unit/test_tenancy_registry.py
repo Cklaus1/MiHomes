@@ -253,7 +253,12 @@ def test_registry_size_is_asserted_explicitly():
     Each raise happened in the same commit as its migration. The count exists so that *forgetting*
     to register a table fails loudly, which only works if raising it is a conscious act.
     """
-    assert len(TENANT_TABLES) == 49, (
-        f"expected 45 tenant-owned tables, registry has {len(TENANT_TABLES)} — "
+    # SPEC-006 Step 1 adds `gateway_link_tokens` (0016, A3) -> 50: tenant-scoped, because the
+    # account issuing a link code owns it. Unlike the webhook ledger, there is no
+    # before-we-know-whose-it-is problem at *issue* time — an owner mints the code from inside
+    # their own account. Redemption reads it unscoped (§4.2's carve-out), which is a property of
+    # that one lookup, not of the table.
+    assert len(TENANT_TABLES) == 50, (
+        f"expected 50 tenant-owned tables, registry has {len(TENANT_TABLES)} — "
         "if a table was legitimately added or removed, update this number and say why"
     )

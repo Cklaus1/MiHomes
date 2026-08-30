@@ -108,6 +108,11 @@ TENANT_TABLES = frozenset({
     "configurations",
     "consumable_price_entries",
     "consumables",
+    # --- gateway linking, added by SPEC-006 Step 1 (A3) ------------------
+    # The account issuing a code owns it: an operator listing one account's outstanding codes
+    # must not see another's. Keyed on `memberships` with ondelete=CASCADE for the same reason
+    # `telegram_links` is (D19/N6) — revoking a membership takes its pending codes with it.
+    "gateway_link_tokens",
     "contracts",
     # SPEC-004: per-person document grants. Registered here in the same commit as its migration,
     # which is what `check_registry()` exists to force — an unregistered tenant table gets no RLS

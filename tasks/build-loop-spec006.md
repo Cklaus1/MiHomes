@@ -332,10 +332,26 @@ Cloud API is proven before Baileys — today's only working WhatsApp transport �
 - [ ] G0.1 · §6 P2 · A2 · confirm the shared core is present and its six test files green; **gate against the real node id** — §8's `test_superset_schema` does not exist (C6) · verify: `tests/integration/test_gateway_review_common.py::test_schema_enum_is_superset`
 - [ ] G0.2 · §2 · A1 · the §2 doc repairs are a **regression gate**, not work — B1–B10 landed in the spec's own commit; assert the stale strings stay gone and both PRDs stay indexed · verify: `tests/unit/test_docs_gateway_prds.py::test_repairs_landed`
 
-### [ ] G1 — Step 1: the link-token table — *dep: G0*
-- [ ] G1.1 · §6 Step 1 · A3 · `GatewayLinkToken` + migration, RLS included; **`PGUUID` not `String(36)`** (C8), and no `telegram_links` DDL (N9, §0.3); its own engine running real Alembic up→down→up · verify: `tests/integration/test_migration_gateway_links.py::test_up_down`
-- [ ] G1.2 · §6 Step 1 · A4 · **hash only, never the raw code** (N8) — a raw token reaches neither the table nor a log record · verify: `tests/unit/test_linking.py::test_token_hashed_only`
-- [ ] G1.3 · C8 · — · one `ENTITY_CLASSES` entry, `TENANT_TABLES` entry, **three pinned counts +1**, and an `EXPECTED_NON_LEADING` entry for the `token_hash` unique **with its reason** · verify: `tests/unit/test_matrix.py::TestEntityClassification::test_every_model_is_classified`
+### [x] G1 — Step 1: the link-token table — *dep: G0*
+- [x] G1.1 · §6 Step 1 · A3 · `GatewayLinkToken` + migration, RLS included; **`PGUUID` not `String(36)`** (C8), and no `telegram_links` DDL (N9, §0.3); its own engine running real Alembic up→down→up · verify: `tests/integration/test_migration_gateway_links.py::test_up_down`
+- [x] G1.2 · §6 Step 1 · A4 · **hash only, never the raw code** (N8) — a raw token reaches neither the table nor a log record · verify: `tests/unit/test_linking.py::test_token_hashed_only`
+- [x] G1.3 · C8 · — · one `ENTITY_CLASSES` entry, `TENANT_TABLES` entry, **three pinned counts +1**; **the predicted `EXPECTED_NON_LEADING` entry is NOT added — see D2 below** · verify: `tests/unit/test_matrix.py::TestEntityClassification::test_every_model_is_classified`
+
+**G1 deviations — measured, not assumed.**
+
+| # | What the spec/harness said | What was measured | Resolution |
+|---|---|---|---|
+| **D1** | §4.1/§4.2 declare `String(36)` PKs and FKs | `memberships.id` is `PGUUID`; every SPEC-003+ model uses it. A `String(36)` FK does not build | `PGUUID(as_uuid=True)` throughout, as C8 already anticipated |
+| **D2** | C8: *"budget for an `EXPECTED_NON_LEADING` entry"* for the `token_hash` unique | **The prediction is wrong.** A `UniqueConstraint` in `__table_args__` emits a *constraint*, not an index — verified on `TelegramLink`, whose unique lands in `table.constraints` while `table.indexes` holds only the two real indexes. `test_tenant_indexes._tenant_indexes()` iterates `table.indexes`, so it never sees the unique, and an entry would be **stale on arrival** and fail `test_every_declared_exception_still_exists`. The invite precedent needed one only because `invite.py:43` declares `unique=True, index=True`, which *does* emit an index | **No entry added.** The unique stays on `token_hash` alone for C8's stated reason (redemption resolves a token before an account is known). Confirmed: all 87 matrix/registry/index gates green |
+| **D3** | C8: *"`test_u7_enforcement.py` — **expect this to fire**"* | **Not a deviation — C8 was right.** An earlier draft of this row claimed the file did not exist; that was a search error (`ls tests/unit/` — the file is in `tests/integration/`). It fired on the full suite exactly as predicted: `TestModelsWithNoPropertyLinkageAreDenied::test_the_no_linkage_group_is_exactly_the_models_with_neither_shape`, one extra item, `GatewayLinkToken` | `GatewayLinkToken` added to the denied-outright set **with its reason**, as that gate demands. Correct outcome: a link code is account-level administration, and there is no staff-facing read of this table at all |
+| **D4** | §4.2's DDL omits the `membership_id` FK | Without it there is no `ondelete="CASCADE"`, and G3.3's A10 would fall to application code | FK created in `0016`, matching `telegram_links` |
+| **D5** | §5.2: `issue_link_token(session, account: Account, ...)` | Written as `account_id: uuid.UUID` — the row stores an id, and nothing in issuance reads the `Account` object. Recorded because **G4.1's A11 requires `dispatch_items` take `account: Account`, required and never defaulted**, so the two signatures will sit side by side looking inconsistent unless the difference is deliberate | Kept as `account_id`. A11's requirement is about *never defaulting* the tenancy argument, which this satisfies — the id is positional and required. Revisit at G3 if `redeem_link_token` needs the object |
+
+**G1 also added three `PENDING_TESTS_IN_EXISTING_FILES` entries** (`G3.1`/`G3.2`/`G3.3`) — a
+*third* shape the set had not carried before. The existing three are all "the file predates
+SPEC-006"; these are "**G1 created the file G3 writes into**", because §8 puts A4 and G3's three
+tests in the same basename. Delete them when G3 lands; `TestPendingSetExpires` turns red if they
+outlive it.
 
 ### [ ] G2 — Step 2: sender identity — *dep: G1 — MUST precede G3*
 - [ ] G2.1 · §6 Step 2 · A5 · `resolve_sender` and the **one legitimate unscoped lookup** (§5.1) — which account to scope to is precisely what is being determined · verify: `tests/unit/test_identity.py::test_resolves_single_account`

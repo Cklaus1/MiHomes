@@ -105,6 +105,9 @@ from mihomes.models.email_suppression import (  # noqa: E402, F401
     EmailSuppression,
 )
 from mihomes.models.event import Event, EventGuest, Guest  # noqa: E402, F401
+from mihomes.models.gateway_link_token import (  # noqa: E402, F401
+    GatewayLinkToken,
+)
 from mihomes.models.insurance import InsurancePolicy  # noqa: E402, F401
 from mihomes.models.invite import Invite  # noqa: E402, F401
 from mihomes.models.issue import Issue  # noqa: E402, F401

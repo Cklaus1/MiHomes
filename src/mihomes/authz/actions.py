@@ -283,6 +283,7 @@ def _entity_classes() -> dict[type, EntityClass]:
     from mihomes.models.email_outbox import EmailOutbox
     from mihomes.models.email_suppression import EmailSuppression
     from mihomes.models.event import Event, EventGuest, Guest
+    from mihomes.models.gateway_link_token import GatewayLinkToken
     from mihomes.models.insurance import InsurancePolicy
     from mihomes.models.invite import Invite
     from mihomes.models.issue import Issue
@@ -461,6 +462,21 @@ def _entity_classes() -> dict[type, EntityClass]:
         # owner-only by A8, and a housekeeper learning the household is closing its account
         # from a data page rather than from their employer is the wrong way to find out.
         AccountDeletionRequest: account,
+
+        # SPEC-006 §4.1 — the gateway link code. `ACCOUNT_LEVEL`, and the class is exact rather
+        # than convenient: issuing a code is **account-level administration**. §5.2 gates it on
+        # `can(account, "gateway.link.issue")` — owner/admin only — and the row names which
+        # membership a pending code will bind to, which is org-chart information a housekeeper
+        # neither needs nor was offered.
+        #
+        # It lands in the deny-all bucket (`query_scope._models_in_class`, no `property_id` and
+        # no polymorphic parent), and that is the correct answer here rather than an accepted
+        # cost: there is no staff-facing read of this table at all. The one lookup that *does*
+        # run without an account bound is redemption, which resolves a token before it knows
+        # whose it is (§4.2's carve-out) — an unscoped session by design, the same shape
+        # `telegram_links`' sender lookup already uses, and not something this filter should
+        # try to serve.
+        GatewayLinkToken: account,
     }
 
 

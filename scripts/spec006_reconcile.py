@@ -75,6 +75,22 @@ PENDING_TESTS_IN_EXISTING_FILES = {
     "G4.2",  # A12 — test_gateway_safety.py (flat), new: trust scoped to an account
     "G4.3",  # A13 — test_gateway_property_resolution.py — NESTED file, write flat
     "G8.1",  # A21 — test_staff_pto.py — NESTED file, write flat
+    # --- a THIRD shape, added at G1 -------------------------------------------------------
+    # The three above are all "the file predates SPEC-006". These are not: `test_linking.py`
+    # exists because **G1 created it** — §8 puts A4 (`test_token_hashed_only`) and G3's three
+    # tests in the same basename, so landing G1 necessarily creates the file G3 writes into.
+    # `--collect` then starts checking every node id in it, and G3's three correctly do not
+    # resolve yet.
+    #
+    # The alternatives were all worse: A4 cannot move to another file (§8 declares the
+    # basename), G3 cannot come forward (G2 must precede it, §1's load-bearing ordering), and
+    # stubs or xfails would go red under F.1's "a new skip is red".
+    #
+    # **Delete all three the moment G3 lands.** `TestPendingSetExpires` enforces it: each entry
+    # is asserted to be *needed*, so a resolving node id turns it red.
+    "G3.1",  # A8  — test_linking.py::test_refusal_matrix   — lands at G3
+    "G3.2",  # A9  — test_linking.py::test_single_use       — lands at G3
+    "G3.3",  # A10 — test_linking.py::test_cascade_revocation — lands at G3
 }
 
 SPEC_NODE_ID_CORRECTIONS = {

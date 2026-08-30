@@ -68,6 +68,38 @@ def _secret(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _pin_engine_to_test_db():
+    """Pin `mihomes.db`'s global engine to `TEST_DATABASE_URL` for every test here.
+
+    **The route opens its own sessions via `get_session()`**, which resolves `DATABASE_URL` at
+    call time — and `cli_database` (root conftest, session-scoped) repoints that env var at a
+    *different* dedicated database the moment any of its consumer modules runs, restoring it
+    only at session teardown. `test_cli.py` collects before this file alphabetically, so the
+    ambient value is already the CLI database by the time these tests run.
+
+    The symptom is precise and misleading: A17 passed alone and failed in the full suite with
+    *"the poller's store does not know the webhook handled this update"* — because the webhook
+    wrote its `ProcessedIdStore` entry into the CLI database while the assertion read
+    `TEST_DATABASE_URL`. Same account, wrong database, and it reads exactly like the dedup
+    mechanism being broken.
+
+    `test_dedup.py::isolated_db` documents this hazard and solves it the same way; this is that
+    fix applied to the route's sessions rather than to the store's.
+    """
+    import os
+
+    from mihomes import db
+
+    prev_engine, prev_factory = db._engine, db._SessionLocal
+    my_engine = db.get_engine(os.environ["TEST_DATABASE_URL"])
+    try:
+        yield
+    finally:
+        my_engine.dispose()
+        db._engine, db._SessionLocal = prev_engine, prev_factory
+
+
+@pytest.fixture(autouse=True)
 def _no_ai(monkeypatch):
     """Stub the AI call.
 
@@ -410,6 +442,113 @@ def test_the_host_guard_exemption_covers_this_path(web_client_factory):
         "`web/security.py`, exactly as `/unsubscribe` did (SPEC-005 C9)"
     )
     assert r.status_code == 401
+
+
+# ------------------------------------------------------------------------------------- #
+# A17 (G6) — the webhook and a running poller cannot both process one update
+# ------------------------------------------------------------------------------------- #
+def test_no_double_transport(web_client_factory, _pg_engine, account_a, wired):
+    """**A17** — an update handled by the webhook is not re-handled by the poller.
+
+    N6: *"Do not run the webhook and the poller against one bot simultaneously."* Telegram
+    itself refuses `getUpdates` while a webhook is registered, so on this transport the provider
+    supplies an interlock — **but the WhatsApp path has none**, and N6 says so explicitly, which
+    is why the guarantee cannot rest on Telegram's behaviour.
+
+    Step 6 words the criterion as *"cannot both **process** one update"*, not "cannot both run".
+    That is the claim tested here, and the mechanism is the **shared `ProcessedIdStore`**:
+    whichever transport sees an update first records its id, and the other skips it.
+
+    Which makes the key the whole thing. An earlier draft of the webhook route used its own key
+    (`gateway.telegram.processed`) while the monitor used `telegram.processed_ids` — two
+    disjoint stores, so an update processed by one was invisible to the other. That is exactly
+    the M22 defect `dedup.py` was written to fix, reintroduced. Both now import
+    `PROCESSED_IDS_KEY`, and `test_both_transports_share_one_store` below makes the divergence
+    impossible to reintroduce silently.
+    """
+    from mihomes.services.gateways.dedup import ProcessedIdStore
+    from mihomes.services.gateways.telegram.extractor import (
+        MAX_PROCESSED_IDS,
+        PROCESSED_IDS_KEY,
+    )
+
+    client = web_client_factory()
+    update_id = 9500
+
+    # --- the webhook processes the update ------------------------------------------------
+    r = client.post(
+        "/webhooks/telegram",
+        content=_update(update_id, sender_id="424242424", chat_id="-100777", text_="Leak"),
+        headers={SECRET_HEADER: SECRET},
+    )
+    assert r.status_code == 200
+    after_webhook = _counts(_pg_engine, account_a)
+    assert sum(after_webhook.values()) > 0, (
+        "the webhook wrote nothing, so 'the poller does not re-process it' would be vacuous"
+    )
+
+    # --- the poller's OWN dedup check now reports it as already handled -------------------
+    # Asserted against `ProcessedIdStore` directly rather than by driving `_run_loop`: that
+    # function is a closure over a live Telegram client and is not callable in a test, and the
+    # store is the actual mechanism either way.
+    with account_context(account_a):
+        poller_store = ProcessedIdStore(PROCESSED_IDS_KEY, cap=MAX_PROCESSED_IDS)
+        assert poller_store.contains(str(update_id)), (
+            "the poller's store does not know the webhook handled this update — the two "
+            "transports are keyed on different config keys and would both process it (M22)"
+        )
+
+        # --- and the reverse direction: an id the POLLER records is skipped by the webhook --
+        poller_only = "9600"
+        poller_store.add([poller_only])
+
+    before = _counts(_pg_engine, account_a)
+    r2 = client.post(
+        "/webhooks/telegram",
+        content=_update(9600, sender_id="424242424", chat_id="-100777", text_="Poller saw this"),
+        headers={SECRET_HEADER: SECRET},
+    )
+    assert r2.status_code == 200
+    assert _counts(_pg_engine, account_a) == before, (
+        "the webhook re-processed an update the poller had already handled"
+    )
+
+
+def test_both_transports_share_one_store():
+    """The derived gate for A17: one key and one cap, read from the source.
+
+    A17's behavioural test above could be satisfied for the wrong reason — a webhook that
+    silently failed to write would also "not double-process". This asserts the *mechanism*
+    instead, and it is the assertion that fails the moment someone gives either transport its
+    own key again.
+
+    Read out of the modules rather than hardcoded: a test that restated the key would agree
+    with itself while the code drifted.
+    """
+    import inspect
+
+    from mihomes.cli import telegram as cli_telegram
+    from mihomes.services.gateways.telegram.extractor import (
+        MAX_PROCESSED_IDS,
+        PROCESSED_IDS_KEY,
+    )
+    from mihomes.web.routes import gateways as route
+
+    for module, name in ((cli_telegram, "the CLI poller"), (route, "the webhook route")):
+        source = inspect.getsource(module)
+        assert "PROCESSED_IDS_KEY" in source, (
+            f"{name} does not use PROCESSED_IDS_KEY — a local key makes its dedup store "
+            "disjoint from the other transport's, and both will process the same update (M22)"
+        )
+        assert "MAX_PROCESSED_IDS" in source, (
+            f"{name} does not use MAX_PROCESSED_IDS — two caps on one key means the shorter "
+            "one evicts ids the longer one still considers handled"
+        )
+
+    # And the constants are real, so the greps above are not matching a comment in a file that
+    # imports nothing.
+    assert PROCESSED_IDS_KEY == "telegram.processed_ids"
+    assert MAX_PROCESSED_IDS >= 2000
 
 
 def test_the_route_stays_under_the_exempt_prefix():

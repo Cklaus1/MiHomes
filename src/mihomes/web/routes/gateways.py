@@ -170,12 +170,27 @@ def _dispatch(resolved, message: dict) -> None:
     """
     from mihomes.db import get_session
     from mihomes.services.gateways.dedup import ProcessedIdStore
+    from mihomes.services.gateways.telegram.extractor import (
+        MAX_PROCESSED_IDS,
+        PROCESSED_IDS_KEY,
+    )
     from mihomes.tenancy.context import account_context
 
     with account_context(resolved.account_id):
         with get_session() as session:
-            # A16: redelivery creates nothing twice. Inside the scope, per the module docstring.
-            store = ProcessedIdStore("gateway.telegram.processed")
+            # A16 (redelivery) and **A17 (no double transport)** are the same store, and that
+            # is the entire mechanism: the webhook and the poller must key on the *same*
+            # config key, or whichever sees an update first is invisible to the other.
+            #
+            # An earlier version of this line used its own key, `gateway.telegram.processed` —
+            # which would have been a fifth disjoint store and precisely the M22 defect
+            # `dedup.py`'s docstring says it exists to fix ("each gateway had FOUR disjoint
+            # processed-id stores ... so an id handled by one poller was invisible to the other
+            # and messages were double-processed into duplicate issues/tasks").
+            #
+            # `PROCESSED_IDS_KEY` is imported rather than retyped so the two transports cannot
+            # drift apart in a later edit.
+            store = ProcessedIdStore(PROCESSED_IDS_KEY, cap=MAX_PROCESSED_IDS)
             update_id = message.get("id") or ""
             if update_id and store.contains(update_id):
                 logger.info("telegram webhook: update %s already processed", update_id)

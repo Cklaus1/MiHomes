@@ -1,6 +1,7 @@
 """Telegram CLI commands — bot setup, chat linking, monitoring, and review."""
 
 import json
+import logging
 import os
 import signal
 import subprocess
@@ -17,7 +18,6 @@ from rich.table import Table
 from mihomes.cli.formatters import console, format_error, format_success, severity_color
 from mihomes.db import get_session
 from mihomes.services.gateways.telegram.client import TelegramClient, TelegramError
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -271,11 +271,28 @@ def monitor(
     interval: int = typer.Option(15, "--interval", "-i", help="Poll interval in seconds"),
     property: Optional[str] = typer.Option(None, "--property", "-p", help="Scope to a property slug"),
 ):
-    """Monitor linked Telegram groups and auto-respond with AI analysis.
+    """Monitor linked Telegram groups and auto-respond with AI analysis. **DEPRECATED.**
 
     Polls for new messages, logs issues/tasks, and sends AI advisory replies
     back into the group. Press Ctrl+C to stop.
+
+    **SPEC-006 Step 6 — superseded by `POST /webhooks/telegram`, and deliberately still
+    runnable.** The webhook is the supported transport: it needs no supervised process, and
+    Telegram delivers rather than being asked. This loop remains because D14 keeps a fallback
+    and **O2 is open** — where a webhook terminates for a *local* install (no public hostname,
+    no TLS) is a founder decision, and until it is made, polling is the only transport some
+    deployments have. Carried as U3.
+
+    Running both at once is safe rather than merely discouraged (A17): this loop and the
+    webhook share one `ProcessedIdStore` under `PROCESSED_IDS_KEY`, so whichever sees an
+    update first records it and the other skips it. Telegram additionally refuses
+    `getUpdates` while a webhook is registered — but that is Telegram's behaviour, not this
+    system's guarantee, and the WhatsApp path has no equivalent (N6).
     """
+    console.print(
+        "[yellow]⚠[/yellow] [dim]`monitor` is deprecated — the supported transport is the "
+        "webhook (POST /webhooks/telegram). Kept runnable while O2 is open (SPEC-006 U3).[/dim]"
+    )
     from mihomes.services.gateways.telegram.responder import process_and_respond
 
     try:
@@ -295,7 +312,17 @@ def monitor(
 
     # One shared, insertion-ordered store per gateway (M22/M23): the extractor
     # uses this same key, and pruning drops the oldest ids, never the newest.
-    _id_store = ProcessedIdStore("telegram.processed_ids", cap=2000)
+    # SPEC-006 A17: the **same key and cap** the webhook route uses, imported rather than
+    # retyped. That shared store is what makes "the webhook and a running poller cannot both
+    # process one update" true — whichever transport sees an update first records it, and the
+    # other skips it. A local key or a different cap makes the two stores disagree about what
+    # has been handled, which is the M22 defect this module already suffered once.
+    from mihomes.services.gateways.telegram.extractor import (
+        MAX_PROCESSED_IDS,
+        PROCESSED_IDS_KEY,
+    )
+
+    _id_store = ProcessedIdStore(PROCESSED_IDS_KEY, cap=MAX_PROCESSED_IDS)
     # M21 poison guard: quarantine updates that repeatedly crash processing.
     _poison = PoisonGuard("telegram", max_attempts=3)
     processed_ids: set = set(_id_store.load())

@@ -133,7 +133,7 @@ used six times across SPEC-003/004/005 (`UNFILTERED_CLASSES`, `G-census`, `G-dis
 
 | Gate | Check | Closes |
 |---|---|---|
-| **G-branches** | A11 walks `dispatch_items`' category branches **from the tree** (15 today, `REVIEW_SCHEMA`'s enum) and asserts each writes only within the resolved account. A sixteenth category added without scoping fails the suite. | A11 — §9 states this explicitly: *"enumerate by walking the tree… must fail when someone adds a fifteenth category without scoping it"* |
+| **G-branches** | A11 enumerates `REVIEW_SCHEMA`'s categories **from the tree** (15) and asserts each *writing* branch (14 — see C9) writes only within the resolved account. A sixteenth category added without scoping fails the suite, **and so does a branch that silently stops writing**. | A11 — §9 states this explicitly: *"enumerate by walking the tree… must fail when someone adds a fifteenth category without scoping it"* |
 | **G-coverage** | A24 derives the module list from the `omit` globs and the gateway package, not from a hand-written list. | A24 — a transcribed list is green the day it is written |
 | **G-baileys** | A22 sweeps `src/` + `scripts/` for imports of the Baileys client, derived from the module path rather than a literal string. | A22 — an import added later under a different alias |
 | **G-refusals** | A8's four refusal modes assert **four distinct messages**, not merely that each raised. A single generic `ValueError` satisfies "each is refused" while telling a locked-out user nothing. | A8 — the spec says *"each refused with a distinct message"*; "raised" is the vacuous reading |
@@ -211,6 +211,52 @@ which is why `--collect` is not optional here.
 
 **Resolution:** A2 gates at **G0.1** against the real name. A12/A13/A21 are new tests in existing
 files, which is what §9's *"extend, do not replace"* already asks for — only the names were wrong.
+
+### C9 — "14 branches" and "15 categories" are both right, and A11 needs both numbers
+
+The spec says `dispatch_items` has **14 category branches** (D11, N3); `REVIEW_SCHEMA`'s enum has
+**15** members; §9 says *"a fifteenth category"*. Measured rather than picked:
+
+```
+enum members : 15
+handled      : 14
+NOT handled  : ['informational']
+```
+
+`informational` falls through `review_common.py:1091`'s guard and **writes nothing** — correctly,
+it is the "nothing to do" category. So both figures are accurate and count different things.
+
+**Why this matters for the phase's definition of done:** an A11 that walks all 15 and asserts
+*"nothing appeared in account B"* has **one arm that is vacuously true** — `informational` writes
+nothing in *either* account. That is §0.5b's own rule firing on A11 itself.
+
+**So G-branches enumerates from the enum and asserts the split**: 15 categories, of which exactly
+14 write, each within the resolved account only. A category that silently stops writing then turns
+the gate red instead of quietly joining `informational` — which is the regression a
+count-of-branches test would never see.
+
+### C10 — write the three pending tests at MODULE level, deliberately
+
+§8 declares bare node ids (`test_staff_pto.py::test_notify_staff_fallback`) but two of the three
+files put **every** test inside a class:
+
+| File | Convention | §8 declares |
+|---|---|---|
+| `test_staff_pto.py` | all nested — `TestNotifyStaff::`, `TestApprovePTO::`, … | bare `test_notify_staff_fallback` |
+| `test_gateway_property_resolution.py` | all nested — `TestResolveDefaultProperty::` | bare `test_unchanged_under_tenancy` |
+| `test_gateway_safety.py` | flat | bare `test_trust_is_account_scoped` ✅ |
+
+**A builder following each file's local convention writes a nested test, and the node id does not
+resolve** — BD6 again, in the two places most likely to invite it.
+
+**And the expiry test would not catch it**, which is why this is a C-row and not a footnote:
+`test_a_pending_test_that_now_exists_must_be_removed` asserts the node id does *not* resolve. A
+test written under a nested name does not resolve either — so the pending entry survives, the group
+reads as landed, and that criterion is **permanently exempt from `--collect`**. Exactly M5's
+failure arriving through a door M5 does not cover.
+
+Write both at module level. The file's class convention loses here, because §8's node id is what
+`--collect` enforces.
 
 ### C7 — labels are derived, never range-checked
 
@@ -304,7 +350,7 @@ Cloud API is proven before Baileys — today's only working WhatsApp transport �
 ### [ ] G4 — Step 4: thread `account` through the core — *dep: G3 — MUST precede G5*
 - [ ] G4.1 · §6 Step 4 · A11 · **G-branches** — `dispatch_items` takes a required, never-defaulted `account`; the test walks the 15 `REVIEW_SCHEMA` categories **from the tree** and asserts each writes only within the resolved account. **The phase's definition of done** · verify: `tests/integration/test_gateway_tenancy.py::test_cross_account_isolation`
 - [ ] G4.2 · §6 Step 4 · A12 · `is_trusted_sender` resolves the allowlist and staff match **within** an account — without it, a sender known in B is trusted in A (D8). **New test, not the name §8 gives** (C6) · verify: `tests/integration/test_gateway_safety.py::test_trust_is_account_scoped`
-- [ ] G4.3 · §6 Step 4 · A13 · `property_slug` is **unchanged and orthogonal** (D13/N5) — an account holds several properties and the chat→property map still decides which house · verify: `tests/unit/test_gateway_property_resolution.py::test_unchanged_under_tenancy`
+- [ ] G4.3 · §6 Step 4 · A13 · `property_slug` is **unchanged and orthogonal** (D13/N5) — an account holds several properties and the chat→property map still decides which house. **New test** (C6), **written at module level** despite the file nesting everything in `TestResolveDefaultProperty` (C10) · verify: `tests/unit/test_gateway_property_resolution.py::test_unchanged_under_tenancy`
 
 ### [ ] G5 — Step 5: the webhook route — *dep: G4*
 - [ ] G5.1 · §6 Step 5 · A14 · raw-body verification **before any parse** (D7/N4) — extend `web/routes/webhooks.py`'s proven Stripe pattern (C2); a forged signature is rejected **with no DB write** · verify: `tests/integration/test_gateway_webhook.py::test_bad_signature_no_write`
@@ -323,7 +369,7 @@ Cloud API is proven before Baileys — today's only working WhatsApp transport �
 - [ ] G7.4 · **U2** · — · O1's tier/group question is a founder cost/capability call; build the tier-independent parts. If the tier drops groups, `whatsapp.inventory_group_jid` needs a replacement routing key — **a behaviour change the migration must state, not absorb** · verify: §0.8 U2
 
 ### [ ] G8 — Step 8: `notify_staff`'s fallback — *dep: none*
-- [ ] G8.1 · §6 Step 8 · A21 · give `notify_staff` the ladder `notify_approver` already has (F9) — on a Telegram-only install a staff member is currently **never told** their PTO was decided. **New test, not the name §8 gives** (C6) · verify: `tests/unit/test_staff_pto.py::test_notify_staff_fallback`
+- [ ] G8.1 · §6 Step 8 · A21 · give `notify_staff` the ladder `notify_approver` already has (F9) — on a Telegram-only install a staff member is currently **never told** their PTO was decided. **New test, not the name §8 gives** (C6), **written at module level** despite every test in the file being nested (C10) · verify: `tests/unit/test_staff_pto.py::test_notify_staff_fallback`
 
 ### [ ] G9 — Step 9: retire Baileys — *dep: G7* — **see U5**
 - [!] G9.1 · §6 Step 9 · A22 · **N10 forbids this until Step 7 is green *in production*, and no production exists** — `bridge/` is today's only working WhatsApp transport and deleting it early makes rollback impossible while O1 is open. **G-baileys ships as a derived gate that will pass trivially now and hold the line at cutover** · verify: `tests/unit/test_gateway_cleanup.py::test_no_baileys_imports`
@@ -441,6 +487,18 @@ stopped checking. **G-Final's F.3b must run with `PENDING_TESTS_IN_EXISTING_FILE
 `test_matrix.py::test_every_model_is_classified`; the test is nested in `TestEntityClassification`.
 Precisely the defect the pre-flight had just caught four times in the spec, reproduced in the
 harness written to catch it — and caught only because `--collect` executes rather than reads.
+
+**BD8 — the expiry test has a blind spot, and it is documented rather than patched.** A pending
+test written under a *nested* name does not resolve, so
+`test_a_pending_test_that_now_exists_must_be_removed` stays green while the entry silently becomes
+permanent (C10). Two of the three pending files nest everything, so this was likely rather than
+theoretical.
+
+Fixed by instruction — "write these at module level" in the DAG rows, the pending set and §0.6 —
+rather than by teaching the test to guess at nested variants. Guessing would mean the test
+asserting things about names nobody declared, and the real invariant is simply *§8's node id is
+what `--collect` enforces*. Recorded because the blind spot still exists for any future entry, and
+a reader deserves to meet it here rather than discover it.
 
 **BD7 — F11's six test files are real, but two are named for their subject.** A first sweep for
 `test_gateway*` found four and suggested the spec had over-counted. `test_telegram_client.py` and

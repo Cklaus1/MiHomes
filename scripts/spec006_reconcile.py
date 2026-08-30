@@ -63,10 +63,18 @@ LABEL_RE = re.compile(r"A\d+[a-z]?")
 # silently exempts a real node id from the collect check — the same "sanctioned disagreement"
 # hazard as SPEC_NODE_ID_CORRECTIONS below, and the reason G-Final's F.3b must run with this set
 # empty. Verified by mutation (M4): removing an entry turns its unresolved node id red.
+#
+# **Write these tests at MODULE level** (harness §0.6 C10). Two of the three files nest every
+# test in a class, so following the local convention produces a node id §8 does not declare and
+# `--collect` cannot resolve. The expiry test below does NOT catch that: it asserts the node id
+# does *not* resolve, and a nested test does not resolve either — so the entry would survive, the
+# group would read as landed, and that criterion would be exempt from `--collect` forever. That
+# is M5's failure through a door M5 does not cover, which is why the instruction is here rather
+# than only in the harness.
 PENDING_TESTS_IN_EXISTING_FILES = {
-    "G4.2",  # A12 — test_gateway_safety.py, new: trust scoped to an account
-    "G4.3",  # A13 — test_gateway_property_resolution.py, new: unchanged under tenancy
-    "G8.1",  # A21 — test_staff_pto.py, new: notify_staff's fallback ladder
+    "G4.2",  # A12 — test_gateway_safety.py (flat), new: trust scoped to an account
+    "G4.3",  # A13 — test_gateway_property_resolution.py — NESTED file, write flat
+    "G8.1",  # A21 — test_staff_pto.py — NESTED file, write flat
 }
 
 SPEC_NODE_ID_CORRECTIONS = {

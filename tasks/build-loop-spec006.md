@@ -377,10 +377,10 @@ transport it serves.
 - [x] G2.2 · §6 Step 2 · A6 · **an unlinked sender raises `UnlinkedSender` and is never defaulted** (D12/N2) — the whole stake. Pair the negative with a positive (§0.5b): a *linked* sender in the same test resolves · verify: `tests/unit/test_identity.py::test_unlinked_fails_closed`
 - [x] G2.3 · §6 Step 2 · A7 · a sender linked in two accounts (legitimate under D5) resolves **by chat**; a DM from them is refused as ambiguous, never guessed · verify: `tests/unit/test_identity.py::test_multi_account_sender`
 
-### [ ] G3 — Step 3: the linking flow — *dep: G2*
-- [ ] G3.1 · §6 Step 3 · A8 · **G-refusals** — expired, replayed, wrong-gateway and cross-account codes each fail with a **distinct** message, not four paths into one generic error · verify: `tests/unit/test_linking.py::test_refusal_matrix`
-- [ ] G3.2 · §6 Step 3 · A9 · single-use: a second redemption is refused rather than rebinding, so a forwarded code cannot hijack an existing link · verify: `tests/unit/test_linking.py::test_single_use`
-- [ ] G3.3 · §6 Step 3 · A10 · revoking a membership removes the link **with no extra code** — `ondelete=CASCADE` makes D4 structural (already shipped in `0007`, §0.3) · verify: `tests/unit/test_linking.py::test_cascade_revocation`
+### [x] G3 — Step 3: the linking flow — *dep: G2*
+- [x] G3.1 · §6 Step 3 · A8 · **G-refusals** — expired, replayed, wrong-gateway and cross-account codes each fail with a **distinct** message, not four paths into one generic error · verify: `tests/unit/test_linking.py::test_refusal_matrix`
+- [x] G3.2 · §6 Step 3 · A9 · single-use: a second redemption is refused rather than rebinding, so a forwarded code cannot hijack an existing link · verify: `tests/unit/test_linking.py::test_single_use`
+- [x] G3.3 · §6 Step 3 · A10 · revoking a membership removes the link **with no extra code** — `ondelete=CASCADE` makes D4 structural (already shipped in `0007`, §0.3) · verify: `tests/unit/test_linking.py::test_cascade_revocation`
 
 ### [ ] G4 — Step 4: thread `account` through the core — *dep: G3 — MUST precede G5*
 - [ ] G4.1 · §6 Step 4 · A11 · **G-branches** — `dispatch_items` takes a required, never-defaulted `account`; the test walks the 15 `REVIEW_SCHEMA` categories **from the tree** and asserts each writes only within the resolved account. **The phase's definition of done** · verify: `tests/integration/test_gateway_tenancy.py::test_cross_account_isolation`

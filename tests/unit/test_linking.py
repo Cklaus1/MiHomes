@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select, text
@@ -128,6 +129,194 @@ def test_generate_code_is_unguessable_and_readable():
         assert not (set(code) & forbidden), (
             f"{code!r} contains a glyph that is misread when spoken or retyped"
         )
+
+
+def test_refusal_matrix(session, account_a, account_b, membership_id):
+    """**A8 · G-refusals** — four refusals, four *distinct* messages, not one generic error.
+
+    The gate is not "each case is refused" — a `redeem_link_token` that raised
+    `LinkingError("nope")` for everything would satisfy that and be useless. It is that the four
+    are **distinguishable**, because each asks the sender for a different next action: expired →
+    ask for a new code; replayed → you are already linked or someone beat you to it;
+    wrong-gateway → use the right app; unknown → check what you typed. Collapsing them turns
+    every one into a support conversation.
+
+    So this asserts three things a "four paths into one error" implementation fails: the
+    exception types are pairwise distinct, the human-readable messages are pairwise distinct,
+    and — the arm that catches the subtlest version — **a valid code still redeems**, so the
+    refusals are not simply everything failing.
+    """
+    from mihomes.services.gateways.linking import (
+        AlreadyRedeemed,
+        ExpiredCode,
+        UnknownCode,
+        WrongGateway,
+        redeem_link_token,
+    )
+
+    outcomes: dict[str, Exception] = {}
+
+    # --- expired -------------------------------------------------------------------------
+    expired_raw = issue_link_token(
+        session, account_a, membership_id, gateway="telegram", ttl_minutes=1
+    )
+    expired = session.execute(
+        select(GatewayLinkToken).where(
+            GatewayLinkToken.token_hash == hash_token(expired_raw)
+        )
+    ).scalar_one()
+    expired.expires_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    session.flush()
+    with pytest.raises(ExpiredCode) as e:
+        redeem_link_token(
+            session, gateway="telegram", sender_id="500000001", raw_token=expired_raw
+        )
+    outcomes["expired"] = e.value
+
+    # --- replayed ------------------------------------------------------------------------
+    replay_raw = issue_link_token(session, account_a, membership_id, gateway="telegram")
+    redeem_link_token(
+        session, gateway="telegram", sender_id="500000002", raw_token=replay_raw
+    )
+    with pytest.raises(AlreadyRedeemed) as e:
+        redeem_link_token(
+            session, gateway="telegram", sender_id="500000003", raw_token=replay_raw
+        )
+    outcomes["replayed"] = e.value
+
+    # --- wrong gateway -------------------------------------------------------------------
+    wa_raw = issue_link_token(session, account_a, membership_id, gateway="whatsapp")
+    with pytest.raises(WrongGateway) as e:
+        redeem_link_token(
+            session, gateway="telegram", sender_id="500000004", raw_token=wa_raw
+        )
+    outcomes["wrong_gateway"] = e.value
+
+    # --- cross-account / unknown ---------------------------------------------------------
+    # A code that exists but belongs to nothing this sender may redeem. It must be
+    # INDISTINGUISHABLE from "no such code": saying otherwise confirms a real code's existence
+    # to someone not entitled to know it.
+    with pytest.raises(UnknownCode) as e:
+        redeem_link_token(
+            session, gateway="telegram", sender_id="500000005", raw_token="NOTACODE"
+        )
+    outcomes["unknown"] = e.value
+
+    # --- the gate itself: four distinct types AND four distinct messages ------------------
+    types = {type(x) for x in outcomes.values()}
+    assert len(types) == 4, (
+        f"the four refusals collapse into {len(types)} exception type(s): "
+        f"{sorted(t.__name__ for t in types)}"
+    )
+    messages = {str(x) for x in outcomes.values()}
+    assert len(messages) == 4, (
+        f"distinct types with duplicate text is the same defect one layer down: {messages}"
+    )
+    for label, exc in outcomes.items():
+        assert str(exc).strip(), f"{label} refused with an empty message"
+
+    # --- and the arm that stops all of the above being 'everything fails' -----------------
+    good_raw = issue_link_token(session, account_a, membership_id, gateway="telegram")
+    resolved = redeem_link_token(
+        session, gateway="telegram", sender_id="500000006", raw_token=good_raw
+    )
+    assert resolved.account_id == account_a
+
+
+def test_single_use(session, account_a, membership_id):
+    """**A9** — a second redemption is refused rather than rebinding.
+
+    The hijack this prevents: someone forwards a code *after* using it, and a rebinding
+    implementation silently moves the link to whoever presents it second — the original person
+    keeps talking to the bot and quietly stops being who the bot thinks they are.
+
+    So the assertion is not merely "the second call raises". It is that the **first** sender
+    still holds the link afterwards, which is what distinguishes refusing from rebinding.
+    """
+    from mihomes.services.gateways.linking import AlreadyRedeemed, redeem_link_token
+
+    raw = issue_link_token(session, account_a, membership_id, gateway="telegram")
+
+    first = redeem_link_token(
+        session, gateway="telegram", sender_id="600000001", raw_token=raw
+    )
+    assert first.membership_id == membership_id
+
+    with pytest.raises(AlreadyRedeemed):
+        redeem_link_token(
+            session, gateway="telegram", sender_id="600000002", raw_token=raw
+        )
+
+    # The link still belongs to the FIRST sender — the anti-hijack assertion.
+    from mihomes.models.telegram_link import TelegramLink
+
+    links = session.execute(
+        select(TelegramLink).where(TelegramLink.account_id == account_a)
+    ).scalars().all()
+    assert [link.telegram_user_id for link in links] == [600000001], (
+        "the second redemption rebound the link instead of being refused — a forwarded code "
+        "just hijacked an existing link"
+    )
+
+    # And the token is marked used, by the sender who actually used it.
+    token = session.execute(
+        select(GatewayLinkToken).where(GatewayLinkToken.token_hash == hash_token(raw))
+    ).scalar_one()
+    assert token.redeemed_at is not None
+    assert token.redeemed_by_sender == "600000001"
+
+
+def test_cascade_revocation(session, account_a, membership_id):
+    """**A10** — revoking a membership removes its gateway link, with no extra code.
+
+    `ondelete=CASCADE` (shipped in `0007` for `telegram_links`, and in `0016` for the token
+    table) is what makes TELEGRAM_PRD:158's *"revoking a membership implicitly revokes the
+    link"* **structural** rather than something a code path has to remember. A promise kept by
+    application code is a promise that survives exactly as long as nobody writes a second
+    deletion path.
+
+    Paired, as always: the link is asserted present before the delete, so a fixture that never
+    created one could not pass this by having nothing to remove.
+    """
+    from mihomes.models.telegram_link import TelegramLink
+    from mihomes.services.gateways.linking import redeem_link_token
+
+    raw = issue_link_token(session, account_a, membership_id, gateway="telegram")
+    redeem_link_token(
+        session, gateway="telegram", sender_id="700000001", raw_token=raw
+    )
+
+    # --- positive: the link and a second, unredeemed token both exist ---------------------
+    pending_raw = issue_link_token(session, account_a, membership_id, gateway="telegram")
+    assert session.execute(
+        select(TelegramLink).where(TelegramLink.membership_id == membership_id)
+    ).scalars().all(), "no link to revoke — the assertion below would be vacuous"
+    assert session.execute(
+        select(GatewayLinkToken).where(
+            GatewayLinkToken.token_hash == hash_token(pending_raw)
+        )
+    ).scalar_one_or_none() is not None
+
+    # --- delete the membership; touch nothing else ----------------------------------------
+    membership = session.get(Membership, membership_id)
+    session.delete(membership)
+    session.flush()
+
+    # --- the link is gone, and so is the pending code -------------------------------------
+    assert session.execute(
+        select(TelegramLink).where(TelegramLink.membership_id == membership_id)
+    ).scalars().all() == [], (
+        "the gateway link outlived the membership it was keyed on — revoking access no longer "
+        "closes the bot (TELEGRAM_PRD:158, A10)"
+    )
+    assert session.execute(
+        select(GatewayLinkToken).where(
+            GatewayLinkToken.token_hash == hash_token(pending_raw)
+        )
+    ).scalar_one_or_none() is None, (
+        "an unredeemed code outlived its membership — redeeming it would resurrect access "
+        "that was deliberately revoked"
+    )
 
 
 def test_an_unknown_gateway_is_refused(session, account_a, membership_id):

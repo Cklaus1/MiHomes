@@ -23,9 +23,13 @@ import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from mihomes.models.gateway_link_token import GatewayLinkToken
+from mihomes.models.membership import Membership
+from mihomes.models.telegram_link import TelegramLink
+from mihomes.services.gateways.identity import ResolvedSender
 from mihomes.services.invite_service import hash_token
 
 logger = logging.getLogger(__name__)
@@ -48,6 +52,44 @@ class LinkingError(Exception):
     Caller-safe matters here: the refusal text is sent back over the very gateway the sender
     reached us on, so it must never carry an exception's raw detail — the same rule M27 already
     enforces for dispatch errors.
+    """
+
+
+class ExpiredCode(LinkingError):
+    """The code was valid but its 15 minutes are up. Ask the issuer for a fresh one."""
+
+
+class AlreadyRedeemed(LinkingError):
+    """Single-use, and this one is used (A9).
+
+    **Refused rather than rebinding**, which is the whole point: a code forwarded after
+    redemption must not silently move an existing link to whoever presents it second.
+    """
+
+
+class WrongGateway(LinkingError):
+    """A code minted for one channel, presented on another.
+
+    The sender-id namespaces are unrelated across gateways, so honouring this would bind the
+    wrong human on a numeric collision.
+    """
+
+
+class UnknownCode(LinkingError):
+    """No such code — mistyped, already consumed long ago, or never existed.
+
+    Deliberately **cannot** distinguish "never existed" from "belongs to another account": the
+    lookup is by hash across all accounts (§4.2's carve-out), and telling a stranger that their
+    guess matched a real code somewhere else would confirm the code's existence to someone who
+    is not entitled to know it.
+    """
+
+
+class AlreadyLinked(LinkingError):
+    """This sender already holds a link in that account (D5's unique constraint).
+
+    Refused with a clear message rather than surfacing the `IntegrityError` the constraint
+    would raise anyway (§5.2), because the sender sees this text.
     """
 
 
@@ -106,3 +148,113 @@ def issue_link_token(
         token.expires_at.isoformat(),
     )
     return raw
+
+
+def redeem_link_token(
+    session: Session,
+    *,
+    gateway: str,
+    sender_id: str,
+    raw_token: str,
+) -> ResolvedSender:
+    """Bind `sender_id` to the token's membership. Single-use, expiry-checked (§5.2).
+
+    **The lookup is by hash across all accounts, on an unscoped session** — the same carve-out
+    `identity.resolve_sender` documents, and for the same reason: redemption runs *before* an
+    account is known, because discovering it is what redemption does. That is why the unique
+    is on `token_hash` alone (§4.2).
+
+    **Four refusals, four distinct exceptions** (A8). They are separate types rather than one
+    generic error because each asks the sender for a different next action: `ExpiredCode` means
+    ask for a new code, `AlreadyRedeemed` means you are already linked or someone beat you to
+    it, `WrongGateway` means use the right app, and `UnknownCode` means check what you typed.
+    Collapsing them into "linking failed" makes every one of those a support conversation.
+
+    `UnknownCode` deliberately does not distinguish "no such code" from "a code belonging to an
+    account you have nothing to do with": both are a hash that this sender may not redeem, and
+    saying which would confirm a real code's existence to someone not entitled to know it.
+
+    Raises:
+        UnknownCode, ExpiredCode, AlreadyRedeemed, WrongGateway, AlreadyLinked
+    """
+    if gateway not in SUPPORTED_GATEWAYS:
+        raise LinkingError(
+            f"Unknown gateway {gateway!r}. Expected one of: {', '.join(SUPPORTED_GATEWAYS)}."
+        )
+
+    token = session.execute(
+        select(GatewayLinkToken).where(
+            GatewayLinkToken.token_hash == hash_token(raw_token or "")
+        )
+    ).scalar_one_or_none()
+
+    if token is None:
+        raise UnknownCode("That code is not valid. Check it and try again.")
+
+    # Gateway is checked BEFORE expiry and redemption, deliberately: a code presented on the
+    # wrong channel is a category error about the code itself, and answering "expired" would
+    # send the sender to ask for a replacement that would fail exactly the same way.
+    if token.gateway != gateway:
+        raise WrongGateway(
+            f"That code was issued for {token.gateway}, not {gateway}."
+        )
+
+    if token.redeemed_at is not None:
+        raise AlreadyRedeemed("That code has already been used.")
+
+    expires_at = token.expires_at
+    if expires_at.tzinfo is None:  # a naive column read on some backends
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at <= datetime.now(timezone.utc):
+        raise ExpiredCode("That code has expired. Ask for a new one.")
+
+    membership = session.get(Membership, token.membership_id)
+    if membership is None or membership.status != "active":
+        # The membership was revoked between issue and redemption. CASCADE covers deletion;
+        # this covers the status change, exactly as `identity.resolve_sender` does.
+        raise UnknownCode("That code is not valid. Check it and try again.")
+
+    if gateway == "telegram":
+        try:
+            telegram_user_id = int(sender_id)
+        except (TypeError, ValueError):
+            raise LinkingError("That sender id is not valid for Telegram.") from None
+
+        existing = session.execute(
+            select(TelegramLink).where(
+                TelegramLink.account_id == token.account_id,
+                TelegramLink.telegram_user_id == telegram_user_id,
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            # D5's unique constraint would raise anyway; refusing here gives the sender a
+            # sentence they can act on instead of an IntegrityError.
+            raise AlreadyLinked("You are already linked in that account.")
+
+        session.add(
+            TelegramLink(
+                account_id=token.account_id,
+                membership_id=token.membership_id,
+                telegram_user_id=telegram_user_id,
+            )
+        )
+    else:  # pragma: no cover - WhatsApp links arrive with the Cloud API at Step 7
+        raise LinkingError(f"Linking is not yet available for {gateway}.")
+
+    # Mark used BEFORE returning, in the same transaction as the link insert: single-use is a
+    # property of the pair, and a crash between them would leave a live code and a live link.
+    token.redeemed_at = datetime.now(timezone.utc)
+    token.redeemed_by_sender = str(sender_id)[:100]
+    session.flush()
+
+    logger.info(
+        "gateway link redeemed: gateway=%s membership=%s account=%s",
+        gateway,
+        token.membership_id,
+        token.account_id,
+    )
+    return ResolvedSender(
+        account_id=token.account_id,
+        membership_id=token.membership_id,
+        role=membership.role,
+    )

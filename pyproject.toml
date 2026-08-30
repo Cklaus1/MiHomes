@@ -99,9 +99,24 @@ omit = [
     "*/services/ai/openai_provider.py",
     "*/services/ai/nim_provider.py",
     "*/services/ai/ollama_provider.py",
-    # Gateway integrations — require real network connections
-    "*/services/gateways/whatsapp/*",
-    "*/services/gateways/telegram/*",
+    # Gateway integrations — SPEC-006 Step 10 (A24) narrowed these from two directory-wide
+    # globs to the four modules that genuinely talk to a network.
+    #
+    # F10's finding: `*/services/gateways/whatsapp/*` and `.../telegram/*` excluded whole
+    # directories on a justification true only of the HTTP clients. `review_common.py` sits
+    # above those globs and was measured, but the per-channel adapters were not — and D2 makes
+    # adapters the extension point for every future channel, so the untested surface was
+    # exactly the surface that grows. SPEC-006 then landed `identity.py`, `linking.py` and
+    # `webhook.py` — the modules carrying D11/D12's tenancy boundary — inside them.
+    #
+    # What stays omitted is HTTP and nothing else, on the same reasoning as the AI providers
+    # and `stripe_provider.py`: testing that someone else's API works is their job, and the
+    # seam worth testing is the Protocol boundary, which the fakes cover without credentials.
+    # `tests/unit/test_gateway_cleanup.py` asserts both halves — that each measured module is
+    # measured, and that each omission still names a reason.
+    "*/services/gateways/whatsapp/client.py",       # the Node/Baileys bridge; goes at Step 9
+    "*/services/gateways/whatsapp/cloud_client.py", # Meta Graph API — U8, an accepted gap
+    "*/services/gateways/telegram/client.py",       # Telegram Bot API
     "*/services/gateways/calendar/provider.py",
     # SPEC-004 §9 — the Stripe adapter, following the AI-provider precedent above. Testing that
     # the Stripe SDK works is Stripe's job; the seam worth testing is the Protocol boundary, and

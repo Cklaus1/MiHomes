@@ -432,12 +432,12 @@ transport it serves.
 ### [x] G8 — Step 8: `notify_staff`'s fallback — *dep: none*
 - [x] G8.1 · §6 Step 8 · A21 · give `notify_staff` the ladder `notify_approver` already has (F9) — on a Telegram-only install a staff member is currently **never told** their PTO was decided. **New test, not the name §8 gives** (C6), **written at module level** despite every test in the file being nested (C10) · verify: `tests/unit/test_staff_pto.py::test_notify_staff_fallback`
 
-### [ ] G9 — Step 9: retire Baileys — *dep: G7* — **see U5**
+### [!] G9 — Step 9: retire Baileys — *dep: G7* — **see U5**
 - [!] G9.1 · §6 Step 9 · A22 · **N10 forbids this until Step 7 is green *in production*, and no production exists** — `bridge/` is today's only working WhatsApp transport and deleting it early makes rollback impossible while O1 is open. **G-baileys ships as a derived gate that will pass trivially now and hold the line at cutover** · verify: `tests/unit/test_gateway_cleanup.py::test_no_baileys_imports`
 - [!] G9.2 · §6 Step 9 · A23 · the watchdog supervises nothing that no longer exists (D15) — 23 references today (F6). Same U5 block: the shrink follows the deletion · verify: `tests/unit/test_gateway_cleanup.py::test_watchdog_scope`
 
-### [ ] G10 — Step 10: close the coverage gap — *dep: G9*
-- [ ] G10.1 · §6 Step 10 · A24 · **G-coverage** — narrow `omit` so `identity.py`, `linking.py`, `webhook.py` and both adapters are measured; the list is **derived**, and `cloud_client.py` stays omitted on network-bound grounds (U8) · verify: `tests/unit/test_gateway_cleanup.py::test_coverage_not_omitted`
+### [x] G10 — Step 10: close the coverage gap — *dep: G9*
+- [x] G10.1 · §6 Step 10 · A24 · **G-coverage** — narrow `omit` so `identity.py`, `linking.py`, `webhook.py` and both adapters are measured; the list is **derived**, and `cloud_client.py` stays omitted on network-bound grounds (U8) · verify: `tests/unit/test_gateway_cleanup.py::test_coverage_not_omitted`
 
 ### [ ] G11 — the exit criterion — *dep: all*
 - [ ] G11.1 · §6 exit · A25 · **end to end** — a linked sender in A, by webhook, no poller running, through the Cloud API: a row in A and **nothing in B**. Pair the negative with the positive (§0.5b) · verify: `tests/integration/test_gateway_e2e.py::test_exit_criterion`

@@ -143,6 +143,33 @@ def _configured_secret() -> str:
     return os.environ.get("TELEGRAM_WEBHOOK_SECRET", "")
 
 
+def _property_for_chat(session, jid: str) -> str | None:
+    """Which property this chat belongs to (D13) — **a scoped read**.
+
+    `telegram.chat_links` is a `Configuration` row, so this can only run once the account is
+    bound. The map is per-account by construction, which is what keeps `property_slug` and
+    `account` orthogonal (N5): the account says whose estate, the chat says which house.
+
+    Falls back to `resolve_default_property`, which returns the sole property's slug when an
+    account has exactly one and `None` otherwise (L2). That fallback is safe *here* in a way it
+    would never be at the account level: the account is already established by
+    `resolve_sender`, so this only ever chooses between houses the sender genuinely belongs to.
+    """
+    import json
+
+    from mihomes.services.config_service import get_config
+    from mihomes.services.gateways.review_common import resolve_default_property
+
+    raw = get_config(session, "telegram.chat_links") or "{}"
+    try:
+        links = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        links = {}
+
+    slug = links.get(str(jid)) if isinstance(links, dict) else None
+    return slug or resolve_default_property(session)
+
+
 def _reply(chat_id: str, text: str) -> None:
     """Send one message back over the transport, outside any account scope.
 
@@ -198,7 +225,17 @@ def _dispatch(resolved, message: dict) -> None:
 
             from mihomes.services.gateways.telegram.responder import process_and_respond
 
-            process_and_respond(session, [message])
+            # **Resolve the chat→property map here**, inside the scope: it lives in
+            # `telegram.chat_links`, a `Configuration` row, which is tenant-owned and therefore
+            # unreadable until the account is bound. That ordering is why `normalize_*` leaves
+            # `propertySlug` as None rather than filling it.
+            #
+            # Load-bearing, not cosmetic: `responder.py:208` drops any message with neither a
+            # `propertySlug` nor a `property_slug` argument, so without this the whole webhook
+            # path returns "No linked chat found" and writes nothing. Measured — see the
+            # envelope comment in `gateways/webhook.py`.
+            slug = _property_for_chat(session, message["jid"])
+            process_and_respond(session, [message], property_slug=slug)
 
             if update_id:
                 store.add([update_id])

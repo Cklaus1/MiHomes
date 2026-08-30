@@ -153,19 +153,39 @@ def normalize_telegram_update(raw_body: bytes) -> dict | None:
         message.get("photo") or message.get("document") or message.get("video")
     )
 
+    chat_type = chat.get("type") or ""
+
     return {
+        # **The full eleven-key envelope `telegram/client.py:164` produces**, not a subset.
+        #
+        # This was measured the hard way. The first version omitted `propertySlug`, and
+        # `responder.py:208` filters on exactly that key — `[m for m in messages if
+        # m.get("propertySlug") or property_slug]` — so **every** webhook message was dropped
+        # before dispatch with "No linked chat found". The G5 tests still passed, because the
+        # rows they counted were written during *sender resolution* rather than by dispatch:
+        # a criterion satisfied by the wrong mechanism.
+        #
+        # A19's claim is "the same dict", not "a compatible subset", and this is why: a missing
+        # key is not a degraded envelope, it is a message the responder silently discards.
+        "id": str(update.get("update_id") or ""),
+        "timestamp": message.get("date"),
         # `jid` rather than `chat_id`: the responders' existing contract is WhatsApp's
         # vocabulary, and D2 makes the adapter the thing that differs, not the envelope.
         "jid": str(chat_id),
+        "isGroup": chat_type in ("group", "supergroup", "channel"),
         "sender": str(sender.get("id") or ""),
         "senderName": sender_name,
+        "senderUsername": sender.get("username") or "",
         "text": message.get("text") or message.get("caption") or "",
         "hasMedia": has_media,
         # Media arrives as a file_id needing a second API call to fetch; the poller does that
         # today and the webhook does not change it. Left None rather than half-populated.
         "mediaPath": None,
+        # Filled by the caller from the chat→property map, which is a *scoped* read and so
+        # cannot happen here: this function runs before any account is bound (§5.1). `None`
+        # rather than absent, so the key's presence is not what varies between transports.
+        "propertySlug": None,
         # `update_id` is what dedup keys on — Telegram guarantees it is unique per update, and
         # redelivery of one update repeats it, which is exactly A16's question.
-        "id": str(update.get("update_id") or ""),
         "update_id": update.get("update_id"),
     }

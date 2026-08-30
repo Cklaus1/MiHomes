@@ -59,7 +59,16 @@ SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token"
 
 #: Tables a dispatched message can write. Counted around every request, so "no DB write" is a
 #: statement about the database rather than about one table somebody remembered to check.
-WATCHED_TABLES = ("issues", "tasks", "work_orders", "notes", "audit_log")
+#: **`audit_log` is deliberately absent.** It was here in the first version and it made every
+#: count in this file meaningless: sender resolution writes audit rows, so `sum(counts) > 0`
+#: was satisfied *before dispatch ever ran*. The webhook path was in fact dropping every
+#: message at `responder.py:208`'s `propertySlug` filter and returning "No linked chat found",
+#: and A14/A15/A16 all passed anyway — a criterion met by the wrong mechanism.
+#:
+#: Counting only tables a **dispatched item** creates is what makes these assertions mean what
+#: they say. Found while writing A19, whose "the same dict, not a compatible subset" claim is
+#: the same defect stated from the other side.
+WATCHED_TABLES = ("issues", "tasks", "work_orders", "notes")
 
 
 @pytest.fixture(autouse=True)
@@ -101,15 +110,37 @@ def _pin_engine_to_test_db():
 
 @pytest.fixture(autouse=True)
 def _no_ai(monkeypatch):
-    """Stub the AI call.
+    """Stub the AI, at **the responder's own seam**.
 
-    Not for speed: unstubbed it fails without an API key and its `except` branch calls
-    `session.rollback()`, which discards prior writes in the same batch. That defect is recorded
-    in `opportunities.md`; here it would make row counts meaningless.
+    `analyze_messages` is what `process_and_respond` calls to turn raw messages into
+    categorized items; without an API key it raises `AIProviderError`, the batch is abandoned,
+    and nothing is dispatched. Stubbing `review_common.ai_response` alone is not enough — that
+    is the *reply* path, one layer down, and stubbing only that is why an earlier version of
+    this file measured a webhook that never dispatched anything at all.
+
+    Returns one `issue` item so a delivered update produces exactly one row in a watched table,
+    which is what makes "wrote something" and "did not write twice" both meaningful.
     """
     from mihomes.services.gateways import review_common as rc
 
     monkeypatch.setattr(rc, "ai_response", lambda *a, **k: "stubbed answer")
+
+    def _fake_analyze(session, messages, *, property_name=None, property_slug=None, **kw):
+        return {
+            "items": [
+                {
+                    "category": "issue",
+                    "title": (messages[0].get("text") or "Webhook issue")[:80],
+                    "description": "created by the webhook test's analyze stub",
+                    "severity": "medium",
+                    "property_slug": property_slug,
+                }
+            ]
+        }
+
+    monkeypatch.setattr(
+        "mihomes.services.gateways.telegram.responder.analyze_messages", _fake_analyze
+    )
 
 
 @pytest.fixture
@@ -252,8 +283,15 @@ def wired(_pg_engine, account_a, sent):
 
     cleanup = _pg_engine.connect()
     ctx = cleanup.begin()
+    # `audit_log` is named explicitly rather than inherited from `WATCHED_TABLES`, and the two
+    # lists are deliberately different: what this test *counts* must exclude audit rows (they
+    # are written by sender resolution, not by dispatch, and their inclusion is what let the
+    # G5 defect hide), while what it *cleans up* must include them — a committed audit row
+    # outlives the test and made `test_archive.py::test_counts_eligible_rows` see 11 rows
+    # instead of 2. Measured both ways.
     for table in (
         *WATCHED_TABLES,
+        "audit_log",
         "telegram_links",
         "memberships",
         "configurations",

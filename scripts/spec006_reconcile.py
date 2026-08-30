@@ -76,7 +76,9 @@ PENDING_TESTS_IN_EXISTING_FILES = {
     # written at module level per C10; G4.3 in particular breaks its file's own convention of
     # nesting everything in `TestResolveDefaultProperty`, because §8 declares a bare node id and
     # a nested name would not resolve under `--collect`.
-    "G8.1",  # A21 — test_staff_pto.py — NESTED file, write flat
+    # G8.1 (A21) was here and is **deleted — G8 has landed**. Written at module level per C10,
+    # despite `test_staff_pto.py` nesting every other test in a class: §8 declares the bare
+    # node id, and a nested name would not resolve under `--collect`.
     # G3.1/G3.2/G3.3 lived here between G1 and G3 — a third shape the set had not carried,
     # "G1 created the file G3 writes into", because §8 puts A4 and G3's three tests in the same
     # basename. **G3 has landed and they are deleted**, which is the discipline

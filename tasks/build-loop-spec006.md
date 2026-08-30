@@ -429,8 +429,8 @@ transport it serves.
 - [x] G7.3 · §6 Step 7 · A20 · the responder is **unchanged** by the swap — it holds a `GatewayAdapter` (D2), never a transport · verify: `tests/unit/test_whatsapp_cloud.py::test_responder_untouched`
 - [x] G7.4 · **U2** · — · O1's tier/group question is a founder cost/capability call; build the tier-independent parts. If the tier drops groups, `whatsapp.inventory_group_jid` needs a replacement routing key — **a behaviour change the migration must state, not absorb** · verify: §0.8 U2
 
-### [ ] G8 — Step 8: `notify_staff`'s fallback — *dep: none*
-- [ ] G8.1 · §6 Step 8 · A21 · give `notify_staff` the ladder `notify_approver` already has (F9) — on a Telegram-only install a staff member is currently **never told** their PTO was decided. **New test, not the name §8 gives** (C6), **written at module level** despite every test in the file being nested (C10) · verify: `tests/unit/test_staff_pto.py::test_notify_staff_fallback`
+### [x] G8 — Step 8: `notify_staff`'s fallback — *dep: none*
+- [x] G8.1 · §6 Step 8 · A21 · give `notify_staff` the ladder `notify_approver` already has (F9) — on a Telegram-only install a staff member is currently **never told** their PTO was decided. **New test, not the name §8 gives** (C6), **written at module level** despite every test in the file being nested (C10) · verify: `tests/unit/test_staff_pto.py::test_notify_staff_fallback`
 
 ### [ ] G9 — Step 9: retire Baileys — *dep: G7* — **see U5**
 - [!] G9.1 · §6 Step 9 · A22 · **N10 forbids this until Step 7 is green *in production*, and no production exists** — `bridge/` is today's only working WhatsApp transport and deleting it early makes rollback impossible while O1 is open. **G-baileys ships as a derived gate that will pass trivially now and hold the line at cutover** · verify: `tests/unit/test_gateway_cleanup.py::test_no_baileys_imports`

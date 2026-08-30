@@ -251,12 +251,19 @@ def process_and_respond(
             continue
 
         # M27: sensitive actions only for a group whose every sender is trusted.
+        # SPEC-006 D11/A12. `bound_account()` is the account this session is already scoped
+        # to; passing it explicitly is what lets `dispatch_items` verify that the tenant the
+        # caller believes it resolved is the tenant it is about to write as. The webhook edge
+        # (Step 5) resolves the sender first and binds the session from that.
+        account = rc.bound_account()
         sender_trusted = bool(chat_msgs) and all(
-            rc.is_trusted_sender(session, m, gateway="telegram") for m in chat_msgs
+            rc.is_trusted_sender(session, m, gateway="telegram", account=account)
+            for m in chat_msgs
         )
 
         r = rc.dispatch_items(
             session, result.get("items", []),
+            account=account,
             adapter=adapter,
             reply_target=reply_chat_id,
             messages=chat_msgs,

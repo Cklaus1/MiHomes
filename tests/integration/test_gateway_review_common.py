@@ -34,9 +34,12 @@ def capture():
 
 
 def _dispatch(session, items, adapter, prop_slug, messages=None):
+    # SPEC-006 A11: `account` is required and never defaulted (D11). `bound_account()` is the
+    # tenant this test's session is already scoped to, which is what the responders pass.
     return rc.dispatch_items(
         session,
         items,
+        account=rc.bound_account(),
         adapter=adapter,
         reply_target="chat-1",
         messages=messages or [],

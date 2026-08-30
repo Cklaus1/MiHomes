@@ -685,12 +685,28 @@ def group_by_target(messages: list[dict]) -> dict[str, list[dict]]:
     return groups
 
 
-def is_trusted_sender(session: Session, message: dict, *, gateway: str) -> bool:
+def is_trusted_sender(
+    session: Session, message: dict, *, gateway: str, account=None
+) -> bool:
     """True if the sender may trigger sensitive (money/PTO) actions (M27).
 
     Trust is granted to (a) any configured allowlist entry for the gateway, or
     (b) a known staff member matched by phone (WhatsApp) or sender id (Telegram).
     An empty allowlist does NOT trust everyone — staff-matching is the floor.
+
+    **SPEC-006 D8/A12 — trust is resolved WITHIN an account.** Without that, the
+    staff-match branch below searched every account's staff, so a sender known in
+    account B was trusted in account A and could log expenses or approve PTO
+    against an estate they have nothing to do with.
+
+    `account` is accepted as an explicit `Account` **or** its id, and defaults to
+    `None` meaning "use the session's bound account". The default is safe here
+    and, unlike `dispatch_items`' required `account`, is the *more* conservative
+    choice: the tenancy-scoped session already filters `Staff` to the bound
+    account, so an unpassed account narrows to the caller's own tenant rather
+    than widening to all of them. Passing it explicitly additionally guards the
+    case where a caller holds an unscoped session — which is precisely the state
+    the webhook edge is in before `resolve_sender` has run.
     """
     from mihomes.services.config_service import get_config
 
@@ -708,7 +724,15 @@ def is_trusted_sender(session: Session, message: dict, *, gateway: str) -> bool:
             return True
         if phone:
             from mihomes.models.staff import Staff
-            for s in session.query(Staff).filter(Staff.whatsapp_phone.isnot(None)).all():
+            q = session.query(Staff).filter(Staff.whatsapp_phone.isnot(None))
+            # D8/A12. The scoped session already narrows this to the bound account; the
+            # explicit filter additionally covers an UNSCOPED session, which is the state the
+            # webhook edge is in before the sender has been resolved. Without it, a staff
+            # phone in account B is trusted in account A.
+            account_id = getattr(account, "id", account)
+            if account_id is not None:
+                q = q.filter(Staff.account_id == account_id)
+            for s in q.all():
                 s_phone = (s.whatsapp_phone or "").replace("+", "").replace("-", "").replace(" ", "")
                 if s_phone and (s_phone in phone or phone in s_phone):
                     return True
@@ -722,6 +746,70 @@ def is_trusted_sender(session: Session, message: dict, *, gateway: str) -> bool:
     return bool(approver_id) and raw_sender == str(approver_id).strip()
 
 
+def bound_account():
+    """The account id this session is scoped to, or `None` when unbound.
+
+    The responders run inside an already-bound tenant context, so this is how they name the
+    account they are operating as without re-resolving it — re-resolution would introduce a
+    *second* answer to "whose estate is this", and two answers is how they come to disagree.
+
+    Returns `None` on an unbound session (CLI, background jobs) rather than raising, which
+    `dispatch_items` then rejects: an explicit `None` account is refused there, so an unbound
+    caller fails at the call instead of writing without a tenant.
+    """
+    from mihomes.tenancy.context import current_account
+
+    try:
+        return current_account.get()
+    except LookupError:
+        return None
+
+
+class AccountMismatch(RuntimeError):
+    """The caller's resolved account is not the account the session is bound to.
+
+    SPEC-006 D11. This is the ingress bug the phase exists to prevent, caught at the one
+    chokepoint every gateway message passes through: the sender resolved to account A, and the
+    session about to be written through belongs to account B. Every one of `dispatch_items`'
+    fourteen writing branches would otherwise land in B while the confirmation went back to
+    A's sender, and nothing would look wrong to anyone.
+
+    Raised rather than logged. A cross-tenant write is not a degraded mode to continue in.
+    """
+
+
+def _assert_account_matches_session(session: Session, account) -> None:
+    """`account` must agree with the session's bound tenant (D11/A11).
+
+    Without this the new parameter would be **decorative** — a caller could pass account A to a
+    session bound to B and every row would still land in B, because tenancy is enforced by the
+    session rather than by this argument. A11 would then pass on a signature change that
+    changed no behaviour at all, which is exactly the vacuous-criterion trap §0.5 warns about.
+
+    An unbound session (the CLI, background jobs) is left alone: `current_account.get()` raises
+    `LookupError`, and there is nothing to disagree with. That is not a hole — the tenancy
+    session's own fail-closed check already governs whether such a session may write.
+    """
+    if account is None:
+        raise AccountMismatch(
+            "dispatch_items requires an account — D11 forbids defaulting the tenant"
+        )
+
+    from mihomes.tenancy.context import current_account
+
+    try:
+        bound = current_account.get()
+    except LookupError:
+        return  # unscoped session: the tenancy layer's own guard applies, not this one
+
+    account_id = getattr(account, "id", account)
+    if bound != account_id:
+        raise AccountMismatch(
+            f"dispatch_items was given account {account_id} but the session is bound to "
+            f"{bound}. The ingress path resolved one tenant and is writing as another"
+        )
+
+
 # --------------------------------------------------------------------------- #
 # Dispatch — the full category loop, shared verbatim by both gateways (M24)
 # --------------------------------------------------------------------------- #
@@ -729,6 +817,7 @@ def dispatch_items(
     session: Session,
     items: list[dict],
     *,
+    account,
     adapter: GatewayAdapter,
     reply_target: str,
     messages: list[dict],
@@ -745,7 +834,31 @@ def dispatch_items(
     `sender_trusted` (M27) gates the sensitive categories: when False, an item in
     `SENSITIVE_CATEGORIES` is skipped (not logged) so an untrusted group member
     can't create money/PTO/resolution records.
+
+    **SPEC-006 D11/A11 — `account` is required and has no default, deliberately.**
+    A default would let a future call site silently write to the wrong tenant, and
+    every one of the fourteen writing category branches below would inherit the
+    mistake. Required-and-explicit means a forgetting caller fails at the call,
+    not in production — SPEC-003 N2's reasoning applied to accounts rather than
+    property scope.
+
+    It is deliberately **not** used to filter each branch. D11/N3 put tenancy at
+    the *transport edge*: the caller resolves the sender, opens a session bound to
+    that account, and passes it here. Row-level enforcement is the tenancy
+    session's `before_flush` stamp and its query filter, which apply to all
+    fourteen branches at once. Scoping inside the branches would mean fourteen
+    chances to forget, and the one that forgets is a leak nobody sees.
+
+    So what this parameter buys is the **assertion below**: the account the caller
+    believes it resolved must be the account the session is actually bound to. A
+    mismatch means the ingress path resolved one tenant and then wrote as
+    another — the exact failure A11 exists to prevent, caught here rather than
+    discovered later in someone else's estate.
+
+    `property_slug` is UNCHANGED and orthogonal (D13/A13): an account may hold
+    several properties, and the chat→property map still decides which house.
     """
+    _assert_account_matches_session(session, account)
     send = adapter.send
     logged = 0
     replied = 0

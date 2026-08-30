@@ -69,6 +69,26 @@
   Until then, any criterion whose wording requires CI must be reported as locally-green-only,
   never marked met. (surfaced while authoring build-loop-conventions §7)
 
+- [BUG][SPEC-006 G4 — P2, NOT FIXED, OUTSIDE THIS DAG] `services/gateways/review_common.py:372`
+  — **a failing AI call mid-batch rolls back every *successful* prior write in the same batch.**
+  `ai_response` catches any exception and calls `session.rollback()`. Its docstring (H27) says the
+  rollback exists so *"a half-applied transaction does not poison every subsequent create in the
+  same batch"* — but the measured effect is that it also discards the **completed** ones.
+
+  **Found by measurement, not by reading.** SPEC-006 A11 walks all 15 `REVIEW_SCHEMA` categories
+  in one loop; the `question` branch's AI call fails without an API key, and the resulting
+  rollback took eleven prior categories' rows with it — every category read as "wrote nothing".
+  `dispatch_items` still returned `logged: 1` for each, so the caller is told the write
+  succeeded, the sender gets a confirmation, and the row is gone. In production this fires
+  whenever the AI provider is down, rate-limited, or unconfigured: a batch containing one
+  question silently loses the issues and tasks logged before it.
+
+  A11 stubs `ai_response` rather than working around the side effect. Recorded rather than fixed
+  because it is **not a tenancy bug** — widening G4 to cover it would grow a security group into
+  a transaction-semantics refactor. **Proposed fix:** a SAVEPOINT per item
+  (`session.begin_nested()`), so one item's failure rolls back only that item. (surfaced during
+  SPEC-006 G4.1)
+
 - [BLOCKED] SPEC-006 P2 — **reconcile `telegram-bot` with `origin/main`; nobody owns it.**
   SPEC-006 §0.1: *"if this spec is built from `telegram-bot`, everything in §3–§5 is wrong"* —
   the shared gateway core `gateways/review_common.py` (1,175 lines) exists only on main. No

@@ -17,7 +17,6 @@ from sqlalchemy.orm import Session
 from mihomes.services.gateways import review_common as rc
 from mihomes.services.gateways.whatsapp.client import WhatsAppClient
 from mihomes.services.gateways.whatsapp.review import analyze_messages
-from mihomes.services.query_helpers import escape_like
 
 logger = logging.getLogger("mihomes.whatsapp")
 
@@ -265,12 +264,17 @@ def process_and_respond(
             return rc.resolve_reporter_by_name(session, item.get("reported_by"))
 
         # M27: sensitive actions only for a group whose every sender is trusted.
+        # SPEC-006 D11/A12 — see the identical comment in the Telegram responder. The account
+        # is the session's, passed explicitly so `dispatch_items` can verify the two agree.
+        account = rc.bound_account()
         sender_trusted = bool(group_msgs) and all(
-            rc.is_trusted_sender(session, m, gateway="whatsapp") for m in group_msgs
+            rc.is_trusted_sender(session, m, gateway="whatsapp", account=account)
+            for m in group_msgs
         )
 
         r = rc.dispatch_items(
             session, result.get("items", []),
+            account=account,
             adapter=adapter,
             reply_target=reply_jid,
             messages=group_msgs,

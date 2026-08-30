@@ -72,8 +72,10 @@ LABEL_RE = re.compile(r"A\d+[a-z]?")
 # is M5's failure through a door M5 does not cover, which is why the instruction is here rather
 # than only in the harness.
 PENDING_TESTS_IN_EXISTING_FILES = {
-    "G4.2",  # A12 — test_gateway_safety.py (flat), new: trust scoped to an account
-    "G4.3",  # A13 — test_gateway_property_resolution.py — NESTED file, write flat
+    # G4.2 (A12) and G4.3 (A13) were here and are **deleted — G4 has landed**. Both were
+    # written at module level per C10; G4.3 in particular breaks its file's own convention of
+    # nesting everything in `TestResolveDefaultProperty`, because §8 declares a bare node id and
+    # a nested name would not resolve under `--collect`.
     "G8.1",  # A21 — test_staff_pto.py — NESTED file, write flat
     # G3.1/G3.2/G3.3 lived here between G1 and G3 — a third shape the set had not carried,
     # "G1 created the file G3 writes into", because §8 puts A4 and G3's three tests in the same

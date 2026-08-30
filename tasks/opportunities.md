@@ -69,6 +69,25 @@
   Until then, any criterion whose wording requires CI must be reported as locally-green-only,
   never marked met. (surfaced while authoring build-loop-conventions §7)
 
+- [BUG][SPEC-008 pre-flight — P2, NOT FIXED] **`httpx` is imported at runtime by four modules but
+  is a `dev` extra, not a runtime dependency.** Measured 2026-08-30: `pyproject.toml:52` puts
+  `httpx>=0.27` inside `[project.optional-dependencies]` (line 36), while
+  `services/gateways/whatsapp/cloud_client.py:201`, `services/ha_sync.py` (4 sites) and the orphan
+  `services/webhook.py:13` all import it. A clean `pip install -e .` therefore raises `ImportError`
+  at first use — for `cloud_client.py` that is the moment someone sends a WhatsApp message, since
+  `_post` is `pragma: no cover` and no test executes it.
+
+  **This is SPEC-008's F2 holding, not failing** — the spec predicted exactly this state. The fix
+  belongs to SPEC-008 rather than to a SPEC-006 amendment: §3's "New — web access (D8)" builds
+  `web_tools.py` on outbound HTTP, so promoting `httpx` to runtime dependencies is that spec's own
+  work, and the same one-line edit closes all four call sites at once. Reopening a complete,
+  pushed, reported spec for an import CI never executes would be scope creep on a delivered
+  artifact.
+
+  Note `services/webhook.py:13` imports it at **module level**, so that orphan's 52 tests fail
+  outright without the dev extra — a second concrete argument for deleting the three orphan
+  modules from `62f1cb2`. (surfaced during the SPEC-008 pre-flight)
+
 - [BUG][SPEC-006 G4 — P2, NOT FIXED, OUTSIDE THIS DAG] `services/gateways/review_common.py:372`
   — **a failing AI call mid-batch rolls back every *successful* prior write in the same batch.**
   `ai_response` catches any exception and calls `session.rollback()`. Its docstring (H27) says the

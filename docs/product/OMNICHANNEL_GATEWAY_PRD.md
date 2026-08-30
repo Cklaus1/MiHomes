@@ -52,7 +52,7 @@ Both gateways share the **same SPACE framework** for prioritization (Safety, Pre
 | Gap | Current State | Omnichannel Fix |
 |---|---|---|
 | **Identity resolution** | Each gateway resolves identity independently (WhatsApp: phone_number lookup; Telegram: chat_id lookup) | Centralized `resolve_identity(from_id, channel)` — single source of truth for phone/chat → (account, member, role) |
-| **Responder duplication** | WhatsApp and Telegram responders diverged; adding Twilio would be a third copy | Shared `core/responder.py` with channel-specific adapters |
+| **Responder duplication** | WhatsApp and Telegram responders diverged; adding Twilio would be a third copy | **Done** — `gateways/review_common.py` with channel-specific `GatewayAdapter`s (commit `c4954a0`). *Corrected 2026-08-30, SPEC-006 §2 B3: this row said `core/responder.py`, a path that has never existed. Do not re-extract (N1).* |
 | **Message dedup** | Per-gateway dedup (WhatsApp: message key; Telegram: update_id) | Cross-channel dedup — same user on WhatsApp + Telegram should not trigger duplicate actions |
 | **Linking flow** | WhatsApp: `/link <code>` via CLI; Telegram: `/link <code>` via bot | Unified linking flow: user gets a short-lived code from web app, enters it on any channel |
 | **STOP/HELP handling** | WhatsApp: pre-check in responder; Telegram: separate handler | Centralized keyword router — all channels funnel through the same STOP/HELP/opt-out manager |

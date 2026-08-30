@@ -29,7 +29,7 @@ The WhatsApp gateway sits on a **two-process architecture**:
 
 ### 1.2 Message understanding — AI review
 
-`review.py` (`analyze_messages()`) sends formatted conversation history to the configured AI provider with a JSON schema (`REVIEW_SCHEMA`, 8 categories). It injects an estate context block — open issues, tracked assets, staff for the linked property. Output is `{items, skipped}`.
+`review.py` (`analyze_messages()`) sends formatted conversation history to the configured AI provider with a JSON schema (`REVIEW_SCHEMA`, **15 categories** — *corrected 2026-08-30, SPEC-006 §2 B5: this said 8, describing a drift that commit `c4954a0` repaired. Both channels share one superset schema; see N13*). It injects an estate context block — open issues, tracked assets, staff for the linked property. Output is `{items, skipped}`.
 
 > **Corrected 2026-08-05** *(verified against `origin/main` @ `be8d398` — SPEC-006 §2, B5)*. This paragraph claimed the WhatsApp `REVIEW_SCHEMA` had **8 categories vs Telegram's 15**, listing eight that "do not exist in the WhatsApp schema". **That split no longer exists.** Commit `c4954a0` unified both gateways on a single superset schema of **15 categories** in `services/gateways/review_common.py`; the per-gateway `review.py` files are now 16-line re-exports. Their own docstring records what happened: *"this WhatsApp schema had lost 8 categories the dispatcher still handled"* — the drift was real, and it has been repaired. The sentence above (`REVIEW_SCHEMA`, 8 categories) is stale for the same reason.
 

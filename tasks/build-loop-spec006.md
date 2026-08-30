@@ -7,7 +7,8 @@
 > breaker, artifact routing are defined there and inherited here **unchanged**.
 > **Branch:** `worktree-spec-build-harness`. **Target ref:** HEAD `a03f712` (SPEC-005 complete).
 > **Invocation:** `/loop tasks/build-loop-spec006.md`
-> **Status: AUTHORED, NOT RUN.** §0.2 records a prerequisite this harness cannot discharge.
+> **Status: COMPLETE 2026-08-30.** 25/25 criteria green, suite 2538 passed. G9 blocked by U5
+> and shipped as ratchets. See `tasks/build-loop-spec006-report.md`.
 
 **The stake, in the spec's own words:**
 
@@ -328,9 +329,9 @@ resolves before anything is scoped by it); **Step 4 before Step 5** (tenancy wor
 that already works, so a failure is not confused with a webhook bug); **Step 7 before Step 9** (the
 Cloud API is proven before Baileys — today's only working WhatsApp transport — is deleted).
 
-### [ ] G0 — P4/P5 verification and the A2 correction — *dep: none*
-- [ ] G0.1 · §6 P2 · A2 · confirm the shared core is present and its six test files green; **gate against the real node id** — §8's `test_superset_schema` does not exist (C6) · verify: `tests/integration/test_gateway_review_common.py::test_schema_enum_is_superset`
-- [ ] G0.2 · §2 · A1 · the §2 doc repairs are a **regression gate**, not work — B1–B10 landed in the spec's own commit; assert the stale strings stay gone and both PRDs stay indexed · verify: `tests/unit/test_docs_gateway_prds.py::test_repairs_landed`
+### [x] G0 — P4/P5 verification and the A2 correction — *dep: none*
+- [x] G0.1 · §6 P2 · A2 · confirm the shared core is present and its six test files green; **gate against the real node id** — §8's `test_superset_schema` does not exist (C6) · verify: `tests/integration/test_gateway_review_common.py::test_schema_enum_is_superset`
+- [x] G0.2 · §2 · A1 · the §2 doc repairs are a **regression gate**, not work — B1–B10 landed in the spec's own commit; assert the stale strings stay gone and both PRDs stay indexed · verify: `tests/unit/test_docs_gateway_prds.py::test_repairs_landed`
 
 ### [x] G1 — Step 1: the link-token table — *dep: G0*
 - [x] G1.1 · §6 Step 1 · A3 · `GatewayLinkToken` + migration, RLS included; **`PGUUID` not `String(36)`** (C8), and no `telegram_links` DDL (N9, §0.3); its own engine running real Alembic up→down→up · verify: `tests/integration/test_migration_gateway_links.py::test_up_down`
@@ -439,16 +440,16 @@ transport it serves.
 ### [x] G10 — Step 10: close the coverage gap — *dep: G9*
 - [x] G10.1 · §6 Step 10 · A24 · **G-coverage** — narrow `omit` so `identity.py`, `linking.py`, `webhook.py` and both adapters are measured; the list is **derived**, and `cloud_client.py` stays omitted on network-bound grounds (U8) · verify: `tests/unit/test_gateway_cleanup.py::test_coverage_not_omitted`
 
-### [ ] G11 — the exit criterion — *dep: all*
-- [ ] G11.1 · §6 exit · A25 · **end to end** — a linked sender in A, by webhook, no poller running, through the Cloud API: a row in A and **nothing in B**. Pair the negative with the positive (§0.5b) · verify: `tests/integration/test_gateway_e2e.py::test_exit_criterion`
+### [x] G11 — the exit criterion — *dep: all*
+- [x] G11.1 · §6 exit · A25 · **end to end** — a linked sender in A, by webhook, no poller running, through the Cloud API: a row in A and **nothing in B**. Pair the negative with the positive (§0.5b) · verify: `tests/integration/test_gateway_e2e.py::test_exit_criterion`
 
-### [ ] G-Final — Compound-stop verification (conventions §4.1)
-- [ ] F.1 · full-suite `py -m pytest -q` green (condition C) — baseline **2405 passed**; a new skip is red
-- [ ] F.2 · every §8 criterion green by its own named test (condition E) — **all 25, run by node id**
-- [ ] F.3a · walk §6 top-to-bottom: every step has a task (condition B, steps) — **10 steps + 2 prerequisites**
-- [ ] F.3b · `py scripts/spec006_reconcile.py --collect` exits 0 (condition B, criteria) — **derived, never range-checked (C7)**
-- [ ] F.4 · smoke green (condition D)
-- [ ] F.5 · write end-of-run report `tasks/build-loop-spec006-report.md`
+### [x] G-Final — Compound-stop verification (conventions §4.1)
+- [x] F.1 · full-suite `py -m pytest -q` green (condition C) — baseline **2405 passed**; a new skip is red
+- [x] F.2 · every §8 criterion green by its own named test (condition E) — **all 25, run by node id**
+- [x] F.3a · walk §6 top-to-bottom: every step has a task (condition B, steps) — **10 steps + 2 prerequisites**
+- [x] F.3b · `py scripts/spec006_reconcile.py --collect` exits 0 (condition B, criteria) — **derived, never range-checked (C7)**
+- [x] F.4 · smoke green (condition D)
+- [x] F.5 · write end-of-run report `tasks/build-loop-spec006-report.md`
 
 ---
 

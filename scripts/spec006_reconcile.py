@@ -82,6 +82,12 @@ PENDING_TESTS_IN_EXISTING_FILES = {
     # basename. **G3 has landed and they are deleted**, which is the discipline
     # `TestPendingSetExpires` exists to force: an entry that outlives its group exempts a real
     # node id from `--collect` forever.
+    #
+    # **The same shape, once more, at G5.** §8 puts A14/A15/A16 *and* A17 in
+    # `test_gateway_webhook.py`, so landing G5 creates the file G6 writes into. Delete when G6
+    # lands. This recurs because §8 groups criteria by *file*, not by group — worth knowing in
+    # advance rather than rediscovering each time `--collect` goes red.
+    "G6.1",  # A17 — test_gateway_webhook.py::test_no_double_transport — lands at G6
 }
 
 SPEC_NODE_ID_CORRECTIONS = {

@@ -38,6 +38,7 @@ from mihomes.web.routes import (
 from mihomes.web.routes import auth as auth_route
 from mihomes.web.routes import billing as billing_route
 from mihomes.web.routes import calendar as calendar_route
+from mihomes.web.routes import gateways as gateways_route
 from mihomes.web.routes import inventory as inventory_route
 from mihomes.web.routes import library as library_route
 from mihomes.web.routes import privacy as privacy_route
@@ -120,6 +121,14 @@ def create_app() -> FastAPI:
     # and Origin guards. Declares no matrix action; it is in `PERMANENT_ALLOWLIST`, authorised by
     # a signature over the raw body rather than by a session (N3).
     app.include_router(webhooks_route.router)
+
+    # SPEC-006 Step 5 — `POST /webhooks/telegram`. Mounted at the root for the same reason and
+    # under the same `/webhooks/` prefix, so `web/security.py`'s existing exemption covers it
+    # without a second entry — the prefix scoping that module's comment describes as being "so a
+    # second provider's endpoint inherits it". Also unauthenticated by session and in
+    # `PERMANENT_ALLOWLIST`: Telegram is not a user, and the secret token echoed in
+    # `X-Telegram-Bot-Api-Secret-Token` is what authorises the request (D7).
+    app.include_router(gateways_route.router)
 
     # SPEC-004 Step 6 — checkout, portal, plan page. Owner-only via `billing.manage` (row 15),
     # enforced app-wide by `enforce_declared_action` rather than by a check in the handlers.

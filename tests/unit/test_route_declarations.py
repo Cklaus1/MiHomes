@@ -48,6 +48,15 @@ PERMANENT_ALLOWLIST: dict[str, str] = {
         "session. Distinct from `auth`, which is excused because identity does not *yet* exist; "
         "here identity is irrelevant and always will be."
     ),
+    "mihomes.web.routes.gateways": (
+        "SPEC-006 Step 5. Telegram is not a user: the update arrives from Telegram's own "
+        "infrastructure with no cookie, no principal and no account, so there is no role for "
+        "the matrix to consult. Same argument as `webhooks` and, like it, permanent rather than "
+        "not-yet — but the mechanism is weaker and the difference is worth recording here: "
+        "Telegram signs nothing, so this is a caller-chosen secret token echoed back, not an "
+        "HMAC over the body. The account is established *inside* the handler by "
+        "`resolve_sender`, which is the one legitimately unscoped lookup (D11/§5.1)."
+    ),
     "mihomes.web.routes.unsubscribe": (
         "A mail client is not a user either. RFC 8058's one-click POST arrives from the "
         "provider's infrastructure with no cookie and no principal, and the recipient may not "
@@ -84,6 +93,14 @@ ALLOWLIST_MECHANISMS: dict[str, str] = {
     ),
     "mihomes.web.routes.webhooks": (
         "HMAC signature verification over the raw request body, against STRIPE_WEBHOOK_SECRET"
+    ),
+    "mihomes.web.routes.gateways": (
+        "the `setWebhook` secret token echoed in `X-Telegram-Bot-Api-Secret-Token`, compared "
+        "with `compare_digest` against TELEGRAM_WEBHOOK_SECRET before the body is parsed. "
+        "**Weaker than the Stripe route's mechanism and deliberately named as such**: Telegram "
+        "signs nothing, so this authenticates the *caller*, not the bytes — anyone holding the "
+        "secret can forge a body. An unset secret refuses every request rather than accepting "
+        "them (fail closed)"
     ),
     "mihomes.web.routes.unsubscribe": (
         "HMAC token over the normalized email address, against MIHOMES_SECRET_KEY — verified "

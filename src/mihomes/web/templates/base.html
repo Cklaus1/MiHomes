@@ -90,8 +90,30 @@
         {% endfor %}
       </nav>
 
-      <div class="px-4 py-4 border-t border-gray-700">
-        <div class="text-xs text-gray-500">v0.1.0 · ui-frontend</div>
+      {# Sign out. `POST` with a CSRF token, never a link: a `GET /signout` can be triggered by
+         any third-party page — an `<img src>` is enough — which is a nuisance rather than a
+         breach, but a real one. The route has existed since SPEC-003 G12 and had **no way to
+         reach it from the UI**, so the only way to end a session was to clear the cookie by
+         hand.
+
+         The token is read **from the request cookie**, not from a context variable: this
+         layout is inherited by all 28 pages, and threading `csrf_token` through every route's
+         context would mean touching 142 endpoints — with the one that forgets rendering a
+         sign-out button that 403s. `mihomes_csrf` is `httpOnly=False` for exactly this
+         purpose, since the page has to echo it back in a form field. #}
+      <div class="px-4 py-4 border-t border-gray-700 space-y-3">
+        <form method="post" action="/signout">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('mihomes_csrf', '') }}" />
+          <button type="submit"
+                  class="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm font-medium
+                         text-gray-400 hover:bg-gray-800 hover:text-white transition-colors">
+            <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+            </svg>
+            <span>Sign out</span>
+          </button>
+        </form>
+        <div class="text-xs text-gray-500 px-3">v0.1.0</div>
       </div>
     </aside>
 

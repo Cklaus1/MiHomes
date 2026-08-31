@@ -52,6 +52,41 @@ cover read-and-review.
 mistake §1 for something the PRDs already said. They did not, and §2's doc-fix is where the
 distinction between *native apps* (still out) and *responsive web* (now in) gets written down.
 
+### 0.15 — The measured baseline, at `2750bd1`
+
+A full audit of the template tree was run before §8 was written, so the criteria below are
+scoped to defects that exist rather than to defects imagined. The numbers a builder needs:
+
+| Measure | Value | Where it concentrates |
+|---|---|---|
+| Templates (top-level `.html`) | **28**, 8,377 lines | — |
+| Responsive prefixes, all files | **107** total (24 `sm:`, 34 `md:`, 44 `lg:`, 5 `xl:`) | — |
+| **Templates with ZERO prefixes** | **8** | `calendar.html` (408 lines), `inventory.html` (511), `alerts.html`, `billing.html`, `error.html`, `properties.html`, `property_form.html`, `search.html` |
+| Worst ratio | **`ai.html` — 1 prefix in 726 lines** | — |
+| `<table>` elements | **20**, of which **0** scroll and **16 are clipped** by an `overflow-hidden` parent | `assets`, `budget` (4 each) |
+| `overflow-x-auto` in the tree | **0** | — |
+| Non-responsive `grid-cols-N` (N≥2) | **78** | `vendors.html` 14, `assets.html` 9, `budget.html` 8 |
+| Modal overlays | **43**, of which **20 have no height cap and no scroll** | `inventory.html` 4 |
+| Genuine fixed-width hazards | **5** `min-w-[…]` | `calendar:33`, `work_orders:21,29`, `alert_list:53`, `alert_badge:20` |
+| Tap targets under ~30px | **4**, plus 34 under 32px | `base.html:177` is on **every page** |
+| CSS files in the repo | **0** — all custom CSS is 35 inline lines at `base.html:20-55` | — |
+| Tailwind build tooling | **none.** The only `package.json` is `bridge/`'s (Baileys, unrelated) | — |
+
+**Three things the audit found that are already right, and must not be "fixed":**
+
+1. **The viewport meta is correct** (`base.html:5`). This is why every hazard above is real
+   rather than hidden behind a zoomed-out page.
+2. **The `hidden sm:table-cell` column-hiding pattern** (62 uses) is the one working responsive
+   mechanism in the codebase, and it is the model to extend.
+3. **Modal horizontal gutters are fine** in both families — Family A's overlay `p-4` and Family
+   B's panel `mx-4` do the same job. The modal defect is vertical only.
+
+**One measurement changes a criterion's shape.** The stock Tailwind breakpoints are unmodified
+(no `screens` key in the config), so `sm:` is **640px** — *above every phone width*. That means
+`sm:` prefixes never fire on a phone: they are a tablet-and-up mechanism. A criterion counting
+"responsive prefixes" would therefore reward classes that do nothing at 375px. A7 is written
+against **zero-prefix templates** instead, which is a floor rather than a threshold (N6).
+
 ### 0.2 — This spec ships no feature, and that changes how "done" reads
 
 Every other spec in the set adds capability. This one asserts that capability already built is
@@ -237,6 +272,19 @@ production path for one asset. Committing the output keeps deployment Python-onl
 The cost is that the file can go stale against the templates, which is exactly why **A13 asserts
 freshness** rather than trusting a build step nobody runs.
 
+**A consequence of Step 2 that decides the step ordering, and is easy to get backwards.** Today
+the play CDN runs the JIT compiler *in the browser*, so any class a template names works —
+including arbitrary values like `min-w-[120px]`, and including every class Step 1 and Step 3 add.
+**A compiled build removes that.** From Step 2 onward, a class that the `content` globs do not
+see is a class that does not exist in the stylesheet, and the failure is silent: the page renders
+without the style, in production, having looked correct in development where nothing was compiled.
+
+So `tailwind.config.js`'s `content` glob must cover `templates/**/*.html` — subdirectories
+included, since `partials/`, `settings/`, `team/` and `onboarding/` all hold classes. And Step 2
+sits **after** Step 1 deliberately: doing the build first means every subsequent template edit
+needs a rebuild to be visible, which is the slower loop and the one where a missing class is
+mistaken for a broken layout.
+
 ---
 
 ## 5. Function signatures
@@ -277,12 +325,30 @@ unconditionally visible below `md` (A2); the toggle carries `aria-expanded` and 
 palette moved out of `base.html`, the CDN script deleted. *Verify:* no template loads
 `cdn.tailwindcss.com` (A12); the committed CSS is fresh against the templates (A13).
 
-**Step 3 — the per-page audit.** Every template: tables wrapped for horizontal scroll, grids
-given breakpoints, forms and modals bounded by viewport rather than fixed widths. **After Step
-1.** *Verify:* no unwrapped `<table>` (A5); no hardcoded pixel width on a layout container (A6);
-every page's top-level container declares a breakpoint (A7); no multi-column grid without a
-responsive prefix (A8); modals are viewport-bounded (A9); interactive elements meet the tap-target
-floor (A10).
+**Step 3 — the per-page audit.** **After Step 1.** The audit at `2750bd1` measured the work
+precisely, and two of its findings are sharper than the shape I first wrote:
+
+- **20 tables, 0 scrollable — and 16 are actively *clipped*.** They sit inside
+  `<div class="… overflow-hidden">` card wrappers, so the overflowing columns are not merely
+  off-screen but **unreachable**: no scroll, no pan. `overflow-x-auto` appears **zero times** in
+  the tree. The fix is a scroll wrapper *inside* the card, not removing `overflow-hidden` from
+  it (which is what gives the card its rounded corners).
+- **The modal defect is vertical, not horizontal.** Both modal families supply a 16px gutter
+  (Family A via overlay `p-4`, Family B via panel `mx-4`), so width is fine. **20 of 43 panels
+  have neither `max-h-` nor a scroll region**, so a long form grows past the viewport and the
+  submit button cannot be reached. 23 already do this correctly with `max-h-[90vh]
+  overflow-y-auto` — the fix is applying the pattern the codebase already has.
+
+Plus: 78 non-responsive multi-column grids (`vendors.html` alone holds 14), the 5 genuine
+`min-w-[…]` hazards, and 4 `whitespace-nowrap` cells that all sit in `inventory.html`'s one bare
+table — the worst compounding case in the codebase.
+
+**`calendar.html`'s two `grid-cols-7` month grids are exempt from A8 and need their own answer.**
+A month grid is seven columns by definition; a breakpoint prefix cannot fix it. Either it scrolls
+horizontally or it becomes a list view below `md`. Named here so a builder does not "fix" it by
+collapsing a calendar into one column.
+
+*Verify:* A5–A10.
 
 **Step 4 — design tokens.** The brand palette in `tailwind.config.js` is the single source; raw
 hex values in templates are replaced by token classes. **Structural only (D7).** *Verify:* the
@@ -344,11 +410,11 @@ project, and it is the one most likely to swallow this one.
 | A2 | The sidebar is **not unconditionally visible below `md`**, and **is** visible at `md`+ | `test_ui_responsive.py::test_sidebar_is_responsive` |
 | A3 | The drawer's mobile classes are all overridden at `md`+, so the desktop layout is unchanged (N1) | `test_ui_responsive.py::test_desktop_layout_unchanged` |
 | A4 | The nav toggle carries `aria-expanded` and `aria-controls`, and the drawer is dismissible by keyboard | `test_ui_responsive.py::test_nav_is_accessible` |
-| A5 | **No `<table>` renders outside a horizontally scrollable container** | `test_ui_responsive.py::test_tables_scroll` |
-| A6 | No layout container carries a hardcoded pixel width | `test_ui_responsive.py::test_no_fixed_pixel_widths` |
-| A7 | Every page's top-level content container declares at least one breakpoint | `test_ui_responsive.py::test_containers_declare_breakpoints` |
-| A8 | No multi-column grid lacks a responsive prefix | `test_ui_responsive.py::test_grids_are_responsive` |
-| A9 | Modals and dialogs are bounded by the viewport, not by a fixed width | `test_ui_responsive.py::test_modals_fit_viewport` |
+| A5 | **No `<table>` is clipped or unscrollable** — 20 tables, **0** currently scroll, and **16 sit inside `overflow-hidden` parents that clip** | `test_ui_responsive.py::test_tables_scroll` |
+| A6 | No layout container carries a hardcoded pixel width (5 real hazards; `max-w-[…]+truncate` is not one) | `test_ui_responsive.py::test_no_fixed_pixel_widths` |
+| A7 | **No template has zero responsive prefixes** — 8 do today, including `calendar.html` (408 lines) and `inventory.html` (511) | `test_ui_responsive.py::test_no_zero_prefix_templates` |
+| A8 | No multi-column grid lacks a responsive prefix — **78 today**, concentrated in modal forms | `test_ui_responsive.py::test_grids_are_responsive` |
+| A9 | **Every modal panel caps its height and scrolls** — 20 of 43 do not, so the submit button is unreachable | `test_ui_responsive.py::test_modals_cap_height` |
 | A10 | Interactive elements meet the tap-target floor | `test_ui_responsive.py::test_tap_targets` |
 | A11 | **The manual checklist covers every template** — no page silently absent | `test_ui_responsive.py::test_checklist_is_complete` |
 | A12 | **No template loads the Tailwind play CDN** | `test_ui_build.py::test_no_cdn_tailwind` |

@@ -653,10 +653,16 @@
 
 ## Deferred — not this work
 
-- [DEFER][ui-frontend] Branch `ui-frontend` has **51 unpushed commits** and no configured
-  upstream (local `4c4dd39` vs `origin/ui-frontend` at `968bda0`). Unrelated to the spec build,
-  but it is the only unpushed work in the repo and will drift further. Decide: push, merge, or
-  retire. (surfaced while surveying branch divergence)
+- [RESOLVED 2026-08-30][ui-frontend] ~~Branch `ui-frontend` has **51 unpushed commits**~~ —
+  **no longer true, measured.** `git rev-list --left-right --count
+  worktree-spec-build-harness...origin/ui-frontend` returns **269 / 0**: every `ui-frontend`
+  commit is contained in the build branch, and its head `968bda0` is an ancestor. The UI work
+  (28 templates, Tailwind, HTMX) is in the tree and shipped through the spec builds.
+
+  Kept as a struck-through row rather than deleted, because the *stale* claim was load-bearing
+  in two places — this file and the project memory — and a future reader meeting either one
+  deserves to find the correction rather than re-survey. What remains open about the UI is not
+  branch topology but responsiveness, which is SPEC-009's subject.
 
 - [DEFER][telegram-bot] `telegram-bot` is diverged from main (30 ahead / 13 behind) and is
   **behind main on gateway code** — main's G-R2a/G-R2b hardened the gateways further. Its unique

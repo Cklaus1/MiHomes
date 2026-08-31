@@ -82,13 +82,28 @@ def test_m3_quarterly_budget_prorated(session, prop):
 # ── M4: forecast divides by real months of history, survives Feb 29 ───────────
 
 def test_m4_forecast_divides_by_actual_history(session, prop):
-    """Only 3 months of history -> monthly_avg = total/3, not total/12."""
+    """Only 3 months of history -> monthly_avg = total/3, not total/12.
+
+    **The seeding steps calendar months, not 30-day intervals.** It used
+    `today - timedelta(days=30 * m + 1)`, which is not one-per-month: from the 31st of a month
+    those three offsets land in only *two* calendar months, and `forecast` divides by the count
+    of distinct months it actually finds. The test then measured 900/2 = 450 and failed against
+    its own comment.
+
+    Found on 2026-08-31. It fails on **any** 31st and on assorted month lengths — a latent
+    date-dependent fixture, not a regression, and the production code was right the whole time.
+    """
     today = date.today()
-    # three transactions, one per month for the last 3 months
+    # One transaction in each of the last three calendar months, anchored mid-month so no
+    # offset can slip into a neighbour regardless of month length or today's date.
     for m in range(3):
+        year, month = today.year, today.month - m
+        while month < 1:
+            month += 12
+            year -= 1
         session.add(Transaction(amount=300.0, currency="USD", property_id=prop.id,
                                 category="misc", description="x",
-                                date=today - timedelta(days=30 * m + 1)))
+                                date=date(year, month, 15)))
     session.flush()
 
     result = forecast(session, prop.slug, months=6)

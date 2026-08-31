@@ -62,8 +62,16 @@ Per conventions §0, all five.
 | **D** | smoke green | `tests/integration/test_smoke_all_tools.py` |
 | **E** | every §8 criterion green by its own named test | **all 15**, F.2 |
 
-**Baseline — HEAD `ca70150`:** `2538 passed, 3 skipped, 2 xfailed, 0 failed`. **A new skip is
+**Baseline — HEAD `82c88d6`:** `2539 passed, 3 skipped, 2 xfailed, 0 failed`. **A new skip is
 red.**
+
+**The baseline moved by one, and not because of this spec.** G1's full-suite run surfaced
+`test_m4_forecast_divides_by_actual_history` failing — a **pre-existing, date-dependent
+fixture** that seeds "three months" with 30-day offsets and therefore lands in two calendar
+months on any 31st. Confirmed pre-existing by stashing the tree and re-running clean. Fixed in
+`82c88d6` rather than deferred, because it blocks this spec's own condition C and CLAUDE.md's
+autonomous bug-fixing rule covers exactly that case. It had not appeared in SPEC-006 or SPEC-008
+because those ran on days where the arithmetic happened to work.
 
 ---
 
@@ -144,11 +152,11 @@ edit loop.
 - [x] G0.1 · §2 B1 · — · `SAAS_PRD:98` — keep the native-app exclusion, **distinguish it from responsive web** (D1/D2). As written a reader concludes phones are not a target, which is what happened · verify: `tests/unit/test_docs_ui_scope.py::test_native_and_responsive_are_distinguished`
 - [x] G0.2 · §2 B2 · — · `SAAS_PRD:165` — add the product app beside the landing page, and D5's build requirement to the same non-functional row · verify: `tests/unit/test_docs_ui_scope.py::test_product_app_is_in_the_performance_row`
 
-### [ ] G1 — Step 1: the mobile navigation — *dep: G0 — MUST precede G3*
-- [ ] G1.1 · §6 Step 1 · A1 · the drawer, toggle and backdrop of §4.1 in `base.html` — **there is no existing pattern to extend**; grep for hamburger/drawer/off-canvas returns zero across the whole tree · verify: `tests/unit/test_ui_responsive.py::test_mobile_nav_exists`
-- [ ] G1.2 · §6 Step 1 · A2 · `<aside class="w-60 … flex-shrink-0">` (`base.html:63`) must not be unconditionally visible below `md`, and **must** be at `md`+ · verify: `tests/unit/test_ui_responsive.py::test_sidebar_is_responsive`
-- [ ] G1.3 · §6 Step 1 · A3 · **N1's guard** — every mobile class is overridden at `md`+ (`md:static md:translate-x-0`), so the ≥`md` computed layout is byte-for-byte what ships today · verify: `tests/unit/test_ui_responsive.py::test_desktop_layout_unchanged`
-- [ ] G1.4 · §6 Step 1 · A4 · `aria-expanded` + `aria-controls`, Escape closes, focus moves in and back. **A drawer only a mouse can dismiss is a trap on a screen reader** · verify: `tests/unit/test_ui_responsive.py::test_nav_is_accessible`
+### [x] G1 — Step 1: the mobile navigation — *dep: G0 — MUST precede G3*
+- [x] G1.1 · §6 Step 1 · A1 · the drawer, toggle and backdrop of §4.1 in `base.html` — **there is no existing pattern to extend**; grep for hamburger/drawer/off-canvas returns zero across the whole tree · verify: `tests/unit/test_ui_responsive.py::test_mobile_nav_exists`
+- [x] G1.2 · §6 Step 1 · A2 · `<aside class="w-60 … flex-shrink-0">` (`base.html:63`) must not be unconditionally visible below `md`, and **must** be at `md`+ · verify: `tests/unit/test_ui_responsive.py::test_sidebar_is_responsive`
+- [x] G1.3 · §6 Step 1 · A3 · **N1's guard** — every mobile class is overridden at `md`+ (`md:static md:translate-x-0`), so the ≥`md` computed layout is byte-for-byte what ships today · verify: `tests/unit/test_ui_responsive.py::test_desktop_layout_unchanged`
+- [x] G1.4 · §6 Step 1 · A4 · `aria-expanded` + `aria-controls`, Escape closes, focus moves in and back. **A drawer only a mouse can dismiss is a trap on a screen reader** · verify: `tests/unit/test_ui_responsive.py::test_nav_is_accessible`
 
 ### [ ] G2 — Step 2: the production build — *dep: G1 — needs P2 (Node)*
 - [ ] G2.1 · §6 Step 2 · A12 · `package.json`, `tailwind.config.js`, compiled `app.css`; the palette moves out of `base.html:10-19`; **the CDN script at `base.html:7` is deleted** · verify: `tests/unit/test_ui_build.py::test_no_cdn_tailwind`

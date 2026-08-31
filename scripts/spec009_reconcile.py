@@ -80,6 +80,19 @@ PENDING_TESTS_IN_EXISTING_FILES = {
     # Add the entry when it happens, annotate why, and **delete it the moment its group lands**
     # — `TestPendingSetExpires` fails if it outlives its group, which is the point: an entry
     # that survives exempts a real node id from `--collect` forever.
+    #
+    # **It happened at G1, exactly as predicted.** G1 wrote `test_ui_responsive.py` for A1–A4,
+    # and `--collect` immediately went red on the six node ids §8 puts in the same file for
+    # later groups. Pre-declaring it in the harness meant this was a recognised event rather
+    # than a rediscovery — the first time in this set that has been true.
+    "G3.1",  # A5  — test_tables_scroll             — lands at G3
+    "G3.2",  # A6  — test_no_fixed_pixel_widths     — lands at G3
+    "G3.3",  # A7  — test_no_zero_prefix_templates  — lands at G3
+    "G3.4",  # A8  — test_grids_are_responsive      — lands at G3
+    "G3.5",  # A9  — test_modals_cap_height         — lands at G3
+    "G3.6",  # A10 — test_tap_targets               — lands at G3
+    "G5.1",  # A11 — test_checklist_is_complete     — lands at G5
+    "G6.1",  # A15 — test_exit_criterion            — lands at G6
 }
 
 SPEC_NODE_ID_CORRECTIONS = {

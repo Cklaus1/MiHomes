@@ -59,8 +59,21 @@
 
   <div class="flex h-full">
 
-    <!-- Sidebar -->
-    <aside class="w-60 bg-gray-900 flex flex-col flex-shrink-0">
+    <!-- Backdrop — below md only. Dismisses the drawer; inert at md+ where the sidebar is
+         a permanent column. -->
+    <div id="nav-backdrop" class="hidden md:hidden fixed inset-0 bg-black/50 z-30"></div>
+
+    <!-- Sidebar (SPEC-009 G1) — a drawer below md, the original fixed column at md+.
+         Was `w-60 bg-gray-900 flex flex-col flex-shrink-0` with no responsive prefix at all:
+         240px of a 375px phone, 64% of the viewport before any content.
+
+         `md:static md:translate-x-0 md:z-auto` is what makes N1's "no redesign" true — every
+         mobile-only class above is overridden at md+, so the desktop computed layout is
+         byte-for-byte what shipped before. A3 asserts exactly that. -->
+    <aside id="sidebar"
+           class="w-60 bg-gray-900 flex flex-col flex-shrink-0
+                  fixed inset-y-0 left-0 z-40 -translate-x-full transition-transform duration-200
+                  md:static md:translate-x-0 md:z-auto">
       <div class="px-5 py-5 border-b border-gray-700">
         <div class="text-white font-semibold text-lg tracking-tight">MiHomes</div>
         <div class="text-gray-400 text-xs mt-0.5">Estate Management</div>
@@ -117,10 +130,21 @@
     <div class="flex-1 flex flex-col overflow-hidden">
 
       <!-- Top bar -->
-      <header class="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between flex-shrink-0">
-        <div>
-          <h1 class="text-xl font-semibold text-gray-900">{% block heading %}{% endblock %}</h1>
-          {% block subheading %}<p class="text-sm text-gray-500 mt-0.5"></p>{% endblock %}
+      <header class="bg-white border-b border-gray-200 px-4 md:px-6 py-4 flex items-center justify-between gap-3 flex-shrink-0">
+        <div class="flex items-center gap-3 min-w-0">
+          <!-- Nav toggle — below md only. 44x44 (p-2.5 + w-6 icon) to clear the tap-target
+               floor A10 sets; `-ml-1` pulls it back to the header's optical edge. -->
+          <button type="button" id="nav-toggle"
+                  aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false"
+                  class="md:hidden -ml-1 p-2.5 rounded-lg text-gray-600 hover:bg-gray-100 flex-shrink-0">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+            </svg>
+          </button>
+          <div class="min-w-0">
+            <h1 class="text-lg md:text-xl font-semibold text-gray-900 truncate">{% block heading %}{% endblock %}</h1>
+            {% block subheading %}<p class="text-sm text-gray-500 mt-0.5"></p>{% endblock %}
+          </div>
         </div>
         <div class="flex items-center gap-3">
           {% block actions %}{% endblock %}
@@ -149,7 +173,9 @@
       </header>
 
       <!-- Page body -->
-      <main class="flex-1 overflow-y-auto p-6">
+      <!-- `p-4 md:p-6`: 24px of padding on each side costs 48px of a 375px viewport. The
+           desktop value is unchanged. -->
+      <main class="flex-1 overflow-y-auto p-4 md:p-6">
         {% if error %}
         <div class="mb-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           <svg class="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
@@ -186,6 +212,77 @@
   </div>
 
 <script>
+/* ---------------------------------------------------------------------------
+   Mobile navigation drawer (SPEC-009 G1 · A1/A4)
+   ---------------------------------------------------------------------------
+   Vanilla, ~30 lines, no framework — N2. The app is HTMX plus templates, and
+   introducing Alpine/React for a class toggle would be a re-platform wearing a
+   bug fix's clothes.
+
+   A4 is why this is more than a class toggle. `aria-expanded` tracks state for
+   assistive tech; Escape closes; focus moves into the drawer on open and back
+   to the toggle on close. A drawer only a mouse can dismiss is a trap on a
+   screen reader — the user opens it and cannot get out.
+
+   The drawer is `-translate-x-full` at rest and `translate-x-0` when open. At
+   md+ the sidebar is `md:static md:translate-x-0`, so none of this applies and
+   the desktop layout is untouched (A3/N1).
+--------------------------------------------------------------------------- */
+(function () {
+  const toggle   = document.getElementById('nav-toggle');
+  const sidebar  = document.getElementById('sidebar');
+  const backdrop = document.getElementById('nav-backdrop');
+  if (!toggle || !sidebar || !backdrop) return;
+
+  let lastFocus = null;
+
+  function isOpen() {
+    return toggle.getAttribute('aria-expanded') === 'true';
+  }
+
+  function open() {
+    lastFocus = document.activeElement;
+    sidebar.classList.remove('-translate-x-full');
+    sidebar.classList.add('translate-x-0');
+    backdrop.classList.remove('hidden');
+    toggle.setAttribute('aria-expanded', 'true');
+    /* Move focus into the drawer so a keyboard or screen-reader user lands on
+       the navigation they just opened, rather than staying behind the backdrop. */
+    const first = sidebar.querySelector('a, button');
+    if (first) first.focus();
+  }
+
+  function close() {
+    sidebar.classList.add('-translate-x-full');
+    sidebar.classList.remove('translate-x-0');
+    backdrop.classList.add('hidden');
+    toggle.setAttribute('aria-expanded', 'false');
+    /* Return focus to the control that opened it — otherwise focus is orphaned
+       on a now-hidden element and the next Tab starts from the top of the page. */
+    if (lastFocus && document.contains(lastFocus)) lastFocus.focus();
+  }
+
+  toggle.addEventListener('click', () => (isOpen() ? close() : open()));
+  backdrop.addEventListener('click', close);
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && isOpen()) close();
+  });
+
+  /* Navigating closes it. Without this the drawer stays open over the page the
+     user just asked for, and on an HTMX swap it would cover the new content. */
+  sidebar.querySelectorAll('a').forEach((a) =>
+    a.addEventListener('click', () => { if (isOpen()) close(); })
+  );
+
+  /* Resizing past md makes the sidebar static again; the drawer's open state
+     would otherwise persist as a stale `translate-x-0` when the window shrinks
+     back. Reset rather than track. */
+  window.addEventListener('resize', () => {
+    if (window.innerWidth >= 768 && isOpen()) close();
+  });
+})();
+
 /* After any notes-container swap, recount note items and update the nearest badge. */
 document.addEventListener('htmx:afterSettle', function(e) {
   const container = e.detail.elt;

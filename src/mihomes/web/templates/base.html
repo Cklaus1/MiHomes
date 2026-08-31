@@ -4,55 +4,24 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{% block title %}MiHomes{% endblock %}</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- SPEC-009 Step 2 (D5, A12). Was `<script src="https://cdn.tailwindcss.com">` — the *play*
+       CDN, which Tailwind's own docs exclude from production: it ships the compiler to the
+       browser and recompiles the whole stylesheet on every page load. `SAAS_PRD`'s Performance
+       row now forbids it explicitly (B2).
+
+       The palette that lived in an inline `tailwind.config` block here is now
+       `tailwind.config.js`; the inline `<style>` rules are now `static/input.css`. Both are
+       compiled into `app.css`, which is committed — see §4.2 for why the build output is in the
+       repo rather than run at deploy time.
+
+       **A class this stylesheet does not contain silently does nothing.** Under the CDN any
+       class worked because the compiler was present; now the `content` globs decide. Run
+       `npm run build:css` after editing a template, or A13 turns red. -->
+  <link rel="stylesheet" href="/static/app.css" />
   <script src="/static/htmx.min.js"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            brand: { 50:'#f0f9ff', 100:'#e0f2fe', 500:'#0ea5e9', 600:'#0284c7', 700:'#0369a1' }
-          }
-        }
-      }
-    }
-  </script>
-  <style>
-    .htmx-indicator { opacity: 0; transition: opacity 200ms ease-in; }
-    .htmx-request .htmx-indicator { opacity: 1; }
-    .htmx-request.htmx-indicator { opacity: 1; }
-
-    /* Inline-edit fields: look like plain text at rest, reveal editability on hover/focus */
-    .ie-field {
-      display: block; width: 100%;
-      background: transparent;
-      border: 1px solid transparent; border-radius: 6px;
-      padding: 3px 6px; margin: -3px -6px;
-      font-size: 0.875rem; color: #374151;
-      font-family: inherit; line-height: 1.5;
-      transition: border-color .12s, background-color .12s;
-      cursor: text;
-    }
-    .ie-field:hover  { border-color: #e5e7eb; background: #f9fafb; }
-    .ie-field:focus  { border-color: #0284c7; background: #fff; outline: none; box-shadow: 0 0 0 3px rgba(2,132,199,.08); }
-    textarea.ie-field { resize: none; overflow: hidden; }
-    select.ie-field  { cursor: pointer; appearance: none; -webkit-appearance: none;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%239CA3AF'/%3E%3C/svg%3E");
-      background-repeat: no-repeat; background-position: right 6px center; padding-right: 20px; }
-
-    /* Variant for fields that sit inside a bg-gray-50 card tile */
-    .ie-incard {
-      display: block; width: 100%;
-      background: transparent; border: none; border-bottom: 1px solid transparent;
-      padding: 0; font-size: 0.875rem; font-weight: 500; color: #1f2937;
-      font-family: inherit; line-height: 1.5;
-      transition: border-color .12s;
-      cursor: text;
-    }
-    .ie-incard:hover { border-bottom-color: #9ca3af; }
-    .ie-incard:focus { border-bottom-color: #0284c7; outline: none; }
-    textarea.ie-incard { resize: none; overflow: hidden; }
-  </style>
+  <!-- The inline <style> block that lived here moved to `static/input.css` and is
+       compiled into `app.css` (SPEC-009 Step 2). Kept as one stylesheet so the custom
+       component rules and the Tailwind utilities cannot drift apart. -->
   {% block head %}{% endblock %}
 </head>
 <body class="h-full">

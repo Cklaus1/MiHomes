@@ -1,0 +1,14 @@
+{
+  "name": "mihomes-ui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CSS build for the MiHomes web app. SPEC-009 Step 2 (D5) — replaces the Tailwind play CDN, which shipped a compiler to the browser and recompiled on every page load.",
+  "scripts": {
+    "build:css": "tailwindcss -i ./src/mihomes/web/static/input.css -o ./src/mihomes/web/static/app.css --minify",
+    "watch:css": "tailwindcss -i ./src/mihomes/web/static/input.css -o ./src/mihomes/web/static/app.css --watch",
+    "stamp": "node scripts/css_stamp.js"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.17"
+  }
+}

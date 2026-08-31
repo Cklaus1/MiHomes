@@ -158,9 +158,9 @@ edit loop.
 - [x] G1.3 · §6 Step 1 · A3 · **N1's guard** — every mobile class is overridden at `md`+ (`md:static md:translate-x-0`), so the ≥`md` computed layout is byte-for-byte what ships today · verify: `tests/unit/test_ui_responsive.py::test_desktop_layout_unchanged`
 - [x] G1.4 · §6 Step 1 · A4 · `aria-expanded` + `aria-controls`, Escape closes, focus moves in and back. **A drawer only a mouse can dismiss is a trap on a screen reader** · verify: `tests/unit/test_ui_responsive.py::test_nav_is_accessible`
 
-### [ ] G2 — Step 2: the production build — *dep: G1 — needs P2 (Node)*
-- [ ] G2.1 · §6 Step 2 · A12 · `package.json`, `tailwind.config.js`, compiled `app.css`; the palette moves out of `base.html:10-19`; **the CDN script at `base.html:7` is deleted** · verify: `tests/unit/test_ui_build.py::test_no_cdn_tailwind`
-- [ ] G2.2 · §6 Step 2 · A13 · the committed CSS is **fresh** against templates + config — a hash stamp, because §4.2 commits the output and a stale stylesheet fails silently in production only · verify: `tests/unit/test_ui_build.py::test_css_is_current`
+### [x] G2 — Step 2: the production build — *dep: G1 — needs P2 (Node)*
+- [x] G2.1 · §6 Step 2 · A12 · `package.json`, `tailwind.config.js`, compiled `app.css`; the palette moves out of `base.html:10-19`; **the CDN script at `base.html:7` is deleted** · verify: `tests/unit/test_ui_build.py::test_no_cdn_tailwind`
+- [x] G2.2 · §6 Step 2 · A13 · the committed CSS is **fresh** against templates + config — a hash stamp, because §4.2 commits the output and a stale stylesheet fails silently in production only · verify: `tests/unit/test_ui_build.py::test_css_is_current`
 
 > **G2 inverts the edit loop, which is why it is second and not first.** Today the play CDN
 > compiles in the browser, so *any* class a template names works — including arbitrary values

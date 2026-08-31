@@ -1,0 +1,52 @@
+/*
+ * SPEC-009 Step 2 — the Tailwind entry point.
+ *
+ * `npm run build:css` compiles this to `app.css`, which is **committed** (§4.2): the deploy
+ * target is a Python app on Fly, and requiring Node at deploy time to render a page would put
+ * a second toolchain on the production path for one asset.
+ *
+ * The custom rules below moved verbatim from `base.html`'s inline `<style>` block. They stay
+ * hand-written CSS rather than becoming `@apply` directives: they are component styles with
+ * pseudo-class states and an inline SVG data URI, and rewriting them as utilities during a
+ * build migration would mean two changes at once with one way to tell them apart.
+ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* HTMX request indicator. */
+.htmx-indicator { opacity: 0; transition: opacity 200ms ease-in; }
+.htmx-request .htmx-indicator { opacity: 1; }
+.htmx-request.htmx-indicator { opacity: 1; }
+
+/* Inline-edit fields: look like plain text at rest, reveal editability on hover/focus. */
+.ie-field {
+  display: block; width: 100%;
+  background: transparent;
+  border: 1px solid transparent; border-radius: 6px;
+  padding: 3px 6px; margin: -3px -6px;
+  font-size: 0.875rem; color: #374151;
+  font-family: inherit; line-height: 1.5;
+  transition: border-color .12s, background-color .12s;
+  cursor: text;
+}
+.ie-field:hover  { border-color: #e5e7eb; background: #f9fafb; }
+.ie-field:focus  { border-color: #0284c7; background: #fff; outline: none; box-shadow: 0 0 0 3px rgba(2,132,199,.08); }
+textarea.ie-field { resize: none; overflow: hidden; }
+select.ie-field  { cursor: pointer; appearance: none; -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%239CA3AF'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 6px center; padding-right: 20px; }
+
+/* Variant for fields that sit inside a bg-gray-50 card tile. */
+.ie-incard {
+  display: block; width: 100%;
+  background: transparent; border: none; border-bottom: 1px solid transparent;
+  padding: 0; font-size: 0.875rem; font-weight: 500; color: #1f2937;
+  font-family: inherit; line-height: 1.5;
+  transition: border-color .12s;
+  cursor: text;
+}
+.ie-incard:hover { border-bottom-color: #9ca3af; }
+.ie-incard:focus { border-bottom-color: #0284c7; outline: none; }
+textarea.ie-incard { resize: none; overflow: hidden; }

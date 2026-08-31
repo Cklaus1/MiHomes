@@ -22,6 +22,7 @@ post-GA and gate nothing above them.
 | *SPEC-007* | **4+** — Twilio gateway (SMS/MMS/Voice) | Not written. Inherits SPEC-006's `GatewayAdapter` seam; **A2P 10DLC registration has a regulatory lead time and no owner** |
 | [SPEC-008](SPEC-008-vendor-discovery-d0.md) | **4+** — Vendor Discovery **D0** (private-shortlist research) | Ready to build — **2 open decisions** (O1: counsel sign-off, blocks shipping not building; O2: per-run cost ceiling). ~~D1–D3 are SPEC-009+~~ → **SPEC-010+**, see the row below |
 | [SPEC-009](SPEC-009-responsive-web-ui.md) | **4+** — Responsive web UI (the existing 28 pages, on a phone) | Ready to build — **1 open decision** (O1: minimum viewport width, blocks nothing). **Ships no feature** — it makes an already-built surface reachable on the device half the users hold |
+| [SPEC-010](SPEC-010-email-password-auth.md) | **4+** — Email/password authentication | Ready to build — **2 open decisions** (O1: dual identity linking; O2: password policy). **Reverses `SAAS_PRD:105`'s "non-Google auth" exclusion**, in favour of `ONBOARDING_AUTH_RBAC:60` — the owning PRD, which planned for it. See its §0.1 |
 
 **Six unrelated `O1`s are open across the set.** Label namespaces are per-spec-local (see
 *Working on a spec* below), so the numbering restarts in every spec. SPEC-001's O1 is the ToS +

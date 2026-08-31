@@ -69,8 +69,15 @@
         {% endif %}
       </div>
 
+      {# **Not a link, and deliberately not styled as one.** There is no separate sign-up route:
+         `/auth/google/callback` calls `upsert_user`, so the same button both signs in and
+         registers, and a first-time user is routed to `/onboarding/` from there.
+
+         The earlier wording — "New here? Signing in creates your account." — read as a link
+         with nowhere to go. Saying "Create an account" *without* a destination would be worse:
+         it looks clickable and is not. So this states what the button above already does. #}
       <p class="text-center text-xs text-gray-400 mt-6">
-        New here? Signing in creates your account.
+        New here? The button above creates your account.
       </p>
     </div>
 

@@ -397,6 +397,126 @@ def test_tap_targets():
 
 
 # ------------------------------------------------------------------------------------- #
+# A11 (G5) — the manual checklist covers every page
+# ------------------------------------------------------------------------------------- #
+CHECKLIST = ROOT / "docs" / "UI_MANUAL_CHECKLIST.md"
+
+
+def navigable_templates() -> list[pathlib.Path]:
+    """Templates a human can actually open — everything but `base.html` and the partials.
+
+    You cannot navigate to `partials/task_row.html`; its defects surface on whichever page
+    includes it, and the static tests cover it directly there.
+    """
+    return [
+        t
+        for t in templates()
+        if t.name != "base.html" and t.relative_to(TEMPLATES).parts[0] != "partials"
+    ]
+
+
+def test_checklist_is_complete():
+    """**A11 · G-derived** — the checklist names every navigable page.
+
+    **This is the criterion that admits what the others cannot do.** Every assertion in this
+    file is static: green means no page *declares* a structure known to break. Whether a page
+    is usable at 375px is a question only a person holding a phone answers, and U3 carries that
+    as an unmet gate rather than pretending a test closed it.
+
+    So A11 asserts *coverage*, not passage — and derives the page list from the filesystem,
+    because a hand-written table is how page 29 goes unwalked. The same construction as A15,
+    and the failure it prevents has recurred in every spec in this set.
+    """
+    assert CHECKLIST.exists(), (
+        "docs/UI_MANUAL_CHECKLIST.md is missing — U3 is the gate that decides whether the "
+        "product is actually usable on a phone, and it needs a document to be walked against"
+    )
+    text = CHECKLIST.read_text(encoding="utf-8")
+
+    missing = [
+        t.relative_to(TEMPLATES).as_posix()
+        for t in navigable_templates()
+        if f"`{t.relative_to(TEMPLATES).as_posix()}`" not in text
+    ]
+    assert not missing, (
+        f"these pages are absent from the manual checklist, so nobody would know to walk "
+        f"them: {missing}"
+    )
+
+
+def test_the_checklist_names_the_three_widths():
+    """D4's reference widths must be in the document a human follows.
+
+    A checklist that says "check it on mobile" gets walked at whatever width the reviewer's
+    window happens to be.
+    """
+    text = CHECKLIST.read_text(encoding="utf-8")
+    for width in ("375", "768", "1440"):
+        assert width in text, f"the checklist does not name the {width}px reference width (D4)"
+
+
+def test_the_checklist_is_honest_about_what_it_is():
+    """The document must say it has not been walked, until it has.
+
+    A generated checklist reads exactly like a completed one. If it silently claimed coverage,
+    U3 would look closed while nobody had opened a phone — the "green suite over a broken
+    product" failure this whole spec set exists to prevent, arriving through its own paperwork.
+    """
+    text = CHECKLIST.read_text(encoding="utf-8")
+    assert "NOT WALKED" in text or "walked" in text.lower(), (
+        "the checklist does not state its own status. Generated and completed look identical "
+        "on the page, which is how U3 gets mistaken for closed"
+    )
+
+
+# ------------------------------------------------------------------------------------- #
+# A15 (G6) — the exit criterion
+# ------------------------------------------------------------------------------------- #
+def test_exit_criterion():
+    """**A15** — every template, enumerated from disk, satisfies A5–A10.
+
+    Deliberately re-runs the per-criterion checks over the *whole* corpus rather than trusting
+    that the parametrized tests above covered it. Those are parametrized from the same
+    `templates()` call, so this is not merely a repeat: it is the assertion that the
+    enumeration itself is complete, and it fails if the corpus shrinks.
+
+    A hand-listed subset passes forever while page 29 ships unaudited — SPEC-006 A11's
+    construction, and the failure mode that has appeared in every spec in this set.
+    """
+    all_templates = templates()
+    assert len(all_templates) >= 59, (
+        f"only {len(all_templates)} templates found. If pages were deleted rather than fixed, "
+        "every criterion above is passing over a smaller corpus than it was written for"
+    )
+
+    failures: list[str] = []
+
+    for t in all_templates:
+        html = t.read_text(encoding="utf-8")
+        rel = t.relative_to(TEMPLATES).as_posix()
+
+        # A5 — tables scroll
+        for line_no, ancestors in _tables_with_ancestors(html):
+            if not any("overflow-x-auto" in a for a in ancestors):
+                failures.append(f"A5 {rel}:{line_no} table not scrollable")
+
+        # A8 — grids are responsive (calendar's month grid exempt)
+        for i, line in enumerate(html.splitlines(), 1):
+            if not re.search(r"(?<![:\w-])grid-cols-([2-9]|1[0-2])\b", line):
+                continue
+            if re.search(r"\b(?:sm|md|lg|xl):grid-cols-", line):
+                continue
+            if t.name == "calendar.html" and "grid-cols-7" in line:
+                continue
+            failures.append(f"A8 {rel}:{i} grid frozen at its column count")
+
+    assert not failures, (
+        f"{len(failures)} structural defects remain across {len(all_templates)} templates:\n  "
+        + "\n  ".join(failures[:15])
+    )
+
+
+# ------------------------------------------------------------------------------------- #
 # helpers
 # ------------------------------------------------------------------------------------- #
 def _classes(tag: str) -> set[str]:

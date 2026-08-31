@@ -5,7 +5,8 @@
 > **Conventions:** `tasks/build-loop-conventions.md` — stop condition, poison ceiling, circuit
 > breaker, artifact routing inherited **unchanged**.
 > **Branch:** `worktree-spec-build-harness`. **Target ref:** HEAD `ca70150`.
-> **Status: AUTHORED, NOT RUN.**
+> **Status: COMPLETE 2026-08-31.** 15/15 criteria, suite 2705 passed. **U3 open by design**
+> — the manual checklist is written, not walked. See `tasks/build-loop-spec009-report.md`.
 
 **The stake:** `SAAS_PRD:44`'s Staff Member — *housekeeper, property manager, handyman* — has
 "see assigned home(s), complete tasks, log issues" as key jobs. **That person is standing in a
@@ -177,22 +178,22 @@ edit loop.
 - [x] G3.5 · §6 Step 3 · A9 · **20 of 43 modal panels** have no height cap and no scroll, so the submit button grows off-screen. **23 already do it right** with `max-h-[90vh] overflow-y-auto` — apply the codebase's own pattern. The defect is vertical; gutters are fine · verify: `tests/unit/test_ui_responsive.py::test_modals_cap_height`
 - [x] G3.6 · §6 Step 3 · A10 · tap targets. `base.html:177`'s 28×28px preview-close is on **every page**; `inventory.html` holds two more · verify: `tests/unit/test_ui_responsive.py::test_tap_targets`
 
-### [ ] G4 — Step 4: design tokens — *dep: G2*
-- [ ] G4.1 · §6 Step 4 · A14 · the brand palette in `tailwind.config.js` is the single source; no template hardcodes a brand hex. **Structural only (D7/N7)** — tokens exist, tokens are used, raw hex does not bypass them. Nothing about spacing scales or typography · verify: `tests/unit/test_ui_tokens.py::test_no_raw_brand_hex`
+### [x] G4 — Step 4: design tokens — *dep: G2*
+- [x] G4.1 · §6 Step 4 · A14 · the brand palette in `tailwind.config.js` is the single source; no template hardcodes a brand hex. **Structural only (D7/N7)** — tokens exist, tokens are used, raw hex does not bypass them. Nothing about spacing scales or typography · verify: `tests/unit/test_ui_tokens.py::test_no_raw_brand_hex`
 
-### [ ] G5 — Step 5: the manual checklist — *dep: G3*
-- [ ] G5.1 · §6 Step 5 · A11 · `docs/UI_MANUAL_CHECKLIST.md` — every template × three widths, **enumerated from the filesystem** so page 29 cannot be silently absent. This is **U3**: the test asserts coverage, only a human asserts usability · verify: `tests/unit/test_ui_responsive.py::test_checklist_is_complete`
+### [x] G5 — Step 5: the manual checklist — *dep: G3*
+- [x] G5.1 · §6 Step 5 · A11 · `docs/UI_MANUAL_CHECKLIST.md` — every template × three widths, **enumerated from the filesystem** so page 29 cannot be silently absent. This is **U3**: the test asserts coverage, only a human asserts usability · verify: `tests/unit/test_ui_responsive.py::test_checklist_is_complete`
 
-### [ ] G6 — the exit criterion — *dep: all*
-- [ ] G6.1 · §6 exit · A15 · **every template enumerated from disk satisfies A5–A10.** A hand-listed subset passes forever while page 29 ships unaudited — SPEC-006 A11's construction · verify: `tests/unit/test_ui_responsive.py::test_exit_criterion`
+### [x] G6 — the exit criterion — *dep: all*
+- [x] G6.1 · §6 exit · A15 · **every template enumerated from disk satisfies A5–A10.** A hand-listed subset passes forever while page 29 ships unaudited — SPEC-006 A11's construction · verify: `tests/unit/test_ui_responsive.py::test_exit_criterion`
 
-### [ ] G-Final — Compound-stop verification
-- [ ] F.1 · full suite green (condition C) — baseline **2538 passed**; a new skip is red
-- [ ] F.2 · every §8 criterion green by its own named test (condition E) — **all 15**, by node id
-- [ ] F.3a · walk §6: every step has a task (condition B) — **5 steps**
-- [ ] F.3b · `py scripts/spec009_reconcile.py --collect` exits 0, `PENDING_TESTS_IN_EXISTING_FILES` **empty**
-- [ ] F.4 · smoke green (condition D)
-- [ ] F.5 · write `tasks/build-loop-spec009-report.md`
+### [x] G-Final — Compound-stop verification
+- [x] F.1 · full suite green (condition C) — baseline **2538 passed**; a new skip is red
+- [x] F.2 · every §8 criterion green by its own named test (condition E) — **all 15**, by node id
+- [x] F.3a · walk §6: every step has a task (condition B) — **5 steps**
+- [x] F.3b · `py scripts/spec009_reconcile.py --collect` exits 0, `PENDING_TESTS_IN_EXISTING_FILES` **empty**
+- [x] F.4 · smoke green (condition D)
+- [x] F.5 · write `tasks/build-loop-spec009-report.md`
 
 ---
 

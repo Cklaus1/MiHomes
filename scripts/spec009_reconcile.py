@@ -85,9 +85,8 @@ PENDING_TESTS_IN_EXISTING_FILES = {
     # and `--collect` immediately went red on the six node ids §8 puts in the same file for
     # later groups. Pre-declaring it in the harness meant this was a recognised event rather
     # than a rediscovery — the first time in this set that has been true.
-    # G3.1-G3.6 lived here for exactly one group and are **deleted — G3 has landed**.
-    "G5.1",  # A11 — test_checklist_is_complete     — lands at G5
-    "G6.1",  # A15 — test_exit_criterion            — lands at G6
+    # Every entry this run added has expired with its group: G3.1-G3.6 at G3,
+    # G5.1 at G5, G6.1 at G6. The set is empty, which is what F.3b requires.
 }
 
 SPEC_NODE_ID_CORRECTIONS = {

@@ -15,6 +15,31 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Brand tokens as CSS custom properties (SPEC-009 G4 · A14).
+ *
+ * `tailwind.config.js` is the single source for brand colour, and a `bg-brand-600` utility
+ * reads it directly. But four rules live inside page-level `<style>` blocks — a blockquote
+ * border, two streaming cursors, an active-session highlight — and **plain CSS cannot see a
+ * Tailwind token**. Those four had `#0284c7` written out by hand, which is exactly the bypass
+ * A14 forbids: the palette changes in one place and four rules keep the old colour.
+ *
+ * Custom properties are the bridge. They are generated from the same hex the config declares,
+ * so `var(--brand-600)` and `bg-brand-600` cannot drift — and
+ * `test_ui_tokens.py::test_the_css_variables_match_the_config` asserts that by reading both
+ * files, rather than trusting this comment.
+ *
+ * Structural only, per D7/N7: this is "tokens exist and are used". Spacing scales, typography
+ * and component libraries are a different project and deliberately not started here.
+ */
+:root {
+  --brand-50:  #f0f9ff;
+  --brand-100: #e0f2fe;
+  --brand-500: #0ea5e9;
+  --brand-600: #0284c7;
+  --brand-700: #0369a1;
+}
+
 /* HTMX request indicator. */
 .htmx-indicator { opacity: 0; transition: opacity 200ms ease-in; }
 .htmx-request .htmx-indicator { opacity: 1; }

@@ -22,7 +22,7 @@
   .report-prose td { padding: 0.4rem 0.75rem; color: #374151; border-bottom: 1px solid #f3f4f6; }
   .report-prose tr:hover td { background: #f9fafb; }
   .report-prose hr { border: none; border-top: 1px solid #e5e7eb; margin: 1rem 0; }
-  .report-prose blockquote { border-left: 3px solid #0284c7; padding: 0.25rem 0 0.25rem 0.75rem; margin: 0.5rem 0; color: #6b7280; font-size: 0.875rem; }
+  .report-prose blockquote { border-left: 3px solid var(--brand-600); padding: 0.25rem 0 0.25rem 0.75rem; margin: 0.5rem 0; color: #6b7280; font-size: 0.875rem; }
   .report-prose code { font-family: ui-monospace, monospace; font-size: 0.8125rem; background: #f3f4f6; padding: 0.1rem 0.3rem; border-radius: 3px; }
   .report-prose :first-child { margin-top: 0 !important; }
   /* Chat markdown prose */
@@ -41,7 +41,7 @@
   .chat-prose code { font-family: ui-monospace, monospace; font-size: 0.8125rem; background: #f3f4f6; padding: 0.1rem 0.3rem; border-radius: 3px; }
   .chat-prose :first-child { margin-top: 0 !important; }
   @keyframes blink { 0%, 100% { opacity: 1 } 50% { opacity: 0 } }
-  .streaming-cursor { animation: blink 0.7s step-end infinite; color: #0284c7; font-weight: 300; }
+  .streaming-cursor { animation: blink 0.7s step-end infinite; color: var(--brand-600); font-weight: 300; }
   /* Thinking dots */
   .thinking-dot {
     display: inline-block; width: 7px; height: 7px; border-radius: 50%;
@@ -55,7 +55,7 @@
     38% { transform: translateY(-6px); opacity: 1; }
   }
   /* Session sidebar active state */
-  .session-item.active { background: #eff6ff; border-left-color: #0284c7; }
+  .session-item.active { background: #eff6ff; border-left-color: var(--brand-600); }
   .session-item.active .session-btn { background: #eff6ff; }
 </style>
 {% endblock %}

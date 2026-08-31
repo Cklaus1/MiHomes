@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -178,6 +178,34 @@ def create_app() -> FastAPI:
     # generic handler catches what nothing else claimed. Written down because "registered last
     # so it does not shadow" is the plausible-but-wrong reading.
     register_error_handlers(app, templates=templates)
+
+    @app.exception_handler(401)
+    async def _unauthenticated_to_login(request: Request, exc):
+        """Send an unauthenticated **browser** to `/login`; answer anything else with the 401.
+
+        Before this, every route answered a signed-out visitor with a bare
+        `{"detail":"Not authenticated"}` — the app read as broken rather than locked, and there
+        was nowhere to click.
+
+        **Content negotiation, not a blanket redirect.** An HTMX request or an API client asking
+        for JSON must keep receiving the status code: turning a 401 into a 303 for HTMX would
+        swap a login page into whatever fragment the request targeted, and a client checking for
+        401 would silently follow a redirect and parse HTML as data.
+
+        `/login` itself is excluded, or a signed-out visitor loops between it and this handler.
+        """
+        from fastapi.responses import JSONResponse
+
+        wants_html = "text/html" in request.headers.get("accept", "")
+        is_htmx = request.headers.get("hx-request") == "true"
+        already_there = request.url.path == "/login"
+
+        if wants_html and not is_htmx and not already_there:
+            return RedirectResponse("/login", status_code=303)
+
+        return JSONResponse(
+            {"detail": getattr(exc, "detail", "Not authenticated")}, status_code=401
+        )
 
     return app
 

@@ -162,16 +162,25 @@ def main() -> None:
         )
 
     print()
-    print("=" * 70)
-    print(f"  DATABASE_URL = {URL}")
+    print("=" * 78)
+    print("  1. Start the server:")
+    print(f'       $env:DATABASE_URL = "{URL}"')
+    print("       mihomes-dev")
     print()
-    print("  Start the server:")
-    print(f'    $env:DATABASE_URL = "{URL}"')
-    print("    mihomes-dev")
+    print("  2. Open http://localhost:5000 — you will get a 401 until the cookie is set.")
     print()
-    print("  Then open http://localhost:5000 and add this cookie (F12 -> Application):")
-    print(f"    {sess.SESSION_COOKIE} = {raw}")
-    print("=" * 70)
+    print("  3. Press F12, open the CONSOLE tab, paste this line, press Enter:")
+    print()
+    print(f'       document.cookie = "{sess.SESSION_COOKIE}={raw}; path=/"; location.reload();')
+    print()
+    # The Console one-liner rather than the Application panel: pasting a name/value pair into
+    # the cookie editor means five clicks and an easy typo, and a mistyped token reads as
+    # "still broken" rather than "mistyped".
+    #
+    # This works on http://localhost because `auth.py:_set_cookie` drops the `Secure` flag on
+    # loopback — verified, not assumed. On any other host the browser would silently discard a
+    # cookie set this way over http, and the symptom would be an unexplained 401.
+    print("=" * 78)
 
 
 if __name__ == "__main__":

@@ -20,10 +20,12 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import os
 import secrets
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
+from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
 from mihomes.auth.csrf import CSRF_COOKIE, issue_csrf_token, tokens_match
@@ -40,9 +42,18 @@ from mihomes.auth.sessions import (
     revoke_all_sessions,
     revoke_session,
 )
-from mihomes.web.deps import get_db
+from mihomes.models.membership import Membership
+
+# `templates` from `deps`, not `app`: it is the `RedactingTemplates` instance every other route
+# renders through, and importing from `web.app` here would create a cycle (app imports routes).
+from mihomes.web.deps import get_db, templates
 
 router = APIRouter()
+
+# Core table, not the ORM class: this read runs before any tenant context exists, so an ORM
+# query would demand the account it is being used to discover. Same carve-out `deps.py` and
+# `auth/sessions.py` both document.
+_MEMBERSHIPS = Membership.__table__
 
 _STATE_COOKIE = "mihomes_oauth_state"
 _VERIFIER_COOKIE = "mihomes_oauth_verifier"
@@ -79,6 +90,37 @@ def _set_cookie(
         secure=not _is_loopback(request),
         samesite="lax",
         path="/",
+    )
+
+
+@router.get("/login")
+def login(request: Request, db: DbSession = Depends(get_db), error: str = ""):
+    """The sign-in front door.
+
+    **Before this there was none.** `/auth/google/start` redirects straight to Google, so an
+    unauthenticated visitor hitting any page got a bare `401 Not authenticated` with nothing to
+    click — the app looked broken rather than locked.
+
+    Already signed in? Go where you were going. A login page that re-prompts someone who has a
+    valid session is a dead end reached by pressing Back.
+    """
+    if lookup_session(db, request.cookies.get(SESSION_COOKIE)) is not None:
+        return RedirectResponse("/", status_code=303)
+
+    # Reported to the template rather than discovered on click: without credentials
+    # `/auth/google/start` raises `OAuthError` and the visitor gets a 500 that does not say
+    # what to do. `_provider()` is not called — constructing it is what raises.
+    oauth_configured = bool(
+        os.environ.get("GOOGLE_CLIENT_ID") and os.environ.get("GOOGLE_CLIENT_SECRET")
+    )
+
+    return templates.TemplateResponse(
+        request,
+        "login.html",
+        {"oauth_configured": oauth_configured, "error": error},
+        # 401 rather than 200: this *is* the unauthenticated response, and a crawler or an API
+        # client should read it as one. The browser renders the body either way.
+        status_code=401 if not error else 400,
     )
 
 
@@ -139,7 +181,22 @@ def callback(request: Request, code: str = "", state: str = "", db: DbSession = 
     raw_session, _row = create_session(db, user.id)
     db.commit()
 
-    response = RedirectResponse("/", status_code=303)
+    # **A first-time user has no account, and `/` requires one.** `resolve_principal` raises
+    # 403 "No account selected" for exactly that state, so sending everyone to `/` meant a new
+    # user's reward for signing in was an error page — with the onboarding wizard that handles
+    # this case sitting one route away, already built (SPEC-003), and unreachable.
+    #
+    # `/onboarding/` resumes wherever they left off and redirects to `/` once the account
+    # exists, so returning users pass straight through and this costs them one 303.
+    has_account = db.execute(
+        select(_MEMBERSHIPS.c.id).where(
+            _MEMBERSHIPS.c.user_id == user.id,
+            _MEMBERSHIPS.c.status == "active",
+        )
+    ).first()
+    destination = "/" if has_account else "/onboarding/"
+
+    response = RedirectResponse(destination, status_code=303)
     _set_cookie(
         response, request, SESSION_COOKIE, raw_session,
         max_age=int(SESSION_TTL.total_seconds()),

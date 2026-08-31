@@ -73,7 +73,7 @@
       <button hx-post="/templates/{{ tmpl.slug }}/delete"
               hx-target="body" hx-swap="innerHTML"
               hx-confirm="Delete '{{ tmpl.name }}'? This cannot be undone."
-              class="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+              class="p-2.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
               title="Delete">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
       </button>
@@ -96,7 +96,7 @@
 <!-- Run template modal -->
 <div id="run-template-modal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
      onclick="if(event.target===this)document.getElementById('run-template-modal').classList.add('hidden')">
-  <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6" onclick="event.stopPropagation()">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
     <div class="flex items-center justify-between mb-5">
       <div>
         <h2 class="text-lg font-semibold text-gray-900">Run Template</h2>
@@ -137,7 +137,7 @@
 <!-- Add template modal -->
 <div id="add-template-modal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
      onclick="if(event.target===this)document.getElementById('add-template-modal').classList.add('hidden')">
-  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onclick="event.stopPropagation()">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
     <div class="flex items-center justify-between mb-5">
       <h2 class="text-lg font-semibold text-gray-900">New Template</h2>
       <button onclick="document.getElementById('add-template-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600">

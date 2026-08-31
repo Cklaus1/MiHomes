@@ -76,7 +76,7 @@
 <!-- ── BOARD VIEW ──────────────────────────────────────────────────────── -->
 <div id="view-board" class="hidden">
   {% if tasks %}
-  <div class="grid grid-cols-3 gap-4 items-start">
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 items-start">
 
     {% set col_meta = [
       ('pending',     'To Do',       'bg-gray-100 text-gray-600'),
@@ -201,6 +201,7 @@
 <div id="view-list" class="hidden">
   <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
     {% if tasks %}
+    <div class="overflow-x-auto">
     <table class="w-full text-sm">
       <thead>
         <tr class="border-b border-gray-100">
@@ -255,6 +256,7 @@
         {% endfor %}
       </tbody>
     </table>
+    </div>
     {% else %}
     <div class="px-5 py-12 text-center text-sm text-gray-400">No tasks found.</div>
     {% endif %}
@@ -287,11 +289,11 @@
         <button hx-post="/tasks/{{ task.slug }}/delete"
                 hx-target="body" hx-swap="innerHTML"
                 hx-confirm="Delete this task? This cannot be undone."
-                class="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                class="p-2.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
         </button>
         <button onclick="closeModal('task-modal-{{ task.id }}')"
-                class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
+                class="p-2.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>
       </div>
@@ -305,7 +307,7 @@
     <div class="flex-1 overflow-y-auto">
       <div id="task-panel-{{ task.id }}-details" class="px-6 py-5">
         <div id="task-view-{{ task.id }}">
-          <dl class="grid grid-cols-2 gap-x-6 gap-y-4 text-sm mb-4">
+          <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 text-sm mb-4">
             <div>
               <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Priority</dt>
               <dd><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
@@ -363,7 +365,7 @@
                 <input type="text" name="title" value="{{ task.title }}" required
                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
-              <div class="grid grid-cols-2 gap-3">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Priority</div>
                   <select name="priority" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
@@ -408,7 +410,7 @@
 
 <!-- Add task modal -->
 <div id="add-task-modal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6 max-h-[90vh] overflow-y-auto">
     <div class="flex items-center justify-between mb-5">
       <h2 class="text-lg font-semibold text-gray-900">Add Task</h2>
       <button onclick="document.getElementById('add-task-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600">
@@ -428,7 +430,7 @@
           {% for p in properties %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
         </select>
       </div>
-      <div class="grid grid-cols-2 gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Priority</label>
           <select name="priority" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">

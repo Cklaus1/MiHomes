@@ -134,6 +134,7 @@ meeting two claimants finds the reasoning rather than a contradiction.
 | **D5** | **Tailwind is compiled at build time.** The play CDN is removed | `base.html:7` loads `cdn.tailwindcss.com`, which its own documentation excludes from production: it ships the compiler to the browser and recompiles on every page load. This is a performance defect against `SAAS_PRD:165` independently of layout |
 | **D6** | **The sidebar becomes a drawer below `md`**, and stays a sidebar at and above it | The desktop layout is good and is not being redesigned. D2's "no redesign" is load-bearing: this spec changes *where* the nav is at narrow widths, not what it contains |
 | **D7** | **Design-system criteria are structural only** — tokens exist and are used, never "looks good" | Aesthetic judgement cannot be a pytest assertion, and a criterion that cannot fail is not a criterion. §6 Step 4 asserts the tokens are defined and that raw hex values do not bypass them |
+| **D12** | **A7 applies to *layout-owning* templates, derived by predicate — not to all 61** | Added at G3, from a measurement. §0.15's "8 zero-prefix templates" counted the **28 top-level** files; A7's test walks all **61** via `rglob`, and reported **30**. Both numbers are right about different sets. But most of the extra 22 are partials like `alert_badge.html` (11 lines) and `property_status_badge.html` (7 lines) — inline `<span>` badges with **no layout to make responsive**. Demanding a breakpoint on those means adding `md:` classes that change nothing, which is precisely what **N6 forbids**, arriving through A7's own door. So a template is in scope when it *establishes layout*: a multi-column grid, a `<table>`, or a wide explicit width. Derived, so a partial that later gains a grid comes into scope on its own; **42 in scope, 15 failing** at G3's start |
 
 ### 1.2 `OPEN — needs decision: founder`
 
@@ -412,7 +413,7 @@ project, and it is the one most likely to swallow this one.
 | A4 | The nav toggle carries `aria-expanded` and `aria-controls`, and the drawer is dismissible by keyboard | `test_ui_responsive.py::test_nav_is_accessible` |
 | A5 | **No `<table>` is clipped or unscrollable** — 20 tables, **0** currently scroll, and **16 sit inside `overflow-hidden` parents that clip** | `test_ui_responsive.py::test_tables_scroll` |
 | A6 | No layout container carries a hardcoded pixel width (5 real hazards; `max-w-[…]+truncate` is not one) | `test_ui_responsive.py::test_no_fixed_pixel_widths` |
-| A7 | **No template has zero responsive prefixes** — 8 do today, including `calendar.html` (408 lines) and `inventory.html` (511) | `test_ui_responsive.py::test_no_zero_prefix_templates` |
+| A7 | **No layout-owning template has zero responsive prefixes** — see **D12**; 15 of 42 do today, including `calendar.html` (408 lines) and `inventory.html` (511) | `test_ui_responsive.py::test_no_zero_prefix_templates` |
 | A8 | No multi-column grid lacks a responsive prefix — **78 today**, concentrated in modal forms | `test_ui_responsive.py::test_grids_are_responsive` |
 | A9 | **Every modal panel caps its height and scrolls** — 20 of 43 do not, so the submit button is unreachable | `test_ui_responsive.py::test_modals_cap_height` |
 | A10 | Interactive elements meet the tap-target floor | `test_ui_responsive.py::test_tap_targets` |

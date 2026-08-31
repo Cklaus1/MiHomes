@@ -1,13 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Settings — MiHomes{% endblock %}
 {% block content %}
-<div class="max-w-2xl mx-auto py-10">
-  <h1 class="text-2xl font-semibold mb-6">Settings</h1>
+<div class="max-w-2xl mx-auto py-6 sm:py-10">
+  <h1 class="text-xl sm:text-2xl font-semibold mb-6">Settings</h1>
 
   {% if error %}
     <p class="mb-4 rounded border border-red-300 bg-red-50 px-3 py-2 text-red-800">{{ error }}</p>
   {% endif %}
 
+  <div class="overflow-x-auto">
   <table class="w-full text-sm mb-8">
     <thead class="text-left text-gray-500">
       <tr><th class="py-2">Key</th><th class="py-2">Value</th><th class="py-2">Source</th></tr>
@@ -29,6 +30,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 
   <h2 class="text-lg font-medium mb-3">Change a setting</h2>
   <form method="post" action="/settings" class="space-y-3">

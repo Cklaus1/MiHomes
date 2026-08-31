@@ -36,6 +36,7 @@
 <!-- Table -->
 {% if books %}
 <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <div class="overflow-x-auto">
   <table class="w-full text-sm">
     <thead>
       <tr class="border-b border-gray-100 bg-gray-50">
@@ -74,6 +75,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 </div>
 {% else %}
 <div class="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center">

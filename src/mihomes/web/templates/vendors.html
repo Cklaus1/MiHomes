@@ -149,12 +149,12 @@
           <button hx-post="/vendors/{{ vendor.slug }}/delete"
                   hx-target="body" hx-swap="innerHTML"
                   hx-confirm="Delete {{ vendor.company_name }}? This cannot be undone."
-                  class="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                  class="p-2.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                   title="Delete">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
           </button>
           <button onclick="closeModal('vendor-modal-{{ vendor.slug }}')"
-                  class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
+                  class="p-2.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
           </button>
         </div>
@@ -193,7 +193,7 @@
               </div>
               {% endif %}
               {% if vendor.website or vendor.license_number %}
-              <div class="grid grid-cols-2 gap-4">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {% if vendor.website %}
                 <div>
                   <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Website</div>
@@ -263,7 +263,7 @@
                 </div>
                 <div>
                   <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Services</div>
-                  <div class="max-h-32 overflow-y-auto border border-gray-200 rounded-lg p-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                  <div class="max-h-32 overflow-y-auto border border-gray-200 rounded-lg p-2 grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1">
                     {% for cat in service_categories %}
                     <label class="inline-flex items-center gap-1.5 text-xs cursor-pointer py-0.5">
                       <input type="checkbox" name="service_cats" value="{{ cat }}"
@@ -276,7 +276,7 @@
                   <input type="text" name="service_cat_other" placeholder="Other (new service type)"
                          class="mt-1.5 w-full border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
                 </div>
-                <div class="grid grid-cols-2 gap-3">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Website</div>
                     <input type="url" name="website" value="{{ vendor.website or '' }}" placeholder="https://..."
@@ -295,7 +295,7 @@
                   <div id="contacts-list-{{ vendor.slug }}" class="space-y-2 mb-2">
                     {% for c in edit_contacts %}
                     <div class="contact-row bg-gray-50 rounded-lg p-3 border border-gray-100">
-                      <div class="grid grid-cols-2 gap-2 mb-2">
+                      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
                         <input type="text" name="c_name" value="{{ c.name or '' }}" placeholder="Name"
                                class="border border-gray-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
                         <input type="text" name="c_role" value="{{ c.role or '' }}" placeholder="Role (Main, Office…)"
@@ -357,7 +357,7 @@
         <!-- Ratings tab (hidden by default) -->
         <div id="vendor-panel-{{ vendor.slug }}-ratings" class="hidden px-6 py-5 space-y-4">
           {% if quality_vals or reliability_vals %}
-          <div class="grid grid-cols-2 gap-3">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div class="bg-gray-50 rounded-xl p-3 text-center border border-gray-100">
               <div class="text-xs text-gray-500 mb-1">Avg Quality</div>
               <div class="text-xl font-bold text-gray-900">{{ '%.1f'|format(quality_vals|sum / quality_vals|length) }}</div>
@@ -395,7 +395,7 @@
             <form hx-post="/vendors/{{ vendor.slug }}/rate"
                   hx-target="body" hx-swap="innerHTML"
                   class="bg-gray-50 rounded-xl p-4 border border-gray-100 space-y-3">
-              <div class="grid grid-cols-2 gap-3">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label class="block text-xs font-medium text-gray-700 mb-1">Quality (1–5)</label>
                   <input type="number" name="quality" min="1" max="5" required
@@ -524,11 +524,11 @@
           <button hx-post="/vendors/{{ vendor.slug }}/delete"
                   hx-target="body" hx-swap="innerHTML"
                   hx-confirm="Delete {{ vendor.company_name }}? This cannot be undone."
-                  class="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete">
+                  class="p-2.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
           </button>
           <button onclick="closeModal('vendor-modal-{{ vendor.slug }}')"
-                  class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
+                  class="p-2.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
           </button>
         </div>
@@ -559,7 +559,7 @@
               </div>
               {% endif %}
               {% if vendor.website or vendor.license_number %}
-              <div class="grid grid-cols-2 gap-4">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {% if vendor.website %}
                 <div>
                   <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Website</div>
@@ -616,7 +616,7 @@
                 </div>
                 <div>
                   <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Services</div>
-                  <div class="max-h-32 overflow-y-auto border border-gray-200 rounded-lg p-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                  <div class="max-h-32 overflow-y-auto border border-gray-200 rounded-lg p-2 grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1">
                     {% for cat in service_categories %}
                     <label class="inline-flex items-center gap-1.5 text-xs cursor-pointer py-0.5">
                       <input type="checkbox" name="service_cats" value="{{ cat }}"
@@ -629,7 +629,7 @@
                   <input type="text" name="service_cat_other" placeholder="Other (new service type)"
                          class="mt-1.5 w-full border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
                 </div>
-                <div class="grid grid-cols-2 gap-3">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Website</div>
                     <input type="url" name="website" value="{{ vendor.website or '' }}" placeholder="https://..."
@@ -647,7 +647,7 @@
                   <div id="contacts-list-{{ vendor.slug }}" class="space-y-2 mb-2">
                     {% for c in edit_contacts %}
                     <div class="contact-row bg-gray-50 rounded-lg p-3 border border-gray-100">
-                      <div class="grid grid-cols-2 gap-2 mb-2">
+                      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
                         <input type="text" name="c_name" value="{{ c.name or '' }}" placeholder="Name"
                                class="border border-gray-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
                         <input type="text" name="c_role" value="{{ c.role or '' }}" placeholder="Role (Main, Office…)"
@@ -706,7 +706,7 @@
         </div>
         <div id="vendor-panel-{{ vendor.slug }}-ratings" class="hidden px-6 py-5 space-y-4">
           {% if quality_vals or reliability_vals %}
-          <div class="grid grid-cols-2 gap-3">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div class="bg-gray-50 rounded-xl p-3 text-center border border-gray-100">
               <div class="text-xs text-gray-500 mb-1">Avg Quality</div>
               <div class="text-xl font-bold text-gray-900">{{ '%.1f'|format(quality_vals|sum / quality_vals|length) }}</div>
@@ -741,7 +741,7 @@
             <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Add Rating</div>
             <form hx-post="/vendors/{{ vendor.slug }}/rate" hx-target="body" hx-swap="innerHTML"
                   class="bg-gray-50 rounded-xl p-4 border border-gray-100 space-y-3">
-              <div class="grid grid-cols-2 gap-3">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label class="block text-xs font-medium text-gray-700 mb-1">Quality (1–5)</label>
                   <input type="number" name="quality" min="1" max="5" required
@@ -793,7 +793,7 @@
 
 <!-- Add vendor modal -->
 <div id="add-vendor-modal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6 max-h-[90vh] overflow-y-auto">
     <div class="flex items-center justify-between mb-5">
       <h2 class="text-lg font-semibold text-gray-900">Add Vendor</h2>
       <button onclick="document.getElementById('add-vendor-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600">
@@ -807,7 +807,7 @@
       </div>
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-1">Services</label>
-        <div class="max-h-32 overflow-y-auto border border-gray-200 rounded-lg p-2 grid grid-cols-2 gap-x-3 gap-y-1">
+        <div class="max-h-32 overflow-y-auto border border-gray-200 rounded-lg p-2 grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1">
           {% for cat in service_categories %}
           <label class="inline-flex items-center gap-1.5 text-xs cursor-pointer py-0.5">
             <input type="checkbox" name="service_cats" value="{{ cat }}"
@@ -819,7 +819,7 @@
         <input type="text" name="service_cat_other" placeholder="Other (new service type)"
                class="mt-1.5 w-full border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
       </div>
-      <div class="grid grid-cols-2 gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Phone</label>
           <input type="tel" name="phone" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
@@ -936,7 +936,7 @@ function addContact(slug) {
   const row = document.createElement('div');
   row.className = 'contact-row bg-gray-50 rounded-lg p-3 border border-gray-100';
   row.innerHTML = `
-    <div class="grid grid-cols-2 gap-2 mb-2">
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
       <input type="text" name="c_name" placeholder="Name"
              class="border border-gray-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
       <input type="text" name="c_role" placeholder="Role (Main, Office…)"

@@ -16,7 +16,7 @@
 
   <div class="space-y-2 max-h-[45vh] overflow-y-auto pr-1">
     {% for it in items %}
-    <div class="grid grid-cols-12 gap-2 items-center bg-gray-50 rounded-lg p-2 border border-gray-100">
+    <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center bg-gray-50 rounded-lg p-2 border border-gray-100">
       <input type="checkbox" name="include" value="{{ loop.index0 }}" checked
              class="col-span-1 justify-self-center rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
       <input type="text" name="name" value="{{ it.name or '' }}"

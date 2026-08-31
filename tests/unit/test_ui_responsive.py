@@ -19,6 +19,8 @@ from __future__ import annotations
 import pathlib
 import re
 
+import pytest
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 TEMPLATES = ROOT / "src" / "mihomes" / "web" / "templates"
 BASE = TEMPLATES / "base.html"
@@ -154,6 +156,243 @@ def test_nav_is_accessible():
     assert ".focus()" in html, (
         "focus is never moved. On open it must enter the drawer, and on close return to the "
         "toggle, or focus is orphaned on a hidden element"
+    )
+
+
+# ------------------------------------------------------------------------------------- #
+# A5-A10 (G3) — the per-page audit
+# ------------------------------------------------------------------------------------- #
+def _tables_with_ancestors(html: str):
+    """Yield `(line_no, ancestor_lines)` for every `<table>`, innermost ancestor first.
+
+    **G-ancestor.** A5's defect was not merely "no scroll" — 16 of the 20 tables sat inside
+    `<div class="… overflow-hidden">` card wrappers that *clip*, so the columns were
+    unreachable rather than off-screen. A naive `"overflow-x-auto" in html` check passes when
+    that class sits on an unrelated element elsewhere on the page, which is exactly the false
+    green this walks ancestors to avoid.
+    """
+    lines = html.splitlines()
+    for i, line in enumerate(lines):
+        if "<table" not in line:
+            continue
+        # Walk backwards collecting opening tags that have not yet been closed. Cheap and
+        # sufficient: these templates are hand-written and consistently indented.
+        yield i + 1, [lines[j] for j in range(i - 1, max(-1, i - 6), -1)]
+
+
+@pytest.mark.parametrize("template", templates(), ids=lambda p: p.name)
+def test_tables_scroll(template):
+    """**A5 · the phase's definition of done** — no `<table>` is clipped or unscrollable.
+
+    > A page that overflows horizontally on a phone is unusable in a way the user cannot work
+    > around. They cannot scroll to a column they cannot reach; they cannot tap a button off the
+    > right edge.
+
+    28 pages of an estate-management product are mostly lists of things, which is why this is
+    the criterion the spec calls done rather than one of the milder ones.
+
+    The fix is a scroll wrapper **inside** the card, not removing `overflow-hidden` from the
+    card — that class is what gives the card its rounded corners.
+    """
+    html = template.read_text(encoding="utf-8")
+    offenders = [
+        f"{template.name}:{line_no}"
+        for line_no, ancestors in _tables_with_ancestors(html)
+        if not any("overflow-x-auto" in a for a in ancestors)
+    ]
+    assert not offenders, (
+        f"these tables have no horizontally scrollable ancestor: {offenders}. 16 of the "
+        "original 20 sat in `overflow-hidden` cards, so their columns were *clipped* — "
+        "unreachable, not merely off-screen"
+    )
+
+
+def test_the_table_scan_finds_the_tables():
+    """Guard on A5: the parametrized test passes trivially on a page with no tables.
+
+    Most templates have none, so 30-odd green ticks prove nothing on their own. This asserts
+    the corpus really does contain the tables the audit counted.
+    """
+    total = sum(
+        len(list(_tables_with_ancestors(t.read_text(encoding="utf-8")))) for t in templates()
+    )
+    assert total >= 20, (
+        f"found only {total} tables; the audit measured 20. If tables were deleted rather than "
+        "wrapped, A5 is passing for the wrong reason"
+    )
+
+
+def test_no_fixed_pixel_widths():
+    """**A6** — no layout container carries a hardcoded pixel width that a phone cannot hold.
+
+    Scoped to widths that actually exceed a 375px viewport's usable space once padding is
+    accounted for. `max-w-[…]` paired with `truncate` is deliberately **not** an offender: it
+    *constrains* rather than overflows, and eight of those exist and are correct.
+    """
+    offenders = []
+    for t in templates():
+        for i, line in enumerate(t.read_text(encoding="utf-8").splitlines(), 1):
+            for m in re.finditer(r"(?<![:\w-])min-w-\[(\d+)px\]", line):
+                px = int(m.group(1))
+                if px > 100:
+                    offenders.append(f"{t.name}:{i} min-w-[{px}px]")
+
+    assert not offenders, (
+        "these minimum widths can force horizontal overflow on a 375px viewport once the "
+        f"layout's own padding is subtracted: {offenders}"
+    )
+
+
+#: A7's scope. **D12** — a template owns layout when it declares a multi-column grid or a
+#: table. Deliberately *not* `max-w-*` or `w-full`: a `max-w-2xl mx-auto` container is already
+#: responsive by construction (max-width is a ceiling, so it shrinks on its own) and `w-full` is
+#: fluid by definition. Requiring a breakpoint on those would mean adding `md:` classes that
+#: change nothing — N6's gamed metric arriving through A7's own door.
+_LAYOUT_OWNING = re.compile(r"grid-cols-[2-9]|grid-cols-1[0-2]|<table")
+
+
+def layout_owning_templates() -> list[pathlib.Path]:
+    return [t for t in templates() if _LAYOUT_OWNING.search(t.read_text(encoding="utf-8"))]
+
+
+def test_no_zero_prefix_templates():
+    """**A7** — no *layout-owning* template has zero responsive prefixes (D12).
+
+    A **floor, not a threshold** (N6). Counting prefixes would reward classes that do nothing:
+    `sm:` is 640px, above every phone width, so a template could score well and still break at
+    375px.
+
+    The scope narrowed at G3 from a measurement. §0.15's "8 zero-prefix templates" counted the
+    28 top-level files; this test walks all 61, and reported 30. Both are right about different
+    sets — but most of the extra were partials like `alert_badge.html` (11 lines), inline
+    `<span>` badges with no layout to make responsive.
+    """
+    in_scope = layout_owning_templates()
+    assert len(in_scope) >= 25, (
+        f"only {len(in_scope)} templates own layout, which is fewer than the audit found — the "
+        "predicate is probably too narrow, and A7 would be scoped to almost nothing"
+    )
+
+    offenders = [
+        t.relative_to(TEMPLATES).as_posix()
+        for t in in_scope
+        if not re.search(r"\b(?:sm|md|lg|xl):", t.read_text(encoding="utf-8"))
+    ]
+    assert not offenders, (
+        "these templates declare a grid or a table but no breakpoint anywhere, so their layout "
+        f"is identical at 375px and 1440px: {offenders}"
+    )
+
+
+def test_grids_are_responsive():
+    """**A8** — no multi-column grid lacks a responsive prefix.
+
+    77 at G3's start, concentrated in modal form pairs: at 375px a two-column form gives each
+    field ~160px, which does not hold a date input or a select.
+
+    **`calendar.html`'s two `grid-cols-7` month grids are exempt**, and named rather than
+    silently skipped. A month is seven columns by definition; collapsing it to one produces a
+    list of 30 numbered boxes, not a calendar. That page needs a different answer — horizontal
+    scroll, or a genuine list view — which is the spec's §6 Step 3 note, not something to fake
+    with a prefix.
+    """
+    offenders = []
+    for t in templates():
+        for i, line in enumerate(t.read_text(encoding="utf-8").splitlines(), 1):
+            if not re.search(r"(?<![:\w-])grid-cols-([2-9]|1[0-2])\b", line):
+                continue
+            if re.search(r"\b(?:sm|md|lg|xl):grid-cols-", line):
+                continue
+            if t.name == "calendar.html" and "grid-cols-7" in line:
+                continue  # the month grid — see the docstring
+            offenders.append(f"{t.relative_to(TEMPLATES).as_posix()}:{i}")
+
+    assert not offenders, (
+        f"these grids hold their column count at every width: {offenders}"
+    )
+
+
+def test_the_calendar_exemption_is_still_needed():
+    """The exemption must stay an exemption for the *month grid*, not a hole.
+
+    Same construction as `ALLOWLIST_MECHANISMS` and `EXPECTED_NON_LEADING`: an exemption that
+    nothing checks is the cheapest way to make a gate pass. If `calendar.html` stops using
+    `grid-cols-7`, the carve-out is dead and must be deleted rather than left as a standing
+    permission for any seven-column grid anybody adds later.
+    """
+    cal = (TEMPLATES / "calendar.html").read_text(encoding="utf-8")
+    assert "grid-cols-7" in cal, (
+        "calendar.html no longer uses grid-cols-7, so A8's exemption for it is now dead code "
+        "granting a permission nothing needs — delete the carve-out"
+    )
+
+
+def test_modals_cap_height():
+    """**A9** — every modal panel caps its height and scrolls.
+
+    **The defect is vertical, not horizontal**, which the audit established and an earlier
+    draft of this criterion had backwards. Both modal families already supply a 16px gutter —
+    Family A via the overlay's `p-4`, Family B via the panel's `mx-4` — so width was never the
+    problem.
+
+    20 of 43 panels had neither `max-h-` nor a scroll region: a long form grows past the
+    viewport and the submit button becomes unreachable, which on a short phone viewport is most
+    of them. 23 already did it correctly with `max-h-[90vh] overflow-y-auto`, so the fix was to
+    apply the codebase's own pattern rather than invent one.
+    """
+    panel = re.compile(r'class="[^"]*bg-white[^"]*rounded-2xl[^"]*max-w-[^"]*"')
+    offenders = []
+    for t in templates():
+        text = t.read_text(encoding="utf-8")
+        # **A modal is a panel inside an overlay.** Requiring the file to contain a
+        # `fixed inset-0` overlay is what separates a dialog from a card that happens to share
+        # its class vocabulary — `partials/ai_message.html:27` is an AI *chat bubble*
+        # (`rounded-2xl rounded-tl-sm max-w-2xl`, a speech-bubble tail, no overlay anywhere),
+        # and capping its height at 90vh would put a scrollbar inside a chat message.
+        #
+        # Found by the test failing on it, which is the check doing its job: a matcher tuned
+        # only to class names cannot tell a dialog from a bubble.
+        if not re.search(r"fixed inset-0", text):
+            continue
+        for i, line in enumerate(text.splitlines(), 1):
+            m = panel.search(line)
+            if not m:
+                continue
+            cls = m.group(0)
+            if "max-h-" in cls or "max-height" in line:
+                continue
+            # `base.html`'s preview overlay caps via an inline style on the following line.
+            if t.name == "base.html":
+                continue
+            offenders.append(f"{t.relative_to(TEMPLATES).as_posix()}:{i}")
+
+    assert not offenders, (
+        "these modal panels have no height cap, so a long form grows past the viewport and the "
+        f"submit button cannot be reached: {offenders}"
+    )
+
+
+def test_tap_targets():
+    """**A10** — interactive elements clear the tap-target floor.
+
+    WCAG 2.5.5 and Apple's HIG both say 44px; Material says 48dp. `p-1` around a `w-5 h-5` icon
+    is 28x28 — and `base.html`'s preview-close button was one of those, on **every page**.
+
+    Scoped to `<button>` and `<a>`: padding on a `<span>` or a `<td>` is spacing, not a target,
+    and inflating it would change layout for no accessibility gain.
+    """
+    interactive = re.compile(r"<(?:button|a)\b[^>]*>", re.S)
+    small = re.compile(r'class="[^"]*?(?<![\w.])p-1(?:\.5)?(?![\w.])')
+
+    offenders = []
+    for t in templates():
+        for tag in interactive.finditer(t.read_text(encoding="utf-8")):
+            if small.search(tag.group(0)):
+                offenders.append(f"{t.relative_to(TEMPLATES).as_posix()}: {tag.group(0)[:60]}")
+
+    assert not offenders, (
+        f"{len(offenders)} interactive elements are under ~30px on a touch screen "
+        f"(44px is the WCAG 2.5.5 floor): {offenders[:5]}"
     )
 
 

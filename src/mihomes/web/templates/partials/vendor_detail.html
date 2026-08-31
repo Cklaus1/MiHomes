@@ -101,7 +101,7 @@
       {% if r.reliability_score %}{% set _ = reliability_vals.append(r.reliability_score) %}{% endif %}
     {% endfor %}
 
-    <div class="grid grid-cols-2 gap-3 mb-3">
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
       <div class="bg-gray-50 rounded-lg p-3 text-center">
         <div class="text-xs text-gray-500 mb-1">Avg Quality</div>
         {% if quality_vals %}
@@ -150,7 +150,7 @@
           hx-swap="innerHTML"
           hx-boost="false"
           class="bg-gray-50 rounded-lg p-4 border border-gray-100 space-y-3">
-      <div class="grid grid-cols-2 gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label class="block text-xs font-medium text-gray-700 mb-1">Quality (1–5)</label>
           <input type="number" name="quality" min="1" max="5" required

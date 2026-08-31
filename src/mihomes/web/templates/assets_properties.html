@@ -44,7 +44,7 @@
 <!-- Add Room modal -->
 <div id="add-room-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
      onclick="if(event.target===this)this.classList.add('hidden')">
-  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onclick="event.stopPropagation()">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
     <div class="flex items-center justify-between mb-5">
       <h2 class="text-lg font-semibold text-gray-900">Add Room</h2>
       <button onclick="document.getElementById('add-room-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600">

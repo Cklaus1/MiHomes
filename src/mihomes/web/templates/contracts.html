@@ -14,7 +14,7 @@
 {% block content %}
 
 {% if all_contracts %}
-<div class="grid grid-cols-3 gap-3 mb-6">
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
   <a href="/contracts"
      class="block rounded-xl border px-4 py-3 text-center transition-all hover:shadow-sm
             {% if not filter_auto_renew %}bg-brand-50 border-brand-400{% else %}bg-white border-gray-200 hover:border-brand-300{% endif %}">
@@ -34,6 +34,7 @@
 </div>
 
 <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <div class="overflow-x-auto">
   <table class="w-full text-sm">
     <thead>
       <tr class="border-b border-gray-100 bg-gray-50">
@@ -58,6 +59,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 </div>
 {% else %}
 <div class="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center">
@@ -93,7 +95,7 @@
         <label class="block text-sm font-medium text-gray-700 mb-1">Service Category</label>
         <input type="text" name="service_category" placeholder="e.g. Plumbing, Landscaping" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
       </div>
-      <div class="grid grid-cols-2 gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Start Date <span class="text-red-500">*</span></label>
           <input type="date" name="start_date" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
@@ -110,7 +112,7 @@
           {% for val, label in billing_frequencies %}<option value="{{ val }}">{{ label }}</option>{% endfor %}
         </select>
       </div>
-      <div class="grid grid-cols-2 gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Cost ($)</label>
           <input type="number" name="cost" min="0" step="0.01" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" placeholder="Per period or total" />
@@ -152,8 +154,8 @@
         {% if not contract.end_date %}<span class="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">Ongoing</span>
         {% elif contract.auto_renew %}<span class="px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">Auto-Renew</span>
         {% else %}<span class="px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700">Fixed Term</span>{% endif %}
-        <button hx-post="/contracts/{{ contract.id }}/delete" hx-target="body" hx-swap="innerHTML" hx-confirm="Delete this contract?" class="text-gray-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
-        <button onclick="closeModal('contract-modal-{{ contract.id }}')" class="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+        <button hx-post="/contracts/{{ contract.id }}/delete" hx-target="body" hx-swap="innerHTML" hx-confirm="Delete this contract?" class="text-gray-400 hover:text-red-500 p-2.5 rounded-lg hover:bg-red-50 transition-colors"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
+        <button onclick="closeModal('contract-modal-{{ contract.id }}')" class="text-gray-400 hover:text-gray-600 p-2.5 rounded-lg hover:bg-gray-100"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
       </div>
     </div>
 
@@ -173,7 +175,7 @@
 
         <!-- View div -->
         <div id="contract-view-{{ contract.id }}">
-          <div class="grid grid-cols-2 gap-3 mb-4">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
             <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Start Date</div><div class="font-medium text-sm text-gray-800">{{ contract.start_date.strftime('%b %d, %Y') if contract.start_date else '—' }}</div></div>
             <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">End Date</div><div class="font-medium text-sm text-gray-800">{{ contract.end_date.strftime('%b %d, %Y') if contract.end_date else 'Ongoing' }}</div></div>
             <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Cost</div><div class="font-medium text-sm text-gray-800">{{ contract.cost_display or '—' }}</div></div>
@@ -199,7 +201,7 @@
         <!-- Edit div -->
         <div id="contract-edit-{{ contract.id }}" class="hidden">
           <form hx-post="/contracts/{{ contract.id }}/edit" hx-target="body" hx-swap="innerHTML">
-            <div class="grid grid-cols-2 gap-3 mb-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
               <div>
                 <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Start Date</div>
                 <input type="date" name="start_date"

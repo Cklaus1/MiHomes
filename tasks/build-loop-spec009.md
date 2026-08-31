@@ -169,13 +169,13 @@ edit loop.
 > The glob must cover `templates/**/*.html` — `partials/`, `settings/`, `team/` and
 > `onboarding/` all hold classes.
 
-### [ ] G3 — Step 3: the per-page audit — *dep: G1*
-- [ ] G3.1 · §6 Step 3 · A5 · **20 tables, 0 scroll, and 16 are *clipped*** by `overflow-hidden` card wrappers — unreachable, not merely off-screen. Add a scroll wrapper **inside** the card; removing `overflow-hidden` from the card destroys its rounded corners · verify: `tests/unit/test_ui_responsive.py::test_tables_scroll`
-- [ ] G3.2 · §6 Step 3 · A6 · the **5** genuine `min-w-[…]` hazards. `max-w-[…]` paired with `truncate` **constrains** and is not one — 8 of those exist and must be left alone · verify: `tests/unit/test_ui_responsive.py::test_no_fixed_pixel_widths`
-- [ ] G3.3 · §6 Step 3 · A7 · the **8 zero-prefix templates**, `calendar.html` (408 lines) and `inventory.html` (511) worst. A **floor, not a threshold** — N6 · verify: `tests/unit/test_ui_responsive.py::test_no_zero_prefix_templates`
-- [ ] G3.4 · §6 Step 3 · A8 · **78** non-responsive `grid-cols-N`, mostly modal form pairs. **`calendar.html:56,64`'s `grid-cols-7` are exempt** — a month is seven columns by definition; it scrolls or becomes a list, it does not collapse to one column · verify: `tests/unit/test_ui_responsive.py::test_grids_are_responsive`
-- [ ] G3.5 · §6 Step 3 · A9 · **20 of 43 modal panels** have no height cap and no scroll, so the submit button grows off-screen. **23 already do it right** with `max-h-[90vh] overflow-y-auto` — apply the codebase's own pattern. The defect is vertical; gutters are fine · verify: `tests/unit/test_ui_responsive.py::test_modals_cap_height`
-- [ ] G3.6 · §6 Step 3 · A10 · tap targets. `base.html:177`'s 28×28px preview-close is on **every page**; `inventory.html` holds two more · verify: `tests/unit/test_ui_responsive.py::test_tap_targets`
+### [x] G3 — Step 3: the per-page audit — *dep: G1*
+- [x] G3.1 · §6 Step 3 · A5 · **20 tables, 0 scroll, and 16 are *clipped*** by `overflow-hidden` card wrappers — unreachable, not merely off-screen. Add a scroll wrapper **inside** the card; removing `overflow-hidden` from the card destroys its rounded corners · verify: `tests/unit/test_ui_responsive.py::test_tables_scroll`
+- [x] G3.2 · §6 Step 3 · A6 · the **5** genuine `min-w-[…]` hazards. `max-w-[…]` paired with `truncate` **constrains** and is not one — 8 of those exist and must be left alone · verify: `tests/unit/test_ui_responsive.py::test_no_fixed_pixel_widths`
+- [x] G3.3 · §6 Step 3 · A7 · the **8 zero-prefix templates**, `calendar.html` (408 lines) and `inventory.html` (511) worst. A **floor, not a threshold** — N6 · verify: `tests/unit/test_ui_responsive.py::test_no_zero_prefix_templates`
+- [x] G3.4 · §6 Step 3 · A8 · **78** non-responsive `grid-cols-N`, mostly modal form pairs. **`calendar.html:56,64`'s `grid-cols-7` are exempt** — a month is seven columns by definition; it scrolls or becomes a list, it does not collapse to one column · verify: `tests/unit/test_ui_responsive.py::test_grids_are_responsive`
+- [x] G3.5 · §6 Step 3 · A9 · **20 of 43 modal panels** have no height cap and no scroll, so the submit button grows off-screen. **23 already do it right** with `max-h-[90vh] overflow-y-auto` — apply the codebase's own pattern. The defect is vertical; gutters are fine · verify: `tests/unit/test_ui_responsive.py::test_modals_cap_height`
+- [x] G3.6 · §6 Step 3 · A10 · tap targets. `base.html:177`'s 28×28px preview-close is on **every page**; `inventory.html` holds two more · verify: `tests/unit/test_ui_responsive.py::test_tap_targets`
 
 ### [ ] G4 — Step 4: design tokens — *dep: G2*
 - [ ] G4.1 · §6 Step 4 · A14 · the brand palette in `tailwind.config.js` is the single source; no template hardcodes a brand hex. **Structural only (D7/N7)** — tokens exist, tokens are used, raw hex does not bypass them. Nothing about spacing scales or typography · verify: `tests/unit/test_ui_tokens.py::test_no_raw_brand_hex`

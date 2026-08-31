@@ -140,9 +140,9 @@ fixes are verified inside the frame Step 1 establishes, and auditing pages again
 measures the shell 28 times. **Step 2 after Step 1** — see G2's note; the build inverts the
 edit loop.
 
-### [ ] G0 — the doc repairs — *dep: none*
-- [ ] G0.1 · §2 B1 · — · `SAAS_PRD:98` — keep the native-app exclusion, **distinguish it from responsive web** (D1/D2). As written a reader concludes phones are not a target, which is what happened · verify: `tests/unit/test_docs_ui_scope.py::test_native_and_responsive_are_distinguished`
-- [ ] G0.2 · §2 B2 · — · `SAAS_PRD:165` — add the product app beside the landing page, and D5's build requirement to the same non-functional row · verify: `tests/unit/test_docs_ui_scope.py::test_product_app_is_in_the_performance_row`
+### [x] G0 — the doc repairs — *dep: none*
+- [x] G0.1 · §2 B1 · — · `SAAS_PRD:98` — keep the native-app exclusion, **distinguish it from responsive web** (D1/D2). As written a reader concludes phones are not a target, which is what happened · verify: `tests/unit/test_docs_ui_scope.py::test_native_and_responsive_are_distinguished`
+- [x] G0.2 · §2 B2 · — · `SAAS_PRD:165` — add the product app beside the landing page, and D5's build requirement to the same non-functional row · verify: `tests/unit/test_docs_ui_scope.py::test_product_app_is_in_the_performance_row`
 
 ### [ ] G1 — Step 1: the mobile navigation — *dep: G0 — MUST precede G3*
 - [ ] G1.1 · §6 Step 1 · A1 · the drawer, toggle and backdrop of §4.1 in `base.html` — **there is no existing pattern to extend**; grep for hamburger/drawer/off-canvas returns zero across the whole tree · verify: `tests/unit/test_ui_responsive.py::test_mobile_nav_exists`

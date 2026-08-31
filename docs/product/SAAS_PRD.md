@@ -95,7 +95,14 @@ Primary launch ICP: **multi-home owners and families with household staff** — 
 - **Vendor Discovery marketplace** (AI research + public ratings) — [`VENDOR_DISCOVERY_PRD.md`](VENDOR_DISCOVERY_PRD.md).
 - **Twilio gateway** (SMS/MMS/Voice, official WhatsApp Business API) — [`TWILIO_PRD.md`](TWILIO_PRD.md).
 - **Expanded Telegram capabilities** (interactive keyboards, photo/voice intake, per-tenant linking) — [`TELEGRAM_PRD.md`](TELEGRAM_PRD.md).
-- Native mobile apps; non-Google auth; marketing automation; multi-language.
+- **Native mobile apps** — iOS/Android binaries, app-store distribution, push notifications.
+  **This does NOT mean phones are out of scope.** The web app is responsive and supports phones
+  (SPEC-009 D1/D2); native packaging is the thing deferred, and responsive web is the
+  alternative to it rather than a step toward it. *Added 2026-08-31, SPEC-009 §2 B1: read
+  alongside §3's Staff Member persona — a housekeeper standing in a house holding a phone — the
+  bare exclusion led a reader to conclude the product did not target phones at all, and the
+  product app was built desktop-only for five phases.*
+- Non-Google auth; marketing automation; multi-language.
 
 ---
 
@@ -162,7 +169,7 @@ Primary launch ICP: **multi-home owners and families with household staff** — 
 | **Isolation** | No cross-tenant reads/writes, ever. Automated A-vs-B isolation test in CI. RLS fail-closed. |
 | **Security** | OIDC best practices; signed/rotated sessions; Stripe/Twilio webhook signature verification; secrets in env, never in code (repo already gitignores `.env`, `*_token.json`, `*.pem`). |
 | **Availability** | Hosted, always-on; target **99.5% monthly uptime** at GA *(PLACEHOLDER — no formal SLA on Free)*. The current single-instance watchdog/monitor model must be rethought for hosting (per-tenant workers don't scale; prefer webhook-driven gateways + shared schedulers). |
-| **Performance** | Web pages fast (htmx keeps payloads small); AI calls async where possible; landing page must be fast/responsive. |
+| **Performance** | Web pages fast (htmx keeps payloads small); AI calls async where possible; **both the landing page and the product app must be fast and responsive** — see `../specs/SPEC-009-responsive-web-ui.md` D1/D4 for the three reference widths (375 / 768 / 1440). **CSS ships compiled**: the Tailwind play CDN sends a compiler to the browser and recompiles on every page load, which this row forbids in spirit (SPEC-009 D5). *Corrected 2026-08-31, SPEC-009 §2 B2: this row named the landing page only, which is why the product app's responsiveness was never a tracked requirement.* |
 | **Cost control** | AI is the main variable cost — metered per account, gated by plan. Shared research cache where cross-tenant safe (see Vendor Discovery). |
 | **Compliance** | GDPR/CCPA data handling; data export & deletion (deletion applies **one of three dispositions** per table — delete, preserve, anonymize — see `../specs/SPEC-005-phase4-polish-email-ga.md` D18); **email opt-out: one-click unsubscribe per RFC 8058 (`List-Unsubscribe` + `List-Unsubscribe-Post`), backed by a suppression list that is checked at one choke point.** Opt-out binds **lifecycle** mail (drips, digests, re-engagement) and never **transactional** mail (receipts, deletion and export confirmations) — a receipt for money taken is not marketing, and withholding it is not caution. (Future) A2P 10DLC for Twilio SMS. |
 | **Observability** | Per-tenant audit log; billing/webhook event log; email delivery tracking — schema in `../specs/SPEC-005-phase4-polish-email-ga.md` §4.1 (an outbox, a suppression list and a per-message delivery log, drained by one idempotent job). |

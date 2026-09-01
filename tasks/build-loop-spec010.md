@@ -146,9 +146,9 @@ impossible.
 routes write to it); **Step 3 before Step 5** (an account exists before its password can be
 reset).
 
-### [ ] G0 — the doc repairs — *dep: none*
-- [ ] G0.1 · §2 B1 · — · `SAAS_PRD:105` — **narrow, do not delete**: email/password ships, additional third-party IdPs stay out. Same shape as SPEC-009's native-app amendment two lines above · verify: `tests/unit/test_docs_auth_scope.py::test_non_google_exclusion_is_narrowed`
-- [ ] G0.2 · §2 B2/B3/B4 · — · `ONBOARDING:60`'s "without touching call sites" is **false** (§0.2); `:34`/`:41` gain `password_hash` and D3; `:317` Q3 is answered by this spec · verify: `tests/unit/test_docs_auth_scope.py::test_onboarding_prd_matches_the_build`
+### [x] G0 — the doc repairs — *dep: none*
+- [x] G0.1 · §2 B1 · — · `SAAS_PRD:105` — **narrow, do not delete**: email/password ships, additional third-party IdPs stay out. Same shape as SPEC-009's native-app amendment two lines above · verify: `tests/unit/test_docs_auth_scope.py::test_non_google_exclusion_is_narrowed`
+- [x] G0.2 · §2 B2/B3/B4 · — · `ONBOARDING:60`'s "without touching call sites" is **false** (§0.2); `:34`/`:41` gain `password_hash` and D3; `:317` Q3 is answered by this spec · verify: `tests/unit/test_docs_auth_scope.py::test_onboarding_prd_matches_the_build`
 
 ### [ ] G1 — Step 1: the KDF — *dep: G0*
 - [ ] G1.1 · §6 Step 1 · A1 · `hash_password` / `verify_password` — scrypt from the **declared** `cryptography` (D4), no new dependency · verify: `tests/unit/test_passwords.py::test_round_trip`

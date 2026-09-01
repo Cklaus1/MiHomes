@@ -38,7 +38,8 @@ Three global tables form the backbone. All domain data (homes, tasks, issues, st
 Pending invitations live in a separate `invites` table (Section 6), **not** as `memberships` rows — an invitee may have no `users` row yet, so a membership (which requires `user_id`) cannot exist until acceptance.
 
 Key facts:
-- **Identity is keyed on Google `sub`**, not email. Email is display/contact metadata and can change on Google's side without breaking identity.
+- **A Google identity is keyed on Google `sub`**, not email. Email is display/contact metadata and can change on Google's side without breaking identity.
+- **A password identity is keyed on case-folded email**, because it has no `sub` to key on. Enforced by a *partial* unique index — `UNIQUE (lower(email)) WHERE password_hash IS NOT NULL` — so the `email` column itself stays non-unique and the rule above is untouched: two Google users may still share an address. *Added 2026-09-01, SPEC-010 §2 B3 / D3.*
 - A user can belong to **multiple accounts** (e.g. an estate manager working for two families) via multiple `memberships` rows. They pick a **current account** via an account switcher (Section 7).
 - **Exactly one owner per account**, enforced by a partial unique index on `memberships` (`WHERE role='owner' AND status='active'`) rather than a column on `accounts` — the constraint lives where the invariant lives. Transferable (Section 8).
 - Staff scoping (which homes a staff member sees) lives in a `membership_property_scopes` table: `(membership_id, property_id)`, FK → `properties(id)`. Scope rows are only meaningful for `staff` memberships: owner/admin always see all properties (their scope set is ignored/empty by convention). For **staff, the scope set is the whitelist — a staff membership with zero scope rows sees zero properties** (fail closed, never "all"). Properties added to the account later are invisible to staff until explicitly added to their scope.
@@ -57,7 +58,11 @@ erDiagram
 ## 3. Authentication (Google OAuth / OIDC)
 
 ### 3.1 Provider policy
-**Google OAuth (OIDC) only at launch. No passwords.** We use the standard **authorization-code flow** (with PKCE). The auth layer is abstracted behind an `IdentityProvider` interface so email/password or additional IdPs (Apple, Microsoft) can be added later without touching call sites. Launch ships exactly one implementation: `GoogleOIDCProvider`.
+**Google OAuth (OIDC) at launch.** We use the standard **authorization-code flow** (with PKCE), abstracted behind an `IdentityProvider` interface. Launch shipped exactly one implementation: `GoogleOIDCProvider`.
+
+> **Corrected 2026-09-01 *(SPEC-010 §2 B2)*.** This paragraph previously said "No passwords" and promised email/password could be added "**without touching call sites**". Email/password now ships — see [`../specs/SPEC-010-email-password-auth.md`](../specs/SPEC-010-email-password-auth.md) — and **the promise was measurably false**. `IdentityProvider`'s three methods (`authorization_url`, `exchange_code`, `verify`) are all OAuth-shaped: a password login has no authorization URL, no authorization code and no ID token, so it can implement **none** of them. A conforming class would raise `NotImplementedError` from every method, which is not conformance.
+>
+> **The seam that does generalise is `create_session(db, user_id)`** — it takes a user id and nothing else, and `auth/sessions.py` imports nothing from `auth/oidc.py`. Both entry paths converge there. Recorded because a reader planning against the original sentence would design the wrong thing.
 
 ### 3.2 What we store
 On successful sign-in we upsert a `users` row keyed on `google_sub`:
@@ -314,7 +319,7 @@ This composes cleanly with tenant scoping: a user **only ever acts within one cu
 
 1. **Account linking** — should we let one person merge two Google identities (personal + work `sub`) into a single `users` record? Deferred; needs a secure verification flow.
 2. **Granular staff capabilities** — when do we ship per-capability staff permissions (vs. the single default set)? Which capabilities are worth exposing first (vendor management? task-only?)?
-3. **Non-Google invitees** — if we add email/password before an invitee has Google, how does acceptance work across IdPs? The `IdentityProvider` abstraction anticipates this but the acceptance UX is unspecified.
+3. ~~**Non-Google invitees**~~ — **ANSWERED 2026-09-01 by SPEC-010 (§6 Step 6, A14).** An invitee with no Google account accepts by signing up with a password: `accept_invite` keys on the invite token, not on the identity method, so the flow is unchanged. *(The original question guessed that `IdentityProvider` would carry this; it does not — see the §3 correction. The acceptance path works because the invite is keyed on its own token, which is a different reason than the one anticipated.)*
 4. **Owner offboarding on churn** — if an owner stops paying and doesn't transfer, what's the grace/lock/delete timeline? (Coordinate with `../architecture/BILLING_AND_EMAIL.md`.)
 5. **Cross-account staff seat accounting** — an estate manager in two Pro accounts consumes a seat in each; is that the right model, or should there be a shared "professional" identity concept?
 6. **Audit log retention & export** — how long do we keep audit entries, and is the audit log itself exportable per §9.2?

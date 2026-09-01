@@ -102,7 +102,15 @@ Primary launch ICP: **multi-home owners and families with household staff** — 
   alongside §3's Staff Member persona — a housekeeper standing in a house holding a phone — the
   bare exclusion led a reader to conclude the product did not target phones at all, and the
   product app was built desktop-only for five phases.*
-- Non-Google auth; marketing automation; multi-language.
+- **Additional third-party identity providers** — Apple, Microsoft, SAML/SSO. **Email/password
+  sign-in is IN scope** and specified in `../specs/SPEC-010-email-password-auth.md`. *Amended
+  2026-09-01, SPEC-010 §2 B1: this row read "Non-Google auth", which contradicted
+  [`ONBOARDING_AUTH_RBAC.md`](ONBOARDING_AUTH_RBAC.md) §3 — the document that **owns**
+  authentication — whose `IdentityProvider` abstraction was built explicitly "so email/password
+  or additional IdPs can be added later". Two documents disagreeing about whether a feature
+  exists is worse than either answer; SPEC-010 D1 resolves in favour of the owning document and
+  narrows this exclusion rather than deleting it.*
+- Marketing automation; multi-language.
 
 ---
 

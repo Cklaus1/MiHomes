@@ -150,10 +150,15 @@ reset).
 - [x] G0.1 · §2 B1 · — · `SAAS_PRD:105` — **narrow, do not delete**: email/password ships, additional third-party IdPs stay out. Same shape as SPEC-009's native-app amendment two lines above · verify: `tests/unit/test_docs_auth_scope.py::test_non_google_exclusion_is_narrowed`
 - [x] G0.2 · §2 B2/B3/B4 · — · `ONBOARDING:60`'s "without touching call sites" is **false** (§0.2); `:34`/`:41` gain `password_hash` and D3; `:317` Q3 is answered by this spec · verify: `tests/unit/test_docs_auth_scope.py::test_onboarding_prd_matches_the_build`
 
-### [ ] G1 — Step 1: the KDF — *dep: G0*
-- [ ] G1.1 · §6 Step 1 · A1 · `hash_password` / `verify_password` — scrypt from the **declared** `cryptography` (D4), no new dependency · verify: `tests/unit/test_passwords.py::test_round_trip`
-- [ ] G1.2 · §6 Step 1 · A2 · **G-kdf, the definition of done** — the stored value is `scrypt$n$r$p$salt$hash`, salted, and contains no plaintext. **Two hashes of the same password must differ**, or the salt is not doing its job · verify: `tests/unit/test_passwords.py::test_hash_format`
-- [ ] G1.3 · §6 Step 1 · A3 · verifying against a **null** hash does the KDF work anyway (D9) — an early return makes the login form an account-existence oracle · verify: `tests/unit/test_passwords.py::test_no_user_enumeration_by_timing`
+### [x] G1 — Step 1: the KDF — *dep: G0*
+- [x] G1.1 · §6 Step 1 · A1 · `hash_password` / `verify_password` — scrypt from the **declared** `cryptography` (D4), no new dependency · verify: `tests/unit/test_passwords.py::test_round_trip`
+- [x] G1.2 · §6 Step 1 · A2 · **G-kdf, the definition of done** — the stored value is `scrypt$n$r$p$salt$hash`, salted, and contains no plaintext. **Two hashes of the same password must differ**, or the salt is not doing its job · verify: `tests/unit/test_passwords.py::test_hash_format`
+- [x] G1.3 · §6 Step 1 · A3 · verifying against a **null** hash does the KDF work anyway (D9) — an early return makes the login form an account-existence oracle · verify: `tests/unit/test_passwords.py::test_no_user_enumeration_by_timing`
+
+> **G1 landed.** 12 tests. **All three G-kdf checks mutation-verified** — sha256 substituted for
+> scrypt, a constant salt, and an early return on a null hash each turn exactly one intended
+> test red, and the source restores byte-for-byte. The gates have teeth; that check is the
+> whole reason to trust them, since every mutation above passes `test_round_trip` unharmed.
 
 ### [ ] G2 — Step 2: the schema — *dep: G1 — MUST precede G3*
 - [ ] G2.1 · §6 Step 2 · A4 · `0017` — `google_sub` nullable, `password_hash`, `password_set_at`, the reset table; own engine, real Alembic up→down→up. **`test_membership.py:95` inverts and `test_pg_baseline.py:149` goes 56→57 in this commit** · verify: `tests/integration/test_migration_password_auth.py::test_up_down`

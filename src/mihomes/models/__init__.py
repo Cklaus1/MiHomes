@@ -117,6 +117,9 @@ from mihomes.models.membership import (  # noqa: E402, F401
 )
 from mihomes.models.note import Note  # noqa: E402, F401
 from mihomes.models.onboarding_state import OnboardingState  # noqa: E402, F401
+from mihomes.models.password_reset_token import (  # noqa: E402, F401
+    PasswordResetToken,
+)
 from mihomes.models.processed_webhook_event import (  # noqa: E402, F401
     ProcessedWebhookEvent,
 )

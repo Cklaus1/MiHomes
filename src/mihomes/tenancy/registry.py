@@ -62,6 +62,13 @@ __all__ = [
 #             they were invited elsewhere, which is how a sending domain gets blocklisted.
 #             It carries no account_id at all, so unlike the webhook ledger there is no
 #             "the nullable column is not tenancy" caveat to make.
+#   password_reset_tokens
+#             SPEC-010 §4.3, and the reason is the FIRST one above, not the second: a reset
+#             happens before sign-in, so there is no account context to scope to — the same
+#             carve-out `users` and `sessions` already hold. Distinguishing the two reasons
+#             matters, because they imply different things about what may be added later:
+#             a before-context table must stay readable account-less, whereas a property-of-
+#             an-address table must stay readable ACROSS accounts.
 GLOBAL_TABLES = frozenset(
     {
         "users",
@@ -70,6 +77,7 @@ GLOBAL_TABLES = frozenset(
         "accounts",
         "processed_webhook_events",
         "email_suppressions",
+        "password_reset_tokens",
     }
 )
 

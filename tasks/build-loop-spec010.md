@@ -160,9 +160,22 @@ reset).
 > test red, and the source restores byte-for-byte. The gates have teeth; that check is the
 > whole reason to trust them, since every mutation above passes `test_round_trip` unharmed.
 
-### [ ] G2 — Step 2: the schema — *dep: G1 — MUST precede G3*
-- [ ] G2.1 · §6 Step 2 · A4 · `0017` — `google_sub` nullable, `password_hash`, `password_set_at`, the reset table; own engine, real Alembic up→down→up. **`test_membership.py:95` inverts and `test_pg_baseline.py:149` goes 56→57 in this commit** · verify: `tests/integration/test_migration_password_auth.py::test_up_down`
-- [ ] G2.2 · §6 Step 2 · A5 · **D3's partial index** — two password users cannot share a case-folded email; **two Google users still can**. The second half is what proves the index is partial rather than table-wide · verify: `tests/integration/test_migration_password_auth.py::test_partial_unique_index`
+### [x] G2 — Step 2: the schema — *dep: G1 — MUST precede G3*
+- [x] G2.1 · §6 Step 2 · A4 · `0017` — `google_sub` nullable, `password_hash`, `password_set_at`, the reset table; own engine, real Alembic up→down→up. **`test_membership.py:95` inverts and `test_pg_baseline.py:149` goes 56→57 in this commit** · verify: `tests/integration/test_migration_password_auth.py::test_up_down`
+- [x] G2.2 · §6 Step 2 · A5 · **D3's partial index** — two password users cannot share a case-folded email; **two Google users still can**. The second half is what proves the index is partial rather than table-wide · verify: `tests/integration/test_migration_password_auth.py::test_partial_unique_index`
+
+> **G2 landed.** 3 tests, and all three §0.5 gates edited in this same commit as required —
+> `test_membership.py:95` inverted (with the reason), `test_pg_baseline.py` 56→57,
+> `password_reset_tokens` added to `GLOBAL_TABLES`.
+>
+> **G-partial mutation-verified.** A table-wide unique instead of a partial one — the exact
+> design error A5 exists to catch, and the one that passes half the criterion — turns
+> `test_partial_unique_index` red. So does dropping `lower()`, and so does leaving `google_sub`
+> NOT NULL. Migration and model restore byte-for-byte.
+>
+> One correction found by running it: Postgres renders the expression as `lower((email)::text)`,
+> so the first version of the DDL assertion failed against a correct index. The assertion was
+> wrong, not the schema.
 
 ### [ ] G3 — Step 3: signup and login — *dep: G2 — MUST precede G5*
 - [ ] G3.1 · §6 Step 3 · A6 · `/signup` creates a user and routes to `/onboarding/`; `login.html` gains the form and a real `/signup` link — **the "New here?" line finally has a destination** · verify: `tests/integration/test_password_auth.py::test_signup_creates_user`

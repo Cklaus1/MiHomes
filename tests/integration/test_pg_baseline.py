@@ -146,7 +146,12 @@ def test_upgrade_then_downgrade_is_clean(scratch_db):
     # SPEC-006 adds `gateway_link_tokens` (0016, A3) -> 56: tenant-scoped, so it carries both an
     # RLS policy and a drift-guard trigger. No new enum — `gateway` is a plain String(20), the
     # same shape `memberships.role` uses, so the enum count is unchanged.
-    assert len(first["tables"]) == 56, first["tables"]
+    # SPEC-010 adds `password_reset_tokens` (0017, §4.3) -> 57: **GLOBAL**, so unlike 0016 it
+    # carries neither an RLS policy nor a drift-guard trigger. A reset happens before sign-in,
+    # so there is no account context to scope to — the carve-out `users` and `sessions` hold.
+    # No new enum. 0017 also alters `users` (google_sub nullable, two new columns) and adds a
+    # partial unique index, none of which move these counts.
+    assert len(first["tables"]) == 57, first["tables"]
     assert len(first["enums"]) == 22
     assert first["guard_fns"] == ["mihomes_assert_account_matches_parent"]
 

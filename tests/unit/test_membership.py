@@ -89,10 +89,21 @@ def test_user_is_global():
 
     A person exists independent of any account, and the row is read *before*
     account context exists.
+
+    **`google_sub` became nullable in SPEC-010 (D6), and this assertion inverted with it.**
+    It asserted NOT NULL, correctly, for as long as every user arrived through Google. A
+    password user has no Google subject, so requiring one would make email/password sign-up
+    impossible — the column is now the Google *identity* rather than a universal key.
+
+    The `unique` half is unchanged and must stay: a nullable unique column is fine in Postgres,
+    because NULLs do not collide. Every password user carries `google_sub IS NULL` while Google
+    users stay unique among themselves.
     """
     assert "account_id" not in User.__table__.columns
     assert User.__table__.c.google_sub.unique is True
-    assert User.__table__.c.google_sub.nullable is False
+    assert User.__table__.c.google_sub.nullable is True, (
+        "google_sub must be nullable — a password user has no Google subject (SPEC-010 D6)"
+    )
 
 
 def test_user_email_is_not_the_identity_key():
@@ -100,6 +111,16 @@ def test_user_email_is_not_the_identity_key():
 
     Keying on email would break the moment someone changes their Google address,
     silently orphaning their memberships.
+
+    **Unchanged by SPEC-010, and that is the point.** Email/password auth does key a password
+    user on their address — but it enforces that through a PARTIAL index covering only rows
+    with a password (`uq_users_email_password`), never on the column. Making the column unique
+    table-wide would satisfy the password requirement and break Google identity: `test_auth.py`
+    asserts that the same address under two different subjects is two different people, which
+    is correct, because an address can be reassigned and a subject cannot.
+
+    So if this test ever seems to need editing to make password auth work, the design has gone
+    wrong — the fix belongs in the index, not here.
     """
     email = User.__table__.c.email
     assert email.unique is not True, "email must NOT be the unique identity key"

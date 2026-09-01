@@ -247,10 +247,41 @@ reset).
 > `test_password_auth.py` gains an autouse `reset_all()` fixture — the counters are module state,
 > so without it one test's failures throttle the next and the suite passes on ordering.
 
-### [ ] G5 — Step 5: password reset — *dep: G3*
-- [ ] G5.1 · §6 Step 5 · A11 · the request response is **identical** for a known and an unknown address (N5) · verify: `tests/integration/test_password_reset.py::test_no_enumeration_on_request`
-- [ ] G5.2 · §6 Step 5 · A12 · the token is single-use and expires — the existing sha256 pattern verbatim, **not** the KDF (§0.6 of the spec) · verify: `tests/integration/test_password_reset.py::test_token_single_use_and_expiry`
-- [ ] G5.3 · §6 Step 5 · A13 · **completing a reset revokes every existing session.** The spec flags this as the criterion most likely to be forgotten: a reset that leaves old sessions alive does not lock out the attacker the user is resetting because of. Mail is `transactional`, never `lifecycle` (D8/N8) · verify: `tests/integration/test_password_reset.py::test_reset_revokes_all_sessions`
+### [x] G5 — Step 5: password reset — *dep: G3*
+- [x] G5.1 · §6 Step 5 · A11 · the request response is **identical** for a known and an unknown address (N5) · verify: `tests/integration/test_password_reset.py::test_no_enumeration_on_request`
+- [x] G5.2 · §6 Step 5 · A12 · the token is single-use and expires — the existing sha256 pattern verbatim, **not** the KDF (§0.6 of the spec) · verify: `tests/integration/test_password_reset.py::test_token_single_use_and_expiry`
+- [x] G5.3 · §6 Step 5 · A13 · **completing a reset revokes every existing session.** The spec flags this as the criterion most likely to be forgotten: a reset that leaves old sessions alive does not lock out the attacker the user is resetting because of. Mail is `transactional`, never `lifecycle` (D8/N8) · verify: `tests/integration/test_password_reset.py::test_reset_revokes_all_sessions`
+
+> **G5 landed.** 10 tests, **all 8 mutations caught first time** — including the two with no
+> natural gate.
+>
+> **A13 was built first**, on the reasoning that its failure is invisible: the reset demos
+> perfectly without it. Asserted as a *count* of surviving sessions (three minted, one expected —
+> the reset's own), plus a bystander whose session must survive. "The old cookie stopped working"
+> would pass with two of three sessions still live.
+>
+> **D8 has no behavioural gate and needed a source assertion.** `lifecycle` mail is
+> suppression-checked and returns silently, so an unsubscribed user would be permanently locked
+> out with no error anywhere — and the console provider used in tests does not consult the
+> suppression list, so every functional test passes either way. Asserted by parsing the `klass`
+> argument, with a mutation check proving the scan can see a `lifecycle` value.
+>
+> **Two findings from building it, both real:**
+>
+> 1. **A misconfigured mail provider was an oracle.** `get_email_provider` raises when
+>    `RESEND_API_KEY` is unset — the default — so an uncaught raise meant a **500 for a real
+>    address and a 200 for an unknown one**. A server that is merely misconfigured handed out the
+>    account list. Now caught and logged; the token stays minted so a later resend works.
+> 2. **My outbox assertion was wrong about the architecture.** I asserted a queued row, which
+>    failed against correct code: `_send` enqueues only when an account is bound, and a reset
+>    happens *before sign-in*, so it goes inline — the same carve-out the waitlist confirmation
+>    holds, because an outbox row with no owner could never be drained under RLS. Re-asserted at
+>    the provider boundary, where both paths converge.
+>
+> **Step 4's second half landed here.** §6 says the limiter is wired into "login **and** reset";
+> G4 wired only login. Unthrottled, `/password/reset` mails a stranger on demand — a mail bomb
+> pointed at any address an attacker names. The throttled reply is byte-identical to an ordinary
+> one, or the throttle re-answers the question A11 refuses.
 
 ### [ ] G6 — Step 6: the invite path — *dep: G3*
 - [ ] G6.1 · §6 Step 6 · A14 · `ONBOARDING:317` Q3, answered — an invitee with no Google account accepts by signing up with a password · verify: `tests/integration/test_password_auth.py::test_invitee_without_google`

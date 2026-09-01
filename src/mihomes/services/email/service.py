@@ -261,6 +261,32 @@ class EmailService:
             klass="transactional",
         )
 
+    def send_password_reset(
+        self, to: str, *, reset_url: str, expires_in: str = "1 hour",
+    ) -> None:
+        """The reset link — **carries the only copy of the plaintext token** (SPEC-010 D8).
+
+        **`transactional`, and this is the one `klass` choice in the file with a lockout behind
+        it.** `_send` suppression-checks `lifecycle` mail and silently returns. A person who
+        unsubscribed from digests months ago and has now forgotten their password would get
+        nothing, forever, with the failure looking exactly like the reset feature being broken —
+        and no error raised anywhere to say otherwise.
+
+        Nothing functional catches that, which is why `test_password_reset.py` asserts this
+        string directly rather than trusting the argument to stay put.
+
+        Like `send_staff_invite`, a failure to send strands the reset: only the hash is stored,
+        so the raw token cannot be reproduced.
+        """
+        self._send(
+            to,
+            "password_reset",
+            {"reset_url": reset_url, "expires_in": expires_in},
+            # D13/D8: Requested by the recipient, carries a live credential, and suppressing it
+            # locks the account's owner out of their own account permanently.
+            klass="transactional",
+        )
+
     def send_invite_accepted(
         self, to: str, *, account_name: str, member_email: str, role: str,
         invited_email: str | None = None,

@@ -40,7 +40,7 @@ from mihomes.auth.ratelimit import (
     clear_attempts,
     record_failure,
 )
-from mihomes.auth.session_flow import establish_session
+from mihomes.auth.session_flow import establish_session, safe_next
 from mihomes.auth.sessions import SESSION_COOKIE, lookup_session
 from mihomes.services.email import EmailService, get_email_provider
 from mihomes.services.email.provider import EmailProviderError
@@ -58,7 +58,12 @@ _SIGNIN_FAILED = "That email and password combination is not correct."
 
 
 @router.get("/signup")
-def signup_form(request: Request, db: DbSession = Depends(get_db), error: str = ""):
+def signup_form(
+    request: Request,
+    db: DbSession = Depends(get_db),
+    error: str = "",
+    next: str = "",
+):
     """The registration form — and the destination `login.html` has been promising.
 
     Until now `/signup` did not exist, so the login page could only say "the button above
@@ -70,7 +75,7 @@ def signup_form(request: Request, db: DbSession = Depends(get_db), error: str = 
     return templates.TemplateResponse(
         request,
         "signup.html",
-        {"error": error, "min_length": MIN_PASSWORD_LENGTH},
+        {"error": error, "min_length": MIN_PASSWORD_LENGTH, "next": safe_next(next) or ""},
     )
 
 
@@ -81,6 +86,7 @@ def signup(
     email: str = Form(...),
     password: str = Form(...),
     name: str = Form(""),
+    next: str = Form(""),
 ):
     """**A6** — create the user, then go to `/onboarding/`.
 
@@ -95,14 +101,24 @@ def signup(
         return templates.TemplateResponse(
             request,
             "signup.html",
-            {"error": str(exc), "min_length": MIN_PASSWORD_LENGTH, "email": email},
+            {
+                "error": str(exc),
+                "min_length": MIN_PASSWORD_LENGTH,
+                "email": email,
+                "next": safe_next(next) or "",
+            },
             status_code=400,
         )
 
-    # A brand-new user has no membership, so `destination_for` sends them to the wizard. Passed
-    # explicitly all the same: signup is the one path where the answer is never `/`, and
-    # relying on the lookup would make that a coincidence rather than a guarantee.
-    response = establish_session(db, request, user.id, destination="/onboarding/")
+    # **A14 — an invitee lands back on their invitation, not in the wizard.** Someone arriving
+    # from `/invite/{token}` has an account waiting for them; sending them to `/onboarding/` to
+    # create a second one is the wrong destination, and the invitation is then lost.
+    #
+    # Otherwise: a brand-new user has no membership, so the wizard is right. Passed explicitly
+    # rather than left to `destination_for`, because signup is the one path where the answer is
+    # never `/` and relying on the lookup would make that a coincidence.
+    destination = safe_next(next) or "/onboarding/"
+    response = establish_session(db, request, user.id, destination=destination)
     db.commit()
     return response
 
@@ -113,6 +129,7 @@ def login(
     db: DbSession = Depends(get_db),
     email: str = Form(...),
     password: str = Form(...),
+    next: str = Form(""),
 ):
     """**A7/A8** — verify, rotate the session, route by membership.
 
@@ -136,7 +153,7 @@ def login(
         # throttle is that a flood becomes cheap to refuse, not merely refused.
         check_login_attempt(db, email=email, ip=ip)
     except TooManyAttempts:
-        return _signin_failed(request, email)
+        return _signin_failed(request, email, next)
 
     user = authenticate(db, email=email, password=password)
 
@@ -147,18 +164,20 @@ def login(
         record_failure(db, email=email, ip=ip)
         # No commit and no session. `authenticate` may have re-hashed on a *successful* verify,
         # but this branch is the failure path, so there is nothing to persist.
-        return _signin_failed(request, email)
+        return _signin_failed(request, email, next)
 
     # A10 — the counter resets, or someone who mistyped twice today is locked out by a third
     # mistake next week. Per-email only; see `clear_attempts` for why the IP counter survives.
     clear_attempts(db, email=email)
 
-    response = establish_session(db, request, user.id)
+    # `next` is validated by `safe_next`, so a crafted link cannot turn sign-in into an open
+    # redirect. `None` falls through to the usual `/` vs `/onboarding/` choice.
+    response = establish_session(db, request, user.id, destination=safe_next(next))
     db.commit()
     return response
 
 
-def _signin_failed(request: Request, email: str):
+def _signin_failed(request: Request, email: str, next: str = ""):
     """The one failure response, shared by the throttle and the wrong-password path.
 
     Factored out so the two cannot drift. If the throttled branch ever rendered a different
@@ -169,7 +188,12 @@ def _signin_failed(request: Request, email: str):
     return templates.TemplateResponse(
         request,
         "login.html",
-        {"error": _SIGNIN_FAILED, "email": email, "oauth_configured": _oauth_configured()},
+        {
+            "error": _SIGNIN_FAILED,
+            "email": email,
+            "oauth_configured": _oauth_configured(),
+            "next": safe_next(next) or "",
+        },
         status_code=401,
     )
 

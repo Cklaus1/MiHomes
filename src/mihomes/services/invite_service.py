@@ -42,6 +42,13 @@ __all__ = [
     "seats_used",
 ]
 
+#: The Core table, for the two lookups that run **before** an account is known — `find_pending`
+#: and `accept_invite`. An ORM `select(Invite)` passes through the tenancy listener, which reads
+#: `current_account` and raises when nothing is bound; an invitee has nothing bound, because the
+#: invitation is what is about to give them an account. Same carve-out `auth/sessions.py:65`
+#: takes for the membership read behind sign-in.
+_INVITES = Invite.__table__
+
 #: B9 — the `PLACEHOLDER` in `ONBOARDING:167`, resolved to the locked 7-day value.
 INVITE_TTL = timedelta(days=7)
 
@@ -168,10 +175,34 @@ def find_pending(session: Session, token: str) -> Invite | None:
     Returns `None` rather than raising for every failure, so the page renders one "this
     invitation is no longer valid" state instead of distinguishing unknown from used from
     expired — the same reasoning as `accept_invite`, on a surface reachable before sign-in.
+
+    **The lookup is unscoped, and it has to be — this is the one query that DISCOVERS the
+    account.** `Invite` is `TenantOwned`, so an ORM `select(Invite)` goes through the tenancy
+    listener, which reads `current_account` and raises `LookupError` when nothing is bound. An
+    invitee has no account by definition: the invitation is what is about to give them one.
+
+    Found by SPEC-010 A14, empirically: the route 500'd for a freshly signed-up invitee. The
+    docstring already said "reachable before sign-in" — the intent was right and the query was
+    not. Same carve-out and same mechanism as `auth/sessions.py:65`'s membership read, and the
+    same one `resolve_sender` documents: a token lookup that must run before its own tenant
+    context exists.
+
+    Isolation is unaffected. The token is 256 bits of `secrets` output and its hash is unique,
+    so this selects at most the row whose secret the caller already holds — it cannot enumerate,
+    and every later read of that account goes through the scoped path.
     """
-    invite = session.execute(
-        select(Invite).where(Invite.token_hash == hash_token(token))
-    ).scalar_one_or_none()
+    row = session.execute(
+        select(_INVITES).where(_INVITES.c.token_hash == hash_token(token))
+    ).one_or_none()
+    if row is None:
+        return None
+
+    # Re-read through the ORM under the account the row itself names, so callers still receive a
+    # normal `Invite` and the scoped path is exercised for everything after the discovery.
+    from mihomes.tenancy import account_context
+
+    with account_context(row.account_id):
+        invite = session.get(Invite, row.id)
 
     if invite is None or invite.status != "pending":
         return None
@@ -208,9 +239,31 @@ def accept_invite(session: Session, token: str, user) -> Membership:
     *different* invites at the cap is exactly the race, and per-invite locks would not see each
     other.
     """
-    invite = session.execute(
-        select(Invite).where(Invite.token_hash == hash_token(token))
-    ).scalar_one_or_none()
+    # Unscoped discovery, then scoped work — see `find_pending` and `_INVITES` for why this
+    # cannot be an ORM select. An invitee is authenticated but has no account bound: the
+    # invitation is what is about to give them one.
+    _row = session.execute(
+        select(_INVITES.c.id, _INVITES.c.account_id).where(
+            _INVITES.c.token_hash == hash_token(token)
+        )
+    ).one_or_none()
+
+    if _row is None:
+        raise InviteError("this invitation is no longer valid")
+
+    # **Everything below runs with the discovered account bound.** The lookup above is the only
+    # unscoped statement; the rest — `refresh`, `seats_used`, the membership and scope inserts —
+    # are ordinary tenant work and must go through the normal filter, or they would be a second
+    # carve-out rather than one.
+    from mihomes.tenancy import account_context
+
+    with account_context(_row.account_id):
+        return _accept_locked(session, _row.id, user)
+
+
+def _accept_locked(session: Session, invite_id, user) -> Membership:
+    """The body of `accept_invite`, with the account already bound. See its docstring."""
+    invite = session.get(Invite, invite_id)
 
     # One outcome for unknown, revoked, accepted, and expired — a caller must not be able to
     # distinguish "no such invite" from "already used" by the error text (D9's reasoning, applied

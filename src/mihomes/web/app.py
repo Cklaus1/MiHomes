@@ -1,12 +1,14 @@
 """MiHomes Web — FastAPI app factory."""
 
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from mihomes.auth.session_flow import safe_next as _safe_next
 from mihomes.config import ensure_dirs
 from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
 from mihomes.web.deps import enforce_declared_action
@@ -198,6 +200,17 @@ def create_app() -> FastAPI:
         401 would silently follow a redirect and parse HTML as data.
 
         `/login` itself is excluded, or a signed-out visitor loops between it and this handler.
+
+        **The destination travels with the redirect (SPEC-010 A14).** Measured before it was
+        added: an invitee with no account who opened `/invite/{token}` was sent to `/login` and
+        the token was *dropped* — they arrived at a sign-in page with no way back to the
+        invitation short of finding the email again. `ONBOARDING §11 Q3` asks exactly this
+        ("how does a non-Google invitee accept?"), and losing the link is most of the answer
+        going wrong.
+
+        **Only a same-site path is preserved**, never a full URL: reflecting an absolute
+        location here would make the login page an open redirector, which is a phishing
+        primitive — "sign in at the real site, get sent anywhere". `_safe_next` enforces that.
         """
         from fastapi.responses import JSONResponse
 
@@ -206,6 +219,11 @@ def create_app() -> FastAPI:
         already_there = request.url.path == "/login"
 
         if wants_html and not is_htmx and not already_there:
+            target = _safe_next(request.url.path, request.url.query)
+            if target:
+                return RedirectResponse(
+                    f"/login?next={quote(target, safe='')}", status_code=303
+                )
             return RedirectResponse("/login", status_code=303)
 
         return JSONResponse(

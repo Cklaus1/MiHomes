@@ -130,3 +130,35 @@ def establish_session(
         max_age=int(SESSION_TTL.total_seconds()), http_only=False,
     )
     return response
+
+
+def safe_next(path: str, query: str = "") -> str | None:
+    r"""A same-site destination to return to after sign-in, or `None` (SPEC-010 A14).
+
+    **The whole job of this function is refusing to be an open redirector.** A login page that
+    reflects an arbitrary `?next=` is a phishing primitive: the victim signs in at the genuine
+    site, sees the genuine domain in the address bar, and is then sent wherever the attacker
+    named — often a convincing copy asking them to "confirm" the password they just typed.
+
+    So the rule is allow-list shaped rather than deny-list shaped: **a path beginning with a
+    single `/`, and nothing else.** Everything a deny-list would have to remember is excluded
+    by construction —
+
+        https://evil.example/x   rejected: does not start with `/`
+        //evil.example/x         rejected: protocol-relative, a browser reads the host
+        /\evil.example/x        rejected: some browsers normalise `\` to `/`
+        javascript:alert(1)      rejected: no leading `/`
+
+    `/login` and `/signup` are refused too, so a chain of redirects cannot loop.
+    """
+    if not path or not path.startswith("/"):
+        return None
+    # Protocol-relative (`//host`) and the backslash variants some browsers normalise.
+    if path.startswith("//") or path.startswith("/\\") or "\\" in path:
+        return None
+    # A control character or newline would let a caller inject a second header.
+    if any(c in path for c in "\r\n\t") or any(ord(c) < 0x20 for c in path):
+        return None
+    if path in ("/login", "/signup") or path.startswith("/login/"):
+        return None
+    return f"{path}?{query}" if query else path

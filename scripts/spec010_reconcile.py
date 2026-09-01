@@ -72,14 +72,13 @@ LABEL_RE = re.compile(r"A\d+[a-z]?")
 # is M5's failure through a door M5 does not cover, which is why the instruction is here rather
 # than only in the harness.
 PENDING_TESTS_IN_EXISTING_FILES = {
-    # **Predicted at authoring time, and it happened exactly as written.** §8 groups SPEC-010's
-    # criteria by FILE: `test_password_auth.py` holds A6/A7/A8 (G3) *and* A14 (G6), so landing
-    # G3 created the file G6 writes into and `--collect` began checking a node id that correctly
-    # does not resolve yet.
+    # **Empty again, and deliberately.** It held one entry between G3 and G6, exactly as §4
+    # predicted: `test_password_auth.py` holds A6/A7/A8 (G3) *and* A14 (G6), so landing G3
+    # created the file G6 would write into and `--collect` began checking a node id that
+    # correctly did not resolve yet.
     #
-    # **Delete this the moment G6 lands** — `TestPendingSetExpires` fails if it outlives its
-    # group, which is what stops a sanctioned gap from becoming a permanent one.
-    "G6.1": "A14 — the invite path. G3 created this file; G6 writes test_invitee_without_google.",
+    # G6 has landed, so the entry is deleted — the discipline that stops a sanctioned gap from
+    # becoming a permanent one. `TestPendingSetExpires` fails if an entry outlives its group.
 }
 
 SPEC_NODE_ID_CORRECTIONS = {

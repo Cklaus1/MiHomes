@@ -23,10 +23,11 @@ writes into.
 from __future__ import annotations
 
 import uuid
+from urllib.parse import quote
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import sessionmaker
 
 from mihomes.auth import passwords as pw_module
@@ -34,8 +35,11 @@ from mihomes.auth.password_identity import MIN_PASSWORD_LENGTH, create_password_
 from mihomes.auth.ratelimit import EMAIL_MAX_FAILURES
 from mihomes.auth.ratelimit import reset_all as reset_ratelimit
 from mihomes.auth.sessions import SESSION_COOKIE, hash_session_id
+from mihomes.models.membership import Membership
+from mihomes.models.property import Property, PropertyType
 from mihomes.models.session import Session as SessionRow
 from mihomes.models.user import User
+from mihomes.tenancy import account_context
 from mihomes.web.app import create_app
 from mihomes.web.deps import get_db
 
@@ -611,4 +615,177 @@ def test_a_successful_login_clears_the_counter_at_the_route(client):
     assert again.status_code == 303, (
         "the successful sign-in did not clear the counter, so a second run of typos locked out "
         "a legitimate user (A10)"
+    )
+
+
+# ── A14 — the invite path (G6) ────────────────────────────────────────────────
+
+def test_invitee_without_google(client):
+    """**A14** — `ONBOARDING §11 Q3`, answered: an invitee with no Google account accepts by
+    signing up with a password.
+
+    **The mechanism is not the one the question anticipated, and that difference is the point.**
+    §11 Q3 guessed `IdentityProvider` would carry it. It does not: `accept_invite` keys on the
+    **invite token**, never on the identity method or the email address
+    (`invite_service.py:211`), so any authenticated user holding a live token can redeem it.
+    Nothing about Google was ever load-bearing.
+
+    What *was* missing is smaller and was measured rather than assumed: an unauthenticated
+    invitee opening `/invite/{token}` got a 401, the handler redirected to `/login`, **and the
+    token was dropped**. They arrived at a sign-in page with no way back to the invitation short
+    of finding the email again — which is most of Q3 going wrong, just not where Q3 looked.
+    """
+    from mihomes.services import invite_service
+
+    # An account with an owner, and an invitation to somebody who has no account at all.
+    s = client._Session()
+    try:
+        owner = create_password_user(s, email="owner@example.com", password=GOOD_PASSWORD)
+        s.flush()
+        account_id = uuid.uuid4()
+        s.execute(
+            text(
+                "INSERT INTO accounts (id, slug, name, type, plan) "
+                "VALUES (:i, :s, :s, 'household', 'free')"
+            ),
+            {"i": account_id, "s": f"acct-{uuid.uuid4().hex[:8]}"},
+        )
+        s.execute(
+            Membership.__table__.insert().values(
+                id=uuid.uuid4(), account_id=account_id, user_id=owner.id,
+                role="owner", status="active",
+            )
+        )
+        s.flush()
+
+        # A staff invite must name at least one property — staff scope is a whitelist, so zero
+        # scope rows would mean zero properties visible (SPEC-003 D3). Measured by hitting the
+        # refusal, not assumed.
+        with account_context(account_id):
+            prop = Property(
+                name="Invite House", slug=f"invite-house-{uuid.uuid4().hex[:6]}",
+                property_type=PropertyType.PRIMARY, currency="USD",
+            )
+            s.add(prop)
+            s.flush()
+            _invite, token = invite_service.create_invite(
+                s, account_id, owner.id, "newcomer@example.com", "staff",
+                property_ids=[prop.id],
+            )
+        s.commit()
+    finally:
+        s.close()
+
+    # --- the invitee, signed out, opens the link ----------------------------
+    landing = client.get(
+        f"/invite/{token}", headers={"accept": "text/html"}, follow_redirects=False
+    )
+    assert landing.status_code == 303
+    location = landing.headers["location"]
+    assert location.startswith("/login"), location
+    assert quote(f"/invite/{token}", safe="") in location, (
+        f"the invitation was dropped on the way to sign-in: {location!r}. The invitee reaches a "
+        "login page with no way back to what they were invited to"
+    )
+
+    # --- they have no Google account, so they create a password one ----------
+    r = client.post(
+        "/signup",
+        data={
+            "email": "newcomer@example.com",
+            "password": "an-invitee-passphrase",
+            "next": f"/invite/{token}",
+        },
+        follow_redirects=False,
+    )
+    assert r.status_code == 303, r.text
+    assert r.headers["location"] == f"/invite/{token}", (
+        f"signup sent the invitee to {r.headers['location']!r} rather than back to their "
+        "invitation — they land in the wizard and create a second, empty account"
+    )
+
+    # --- and the invitation is redeemable -----------------------------------
+    page = client.get(f"/invite/{token}")
+    assert page.status_code == 200
+    assert "invited" in page.text.lower(), page.text[:300]
+
+    accepted = client.post(f"/invite/{token}/accept", follow_redirects=False)
+    assert accepted.status_code == 303, accepted.text
+
+    s = client._Session()
+    try:
+        user = s.execute(
+            select(User).where(User.email == "newcomer@example.com")
+        ).scalar_one()
+        assert user.google_sub is None, "the invitee was given a Google identity"
+        assert user.password_hash is not None
+
+        # `Membership` is tenant-owned, so this read needs the account bound — the same
+        # requirement the production path satisfies inside `accept_invite`.
+        with account_context(account_id):
+            membership = s.execute(
+                select(Membership).where(
+                    Membership.user_id == user.id, Membership.account_id == account_id
+                )
+            ).scalar_one()
+        assert membership.status == "active"
+        assert membership.role == "staff", (
+            "the invitation's role was not applied — the invitee joined with the wrong access"
+        )
+    finally:
+        s.close()
+
+
+def test_the_login_redirect_is_not_an_open_redirector(client):
+    """A14's other half: `?next=` must never leave the site.
+
+    A login page that reflects an arbitrary destination is a phishing primitive — the victim
+    signs in at the genuine domain, sees it in the address bar, and is then sent to a copy that
+    asks them to "confirm" the password they just typed.
+
+    Asserted through the **route**, not only against `safe_next` directly: the helper can be
+    perfect and the template can still emit an unvalidated value.
+    """
+    _make_user(client, "redirect@example.com")
+
+    hostile = [
+        "https://evil.example/steal",
+        "//evil.example/steal",
+        r"/\evil.example/steal",
+        "javascript:alert(1)",
+        "http://evil.example",
+    ]
+
+    for target in hostile:
+        r = client.post(
+            "/login",
+            data={
+                "email": "redirect@example.com",
+                "password": GOOD_PASSWORD,
+                "next": target,
+            },
+            follow_redirects=False,
+        )
+        assert r.status_code == 303, r.text
+        landed = r.headers["location"]
+        assert landed in ("/", "/onboarding/"), (
+            f"signing in with next={target!r} redirected to {landed!r}. The login page is an "
+            "open redirector, which is a phishing primitive wearing the real domain"
+        )
+        client.cookies.clear()
+        reset_ratelimit()
+
+    # The positive twin: a legitimate same-site path IS honoured, or the guard is just a
+    # blanket refusal that would also break A14.
+    ok = client.post(
+        "/login",
+        data={
+            "email": "redirect@example.com",
+            "password": GOOD_PASSWORD,
+            "next": "/invite/abc123",
+        },
+        follow_redirects=False,
+    )
+    assert ok.headers["location"] == "/invite/abc123", (
+        "a same-site destination was refused, so the guard would also drop a real invitation"
     )

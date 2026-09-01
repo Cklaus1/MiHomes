@@ -33,7 +33,7 @@ from mihomes.auth.oidc import (
     InvalidIdentityToken,
     upsert_user,
 )
-from mihomes.auth.session_flow import establish_session, set_auth_cookie
+from mihomes.auth.session_flow import establish_session, safe_next, set_auth_cookie
 from mihomes.auth.sessions import (
     SESSION_COOKIE,
     lookup_session,
@@ -66,7 +66,12 @@ _set_cookie = set_auth_cookie
 
 
 @router.get("/login")
-def login(request: Request, db: DbSession = Depends(get_db), error: str = ""):
+def login(
+    request: Request,
+    db: DbSession = Depends(get_db),
+    error: str = "",
+    next: str = "",
+):
     """The sign-in front door.
 
     **Before this there was none.** `/auth/google/start` redirects straight to Google, so an
@@ -76,8 +81,10 @@ def login(request: Request, db: DbSession = Depends(get_db), error: str = ""):
     Already signed in? Go where you were going. A login page that re-prompts someone who has a
     valid session is a dead end reached by pressing Back.
     """
+    # Already signed in? Go where they were headed — which for an invitee arriving from
+    # `/invite/{token}` is the invitation, not the dashboard (SPEC-010 A14).
     if lookup_session(db, request.cookies.get(SESSION_COOKIE)) is not None:
-        return RedirectResponse("/", status_code=303)
+        return RedirectResponse(safe_next(next) or "/", status_code=303)
 
     # Reported to the template rather than discovered on click: without credentials
     # `/auth/google/start` raises `OAuthError` and the visitor gets a 500 that does not say
@@ -89,7 +96,11 @@ def login(request: Request, db: DbSession = Depends(get_db), error: str = ""):
     return templates.TemplateResponse(
         request,
         "login.html",
-        {"oauth_configured": oauth_configured, "error": error},
+        {
+            "oauth_configured": oauth_configured,
+            "error": error,
+            "next": safe_next(next) or "",
+        },
         # 401 rather than 200: this *is* the unauthenticated response, and a crawler or an API
         # client should read it as one. The browser renders the body either way.
         status_code=401 if not error else 400,

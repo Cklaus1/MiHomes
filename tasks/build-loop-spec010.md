@@ -283,8 +283,36 @@ reset).
 > pointed at any address an attacker names. The throttled reply is byte-identical to an ordinary
 > one, or the throttle re-answers the question A11 refuses.
 
-### [ ] G6 — Step 6: the invite path — *dep: G3*
-- [ ] G6.1 · §6 Step 6 · A14 · `ONBOARDING:317` Q3, answered — an invitee with no Google account accepts by signing up with a password · verify: `tests/integration/test_password_auth.py::test_invitee_without_google`
+### [x] G6 — Step 6: the invite path — *dep: G3*
+- [x] G6.1 · §6 Step 6 · A14 · `ONBOARDING:317` Q3, answered — an invitee with no Google account accepts by signing up with a password · verify: `tests/integration/test_password_auth.py::test_invitee_without_google`
+
+> **G6 landed.** 6 mutations, all caught. `PENDING_TESTS_IN_EXISTING_FILES` is now **empty** —
+> its G6.1 entry deleted, as §4 required.
+>
+> **The answer to Q3 is not the one Q3 anticipated, and the difference is the finding.** §11 Q3
+> guessed `IdentityProvider` would carry it. It does not: `accept_invite` keys on the **invite
+> token**, never on the identity method or the address, so nothing about Google was ever
+> load-bearing. What *was* broken is smaller and was measured rather than assumed —
+>
+> **Two pre-existing bugs, both surfaced by building A14:**
+>
+> 1. **The invite link was dropped at sign-in.** An unauthenticated invitee opening
+>    `/invite/{token}` got a 401, the handler redirected to `/login`, and the token vanished —
+>    they arrived at a sign-in page with no way back short of finding the email again. Probed
+>    before and after; the redirect now carries `?next=`.
+> 2. **`find_pending` and `accept_invite` 500'd for every invitee.** Both ran ORM queries against
+>    the tenant-owned `Invite`, which reads `current_account` and raises when nothing is bound —
+>    and an invitee has nothing bound by definition. `find_pending`'s own docstring already said
+>    *"reachable before sign-in"*: the intent was right and the query was not. Fixed with the
+>    Core-table carve-out `auth/sessions.py:65` established, then the account is bound for all
+>    remaining work so the scoped path still runs.
+>
+> **`?next=` needed an open-redirect guard, which is why `safe_next` has 21 tests of its own.**
+> A login page that reflects an arbitrary destination is a phishing primitive: the victim signs
+> in at the genuine domain, sees it in the address bar, and is sent to a copy asking them to
+> confirm the password they just typed. The guard is allow-list shaped — one leading `/` and
+> nothing else — because a deny-list has to remember `//host`, `/\host`, `\\host` and `///host`,
+> all of which pass a naive `startswith("http")` check.
 
 ### [ ] G7 — the exit criterion — *dep: all*
 - [ ] G7.1 · §6 exit · A15 · **end to end** — signup → onboarding → sign out → sign in → reset → sign in with the new password · verify: `tests/integration/test_password_e2e.py::test_exit_criterion`

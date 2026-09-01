@@ -31,6 +31,8 @@ from sqlalchemy.orm import sessionmaker
 
 from mihomes.auth import passwords as pw_module
 from mihomes.auth.password_identity import MIN_PASSWORD_LENGTH, create_password_user
+from mihomes.auth.ratelimit import EMAIL_MAX_FAILURES
+from mihomes.auth.ratelimit import reset_all as reset_ratelimit
 from mihomes.auth.sessions import SESSION_COOKIE, hash_session_id
 from mihomes.models.session import Session as SessionRow
 from mihomes.models.user import User
@@ -38,6 +40,19 @@ from mihomes.web.app import create_app
 from mihomes.web.deps import get_db
 
 GOOD_PASSWORD = "a-perfectly-fine-passphrase"
+
+
+@pytest.fixture(autouse=True)
+def _clean_ratelimit():
+    """G4's counters are module state shared by every test in the process.
+
+    Without this, tests that submit several wrong passwords leave failures behind and a later
+    test is throttled by an earlier one's — the suite then passes or fails on ordering, which is
+    the worst kind of flake because it looks like a real regression.
+    """
+    reset_ratelimit()
+    yield
+    reset_ratelimit()
 
 
 @pytest.fixture
@@ -394,3 +409,206 @@ def test_login_page_offers_both_methods_and_a_signup_link(client):
     # And the destination is real, not a 404 — the whole point of the copy change. `/signup`
     # returns a plain 200: it is a form to fill in, not a refusal.
     assert client.get("/signup").status_code == 200
+
+
+# ── G4 at the route — the throttle must not become a new oracle ──────────────
+
+def test_the_throttle_does_not_reveal_whether_an_email_exists(client):
+    """**A9 · G-oracle, at the route.**
+
+    G4's own unit tests prove the two limits fire. This proves the *route* does not leak through
+    them — a distinct claim, and the one the harness's own G3 commit message flagged as the
+    interaction to watch.
+
+    Two ways a throttle reopens A7's oracle:
+
+    1. **The throttled page differs from the ordinary failure page.** "Too many attempts for
+       that account" is the natural message and it confirms the account exists.
+    2. **Failures are only counted for addresses that exist.** Then attempt N+1 is throttled for
+       a real address and sails through for a fake one — and the *difference in behaviour*
+       answers the question even when both pages read identically.
+
+    The second is the subtle one, and it is what `record_failure`'s docstring warns about.
+
+    **Mutation testing caught this test being blind to exactly that.** The first version reset
+    the counters between the known and unknown runs, so both started from zero and both got
+    throttled — the *asymmetry* was never observed, and "record failures only when the user
+    exists" passed unharmed. The counters must be shared across the two runs, or the assertion
+    is about nothing.
+    """
+    _make_user(client, "exists@example.com")
+
+    def attempt(email: str):
+        return client.post(
+            "/login", data={"email": email, "password": "wrong"}, follow_redirects=False
+        )
+
+    def hammer(email: str) -> tuple[int, str]:
+        """Exhaust the per-email budget, then return the next response.
+
+        **No reset in here, and none between calls** — the point is that both addresses must
+        reach the throttle after the same number of attempts. Resetting would hide the defect.
+        """
+        for _ in range(EMAIL_MAX_FAILURES):
+            attempt(email)
+        r = attempt(email)
+        return r.status_code, r.text.replace(email, "X")
+
+    known_status, known_body = hammer("exists@example.com")
+    unknown_status, unknown_body = hammer("ghost@example.com")
+
+    assert known_status == unknown_status, (
+        f"a throttled known address answers {known_status} and a throttled unknown one "
+        f"{unknown_status} — the difference names which addresses have accounts"
+    )
+    assert known_body == unknown_body, (
+        "the throttled page differs between a real and a fake address beyond the echoed email"
+    )
+
+    # **The asymmetry check — and it must be measured in COST, not in the response.**
+    #
+    # Two mutation rounds were needed to get this right, and the reason is worth recording. A
+    # throttled request and an ordinary wrong password both return `_signin_failed` at 401, by
+    # design: that identity is the whole point of the shared helper. So comparing statuses and
+    # bodies can NEVER distinguish "throttled" from "not yet throttled" — the assertion I first
+    # wrote was structurally incapable of failing, whatever the limiter did.
+    #
+    # What differs is work. `check_login_attempt` runs before `authenticate`, so a throttled
+    # request skips the KDF entirely. If failures are banked only for addresses that exist, the
+    # real address is throttled (0 derivations) while the fake one still verifies (1 derivation)
+    # — and that gap is measurable by an attacker as a timing difference of ~100ms, which is
+    # exactly the oracle A7 closes.
+    #
+    # Counted, never timed (harness §4).
+    reset_ratelimit()
+    for _ in range(EMAIL_MAX_FAILURES):
+        attempt("exists@example.com")
+        attempt("ghost@example.com")
+
+    calls: list[str] = []
+    real_derive = pw_module._derive
+
+    def counting(plain, salt, **kw):
+        calls.append("derive")
+        return real_derive(plain, salt, **kw)
+
+    pw_module._derive = counting
+    try:
+        calls.clear()
+        real_next = attempt("exists@example.com")
+        real_cost = len(calls)
+
+        calls.clear()
+        fake_next = attempt("ghost@example.com")
+        fake_cost = len(calls)
+    finally:
+        pw_module._derive = real_derive
+
+    assert real_cost == fake_cost, (
+        f"after {EMAIL_MAX_FAILURES} identical failures each, the real address costs "
+        f"{real_cost} KDF derivations and the fake one {fake_cost}. Failures are being counted "
+        "only for addresses that exist, so the throttle engages for real accounts first — and "
+        "the ~100ms difference tells an attacker which addresses have accounts. A7's oracle, "
+        "reopened through the rate limiter"
+    )
+    assert real_next.status_code == fake_next.status_code
+    assert real_next.text.replace("exists@example.com", "X") == fake_next.text.replace(
+        "ghost@example.com", "X"
+    ), "the two responses differ after equal treatment"
+
+    # And the throttled response is indistinguishable from an ordinary wrong password, so the
+    # transition from 'refused' to 'throttled' is itself invisible.
+    reset_ratelimit()
+    ordinary = client.post(
+        "/login",
+        data={"email": "exists@example.com", "password": "wrong"},
+        follow_redirects=False,
+    )
+    assert ordinary.status_code == known_status, (
+        f"an ordinary failure answers {ordinary.status_code} but a throttled one "
+        f"{known_status} — an attacker can see exactly when the limit engaged"
+    )
+
+
+def test_a_throttled_login_creates_no_session_and_refuses_the_right_password(client):
+    """The throttle must actually stop sign-in, including with correct credentials.
+
+    The positive twin matters here more than usual: a "throttle" that returns the failure page
+    while still minting a session is worse than none, and every assertion about response
+    equality above would pass against it.
+    """
+    user_id = _make_user(client, "locked@example.com")
+
+    for _ in range(EMAIL_MAX_FAILURES):
+        client.post(
+            "/login",
+            data={"email": "locked@example.com", "password": "wrong"},
+            follow_redirects=False,
+        )
+
+    # The RIGHT password, while throttled.
+    r = client.post(
+        "/login",
+        data={"email": "locked@example.com", "password": GOOD_PASSWORD},
+        follow_redirects=False,
+    )
+    assert r.status_code == 401, "the correct password succeeded despite the throttle"
+    assert not r.cookies.get(SESSION_COOKIE)
+    assert _session_count(client, user_id) == 0, (
+        "a throttled login still created a session row — the throttle is decorative"
+    )
+
+    # A10's twin at the route: clear the counter and the same credentials work.
+    reset_ratelimit()
+    ok = client.post(
+        "/login",
+        data={"email": "locked@example.com", "password": GOOD_PASSWORD},
+        follow_redirects=False,
+    )
+    assert ok.status_code == 303, "the account stayed locked after the window cleared"
+    assert _session_count(client, user_id) == 1
+
+
+def test_a_successful_login_clears_the_counter_at_the_route(client):
+    """**A10** end to end — mistype, succeed, mistype again, still not locked out.
+
+    The unit test proves `clear_attempts` empties a bucket. This proves the route calls it on
+    the success path, which is a different claim: the function can be perfect and never invoked.
+    """
+    user_id = _make_user(client, "human@example.com")
+
+    # Two typos — under the limit.
+    for _ in range(EMAIL_MAX_FAILURES - 1):
+        client.post(
+            "/login",
+            data={"email": "human@example.com", "password": "typo"},
+            follow_redirects=False,
+        )
+
+    # Then they remember it.
+    ok = client.post(
+        "/login",
+        data={"email": "human@example.com", "password": GOOD_PASSWORD},
+        follow_redirects=False,
+    )
+    assert ok.status_code == 303
+    assert _session_count(client, user_id) == 1
+
+    # Later, another run of typos. Without `clear_attempts` on the success above, the earlier
+    # failures would still be banked and this would lock them out of their own account.
+    for _ in range(EMAIL_MAX_FAILURES - 1):
+        client.post(
+            "/login",
+            data={"email": "human@example.com", "password": "typo"},
+            follow_redirects=False,
+        )
+
+    again = client.post(
+        "/login",
+        data={"email": "human@example.com", "password": GOOD_PASSWORD},
+        follow_redirects=False,
+    )
+    assert again.status_code == 303, (
+        "the successful sign-in did not clear the counter, so a second run of typos locked out "
+        "a legitimate user (A10)"
+    )

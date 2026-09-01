@@ -214,9 +214,38 @@ reset).
 (A14) does not exist yet: §8 groups criteria by file, and G6 writes into the file G3 created.
 **Delete this entry when G6 lands.**
 
-### [ ] G4 — Step 4: rate limiting — *dep: G3*
-- [ ] G4.1 · §6 Step 4 · A9 · **per-email AND per-IP** (D7) — either alone has a trivial bypass: per-email lets a botnet spread one guess per host, per-IP lets one host walk a user list · verify: `tests/unit/test_login_ratelimit.py::test_throttled_by_email_and_ip`
-- [ ] G4.2 · §6 Step 4 · A10 · a successful sign-in clears the counter, or a user who mistypes twice stays locked out · verify: `tests/unit/test_login_ratelimit.py::test_success_clears_attempts`
+### [x] G4 — Step 4: rate limiting — *dep: G3*
+- [x] G4.1 · §6 Step 4 · A9 · **per-email AND per-IP** (D7) — either alone has a trivial bypass: per-email lets a botnet spread one guess per host, per-IP lets one host walk a user list · verify: `tests/unit/test_login_ratelimit.py::test_throttled_by_email_and_ip`
+- [x] G4.2 · §6 Step 4 · A10 · a successful sign-in clears the counter, or a user who mistypes twice stays locked out · verify: `tests/unit/test_login_ratelimit.py::test_success_clears_attempts`
+
+> **G4 landed on the second attempt.** The first (`1b359bf`) was reverted in `cba4dd4`: it did
+> not run — `check()` required a `kind` argument both call sites omitted, so every request to
+> `/login` raised TypeError and all 8 G3 tests failed. It was also built against a different
+> design from §5.2 (a class with a `kind` discriminator, no `clear_attempts` at all, so A10 was
+> unsatisfiable at any threshold) and wrote `test_auth_ratelimit.py` rather than the
+> `test_login_ratelimit.py` node ids A9/A10 name — which is why the reconciler never flagged it
+> and still read 8/15.
+>
+> **All 8 mutations caught**, including both halves of D7 independently: removing the per-email
+> limit and removing the per-IP limit each turn A9 red on their own, and so does collapsing the
+> two into one `(email|ip)` counter. That triple is what proves the limits are separate rather
+> than one limiter satisfying both assertions.
+>
+> **The oracle mutation took three attempts to catch, and the reason is the finding.** "Bank
+> failures only for addresses that exist" stayed green against both a status-code comparison and
+> a strengthened shared-counter version. A probe showed why: a throttled request and an ordinary
+> wrong password both return `_signin_failed` at 401 **by design**, so no comparison of status or
+> body can ever separate them. The asymmetry is only observable in **cost** — a throttled request
+> skips the KDF — so the assertion counts `_derive` invocations, the same instrument A7 uses.
+> A test that cannot fail is worse than no test; two rounds of mutation testing are what surfaced
+> that this one couldn't.
+>
+> **`db` is accepted and unused** in all three functions, deviating from §5.2's implied table.
+> U5 states the limiter is in-process and is the authority; the parameter stays so call sites
+> survive the move to a shared store. Recorded in the module docstring, not hidden.
+>
+> `test_password_auth.py` gains an autouse `reset_all()` fixture — the counters are module state,
+> so without it one test's failures throttle the next and the suite passes on ordering.
 
 ### [ ] G5 — Step 5: password reset — *dep: G3*
 - [ ] G5.1 · §6 Step 5 · A11 · the request response is **identical** for a known and an unknown address (N5) · verify: `tests/integration/test_password_reset.py::test_no_enumeration_on_request`

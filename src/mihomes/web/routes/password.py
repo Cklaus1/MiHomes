@@ -26,6 +26,12 @@ from mihomes.auth.password_identity import (
     authenticate,
     create_password_user,
 )
+from mihomes.auth.ratelimit import (
+    TooManyAttempts,
+    check_login_attempt,
+    clear_attempts,
+    record_failure,
+)
 from mihomes.auth.session_flow import establish_session
 from mihomes.auth.sessions import SESSION_COOKIE, lookup_session
 from mihomes.web.deps import get_db, templates
@@ -104,22 +110,56 @@ def login(
 
     A8: on success `establish_session` revokes whatever session the browser arrived with before
     minting a new one. Rotation, not addition — see its docstring.
+
+    **A9/A10 — the throttle, and why it renders the same page.** An exhausted bucket returns
+    `_SIGNIN_FAILED` at 401, byte-identical to an ordinary wrong password. Saying "too many
+    attempts for that account" would be more helpful and would reopen the oracle A7 closes: an
+    attacker could read which addresses exist by throttling each one and watching for the
+    message to change.
     """
+    ip = request.client.host if request.client else "unknown"
+
+    try:
+        # Before `authenticate`, so an exhausted bucket costs no KDF work — the point of a
+        # throttle is that a flood becomes cheap to refuse, not merely refused.
+        check_login_attempt(db, email=email, ip=ip)
+    except TooManyAttempts:
+        return _signin_failed(request, email)
+
     user = authenticate(db, email=email, password=password)
 
     if user is None:
+        # **Recorded for every failure, including an address that does not exist** — see
+        # `record_failure`. Counting only real addresses would make attempt six differ by
+        # whether the account exists, which is A7's oracle wearing a different hat.
+        record_failure(db, email=email, ip=ip)
         # No commit and no session. `authenticate` may have re-hashed on a *successful* verify,
         # but this branch is the failure path, so there is nothing to persist.
-        return templates.TemplateResponse(
-            request,
-            "login.html",
-            {"error": _SIGNIN_FAILED, "email": email, "oauth_configured": _oauth_configured()},
-            status_code=401,
-        )
+        return _signin_failed(request, email)
+
+    # A10 — the counter resets, or someone who mistyped twice today is locked out by a third
+    # mistake next week. Per-email only; see `clear_attempts` for why the IP counter survives.
+    clear_attempts(db, email=email)
 
     response = establish_session(db, request, user.id)
     db.commit()
     return response
+
+
+def _signin_failed(request: Request, email: str):
+    """The one failure response, shared by the throttle and the wrong-password path.
+
+    Factored out so the two cannot drift. If the throttled branch ever rendered a different
+    status, a different message, or a different template, that difference would be the whole
+    account-existence oracle — and two copies of a response are how such a difference arrives
+    without anyone deciding on it.
+    """
+    return templates.TemplateResponse(
+        request,
+        "login.html",
+        {"error": _SIGNIN_FAILED, "email": email, "oauth_configured": _oauth_configured()},
+        status_code=401,
+    )
 
 
 def _oauth_configured() -> bool:

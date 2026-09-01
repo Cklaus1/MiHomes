@@ -41,6 +41,13 @@ PERMANENT_ALLOWLIST: dict[str, str] = {
         "action would make authentication depend on being authenticated. Signout is included "
         "because refusing to let a revoked user sign out is a worse failure than the check."
     ),
+    "mihomes.web.routes.password": (
+        "SPEC-010 Step 3. Identical justification to `auth` above, and deliberately a separate "
+        "entry rather than a widened one: `/signup` and `/login` establish the identity that "
+        "every other route's declared action is checked against, so they cannot require one. "
+        "The difference from `auth` is only which credential is presented — an OIDC token there, "
+        "a password here — and the not-yet-authenticated window is the same window."
+    ),
     "mihomes.web.routes.webhooks": (
         "Stripe is not a user. There is no cookie, no principal and no account on this request, "
         "so there is no role for the matrix to consult — the caller is authenticated by an "
@@ -88,8 +95,26 @@ PERMANENT_ALLOWLIST: dict[str, str] = {
 #: made to say so.
 ALLOWLIST_MECHANISMS: dict[str, str] = {
     "mihomes.web.routes.auth": (
-        "the OIDC provider's own flow — state/nonce on the callback, and a signed session "
-        "cookie thereafter"
+        # **Was: 'the OIDC provider's own flow'.** True until SPEC-010, and it became false the
+        # moment a second credential type could mint a session — `/signout` and the session
+        # cookie this module issues are now shared with `routes.password`. Nothing failed
+        # automatically (this test only length-checks the prose), so it is retired deliberately
+        # rather than left as debt: an allowlist entry that names the wrong mechanism is worse
+        # than an empty one, because it reads as though someone checked.
+        "the OIDC provider's own flow for the callback — state/nonce verified with "
+        "`compare_digest`, the ID token verified against Google's keys — and a signed session "
+        "cookie thereafter. **The session cookie half is no longer exclusive to this module**: "
+        "`routes.password` mints the same cookie through the same `auth/session_flow.py` seam "
+        "after verifying a password instead. What is exclusive here is the OIDC exchange"
+    ),
+    "mihomes.web.routes.password": (
+        "scrypt verification of a submitted password against `users.password_hash` "
+        "(`auth/passwords.py`, salted and memory-hard), then the same signed session cookie "
+        "`auth` issues, via the shared `auth/session_flow.py`. **Deliberately no stronger than "
+        "a password**, which is why U4 records the absence of MFA as a launch gate: a stolen "
+        "password is full access, where a stolen Google password still meets Google's own "
+        "second factor. Brute force is bounded by the per-email AND per-IP limiter (D7), not "
+        "by anything in the credential itself"
     ),
     "mihomes.web.routes.webhooks": (
         "HMAC signature verification over the raw request body, against STRIPE_WEBHOOK_SECRET"

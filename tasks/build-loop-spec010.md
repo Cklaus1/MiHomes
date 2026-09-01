@@ -177,10 +177,42 @@ reset).
 > so the first version of the DDL assertion failed against a correct index. The assertion was
 > wrong, not the schema.
 
-### [ ] G3 — Step 3: signup and login — *dep: G2 — MUST precede G5*
-- [ ] G3.1 · §6 Step 3 · A6 · `/signup` creates a user and routes to `/onboarding/`; `login.html` gains the form and a real `/signup` link — **the "New here?" line finally has a destination** · verify: `tests/integration/test_password_auth.py::test_signup_creates_user`
-- [ ] G3.2 · §6 Step 3 · A7 · a wrong password is refused, creates **no session**, and does not reveal whether the email exists (D9/N5) · verify: `tests/integration/test_password_auth.py::test_wrong_password_refused`
-- [ ] G3.3 · §6 Step 3 · A8 · sign-in **rotates** the session id — the same fixation defence `routes/auth.py:176` already applies to the OIDC path · verify: `tests/integration/test_password_auth.py::test_signin_rotates_session`
+### [x] G3 — Step 3: signup and login — *dep: G2 — MUST precede G5*
+- [x] G3.1 · §6 Step 3 · A6 · `/signup` creates a user and routes to `/onboarding/`; `login.html` gains the form and a real `/signup` link — **the "New here?" line finally has a destination** · verify: `tests/integration/test_password_auth.py::test_signup_creates_user`
+- [x] G3.2 · §6 Step 3 · A7 · a wrong password is refused, creates **no session**, and does not reveal whether the email exists (D9/N5) · verify: `tests/integration/test_password_auth.py::test_wrong_password_refused`
+- [x] G3.3 · §6 Step 3 · A8 · sign-in **rotates** the session id — the same fixation defence `routes/auth.py:176` already applies to the OIDC path · verify: `tests/integration/test_password_auth.py::test_signin_rotates_session`
+
+> **G3 landed.** 9 tests. **All four G-oracle mutations caught** — a helpful "no account with
+> that email", an early return on the unknown-email path, no session rotation, and a session
+> minted before verification. Each is the natural thing to write; each turns its own gate red.
+>
+> **The timing mutation is the one that matters.** G1 proved `verify_password(x, None)` derives
+> anyway; that is a claim about the *function*. The route short-circuiting above it is a
+> different defect, invisible in every response, and only
+> `test_login_costs_the_same_whether_the_email_exists` — which counts KDF invocations at the
+> route — sees it.
+>
+> **`auth/session_flow.py` is new and not in the spec.** §4/§5 do not name it. The OIDC callback
+> already contained rotation, cookie flags and the `/` vs `/onboarding/` choice, all of which a
+> password login needs verbatim and none of which is about Google. Copying them would have left
+> two implementations of session rotation — the kind of thing fixed once and then not again in
+> the copy. `routes/auth.py` now calls it, so both paths share one definition.
+>
+> **`test_route_declarations.py:90-93` retired** (§0.5's correctness-debt item): the `auth`
+> mechanism string said *"the OIDC provider's own flow"*, which became false the moment a second
+> credential type could mint a session. Nothing failed automatically — the test only
+> length-checks the prose — so it was corrected deliberately rather than left.
+>
+> Two SPEC-009 gates fired as predicted: `signup.html` needed `npm run build:css && npm run
+> stamp` (A13) and a checklist row (A11). `login.html`'s row went 79 → 124 lines.
+>
+> One test I wrote asserted `GET /login` returns 200. It returns **401**, deliberately —
+> `routes/auth.py:94` makes the login page *itself* the unauthenticated response. My assertion
+> was wrong, not the route.
+
+**`PENDING_TESTS_IN_EXISTING_FILES`** — `tests/integration/test_password_auth.py::test_invitee_without_google`
+(A14) does not exist yet: §8 groups criteria by file, and G6 writes into the file G3 created.
+**Delete this entry when G6 lands.**
 
 ### [ ] G4 — Step 4: rate limiting — *dep: G3*
 - [ ] G4.1 · §6 Step 4 · A9 · **per-email AND per-IP** (D7) — either alone has a trivial bypass: per-email lets a botnet spread one guess per host, per-IP lets one host walk a user list · verify: `tests/unit/test_login_ratelimit.py::test_throttled_by_email_and_ip`

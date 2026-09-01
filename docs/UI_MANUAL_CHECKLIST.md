@@ -70,7 +70,7 @@ static tests do cover them directly.
 | `inventory.html` | /inventory/ | 546 | ☐ | ☐ | ☐ |
 | `issues.html` | /issues/ | 558 | ☐ | ☐ | ☐ |
 | `library.html` | — | 98 | ☐ | ☐ | ☐ |
-| `login.html` | /login | 79 | ☐ | ☐ | ☐ |
+| `login.html` | /login | 124 | ☐ | ☐ | ☐ |
 | `onboarding/account.html` | — | 20 | ☐ | ☐ | ☐ |
 | `onboarding/invite.html` | — | 18 | ☐ | ☐ | ☐ |
 | `onboarding/property.html` | — | 17 | ☐ | ☐ | ☐ |
@@ -83,6 +83,7 @@ static tests do cover them directly.
 | `recurring.html` | — | 301 | ☐ | ☐ | ☐ |
 | `search.html` | /search/ | 150 | ☐ | ☐ | ☐ |
 | `settings/index.html` | — | 54 | ☐ | ☐ | ☐ |
+| `signup.html` | /signup | 87 | ☐ | ☐ | ☐ |
 | `staff.html` | /staff/ | 353 | ☐ | ☐ | ☐ |
 | `tasks.html` | /tasks/ | 503 | ☐ | ☐ | ☐ |
 | `team/index.html` | — | 42 | ☐ | ☐ | ☐ |

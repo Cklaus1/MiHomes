@@ -41,6 +41,7 @@ from mihomes.web.routes import calendar as calendar_route
 from mihomes.web.routes import gateways as gateways_route
 from mihomes.web.routes import inventory as inventory_route
 from mihomes.web.routes import library as library_route
+from mihomes.web.routes import password as password_route
 from mihomes.web.routes import privacy as privacy_route
 from mihomes.web.routes import unsubscribe as unsubscribe_route
 from mihomes.web.routes import weather as weather_route
@@ -144,6 +145,10 @@ def create_app() -> FastAPI:
     # Sign-in / sign-out (G12). No prefix: these paths are fixed by the OAuth redirect URI
     # registered with Google, so they cannot move without reconfiguring the provider.
     app.include_router(auth_route.router)
+    # SPEC-010 Step 3 — `/signup` and `/login`. Also no prefix, and for a plainer reason than
+    # the OAuth one above: these are the paths a person types. Registered next to `auth` because
+    # they are the same front door, reached by a different key.
+    app.include_router(password_route.router)
     # SPEC-003 Steps 11-13. No prefix on `team`: it owns `/invite/{token}` and
     # `/accounts/switch` alongside `/team`, because those are the same feature seen from either
     # side of account membership.

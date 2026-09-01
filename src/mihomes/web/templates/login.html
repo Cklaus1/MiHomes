@@ -27,14 +27,48 @@
       <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 sm:p-8">
         <h2 class="text-lg font-semibold text-gray-900">Sign in</h2>
         <p class="text-sm text-gray-500 mt-1 mb-6">
-          Use your Google account to continue.
+          Welcome back.
         </p>
 
+        {# **One message for every failure.** The route sends the same string whether the address
+           is unknown, the password is wrong, or the address has only a Google identity. Naming
+           which it was would let anyone with a list of emails read off which hold accounts
+           (SPEC-010 A7) — the helpful version is the defect. #}
         {% if error %}
         <div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
           {{ error }}
         </div>
         {% endif %}
+
+        <form method="post" action="/login" class="space-y-4">
+          <div>
+            <label for="email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+            <input type="email" name="email" id="email" required autocomplete="email"
+                   value="{{ email or '' }}"
+                   class="w-full p-3 rounded-lg border border-gray-300 text-sm
+                          focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent" />
+          </div>
+          <div>
+            <div class="flex items-baseline justify-between mb-1">
+              <label for="password" class="block text-sm font-medium text-gray-700">Password</label>
+              <a href="/password/reset" class="text-xs text-gray-500 hover:text-gray-900 underline">Forgot?</a>
+            </div>
+            <input type="password" name="password" id="password" required autocomplete="current-password"
+                   class="w-full p-3 rounded-lg border border-gray-300 text-sm
+                          focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent" />
+          </div>
+          <button type="submit"
+                  class="w-full p-3 rounded-lg bg-gray-900 text-white text-sm font-medium
+                         hover:bg-gray-800 transition-colors">
+            Sign in
+          </button>
+        </form>
+
+        <div class="flex items-center gap-3 my-6">
+          <div class="h-px flex-1 bg-gray-200"></div>
+          <span class="text-xs text-gray-400 uppercase tracking-wide">or</span>
+          <div class="h-px flex-1 bg-gray-200"></div>
+        </div>
 
         {# `p-3` clears the 44px tap-target floor (SPEC-009 A10) without a separate rule. #}
         <a href="/auth/google/start"
@@ -69,15 +103,19 @@
         {% endif %}
       </div>
 
-      {# **Not a link, and deliberately not styled as one.** There is no separate sign-up route:
-         `/auth/google/callback` calls `upsert_user`, so the same button both signs in and
-         registers, and a first-time user is routed to `/onboarding/` from there.
+      {# **The standard wording, finally with somewhere to go.** This line has now had three
+         versions, and the history is the point:
 
-         The earlier wording — "New here? Signing in creates your account." — read as a link
-         with nowhere to go. Saying "Create an account" *without* a destination would be worse:
-         it looks clickable and is not. So this states what the button above already does. #}
-      <p class="text-center text-xs text-gray-400 mt-6">
-        New here? The button above creates your account.
+           "New here? Signing in creates your account."  — read as a link, wasn't one
+           "New here? The button above creates your account."  — accurate, and clumsy
+
+         Both were workarounds for the same missing thing: there was no `/signup` route, so
+         "Create an account" would have looked clickable and done nothing. SPEC-010 Step 3
+         builds the route, which is what lets the plain phrasing be correct rather than a
+         promise the page cannot keep. #}
+      <p class="text-center text-sm text-gray-500 mt-6">
+        New here?
+        <a href="/signup" class="font-medium text-gray-900 underline hover:no-underline">Create an account.</a>
       </p>
     </div>
 

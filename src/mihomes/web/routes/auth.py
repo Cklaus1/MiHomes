@@ -24,36 +24,28 @@ import os
 import secrets
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import RedirectResponse, Response
-from sqlalchemy import select
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session as DbSession
 
-from mihomes.auth.csrf import CSRF_COOKIE, issue_csrf_token, tokens_match
+from mihomes.auth.csrf import CSRF_COOKIE, tokens_match
 from mihomes.auth.oidc import (
     GoogleOIDCProvider,
     InvalidIdentityToken,
     upsert_user,
 )
+from mihomes.auth.session_flow import establish_session, set_auth_cookie
 from mihomes.auth.sessions import (
     SESSION_COOKIE,
-    SESSION_TTL,
-    create_session,
     lookup_session,
     revoke_all_sessions,
     revoke_session,
 )
-from mihomes.models.membership import Membership
 
 # `templates` from `deps`, not `app`: it is the `RedactingTemplates` instance every other route
 # renders through, and importing from `web.app` here would create a cycle (app imports routes).
 from mihomes.web.deps import get_db, templates
 
 router = APIRouter()
-
-# Core table, not the ORM class: this read runs before any tenant context exists, so an ORM
-# query would demand the account it is being used to discover. Same carve-out `deps.py` and
-# `auth/sessions.py` both document.
-_MEMBERSHIPS = Membership.__table__
 
 _STATE_COOKIE = "mihomes_oauth_state"
 _VERIFIER_COOKIE = "mihomes_oauth_verifier"
@@ -67,30 +59,10 @@ def _provider():
     return GoogleOIDCProvider()
 
 
-def _is_loopback(request: Request) -> bool:
-    host = (request.url.hostname or "").lower()
-    return host in ("localhost", "127.0.0.1", "::1", "0.0.0.0")
-
-
-def _set_cookie(
-    response: Response,
-    request: Request,
-    name: str,
-    value: str,
-    *,
-    max_age: int,
-    http_only: bool = True,
-) -> None:
-    response.set_cookie(
-        name,
-        value,
-        max_age=max_age,
-        httponly=http_only,
-        # See the module docstring: only loopback drops Secure, and it is decided from the request.
-        secure=not _is_loopback(request),
-        samesite="lax",
-        path="/",
-    )
+# The flow cookies use the same three flags as the session cookie, and now through the same
+# function — `auth/session_flow.py` owns that definition since SPEC-010, so the OIDC state and
+# verifier cannot drift from the session cookie's security properties.
+_set_cookie = set_auth_cookie
 
 
 @router.get("/login")
@@ -173,40 +145,16 @@ def callback(request: Request, code: str = "", state: str = "", db: DbSession = 
 
     user = upsert_user(db, claims)
 
-    # Rotate: discard whatever session the browser arrived with, so a planted id is not adopted.
-    stale = request.cookies.get(SESSION_COOKIE)
-    if stale:
-        revoke_session(db, stale)
-
-    raw_session, _row = create_session(db, user.id)
+    # Rotation, cookies and the `/` vs `/onboarding/` choice all moved to
+    # `auth/session_flow.py` at SPEC-010, because a password login needs every one of them and
+    # none of them is about Google. Copying them would have meant two implementations of
+    # session rotation and of the three cookie flags — the kind of thing that gets fixed once
+    # and then not again in the copy.
+    response = establish_session(db, request, user.id)
     db.commit()
 
-    # **A first-time user has no account, and `/` requires one.** `resolve_principal` raises
-    # 403 "No account selected" for exactly that state, so sending everyone to `/` meant a new
-    # user's reward for signing in was an error page — with the onboarding wizard that handles
-    # this case sitting one route away, already built (SPEC-003), and unreachable.
-    #
-    # `/onboarding/` resumes wherever they left off and redirects to `/` once the account
-    # exists, so returning users pass straight through and this costs them one 303.
-    has_account = db.execute(
-        select(_MEMBERSHIPS.c.id).where(
-            _MEMBERSHIPS.c.user_id == user.id,
-            _MEMBERSHIPS.c.status == "active",
-        )
-    ).first()
-    destination = "/" if has_account else "/onboarding/"
-
-    response = RedirectResponse(destination, status_code=303)
-    _set_cookie(
-        response, request, SESSION_COOKIE, raw_session,
-        max_age=int(SESSION_TTL.total_seconds()),
-    )
-    # Readable by script on purpose — the page must echo it back in a form field.
-    _set_cookie(
-        response, request, CSRF_COOKIE, issue_csrf_token(),
-        max_age=int(SESSION_TTL.total_seconds()), http_only=False,
-    )
     # The flow cookies have done their job; leaving them would keep a usable verifier around.
+    # These stay here: they are the only part of this callback that *is* OIDC-specific.
     response.delete_cookie(_STATE_COOKIE, path="/")
     response.delete_cookie(_VERIFIER_COOKIE, path="/")
     return response

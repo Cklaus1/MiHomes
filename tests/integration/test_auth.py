@@ -362,15 +362,20 @@ def test_is_loopback_decides_the_secure_flag():
 
     A flag can be set wrong in production; "the request arrived at localhost" cannot. Asserted
     directly because the route-level test above depends on the Host guard's mood.
+
+    **Moved to `auth/session_flow.py` at SPEC-010**, along with the cookie helper that calls it:
+    `routes/password.py` sets the same session cookie and must not be able to reach a different
+    answer about `Secure`. Imported from its new home rather than through `routes.auth`'s alias,
+    so this keeps testing the definition rather than the re-export.
     """
     from types import SimpleNamespace
 
-    from mihomes.web.routes.auth import _is_loopback
+    from mihomes.auth.session_flow import is_loopback
 
     for host in ("localhost", "127.0.0.1", "::1"):
-        assert _is_loopback(SimpleNamespace(url=SimpleNamespace(hostname=host))) is True
+        assert is_loopback(SimpleNamespace(url=SimpleNamespace(hostname=host))) is True
     for host in ("app.example.com", "mihomes.fly.dev", "192.168.1.10"):
-        assert _is_loopback(SimpleNamespace(url=SimpleNamespace(hostname=host))) is False
+        assert is_loopback(SimpleNamespace(url=SimpleNamespace(hostname=host))) is False
 
 
 # --------------------------------------------------------------------------------------

@@ -27,7 +27,6 @@ from mihomes.auth.password_identity import (
     create_password_user,
 )
 from mihomes.auth.session_flow import establish_session
-from mihomes.auth.ratelimit import AuthRateLimitExceeded, limiter as auth_limiter
 from mihomes.auth.sessions import SESSION_COOKIE, lookup_session
 from mihomes.web.deps import get_db, templates
 
@@ -72,16 +71,6 @@ def signup(
     trying to register. The asymmetry is deliberate — the login form must not confirm an
     address, the signup form cannot avoid it.
     """
-    # D7 — throttle per-email and per-IP before touching the database.
-    try:
-        auth_limiter.check(email=email, ip=request.client.host)
-    except AuthRateLimitExceeded as exc:
-        return templates.TemplateResponse(
-            request,
-            "signup.html",
-            {"error": str(exc), "min_length": MIN_PASSWORD_LENGTH, "email": email},
-            status_code=429,
-        )
     try:
         user = create_password_user(db, email=email, password=password, name=name)
     except (PasswordTooShort, EmailAlreadyRegistered) as exc:
@@ -116,16 +105,6 @@ def login(
     A8: on success `establish_session` revokes whatever session the browser arrived with before
     minting a new one. Rotation, not addition — see its docstring.
     """
-    # D7 — throttle per-email and per-IP.
-    try:
-        auth_limiter.check(email=email, ip=request.client.host)
-    except AuthRateLimitExceeded as exc:
-        return templates.TemplateResponse(
-            request,
-            "login.html",
-            {"error": str(exc), "email": email, "oauth_configured": _oauth_configured()},
-            status_code=429,
-        )
     user = authenticate(db, email=email, password=password)
 
     if user is None:

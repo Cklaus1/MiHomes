@@ -290,6 +290,7 @@ def _entity_classes() -> dict[type, EntityClass]:
     from mihomes.models.membership import Membership, MembershipPropertyScope
     from mihomes.models.note import Note
     from mihomes.models.onboarding_state import OnboardingState
+    from mihomes.models.password_reset_token import PasswordResetToken
     from mihomes.models.processed_webhook_event import ProcessedWebhookEvent
     from mihomes.models.property import Property
     from mihomes.models.recurring_expense import RecurringExpense
@@ -424,6 +425,18 @@ def _entity_classes() -> dict[type, EntityClass]:
         # unlike the webhook ledger, this needs no "the nullable column is not tenancy"
         # caveat. An address and a reason, and nothing else about the person.
         EmailSuppression: EntityClass.GLOBAL,
+
+        # SPEC-010 §4.3 — password reset tokens. `GLOBAL` for the FIRST of the two reasons
+        # above, not the second: a reset is requested and redeemed *before* sign-in, so there
+        # is no account context to scope to — the same condition `sessions` meets.
+        #
+        # Nothing reads this table as content. A row is a hash, an expiry and a used-at stamp;
+        # the raw token exists only in the email. So there is no "who may see this" question
+        # for the matrix to answer, which is what `GLOBAL` says.
+        #
+        # It carries no `account_id`, like `email_suppressions` and unlike the webhook ledger,
+        # so it needs no "the nullable column is not tenancy" caveat either.
+        PasswordResetToken: EntityClass.GLOBAL,
 
 
         # SPEC-004 §4.2 — the AI usage meter. `ACCOUNT_LEVEL` ("✗ for staff"), and the fit is

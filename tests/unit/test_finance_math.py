@@ -3,7 +3,7 @@
 Each test is a regression: it fails against the pre-fix code and passes after.
 """
 
-from datetime import date, timedelta
+from datetime import date
 
 import pytest
 
@@ -51,7 +51,16 @@ def test_m2_zero_actual_cost_not_replaced_by_estimate(session, prop):
 # ── M3: quarterly/annual budgets prorated to a monthly figure ─────────────────
 
 def test_m3_annual_budget_prorated_to_month(session, prop):
-    """An annual budget of 1200 counts as 100/month, so 150 spent is over."""
+    """An annual budget of 1200 counts as 100/month, so 150 spent is over.
+
+    **Booked on `today`, not `month_start + 2`.** `weekly_report:177` filters
+    `Transaction.date <= today`, so a transaction dated later in the current month is simply
+    not counted — and on the 1st or 2nd, `month_start + 2` *is* later. The test then measured
+    a spend of 0 and failed its own comment.
+
+    Found on 2026-09-01. `today` is the only anchor guaranteed both inside the current month
+    and not in the future, whatever the date.
+    """
     today = date.today()
     month_start = today.replace(day=1)
     set_budget(session, prop.slug, "utilities", BudgetPeriod.ANNUAL,
@@ -59,7 +68,7 @@ def test_m3_annual_budget_prorated_to_month(session, prop):
     # spend 150 this month — under the raw 1200 but over the 100/mo prorated share
     session.add(Transaction(amount=150.0, currency="USD", property_id=prop.id,
                             category="utilities", description="x",
-                            date=month_start + timedelta(days=2)))
+                            date=today))
     session.flush()
 
     report = generate_weekly_report(session)
@@ -90,20 +99,30 @@ def test_m4_forecast_divides_by_actual_history(session, prop):
     of distinct months it actually finds. The test then measured 900/2 = 450 and failed against
     its own comment.
 
-    Found on 2026-08-31. It fails on **any** 31st and on assorted month lengths — a latent
-    date-dependent fixture, not a regression, and the production code was right the whole time.
+    Found on 2026-08-31, fixed by anchoring each month on day 15 — **which was itself
+    date-dependent and failed the next morning.** `financial_report:109` filters
+    `Transaction.date <= today`, so on any date before the 15th the *current* month's row is in
+    the future and is dropped: 600 over a 3-month span = 200, not 300.
+
+    The current month must therefore be anchored on `today` — the only day guaranteed to be
+    both in the month and not in the future. Earlier months keep day 15, comfortably clear of
+    either boundary whatever the month length.
+
+    Verified across the dates that break each variant: the 1st, 2nd, 14th, 15th, 28th–31st.
     """
     today = date.today()
-    # One transaction in each of the last three calendar months, anchored mid-month so no
-    # offset can slip into a neighbour regardless of month length or today's date.
+    # One transaction in each of the last three calendar months. The current month uses
+    # `today`; older months use mid-month, so no anchor can slip into a neighbouring month or
+    # past the `<= today` cutoff.
     for m in range(3):
         year, month = today.year, today.month - m
         while month < 1:
             month += 12
             year -= 1
+        when = today if m == 0 else date(year, month, 15)
         session.add(Transaction(amount=300.0, currency="USD", property_id=prop.id,
                                 category="misc", description="x",
-                                date=date(year, month, 15)))
+                                date=when))
     session.flush()
 
     result = forecast(session, prop.slug, months=6)

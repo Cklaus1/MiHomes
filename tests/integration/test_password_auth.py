@@ -789,3 +789,92 @@ def test_the_login_redirect_is_not_an_open_redirector(client):
     assert ok.headers["location"] == "/invite/abc123", (
         "a same-site destination was refused, so the guard would also drop a real invitation"
     )
+
+
+def test_signup_refuses_an_email_already_held_by_a_google_account(client):
+    """**The identity fork.** Signup must not mint a second row for a Google-held address.
+
+    `create_password_user` guarded with `find_password_user`, which filters to rows that already
+    have a password — it has to, or login would verify against a `None` hash and lock a Google
+    user out forever. That filter made the guard blind to exactly this case: a Google-only row
+    was invisible, so signing up with an address that already had a Google account **inserted a
+    second `users` row** instead of refusing.
+
+    Nothing in the schema stopped it. `uq_users_email_password` is partial
+    (`WHERE password_hash IS NOT NULL`) so it does not see the Google row, and `google_sub` was
+    NULL on the new row, where NULLs do not collide.
+
+    **The damage was not the duplicate, it was the orphan.** The new row carried no membership,
+    so it owned nothing. The user signed in, landed on the empty identity, and every page
+    answered 403 "No account selected" — while their real account and all its properties sat on
+    the row they were no longer using. Observed on a live dev database: two rows for one
+    address, the Google one owning the estate, the password one owning nothing.
+    """
+    s = client._Session()
+    try:
+        s.add(User(google_sub="sub-fork-guard", email="hasgoogle@example.com"))
+        s.commit()
+    finally:
+        s.close()
+
+    r = client.post(
+        "/signup",
+        data={"email": "hasgoogle@example.com", "password": "another-long-passphrase"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 400, (
+        f"signup answered {r.status_code} for an address that already has a Google account — "
+        f"if it created a session, a second identity was just minted: {r.text[:200]}"
+    )
+    assert not r.cookies.get(SESSION_COOKIE), "a session was issued for the forked identity"
+
+    # Case folding, for the same reason as the duplicate-password test: the lookup is on
+    # `lower(email)`, so a different case is the same person and must be refused too.
+    upper = client.post(
+        "/signup",
+        data={"email": "HASGOOGLE@example.com", "password": "another-long-passphrase"},
+        follow_redirects=False,
+    )
+    assert upper.status_code == 400, "HASGOOGLE@ and hasgoogle@ must be the same identity"
+
+    # **The assertion that actually pins the bug.** The status code above would also be produced
+    # by a length failure or an unrelated refusal; the row count is what says no fork happened.
+    s = client._Session()
+    try:
+        n = s.execute(
+            select(func.count()).select_from(User).where(
+                func.lower(User.email) == "hasgoogle@example.com"
+            )
+        ).scalar_one()
+        assert n == 1, (
+            f"{n} rows exist for one address — signup forked the identity, and whichever row "
+            f"holds the membership is now stranded"
+        )
+    finally:
+        s.close()
+
+
+def test_the_google_refusal_names_google_rather_than_a_password_reset(client):
+    """A separate exception because the *remedy* differs, not just the cause.
+
+    "An account with that email already exists" sends someone to the login form to try a
+    password they never set, then to a reset link for a password that does not exist. The only
+    useful thing to say is "use Google". Asserted on the signup page, where — unlike the login
+    page — the phrase is not part of the standard furniture.
+    """
+    s = client._Session()
+    try:
+        s.add(User(google_sub="sub-fork-message", email="msg@example.com"))
+        s.commit()
+    finally:
+        s.close()
+
+    r = client.post(
+        "/signup", data={"email": "msg@example.com", "password": "another-long-passphrase"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 400
+    assert "Google" in r.text, (
+        "the refusal does not mention Google, so the user is left to guess which of the two "
+        "sign-in methods their address actually uses"
+    )

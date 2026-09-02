@@ -36,6 +36,22 @@ from mihomes.tenancy import account_context, current_user
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
+#: The detail on the one 403 that is **recoverable**, and the reason it is a named constant.
+#:
+#: Two unrelated conditions raise 403 in this app and they need opposite treatment:
+#:
+#:   *this*                    signed in, but no account is selected yet — the answer is to
+#:                             finish onboarding, so a browser should be *sent* there
+#:   `authz.permissions`       "your role may not do this" — a real denial, and redirecting it
+#:                             anywhere would be nonsense (a staff member who opened
+#:                             `/settings` does not need the onboarding wizard)
+#:
+#: `app.py`'s 403 handler tells them apart by matching this exact string, so it lives here
+#: rather than being written out at each `raise`. A literal repeated in three files is how the
+#: handler and the raise sites drift apart, and the failure mode of that drift is silent: the
+#: redirect simply stops happening, and the dead end returns looking like the original bug.
+NO_ACCOUNT_SELECTED = "No account selected"
+
 
 class RedactingTemplates(Jinja2Templates):
     """Jinja2Templates that redacts the context before rendering (SPEC-003 §6 Step 8).
@@ -158,9 +174,10 @@ def resolve_principal(request: Request, db: Session) -> RequestPrincipal:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
     if not auth.has_account or auth.account_id is None:
-        # Signed in, no account chosen yet: the picker state. G13 turns this into a redirect to
-        # the account picker; until then it is a distinct status so the two are never conflated.
-        raise HTTPException(status_code=403, detail="No account selected")
+        # Signed in, no account chosen yet: the picker state. `app.py`'s 403 handler now turns
+        # this into a redirect to `/onboarding/` for a browser, keying on the detail string —
+        # so it stays a distinct status, and is no longer a dead end for the user who hits it.
+        raise HTTPException(status_code=403, detail=NO_ACCOUNT_SELECTED)
 
     membership = db.execute(
         select(_MEMBERSHIPS.c.id, _MEMBERSHIPS.c.role).where(
@@ -274,10 +291,10 @@ async def _resolve_authenticated(
         raise HTTPException(status_code=401, detail="Not authenticated")
 
     if not auth.has_account or auth.account_id is None:
-        # Signed in, no account chosen yet: the picker state. G13 turns this into
-        # a redirect to the account picker; until then it is a distinct status so
-        # the two cases are never conflated.
-        raise HTTPException(status_code=403, detail="No account selected")
+        # Signed in, no account chosen yet: the picker state. Same condition and same constant
+        # as `resolve_principal` above, so `app.py`'s 403 handler redirects a browser here too
+        # — this path is reached by routes taking `require_authenticated()` directly.
+        raise HTTPException(status_code=403, detail=NO_ACCOUNT_SELECTED)
 
     membership = db.execute(
         select(_MEMBERSHIPS.c.id, _MEMBERSHIPS.c.role).where(

@@ -135,3 +135,80 @@ class TestTheExemptionStaysSmall:
         from mihomes.authz.declare import SESSION_ACTION
 
         assert SESSION_ACTION not in MATRIX
+
+
+class TestTheAccountlessDeadEnd:
+    """A signed-in user with no account must never be shown a wall with nothing to click.
+
+    **The bug.** `deps.resolve_principal` raises `403 "No account selected"` for a session whose
+    `current_account_id` is NULL, and nothing translated it. `/onboarding/` rendered fine — it is
+    `Access.SESSION` — but `/`, `/settings` and `/team` all answered a bare
+    `{"detail":"No account selected"}`. Signed in and locked out at the same time, with the one
+    screen that would fix it reachable only by typing the URL.
+
+    The 401 handler had solved exactly this for signed-*out* visitors months earlier. 403 simply
+    never got the same treatment, and the asymmetry is invisible until someone lands in it.
+    """
+
+    def test_a_browser_with_no_account_is_sent_to_onboarding(self, web_client_as):
+        """The regression. A 403 here means the dead end is back."""
+        client = web_client_as("owner")
+        client.cookies.set(SESSION_COOKIE, _signed_in_without_account(web_client_as.connection))
+
+        for path in ("/", "/settings", "/team"):
+            response = client.get(
+                path, headers={"accept": "text/html"}, follow_redirects=False
+            )
+            assert response.status_code == 303, (
+                f"{path} answered {response.status_code} for a signed-in user with no account "
+                f"— they are locked out with nowhere to click: {response.text[:200]}"
+            )
+            assert response.headers["location"] == "/onboarding/"
+
+    def test_a_role_denial_is_still_a_403(self, web_client_as):
+        """**The other half, and the one that matters more.**
+
+        Two unrelated conditions raise 403, and only one is recoverable. Redirecting a role
+        denial would bounce a staff member who opened `/settings` into an onboarding wizard for
+        an account they are already a member of — turning a correct refusal into what looks like
+        a broken app, and quietly hiding that the app said no.
+        """
+        client = web_client_as("staff")
+        response = client.get(
+            "/settings", headers={"accept": "text/html"}, follow_redirects=False
+        )
+        assert response.status_code == 403, (
+            f"a role denial answered {response.status_code} — the 403 handler is matching on the "
+            f"status code rather than on the 'No account selected' detail"
+        )
+
+    def test_htmx_and_json_callers_keep_the_status_code(self, web_client_as):
+        """Content negotiation, for the same reason the 401 handler does it.
+
+        A 303 to an HTMX request swaps a wizard page into whatever fragment the request targeted,
+        and a JSON client checking for 403 would follow the redirect and parse HTML as data.
+        """
+        client = web_client_as("owner")
+        client.cookies.set(SESSION_COOKIE, _signed_in_without_account(web_client_as.connection))
+
+        htmx = client.get(
+            "/", headers={"accept": "text/html", "hx-request": "true"}, follow_redirects=False
+        )
+        assert htmx.status_code == 403
+
+        api = client.get(
+            "/", headers={"accept": "application/json"}, follow_redirects=False
+        )
+        assert api.status_code == 403
+
+    def test_the_redirect_does_not_loop(self, web_client_as):
+        """`/onboarding/` must not itself redirect, or the fix is an infinite loop.
+
+        It is `Access.SESSION` so it does not raise this today; the handler excludes the prefix
+        anyway, because a future non-SESSION route under it would fail far worse than a bare 403.
+        """
+        client = web_client_as("owner")
+        client.cookies.set(SESSION_COOKIE, _signed_in_without_account(web_client_as.connection))
+
+        landed = client.get("/", headers={"accept": "text/html"}, follow_redirects=True)
+        assert landed.status_code == 200

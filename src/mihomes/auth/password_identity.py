@@ -47,15 +47,48 @@ class PasswordTooShort(SignupError):
 
 
 class EmailAlreadyRegistered(SignupError):
-    """A password account already exists for this address.
-
-    **Not raised for a Google account on the same address** — that is O1 (dual identity
-    linking), left to the founder and refused at a different point with a different message.
-    Conflating them would tell a stranger which of the two an address holds.
-    """
+    """A password account already exists for this address."""
 
     def __init__(self) -> None:
         super().__init__("An account with that email already exists.")
+
+
+class EmailRegisteredWithGoogle(SignupError):
+    """A **Google** account already exists for this address, and it has no password.
+
+    **This refusal is what stops signup from forking an identity.** `find_password_user`
+    deliberately matches only rows that already have a password — it has to, or login would
+    verify against a `None` hash and lock a Google user out forever. But that made it blind
+    here: a Google-only row was invisible to signup's guard, so signing up with an address that
+    already had a Google account inserted a *second* `users` row rather than refusing. Both
+    rows were legal — `uq_users_email_password` is partial (`WHERE password_hash IS NOT NULL`)
+    and `google_sub` was NULL on the new row, and NULLs do not collide.
+
+    The consequence was not a duplicate row, it was a **silently orphaned account**. The new
+    row carried no membership, so it owned nothing: the user signed in, landed on an identity
+    with no account, and every page answered 403 "No account selected" while their real
+    account — and its properties — sat on the row they were no longer using. Measured on a live
+    dev database: two rows for one address, the Google one owning the estate, the password one
+    owning nothing.
+
+    **Named separately from `EmailAlreadyRegistered` because the remedy differs**: that one
+    means "you already have this password account, sign in"; this one means "sign in with
+    Google instead". Telling someone to reset a password they never set is a dead end.
+
+    This does confirm to a stranger that an address holds a Google account. Accepted
+    deliberately: signup already confirms existence via `EmailAlreadyRegistered` (see
+    `routes/password.py:signup`'s docstring on the asymmetry — the login form must not confirm
+    an address, the signup form cannot avoid it), so the oracle is not new, and the
+    alternative is minting the orphan. Dual-identity linking — writing a password onto the
+    existing Google row — is SPEC-010 U2 and stays out of scope: attaching a credential to an
+    existing account from an unauthenticated POST is an account-takeover primitive unless it is
+    gated behind proof of mailbox control.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "That email is already registered. Sign in with Google instead."
+        )
 
 
 def _normalise(email: str) -> str:
@@ -78,12 +111,37 @@ def find_password_user(db: DbSession, email: str) -> User | None:
     ).scalar_one_or_none()
 
 
+def _find_any_user_by_email(db: DbSession, email: str) -> User | None:
+    """Any row on this address, with or without a password. **Signup's guard only.**
+
+    Kept private and separate from `find_password_user` so the two cannot be confused at a call
+    site: this one must never be used by login or reset. Returning a Google-only row there is
+    what would have the caller verify a password against `None` and refuse a real user forever
+    with no way to tell why — the failure `find_password_user`'s `password_hash IS NOT NULL`
+    filter exists to prevent.
+
+    `.first()`, not `scalar_one_or_none()`: the duplicate rows this guard prevents already
+    exist in databases created before it, and a guard that raises `MultipleResultsFound` on
+    exactly the data it is meant to detect would turn a clear refusal into a 500.
+    """
+    return db.execute(
+        select(User).where(func.lower(User.email) == _normalise(email)).limit(1)
+    ).scalars().first()
+
+
 def create_password_user(db: DbSession, *, email: str, password: str, name: str | None = None) -> User:
     """Create a user authenticated by password. **Does not commit.**
 
-    Raises `EmailAlreadyRegistered` if a password account exists. The partial unique index is
-    the real enforcement — this check is for the error message, and a concurrent insert still
-    fails at the database, which is the correct place for it to fail.
+    Raises `EmailAlreadyRegistered` if a password account exists, or
+    `EmailRegisteredWithGoogle` if the address is held by a Google-only row.
+
+    **Both refusals are needed, and the second has no database backstop.** For the first, the
+    partial unique index is the real enforcement and this check only supplies the message — a
+    concurrent insert still fails at the database, which is the correct place for it to fail.
+    For the second there is *nothing* underneath: `uq_users_email_password` is partial and does
+    not apply to a row whose `password_hash` is NULL, so a duplicate address is legal at the
+    schema level and this guard is the only thing standing between signup and a forked
+    identity. See `EmailRegisteredWithGoogle` for what that fork cost.
     """
     if len(password) < MIN_PASSWORD_LENGTH:
         raise PasswordTooShort()
@@ -91,6 +149,12 @@ def create_password_user(db: DbSession, *, email: str, password: str, name: str 
     email = _normalise(email)
     if find_password_user(db, email) is not None:
         raise EmailAlreadyRegistered()
+
+    # Deliberately **not** `find_password_user`: that helper filters to rows which already have
+    # a password, which is exactly the blindness being fixed. Any row on this address means
+    # signup must refuse — inserting a second one strands whichever row holds the membership.
+    if _find_any_user_by_email(db, email) is not None:
+        raise EmailRegisteredWithGoogle()
 
     user = User(
         # NULL, not a placeholder. `google_sub` is unique, so a sentinel string would collide

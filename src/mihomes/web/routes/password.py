@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session as DbSession
 from mihomes.auth.password_identity import (
     MIN_PASSWORD_LENGTH,
     EmailAlreadyRegistered,
+    EmailRegisteredWithGoogle,
     PasswordTooShort,
     authenticate,
     create_password_user,
@@ -97,7 +98,7 @@ def signup(
     """
     try:
         user = create_password_user(db, email=email, password=password, name=name)
-    except (PasswordTooShort, EmailAlreadyRegistered) as exc:
+    except (PasswordTooShort, EmailAlreadyRegistered, EmailRegisteredWithGoogle) as exc:
         return templates.TemplateResponse(
             request,
             "signup.html",

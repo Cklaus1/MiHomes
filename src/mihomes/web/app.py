@@ -230,6 +230,56 @@ def create_app() -> FastAPI:
             {"detail": getattr(exc, "detail", "Not authenticated")}, status_code=401
         )
 
+    @app.exception_handler(403)
+    async def _accountless_to_onboarding(request: Request, exc):
+        """Send a signed-in browser with **no account** to `/onboarding/`; leave every other
+        403 exactly as it was.
+
+        **The bug this closes.** A user whose session carried no `current_account_id` got
+        `403 {"detail":"No account selected"}` on `/`, `/settings`, `/team` — raw JSON, nothing
+        to click, while `/onboarding/` (the one screen that would fix it) rendered fine. Signed
+        in and locked out at the same time. It is the same dead end the 401 handler above was
+        written to fix, and 403 simply never got the same treatment.
+
+        **Narrow on purpose — the status code alone is not enough to act on.** Two unrelated
+        conditions raise 403 here:
+
+            no account selected    recoverable; onboarding is the remedy → redirect
+            role denial            `authz/permissions.py` raises this at seven sites for
+                                   "your role may not do this" → must stay a 403
+
+        Redirecting the second would be actively wrong: a staff member who opened `/settings`
+        would be bounced into an onboarding wizard for an account they are already in, which
+        reads as a broken app rather than a refusal. So this matches on
+        `deps.NO_ACCOUNT_SELECTED` and passes everything else through untouched. Matching the
+        detail rather than the status is the whole design of this handler.
+
+        **Content negotiation, same as the 401 handler.** An HTMX request or a JSON client keeps
+        its 403: turning it into a 303 would swap a wizard page into whatever fragment the
+        request targeted, and a client checking for 403 would follow the redirect and parse HTML
+        as data.
+
+        `/onboarding/` itself is excluded, or an accountless visitor loops between it and this
+        handler. Onboarding routes are `Access.SESSION` and so do not raise this today — the
+        guard is here because a future non-SESSION route under that prefix would otherwise
+        produce an infinite redirect, which is a far worse failure than a bare 403.
+        """
+        from fastapi.responses import JSONResponse
+
+        from mihomes.web.deps import NO_ACCOUNT_SELECTED
+
+        detail = getattr(exc, "detail", "")
+
+        if detail == NO_ACCOUNT_SELECTED:
+            wants_html = "text/html" in request.headers.get("accept", "")
+            is_htmx = request.headers.get("hx-request") == "true"
+            already_there = request.url.path.startswith("/onboarding/")
+
+            if wants_html and not is_htmx and not already_there:
+                return RedirectResponse("/onboarding/", status_code=303)
+
+        return JSONResponse({"detail": detail or "Forbidden"}, status_code=403)
+
     return app
 
 

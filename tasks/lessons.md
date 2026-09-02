@@ -701,3 +701,40 @@ Review this at the start of each session.
   suite is running in the background, do not touch the database from the foreground — read code,
   write tests, prepare commits, and wait. If a question genuinely needs a query, wait for the run
   to finish first.
+
+- **A guard that reuses a lookup inherits that lookup's filter, and the filter may be the point.**
+  Signup's duplicate check called `find_password_user`, which filters to `password_hash IS NOT
+  NULL`. That filter is *correct* for its own callers — login and reset must not match a
+  Google-only row, or they verify against a NULL hash and lock a real user out forever. But
+  signup asks a different question ("is this address taken?") and inherited an answer to
+  "is this address taken *by a password account*?". A Google-only row was invisible, so signup
+  inserted a second `users` row for the same address.
+
+  Nothing underneath caught it: `uq_users_email_password` is partial, so it does not apply to the
+  row it needed to see, and `google_sub` was NULL where NULLs do not collide. **Rule:** before
+  reusing a finder in a uniqueness guard, ask what its WHERE clause excludes and whether the
+  guard's question is the same question. If the DB constraint is partial, the guard is the only
+  enforcement and deserves its own lookup, named so it cannot be reused where the filter matters.
+
+- **Two conditions sharing a status code need to be told apart by something other than the status
+  code.** 403 meant both "no account selected yet" (recoverable — send them to onboarding) and
+  "your role may not do this" (a real refusal). An `@app.exception_handler(403)` that redirects on
+  the status alone bounces a denied staff member into an onboarding wizard for an account they are
+  already in, converting a correct refusal into an apparently broken app. Matching on the detail
+  string — extracted to `deps.NO_ACCOUNT_SELECTED` so the raise sites and handler cannot drift —
+  is what makes the handler safe. The mutation that swaps the detail match for a status match is
+  the one worth pinning with a test, and it was.
+
+- **A synthetic header is not a reproduction.** The first 403 I found was
+  `Sec-Fetch-Site: same-site` → "Cross-site request blocked", and it looked like the bug because I
+  had set that header myself. A browser posting a form to its own origin sends `same-origin`, which
+  passes; port is not part of "site". Relaxing `web/security.py` on that evidence would have
+  weakened the CSRF guard to fix nothing. **Rule:** when a repro depends on a header, ask what the
+  real client actually sends before treating the response as the defect.
+
+- **Statement order matters when a unique index is partial.** Merging two `users` rows by
+  `UPDATE` the survivor then `DELETE` the orphan fails on
+  `UNIQUE (lower(email)) WHERE password_hash IS NOT NULL` — indexes are checked per statement, so
+  for one statement both rows carry a password on the same address. Stash the value, delete first,
+  then write. **Rule:** for a merge under a partial unique index, vacate the index before
+  populating it, and wrap it in a transaction whose post-conditions RAISE rather than commit half.

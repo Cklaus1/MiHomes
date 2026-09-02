@@ -70,7 +70,7 @@ static tests do cover them directly.
 | `inventory.html` | /inventory/ | 546 | ☐ | ☐ | ☐ |
 | `issues.html` | /issues/ | 558 | ☐ | ☐ | ☐ |
 | `library.html` | — | 98 | ☐ | ☐ | ☐ |
-| `login.html` | /login | 124 | ☐ | ☐ | ☐ |
+| `login.html` | /login | 131 | ☐ | ☐ | ☐ |
 | `onboarding/account.html` | — | 20 | ☐ | ☐ | ☐ |
 | `onboarding/invite.html` | — | 18 | ☐ | ☐ | ☐ |
 | `onboarding/property.html` | — | 17 | ☐ | ☐ | ☐ |

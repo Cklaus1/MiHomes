@@ -4,7 +4,7 @@
 > identity linking, O2 password policy; neither blocks the build)
 > **Conventions:** `tasks/build-loop-conventions.md` — inherited **unchanged**.
 > **Branch:** `worktree-spec-build-harness`. **Target ref:** HEAD `b5145ec`.
-> **Status: AUTHORED, NOT RUN.**
+> **Status: COMPLETE** — 15/15, all compound-stop conditions met. See `build-loop-spec010-report.md`.
 
 **The stake:** every other spec in this set moves data behind an already-solved front door.
 **This one builds the door.** A password bug is not a degraded feature — it is unauthorised
@@ -314,16 +314,42 @@ reset).
 > nothing else — because a deny-list has to remember `//host`, `/\host`, `\\host` and `///host`,
 > all of which pass a naive `startswith("http")` check.
 
-### [ ] G7 — the exit criterion — *dep: all*
-- [ ] G7.1 · §6 exit · A15 · **end to end** — signup → onboarding → sign out → sign in → reset → sign in with the new password · verify: `tests/integration/test_password_e2e.py::test_exit_criterion`
+### [x] G7 — the exit criterion — *dep: all*
+- [x] G7.1 · §6 exit · A15 · **end to end** — signup → onboarding → sign out → sign in → reset → sign in with the new password · verify: `tests/integration/test_password_e2e.py::test_exit_criterion`
 
-### [ ] G-Final — Compound-stop verification
-- [ ] F.1 · full suite green — baseline **2707**; a new skip is red
-- [ ] F.2 · every criterion green by its own node id — **all 15**
-- [ ] F.3a · every §6 step tasked — **6 steps**
-- [ ] F.3b · `--collect` exits 0, `PENDING_TESTS_IN_EXISTING_FILES` **empty**
-- [ ] F.4 · smoke green
-- [ ] F.5 · write `tasks/build-loop-spec010-report.md`
+> **G7 landed, and passed on the first run** — which is the outcome the previous six groups were
+> for. Every other file proves a step in isolation; this proves they compose, which is the only
+> claim a user makes.
+>
+> **No fixture shortcuts.** No `create_password_user`, no `issue_reset_token` — only HTTP against
+> the real routes, plus one read of the mail the app sent, because the reset link exists exactly
+> once and only in that message. Reaching into the database for the token would skip the half of
+> the flow most likely to be broken.
+>
+> The seams it covers that no unit test can: signup's cookie authenticating the *next* request;
+> sign-out actually deleting the row rather than clearing the cookie; and the reset revoking
+> every session **including the one doing the resetting**, where getting the order wrong signs
+> the user out of the reset they just completed.
+
+### [x] G-Final — Compound-stop verification
+- [x] F.1 · full suite green — baseline **2707**; a new skip is red → **2799 passed, 0 failed, 3 skipped (all pre-existing: two natural-key exemptions, one POSIX-only)**
+- [x] F.2 · every criterion green by its own node id — **all 15**, run one node id at a time requiring `1 passed`, none skipped
+- [x] F.3a · every §6 step tasked — **6 steps**
+- [x] F.3b · `--collect` exits 0 at **15/15**, `PENDING_TESTS_IN_EXISTING_FILES` **empty**
+- [x] F.4 · smoke green — **53 passed** (`test_smoke_all_tools` + `test_web_smoke`)
+- [x] F.5 · `tasks/build-loop-spec010-report.md` written
+
+> **SPEC-010 COMPLETE.** All five compound-stop conditions hold. **32 mutations, 32 caught** —
+> one only after its test was rewritten twice, which is the run's most useful finding: an
+> assertion comparing two responses that are *identical by design* cannot fail, however thorough
+> it looks. See the report §2.1.
+>
+> Three defects found that no criterion asked for: a misconfigured mail provider that leaked the
+> account list, and two pre-existing invite bugs (the token dropped at sign-in; every invitee
+> 500'd on a tenant-scoped query that ran before an account existed).
+>
+> **Not merged to `main`** — U1, now ~210 commits. Eight launch gates recorded in the report §7;
+> **U4 (no MFA) is the one to weigh before GA.**
 
 ---
 

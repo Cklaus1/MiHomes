@@ -153,8 +153,18 @@ def main() -> None:
         s.commit()
 
     # `current_account_id` is what `resolve_principal` reads; without it every route is a 403
-    # ("No account selected") even though the session is valid. The account picker sets this
-    # in the real flow.
+    # ("No account selected") even though the session is valid.
+    #
+    # **The old comment here said "the account picker sets this in the real flow", and that was
+    # wrong — nothing did.** This line was silently compensating for a live bug in both sign-in
+    # paths: `establish_session` minted sessions with a NULL account, so a Google user with one
+    # membership signed in and then got a 403 on every page, and a password signup completed the
+    # whole wizard to the same result. Local dev worked *because of this UPDATE*, which is
+    # precisely why the hole survived. Fixed in `auth/session_flow.py` and
+    # `routes/onboarding.py`.
+    #
+    # It is still needed: this script calls `create_session` directly rather than going through
+    # `establish_session`, because there is no request to establish anything from.
     with engine.begin() as c:
         c.execute(
             text("UPDATE sessions SET current_account_id = :a WHERE current_account_id IS NULL"),

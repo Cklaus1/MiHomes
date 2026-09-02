@@ -33,6 +33,7 @@ from mihomes.auth.sessions import (
     SESSION_TTL,
     create_session,
     revoke_session,
+    set_current_account,
 )
 from mihomes.models.membership import Membership
 
@@ -77,6 +78,22 @@ def set_auth_cookie(
     )
 
 
+def sole_account_for(db: DbSession, user_id: uuid.UUID) -> uuid.UUID | None:
+    """The account to open at, or `None` when there is no single obvious answer.
+
+    Returns an id only when the user has **exactly one** active membership. With two or more,
+    picking one would be a guess — that is the account picker's job, and guessing would silently
+    drop someone into the wrong estate's data.
+    """
+    rows = db.execute(
+        select(_MEMBERSHIPS.c.account_id).where(
+            _MEMBERSHIPS.c.user_id == user_id,
+            _MEMBERSHIPS.c.status == "active",
+        )
+    ).all()
+    return rows[0].account_id if len(rows) == 1 else None
+
+
 def destination_for(db: DbSession, user_id: uuid.UUID) -> str:
     """`/` for a member, `/onboarding/` for someone who has no account yet.
 
@@ -109,12 +126,33 @@ def establish_session(
     attacker is holding a live authenticated session. Minting a second id alongside it defends
     nothing, which is why A8 asserts the OLD id no longer resolves rather than that the new one
     differs.
+
+    **The session is bound to the user's account when there is exactly one.** Without this,
+    signing in succeeded and then every page 403'd: `create_session` leaves
+    `current_account_id` NULL, and `resolve_principal` raises *"No account selected"* for
+    precisely that state.
+
+    Nothing in the app set it. `dev_setup.py:159` carried a manual
+    `UPDATE sessions SET current_account_id` — that line existed *because* of this hole, which
+    is why local dev worked and a real sign-in did not. Both paths were affected: measured on
+    the OIDC callback with a real member (redirect to `/`, then 403) and on password signup
+    through the whole wizard (account and membership created, `current_account_id` still NULL).
+
+    **Only when there is exactly one membership.** With several, the account picker chooses;
+    guessing would drop someone into the wrong estate's data, which is worse than an extra
+    click.
     """
     stale = request.cookies.get(SESSION_COOKIE)
     if stale:
         revoke_session(db, stale)
 
-    raw_session, _row = create_session(db, user_id)
+    raw_session, row = create_session(db, user_id)
+
+    account_id = sole_account_for(db, user_id)
+    if account_id is not None:
+        # `set_current_account` re-verifies the membership server-side and returns False if it
+        # is gone — the check is not duplicated here deliberately (`account_switcher.py:74`).
+        set_current_account(db, row.id, account_id)
 
     if destination is None:
         destination = destination_for(db, user_id)

@@ -132,13 +132,46 @@ def test_exit_criterion(client, mail):
     user_id = _user_id(client)
     assert _live_sessions(client, user_id) == 1
 
-    # ── 2. onboarding is actually reachable with that session ────────────────
+    # ── 2. onboarding is reachable, AND it finishes ──────────────────────────
     # The seam a unit test cannot see: signup mints a cookie, but the NEXT request has to be
     # authenticated by it. A 401 here would mean signup "worked" and left the user outside.
     wizard = client.get("/onboarding/", follow_redirects=False)
     assert wizard.status_code < 400, (
         f"the session signup issued does not authenticate the very next request "
         f"({wizard.status_code}) — the user is signed in and locked out simultaneously"
+    )
+
+    # **This block was missing, and a live bug shipped through the gap.** The version of this
+    # test that stopped at the assertion above passed while `GET /` returned
+    # 403 "No account selected" for every new user — because the wizard's FIRST page renders
+    # fine for an account-less person, and the test never posted through it.
+    #
+    # `create_session` leaves `current_account_id` NULL and nothing was setting it, so the
+    # account and membership were created and the dashboard still refused. Reaching `/` is the
+    # assertion that sees it; anything short of that does not.
+    made = client.post(
+        "/onboarding/account",
+        data={"name": "Journey Estate", "account_type": "household"},
+        follow_redirects=False,
+    )
+    assert made.status_code == 303, made.text
+
+    s = client._Session()
+    try:
+        bound = s.execute(
+            select(SessionRow.current_account_id).where(SessionRow.user_id == user_id)
+        ).scalar_one()
+    finally:
+        s.close()
+    assert bound is not None, (
+        "the session was not bound to the account onboarding just created, so every page will "
+        "answer 403 'No account selected' — signed in and locked out at the same time"
+    )
+
+    dashboard = client.get("/", headers={"accept": "text/html"}, follow_redirects=False)
+    assert dashboard.status_code == 200, (
+        f"the dashboard answers {dashboard.status_code} after onboarding created an account: "
+        f"{dashboard.text[:200]}"
     )
 
     # ── 3. sign out ──────────────────────────────────────────────────────────
@@ -160,6 +193,17 @@ def test_exit_criterion(client, mail):
     )
     assert back.status_code == 303, back.text
     assert _live_sessions(client, user_id) == 1
+
+    # **`/` again, and this is a different claim from step 2's.** That one proved *onboarding*
+    # binds the account it creates. This proves *sign-in* binds an account that already exists —
+    # a separate code path (`establish_session`), and the one a returning user takes every day.
+    #
+    # Added after a mutation survived: deleting the binding from `establish_session` left this
+    # test green, because it stopped at the 303 and never asked whether the session worked.
+    assert client.get("/", headers={"accept": "text/html"}, follow_redirects=False).status_code == 200, (
+        "signing in succeeded but the dashboard refuses — the session was minted without being "
+        "bound to the user's only account, so a returning member is locked out"
+    )
 
     # ── 5. forget it, and ask for a reset ────────────────────────────────────
     client.cookies.clear()
@@ -254,3 +298,98 @@ def test_the_reset_link_survives_a_full_round_trip_only_once(client, mail):
         data={"email": "onceonly@example.com", "password": "a-third-passphrase"},
         follow_redirects=False,
     ).status_code == 401
+
+
+def test_sign_in_does_not_guess_between_several_accounts(client):
+    """Binding happens only when there is **exactly one** membership.
+
+    With two, picking one would drop the user into whichever estate the query happened to
+    return first — and they would have no indication it was a guess. That is worse than an extra
+    click, so `sole_account_for` returns None and the account picker decides.
+
+    The positive twin is the whole rest of this file: with one membership it *does* bind, or
+    every page 403s.
+    """
+    import uuid as _uuid
+
+    from sqlalchemy import text as _text
+
+    from mihomes.models.membership import Membership
+
+    client.post(
+        "/signup",
+        data={"email": "twoaccounts@example.com", "password": FIRST_PASSWORD},
+        follow_redirects=False,
+    )
+    uid = _user_id_for(client, "twoaccounts@example.com")
+
+    # **Exactly two active memberships, and no session left over from signup.**
+    #
+    # A mutation caught the first version of this test being blind: it signed up (creating one
+    # membership implicitly, once onboarding had run), then added two more — three, not two —
+    # and reused a session that was already bound. Nothing it asserted could then change.
+    s = client._Session()
+    try:
+        s.execute(
+            _text("DELETE FROM memberships WHERE user_id = :u"), {"u": uid}
+        )
+        s.execute(_text("DELETE FROM sessions WHERE user_id = :u"), {"u": uid})
+        for slug in (f"a-{_uuid.uuid4().hex[:6]}", f"b-{_uuid.uuid4().hex[:6]}"):
+            acct = _uuid.uuid4()
+            s.execute(
+                _text(
+                    "INSERT INTO accounts (id, slug, name, type, plan) "
+                    "VALUES (:i, :s, :s, 'household', 'free')"
+                ),
+                {"i": acct, "s": slug},
+            )
+            s.execute(
+                Membership.__table__.insert().values(
+                    id=_uuid.uuid4(), account_id=acct, user_id=uid,
+                    role="owner", status="active",
+                )
+            )
+        s.commit()
+
+        n = s.execute(
+            _text(
+                "SELECT count(*) FROM memberships WHERE user_id = :u AND status = 'active'"
+            ),
+            {"u": uid},
+        ).scalar_one()
+        assert n == 2, f"the fixture built {n} memberships, not the ambiguous two"
+    finally:
+        s.close()
+
+    client.cookies.clear()
+    reset_ratelimit()
+    r = client.post(
+        "/login",
+        data={"email": "twoaccounts@example.com", "password": FIRST_PASSWORD},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+
+    s = client._Session()
+    try:
+        bound = s.execute(
+            select(SessionRow.current_account_id)
+            .where(SessionRow.user_id == uid)
+            .order_by(SessionRow.created_at.desc())
+            .limit(1)
+        ).scalar_one()
+    finally:
+        s.close()
+
+    assert bound is None, (
+        f"sign-in bound account {bound} for a user with two active memberships. It guessed, "
+        "and the user has no way to tell they are looking at the wrong estate"
+    )
+
+
+def _user_id_for(client, email: str):
+    s = client._Session()
+    try:
+        return s.execute(select(User.id).where(User.email == email)).scalar_one()
+    finally:
+        s.close()

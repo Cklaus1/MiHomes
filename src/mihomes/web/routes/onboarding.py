@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
+from mihomes.auth.sessions import SESSION_COOKIE, lookup_session, set_current_account
 from mihomes.authz.declare import declares_session
 from mihomes.models.user import User
 from mihomes.services import onboarding_service as onboarding
@@ -97,7 +98,19 @@ def create_account(
         # unique index would refuse the second owner anyway — better to redirect than to 500.
         return RedirectResponse("/onboarding/", status_code=303)
 
-    onboarding.create_account_step(db, user, name, account_type)
+    account = onboarding.create_account_step(db, user, name, account_type)
+
+    # **Bind this session to the account it just created**, or the wizard finishes and `/` 403s
+    # with "No account selected" — `create_session` left `current_account_id` NULL and nothing
+    # since has set it.
+    #
+    # `establish_session` now binds at sign-in, but that cannot help here: this account did not
+    # exist when the session was minted. This is the second half of the same hole, and it is the
+    # one a brand-new user hits, because signing up and onboarding happen in one sitting.
+    current = lookup_session(db, request.cookies.get(SESSION_COOKIE))
+    if current is not None:
+        set_current_account(db, current.session_id, account.id)
+
     return RedirectResponse("/onboarding/", status_code=303)
 
 

@@ -48,3 +48,6 @@ ha-config/.ha_run.lock
 ha-config/.HA_VERSION
 ha-config/home-assistant.log*
 ha-config/home-assistant_v2.db*
+
+# Local pg_dump backups taken during debugging — contain password hashes and estate data.
+mihomes_dev_backup_*.sql

@@ -153,7 +153,31 @@ def init_db(url: str | None = None) -> None:
 
     alembic_cfg = Config()
     alembic_cfg.set_main_option("script_location", _get_alembic_dir())
-    alembic_cfg.set_main_option("sqlalchemy.url", str(engine.url))
+
+    # **`render_as_string(hide_password=False)`, never `str(url)`.** SQLAlchemy's `__str__`
+    # masks the password as literal `***`, so handing `str(engine.url)` to Alembic passed it a
+    # URL that authenticates as the password `***` — and Postgres answered exactly that:
+    #
+    #     FATAL: password authentication failed for user "mihomes"
+    #
+    # `mihomes init` therefore could not migrate any password-authenticated database, while
+    # `psql` with the same URL connected fine and `alembic upgrade head` also worked (it reads
+    # `DATABASE_URL` from the environment in `env.py` and never passes through here). That
+    # divergence is what made it read as a credentials problem rather than a code one.
+    #
+    # Invisible under SQLite, whose URL is a file path with no password to mask — so this
+    # survived every local run and only surfaced on the first real Postgres install.
+    #
+    # **`%` doubled to `%%`, and this is not optional.** Alembic's `Config` is a ConfigParser,
+    # which reads `%` as interpolation syntax and raises
+    # `ValueError: invalid interpolation syntax` on a raw one. The masked form never contained a
+    # `%`, so unmasking is what exposes it — a percent-encoded password (`p%40ss`) or any
+    # generated password containing `%` would trade the authentication failure above for a
+    # crash. `set_main_option` unescapes on read, so the value round-trips exactly.
+    alembic_cfg.set_main_option(
+        "sqlalchemy.url",
+        engine.url.render_as_string(hide_password=False).replace("%", "%%"),
+    )
     command.upgrade(alembic_cfg, "head")
 
     # Imported here, not at module scope: `mihomes.tenancy` imports the models, and db.py is

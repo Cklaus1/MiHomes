@@ -8,6 +8,22 @@
     <p class="mb-4 rounded border border-red-300 bg-red-50 px-3 py-2 text-red-800">{{ error }}</p>
   {% endif %}
 
+  {# The estate name, first — it is the one setting with a plain-English name rather than a
+     config key, and onboarding's "You can change this later" points here. #}
+  <h2 class="text-lg font-medium mb-1">Estate name</h2>
+  <p class="text-sm text-gray-500 mb-3">Shown throughout the app. Renaming is safe — it does
+    not affect your data or the <span class="font-mono text-xs">--account</span> name used on
+    the command line.</p>
+  <form method="post" action="/settings/account" class="flex flex-col sm:flex-row gap-3 mb-10">
+    <label for="account-name" class="sr-only">Estate name</label>
+    <input id="account-name" name="name" required maxlength="200"
+           value="{{ account.name if account else '' }}"
+           class="flex-1 border rounded px-3 py-2" />
+    <button class="bg-brand-600 text-white rounded px-4 py-2 whitespace-nowrap">Save name</button>
+  </form>
+
+  <h2 class="text-lg font-medium mb-3">Configuration</h2>
+
   <div class="overflow-x-auto">
   <table class="w-full text-sm mb-8">
     <thead class="text-left text-gray-500">

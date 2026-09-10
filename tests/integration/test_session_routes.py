@@ -212,3 +212,116 @@ class TestTheAccountlessDeadEnd:
 
         landed = client.get("/", headers={"accept": "text/html"}, follow_redirects=True)
         assert landed.status_code == 200
+
+
+def test_sign_in_binds_the_account_under_real_rls(_pg_engine):
+    """**Sign-in could not find an existing member's account when RLS was enforced.**
+
+    `sole_account_for` reads `memberships` to bind the session to the user's account. That is a
+    tenant table, and these pre-account reads are covered not by `app.current_account` — there
+    is no account yet, it is the thing being resolved — but by the `membership_self` policy,
+    `USING (user_id = current_setting('app.current_user', true)::uuid)`.
+    `auth/sessions.py`'s docstring names that policy as the enforcement for exactly these reads.
+
+    But the GUC is only stamped by `tenancy/connection.py`'s `after_begin` listener from the
+    `current_user` ContextVar, and at sign-in nothing has set it — the request is *becoming*
+    authenticated. So the policy evaluated against NULL, zero memberships were visible, the
+    session was never bound, and **every page answered `403 "No account selected"` for a user
+    with a perfectly good membership.** Observed on a live install: the owner was sent to the
+    onboarding wizard on every sign-in and the dashboard was unreachable.
+
+    **Every other test in the suite connects as a superuser**, which bypasses RLS
+    unconditionally (`rls.py` records that measurement) — so the policies were present and bound
+    to nothing, and this was invisible. This test reaches the schema as the non-superuser
+    `APP_ROLE`, and asserts RLS is actually on before proceeding so it cannot quietly stop
+    exercising the policy.
+    """
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.engine import make_url
+    from sqlalchemy.orm import Session as _Session
+
+    from tests.conftest import APP_PASSWORD, APP_ROLE
+
+    name = f"mihomes_signin{uuid.uuid4().hex[:8]}"
+    admin = create_engine(
+        str(_pg_engine.url.set(database="postgres")), isolation_level="AUTOCOMMIT", future=True
+    )
+    with admin.connect() as conn:
+        conn.exec_driver_sql(f'CREATE DATABASE "{name}"')
+
+    owner_url = str(_pg_engine.url.set(database=name))
+    owner = create_engine(owner_url, future=True)
+    account_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    try:
+        from mihomes.models import Base
+
+        Base.metadata.create_all(owner)
+
+        with owner.begin() as conn:
+            assert conn.execute(
+                text(
+                    "select relrowsecurity, relforcerowsecurity "
+                    "from pg_class where relname = 'memberships'"
+                )
+            ).one() == (True, True), "RLS is not enforced here; the test proves nothing"
+
+            conn.execute(
+                text(
+                    "insert into accounts (id, slug, name, type, plan, subscription_status) "
+                    "values (:a, 'belle', 'Belle Estate', 'household', 'estate', 'active')"
+                ),
+                {"a": account_id},
+            )
+            conn.execute(
+                text(
+                    "insert into users (id, email, name, created_at) "
+                    "values (:u, 'member@example.com', 'Member', now())"
+                ),
+                {"u": user_id},
+            )
+            conn.execute(
+                text("select set_config('app.current_account', :a, true)"),
+                {"a": str(account_id)},
+            )
+            conn.execute(
+                text(
+                    "insert into memberships (id, user_id, account_id, role, status) "
+                    "values (:i, :u, :a, 'owner', 'active')"
+                ),
+                {"i": uuid.uuid4(), "u": user_id, "a": account_id},
+            )
+            for stmt in (
+                f"GRANT USAGE ON SCHEMA public TO {APP_ROLE}",
+                "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public "
+                f"TO {APP_ROLE}",
+                f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {APP_ROLE}",
+            ):
+                conn.exec_driver_sql(stmt)
+    finally:
+        owner.dispose()
+
+    app_engine = create_engine(
+        make_url(owner_url).set(username=APP_ROLE, password=APP_PASSWORD), future=True
+    )
+    try:
+        from mihomes.auth.session_flow import destination_for, sole_account_for
+
+        with _Session(app_engine) as session:
+            found = sole_account_for(session, user_id)
+            assert found == account_id, (
+                f"sign-in could not see this user's membership under RLS (got {found!r}) — the "
+                f"session is left unbound and every page answers 403 'No account selected'"
+            )
+            assert destination_for(session, user_id) == "/", (
+                "an existing member is sent to the onboarding wizard instead of the dashboard"
+            )
+    finally:
+        app_engine.dispose()
+        with admin.connect() as conn:
+            conn.exec_driver_sql(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                f"WHERE datname = '{name}' AND pid <> pg_backend_pid()"
+            )
+            conn.exec_driver_sql(f'DROP DATABASE IF EXISTS "{name}"')
+        admin.dispose()

@@ -43,16 +43,64 @@ router = APIRouter()
 _SETTINGS_ACTION = "member.manage"
 
 
+def _page_context(db: Session, principal, **extra):
+    """The settings page's context, in one place.
+
+    Four call sites render this template (the index plus three refusal paths), and each one
+    that built its own dict was a chance to omit `account`, which the estate-name field reads.
+    """
+    from mihomes.models.account import Account
+
+    context = {
+        "page": "settings",
+        "configs": config_service.list_config_for_display(db),
+        "account": db.get(Account, principal.account_id),
+    }
+    context.update(extra)
+    return context
+
+
 @router.get("/settings")
 @declares(_SETTINGS_ACTION, Access.ACCOUNT)
 def index(request: Request, principal=require_authenticated(),
           db: Session = Depends(get_db)):
     """A27 — the settings page. Staff get 403 from the enforcement dependency, not from here."""
     return templates.TemplateResponse(
-        request,
-        "settings/index.html",
-        {"page": "settings", "configs": config_service.list_config_for_display(db)},
+        request, "settings/index.html", _page_context(db, principal)
     )
+
+
+@router.post("/settings/account")
+@declares(_SETTINGS_ACTION, Access.ACCOUNT)
+def rename(
+    request: Request,
+    name: str = Form(...),
+    principal=require_authenticated(),
+    db: Session = Depends(get_db),
+):
+    """Rename the estate — the thing onboarding's *"You can change this later"* promised.
+
+    Until now nothing in the app wrote `accounts.name`: onboarding step 2 set it once at
+    creation, and the only other way to change it was raw SQL. The copy under that field was a
+    promise the app could not keep.
+
+    Same action and route class as the config form above, so it inherits the owner/admin gate
+    from the enforcement dependency rather than checking a role here. A staff member never
+    reaches this handler.
+    """
+    from mihomes.services.account import AccountNameError, rename_account
+
+    try:
+        rename_account(db, principal.account_id, name)
+    except AccountNameError as exc:
+        return templates.TemplateResponse(
+            request,
+            "settings/index.html",
+            _page_context(db, principal, error=str(exc)),
+            status_code=400,
+        )
+
+    return RedirectResponse("/settings", status_code=303)
 
 
 @router.post("/settings")
@@ -79,15 +127,15 @@ def update(
         return templates.TemplateResponse(
             request,
             "settings/index.html",
-            {
-                "page": "settings",
-                "configs": config_service.list_config_for_display(db),
-                "error": (
+            _page_context(
+                db,
+                principal,
+                error=(
                     f"{key} holds a credential and cannot be stored: {crypto.SECRET_KEY_ENV} is "
                     "not set, so it could only be written in plaintext. Generate a key with "
                     "`mihomes config generate-key`, put it in the environment, and try again."
                 ),
-            },
+            ),
             status_code=400,
         )
 

@@ -25,6 +25,7 @@ import uuid
 from fastapi import Request
 from fastapi.responses import RedirectResponse, Response
 from sqlalchemy import select
+from sqlalchemy import text as sa_text
 from sqlalchemy.orm import Session as DbSession
 
 from mihomes.auth.csrf import CSRF_COOKIE, issue_csrf_token
@@ -78,6 +79,37 @@ def set_auth_cookie(
     )
 
 
+def _with_user_guc(db: DbSession, user_id: uuid.UUID) -> None:
+    """Stamp `app.current_user` so RLS's `membership_self` policy can see this user's rows.
+
+    **Without this, every membership read at sign-in returns zero rows.** `memberships` is a
+    tenant table, and the pre-account bootstrap reads here are covered not by
+    `app.current_account` — there is no account yet, that is the thing being resolved — but by
+    the `membership_self` policy, which is `USING (user_id = current_setting('app.current_user',
+    true)::uuid)`. `auth/sessions.py`'s docstring names that policy as the enforcement for
+    exactly these reads.
+
+    The GUC, however, is only stamped by `tenancy/connection.py`'s `after_begin` listener from
+    the `current_user` ContextVar, and at sign-in nothing has set it: the request is *becoming*
+    authenticated. So the policy evaluated against NULL, `sole_account_for` found no membership,
+    the session was never bound to an account, and **every page then answered
+    `403 "No account selected"` for a user with a perfectly good membership** — observed on a
+    live install, where it also sent the owner into the onboarding wizard on every sign-in.
+
+    Invisible in the suite because its fixtures connect as a superuser, which bypasses RLS
+    unconditionally (`rls.py` records that measurement).
+
+    `is_local=true` scopes it to the current transaction, so it cannot leak onto a pooled
+    connection afterwards.
+    """
+    if db.get_bind().dialect.name != "postgresql":
+        return
+    db.execute(
+        sa_text("SELECT set_config('app.current_user', :uid, true)"),
+        {"uid": str(user_id)},
+    )
+
+
 def sole_account_for(db: DbSession, user_id: uuid.UUID) -> uuid.UUID | None:
     """The account to open at, or `None` when there is no single obvious answer.
 
@@ -85,6 +117,7 @@ def sole_account_for(db: DbSession, user_id: uuid.UUID) -> uuid.UUID | None:
     picking one would be a guess — that is the account picker's job, and guessing would silently
     drop someone into the wrong estate's data.
     """
+    _with_user_guc(db, user_id)
     rows = db.execute(
         select(_MEMBERSHIPS.c.account_id).where(
             _MEMBERSHIPS.c.user_id == user_id,
@@ -102,6 +135,9 @@ def destination_for(db: DbSession, user_id: uuid.UUID) -> str:
     reward for signing in is an error page. `/onboarding/` resumes wherever they left off and
     redirects to `/` once the account exists, so returning users pass straight through.
     """
+    # Same RLS bootstrap as `sole_account_for` — without the GUC this read returns nothing and
+    # an existing member is sent to the onboarding wizard on every sign-in.
+    _with_user_guc(db, user_id)
     has_account = db.execute(
         select(_MEMBERSHIPS.c.id).where(
             _MEMBERSHIPS.c.user_id == user_id,

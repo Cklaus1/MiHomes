@@ -445,3 +445,121 @@ class TestMissingKeyFailsLoudly:
         session = web_client_as.session_for_scope()
         with pytest.raises(crypto.EncryptionUnavailable):
             config_service.set_config(session, "smtp.password", "hunter2")
+
+
+class TestRenamingTheEstate:
+    """The rename onboarding promised and the app could not do.
+
+    Step 2's household-name field carries the caption *"You can change this later."* Nothing in
+    the app wrote `accounts.name` after creation — `/settings` offered only a raw config
+    key/value form — so the only way to rename an estate was `UPDATE accounts SET name = …` by
+    hand. Reported from a live install: the user went looking for the rename, landed back in the
+    onboarding wizard, and got a 500.
+    """
+
+    def test_owner_can_rename_and_the_page_shows_it(self, web_client_as):
+        client = web_client_as("owner")
+
+        response = client.post(
+            "/settings/account", data={"name": "Belle Estate"}, follow_redirects=False
+        )
+        assert response.status_code == 303, response.text
+
+        page = client.get("/settings")
+        assert "Belle Estate" in page.text
+
+    def test_the_slug_does_not_change(self, web_client_as):
+        """**The slug is the stable identifier and must survive a rename.**
+
+        It is what `--account <slug>` names on every CLI invocation and what `resolve_account`
+        looks installs up by, so rebuilding it from the new name would break whatever the
+        operator had scripted — the kind of breakage that surfaces later and elsewhere. It is
+        also UNIQUE, so a rebuild could collide and fail a rename that has nothing wrong with it.
+        """
+        from sqlalchemy import text
+
+        client = web_client_as("owner")
+        conn = web_client_as.connection
+        before = conn.execute(text("select slug from accounts limit 1")).scalar()
+
+        client.post("/settings/account", data={"name": "Something Else Entirely"})
+
+        after = conn.execute(text("select slug from accounts limit 1")).scalar()
+        assert after == before, (
+            f"the slug changed from {before!r} to {after!r} — every `--account {before}` "
+            f"invocation and any script using it now fails"
+        )
+
+    def test_staff_cannot_rename(self, web_client_as):
+        """Same gate as the config form: owner ✓, admin ✓, staff ✗, from the dependency."""
+        client = web_client_as("staff", scoped_to=[])
+        response = client.post(
+            "/settings/account", data={"name": "Staff Renamed This"}, follow_redirects=False
+        )
+        assert response.status_code == 403
+
+    def test_an_empty_name_is_refused_not_written(self, web_client_as):
+        """Whitespace only is empty. The refusal re-renders the page rather than 500ing."""
+        from sqlalchemy import text
+
+        client = web_client_as("owner")
+        conn = web_client_as.connection
+        before = conn.execute(text("select name from accounts limit 1")).scalar()
+
+        response = client.post(
+            "/settings/account", data={"name": "   "}, follow_redirects=False
+        )
+        assert response.status_code == 400
+        assert "cannot be empty" in response.text
+
+        after = conn.execute(text("select name from accounts limit 1")).scalar()
+        assert after == before, "the name was cleared despite the refusal"
+
+    def test_an_overlong_name_is_refused_readably(self, web_client_as):
+        """Enforced in the service, so it is a readable message rather than a driver error.
+
+        Left to the column, this is `StringDataRightTruncation` raised three frames inside a
+        flush — a 500 the user cannot act on.
+        """
+        client = web_client_as("owner")
+        response = client.post(
+            "/settings/account", data={"name": "x" * 201}, follow_redirects=False
+        )
+        assert response.status_code == 400
+        assert "too long" in response.text
+
+    def test_the_rename_is_audited(self, web_client_as):
+        """Who renamed the estate, and what it was called before — otherwise unrecoverable."""
+        from sqlalchemy import text
+
+        client = web_client_as("owner")
+        client.post("/settings/account", data={"name": "Audited Estate"})
+
+        row = web_client_as.connection.execute(
+            text(
+                "select action, changes from audit_log "
+                "where entity_type = 'account' and action = 'rename' "
+                "order by timestamp desc limit 1"
+            )
+        ).first()
+        assert row is not None, "the rename left no audit entry"
+        assert row.changes["name"]["to"] == "Audited Estate"
+
+    def test_resubmitting_the_same_name_writes_no_audit_row(self, web_client_as):
+        """A form re-submit is not a change, and should not fill the trail with no-ops."""
+        from sqlalchemy import text
+
+        client = web_client_as("owner")
+        client.post("/settings/account", data={"name": "Stable Name"})
+
+        def rename_rows() -> int:
+            return web_client_as.connection.execute(
+                text(
+                    "select count(*) from audit_log "
+                    "where entity_type = 'account' and action = 'rename'"
+                )
+            ).scalar()
+
+        before = rename_rows()
+        client.post("/settings/account", data={"name": "Stable Name"})
+        assert rename_rows() == before, "an unchanged re-submit recorded an audit event"

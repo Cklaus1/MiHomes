@@ -196,31 +196,90 @@ def create_account_step(
     session.add(account)
     session.flush()
 
-    session.add(
-        Membership(
-            id=new_id(),
-            account_id=account.id,
-            user_id=user.id,
-            role="owner",
-            status="active",
-        )
-    )
-    session.flush()
-
-    complete_step(session, account.id, STEP_CREATE_ACCOUNT)
-
-    # SPEC-005 Step 11 — *"enrolment on account creation"*. **No §8 criterion covers this**:
-    # A25 is "each step sends once and never twice", which a drip system with zero enrolments
-    # satisfies perfectly. Wired here rather than recorded as a gap, because the seam is one
-    # line and the alternative is a mechanism nothing ever starts (harness §2.2 D17).
+    # **Bind the GUC to the account just created, or RLS refuses the owner membership.**
     #
-    # Failures are swallowed: a marketing sequence must never be able to fail account creation,
-    # which is the one irreversible step in onboarding.
-    try:
-        from mihomes.services.email.campaigns import enrol
+    # This is the one write in the app that creates a tenant *and* its first tenant-owned row
+    # in a single transaction, and the two halves want opposite context. `accounts` is GLOBAL,
+    # so it inserts with no tenant bound — which is why onboarding runs as `Access.SESSION`
+    # with `current_account` deliberately unset (`web/deps.py`: "resolving one first would 403
+    # every screen that needs to run before it exists"). But `memberships` is tenant-owned and
+    # FORCE-protected, so its `WITH CHECK (account_id = current_setting('app.current_account',
+    # true)::uuid)` compares against NULL and rejects the row:
+    #
+    #     InsufficientPrivilege: new row violates row-level security policy
+    #     for table "memberships"
+    #
+    # Measured: **onboarding step 2 failed for every new account** on any install where RLS is
+    # actually enforced — i.e. every real deployment, since `alembic upgrade head` runs
+    # `0002_rls`. It passed everywhere in testing because the suite's fixtures connect as a
+    # superuser, which bypasses RLS unconditionally (`rls.py` records that measurement).
+    #
+    # **Bound via the ContextVar, not raw `set_config`, and that distinction is the fix.**
+    #
+    # A `SELECT set_config('app.current_account', …, true)` here works for the very next
+    # statement and is then silently undone: `tenancy/connection.py` stamps the GUC on
+    # SQLAlchemy's `after_begin` event, which fires again for **every SAVEPOINT**. So
+    # `campaigns.enrol`'s `session.begin_nested()` re-stamps the GUC from `current_account` —
+    # unset on this route — wiping it back to empty mid-transaction. Measured: with
+    # `mihomes.tenancy` imported, the value reads back as `''` inside the savepoint.
+    #
+    # Setting the ContextVar makes the listener itself stamp the right account, so every
+    # statement *and* every nested savepoint in the rest of this transaction is covered.
+    # **Both halves are required, and each covers what the other misses.** The GUC is stamped
+    # on `after_begin`, so setting the ContextVar alone does nothing for the transaction that is
+    # *already* open — measured: the value still reads `''` on the next statement. And a bare
+    # `set_config` alone is undone by the next SAVEPOINT, as above. So: stamp this transaction
+    # directly, and set the var so every later `after_begin` (i.e. `enrol`'s savepoint) stamps
+    # the same account.
+    from sqlalchemy import text as _sa_text
 
-        enrol(session, account.id, "onboarding")
-    except Exception:
-        logger.exception("could not enrol account %s in the onboarding drip", account.id)
+    from mihomes.tenancy import current_account as _current_account_var
+
+    _token = _current_account_var.set(account.id)
+    try:
+        if session.get_bind().dialect.name == "postgresql":
+            session.execute(
+                _sa_text("SELECT set_config('app.current_account', :acct, true)"),
+                {"acct": str(account.id)},
+            )
+
+        session.add(
+            Membership(
+                id=new_id(),
+                account_id=account.id,
+                user_id=user.id,
+                role="owner",
+                status="active",
+            )
+        )
+        session.flush()
+
+        complete_step(session, account.id, STEP_CREATE_ACCOUNT)
+
+        # SPEC-005 Step 11 — *"enrolment on account creation"*. **No §8 criterion covers
+        # this**: A25 is "each step sends once and never twice", which a drip system with zero
+        # enrolments satisfies perfectly. Wired here rather than recorded as a gap, because the
+        # seam is one line and the alternative is a mechanism nothing ever starts (harness
+        # §2.2 D17).
+        #
+        # Failures are swallowed: a marketing sequence must never be able to fail account
+        # creation, which is the one irreversible step in onboarding. **That swallow is also
+        # what hid this bug**: `campaign_enrolments` is tenant-owned, so before the binding
+        # above its insert was refused by RLS and the failure went to the log rather than the
+        # response. Onboarding "worked" while silently enrolling nobody.
+        #
+        # Inside the bound block deliberately — `enrol` opens a SAVEPOINT, which re-triggers
+        # the `after_begin` stamp, so it needs the ContextVar set rather than a bare
+        # `set_config` that the savepoint would overwrite.
+        try:
+            from mihomes.services.email.campaigns import enrol
+
+            enrol(session, account.id, "onboarding")
+        except Exception:
+            logger.exception("could not enrol account %s in the onboarding drip", account.id)
+    finally:
+        # Reset rather than leave bound: this service is also called from the CLI and tests,
+        # where a leaked account context would silently scope a later unrelated write.
+        _current_account_var.reset(_token)
 
     return account

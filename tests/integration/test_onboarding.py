@@ -250,3 +250,133 @@ class TestDripEnrolmentOnAccountCreation:
 
         assert account.id is not None
         assert onboarding.current_step(session, account.id) == STEP_ADD_HOME
+
+
+# --- RLS: account creation writes tenant rows before any tenant is bound ------------
+
+def test_create_account_step_writes_its_owner_membership_under_rls(_pg_engine):
+    """**Onboarding step 2 was broken for every new account on any RLS-enforced install.**
+
+    `create_account_step` is the one write in the app that creates a tenant *and* its first
+    tenant-owned rows in a single transaction, and the two halves want opposite context.
+    `accounts` is GLOBAL, so it inserts with no tenant bound — which is why onboarding runs as
+    `Access.SESSION` with `current_account` deliberately unset (`web/deps.py`: *"resolving one
+    first would 403 every screen that needs to run before it exists"*). But `memberships` and
+    `campaign_enrolments` are tenant-owned and FORCE-protected, so their
+    `WITH CHECK (account_id = current_setting('app.current_account', true)::uuid)` compared
+    against NULL and refused the rows:
+
+        InsufficientPrivilege: new row violates row-level security policy
+        for table "memberships"
+
+    **Why the whole suite missed it.** Every other fixture connects as a superuser, which
+    bypasses RLS unconditionally (`rls.py` records that measurement), so the policies were
+    present but bound to nothing. This test reaches the schema as a non-superuser, which is the
+    only way the failure is observable.
+
+    **And the enrolment half was invisible even in production**: `enrol`'s failure is caught and
+    logged so a marketing sequence can never fail account creation, so onboarding "worked" while
+    silently enrolling nobody. Asserted here precisely because nothing else can see it.
+
+    The fix needs *both* a direct `set_config` and the ContextVar: the GUC is stamped on
+    `after_begin`, so setting the var alone does not affect the already-open transaction, and a
+    bare `set_config` alone is wiped by `enrol`'s SAVEPOINT re-triggering that stamp.
+    """
+    import uuid as _uuid
+
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.engine import make_url
+    from sqlalchemy.orm import Session as _Session
+
+    from tests.conftest import APP_PASSWORD, APP_ROLE
+
+    name = f"mihomes_onbrls{_uuid.uuid4().hex[:8]}"
+    admin = create_engine(
+        str(_pg_engine.url.set(database="postgres")), isolation_level="AUTOCOMMIT", future=True
+    )
+    with admin.connect() as conn:
+        conn.exec_driver_sql(f'CREATE DATABASE "{name}"')
+
+    owner_url = str(_pg_engine.url.set(database=name))
+    owner = create_engine(owner_url, future=True)
+    try:
+        from mihomes.models import Base
+
+        Base.metadata.create_all(owner)  # `install_rls` fires here
+
+        with owner.begin() as conn:
+            enforced = conn.execute(
+                text(
+                    "select relrowsecurity, relforcerowsecurity "
+                    "from pg_class where relname = 'memberships'"
+                )
+            ).one()
+            assert enforced == (True, True), (
+                f"RLS is not enforced on memberships in this fixture {enforced} — the test "
+                f"would pass without exercising the policy at all"
+            )
+            conn.exec_driver_sql(f"GRANT USAGE ON SCHEMA public TO {APP_ROLE}")
+            conn.exec_driver_sql(
+                "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public "
+                f"TO {APP_ROLE}"
+            )
+            conn.exec_driver_sql(
+                f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {APP_ROLE}"
+            )
+
+        user_id = _uuid.uuid4()
+        with owner.begin() as conn:
+            conn.execute(
+                text(
+                    "insert into users (id, email, name, created_at) "
+                    "values (:i, 'newowner@example.com', 'New Owner', now())"
+                ),
+                {"i": user_id},
+            )
+    finally:
+        owner.dispose()
+
+    app_engine = create_engine(
+        make_url(owner_url).set(username=APP_ROLE, password=APP_PASSWORD), future=True
+    )
+    try:
+        from mihomes.models.user import User
+        from mihomes.services.onboarding_service import create_account_step
+
+        with _Session(app_engine) as session:
+            user = session.get(User, user_id)
+            # No tenant bound — exactly the state an `Access.SESSION` route runs in.
+            account = create_account_step(session, user, "Belle Estate", "household")
+            session.commit()
+            account_id = account.id
+
+        with app_engine.begin() as conn:
+            conn.execute(
+                text("select set_config('app.current_account', :a, true)"),
+                {"a": str(account_id)},
+            )
+            members = conn.execute(
+                text("select count(*) from memberships where account_id = :a"),
+                {"a": account_id},
+            ).scalar()
+            enrols = conn.execute(
+                text("select count(*) from campaign_enrolments where account_id = :a"),
+                {"a": account_id},
+            ).scalar()
+
+        assert members == 1, (
+            "the owner membership was not written — the account exists but nobody can reach it"
+        )
+        assert enrols == 1, (
+            "the onboarding drip enrolment was refused by RLS; `enrol` swallows its own "
+            "failure, so this is silent in production"
+        )
+    finally:
+        app_engine.dispose()
+        with admin.connect() as conn:
+            conn.exec_driver_sql(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                f"WHERE datname = '{name}' AND pid <> pg_backend_pid()"
+            )
+            conn.exec_driver_sql(f'DROP DATABASE IF EXISTS "{name}"')
+        admin.dispose()

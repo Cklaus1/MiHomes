@@ -149,6 +149,15 @@ def lookup_session(db: DbSession, raw: str | None) -> AuthenticatedSession | Non
     role: str | None = None
     account_id: uuid.UUID | None = row.current_account_id
     if account_id is not None:
+        # **Without this the membership is invisible and the session reads as invalid.** This
+        # runs on every authenticated request, before any tenant is bound, so RLS covers it
+        # through `membership_self` — see `bind_user_guc`. Measured: the read returned zero
+        # rows, `return None` below treated a valid session as unauthenticated, and the browser
+        # bounced to `/login` on every request in a loop.
+        from mihomes.tenancy.connection import bind_user_guc
+
+        bind_user_guc(db, row.user_id)
+
         membership = db.execute(
             select(_MEMBERSHIPS.c.role, _MEMBERSHIPS.c.status).where(
                 _MEMBERSHIPS.c.user_id == row.user_id,
@@ -182,6 +191,14 @@ def set_current_account(db: DbSession, session_id: uuid.UUID, account_id: uuid.U
     row = db.get(SessionRow, session_id)
     if row is None:
         return False
+
+    # Same pre-tenant membership read as `lookup_session`, and the same requirement: without
+    # the GUC this returns nothing and the re-verification below refuses a legitimate account
+    # binding — turning "prove the membership" into "always deny". See `bind_user_guc`.
+    from mihomes.tenancy.connection import bind_user_guc
+
+    bind_user_guc(db, row.user_id)
+
     membership = db.execute(
         select(_MEMBERSHIPS.c.status).where(
             _MEMBERSHIPS.c.user_id == row.user_id,

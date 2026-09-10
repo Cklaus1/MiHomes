@@ -33,6 +33,7 @@ from mihomes.authz.scope import authz_context, current_role, scoped_property_ids
 from mihomes.db import get_session
 from mihomes.models.membership import Membership
 from mihomes.tenancy import account_context, current_user
+from mihomes.tenancy.connection import bind_user_guc
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
@@ -179,6 +180,13 @@ def resolve_principal(request: Request, db: Session) -> RequestPrincipal:
         # so it stays a distinct status, and is no longer a dead end for the user who hits it.
         raise HTTPException(status_code=403, detail=NO_ACCOUNT_SELECTED)
 
+    # The account is known by now, but the tenant context is not bound yet — that happens in
+    # `enforce_declared_action` *after* this returns. So this read is still a pre-tenant one and
+    # needs `app.current_user` for `membership_self`, exactly as `lookup_session` does.
+    # Without it the read found nothing and the 401 below fired for a valid member, which
+    # presented as being stuck on the onboarding wizard. See `bind_user_guc`.
+    bind_user_guc(db, auth.user_id)
+
     membership = db.execute(
         select(_MEMBERSHIPS.c.id, _MEMBERSHIPS.c.role).where(
             _MEMBERSHIPS.c.user_id == auth.user_id,
@@ -295,6 +303,10 @@ async def _resolve_authenticated(
         # as `resolve_principal` above, so `app.py`'s 403 handler redirects a browser here too
         # — this path is reached by routes taking `require_authenticated()` directly.
         raise HTTPException(status_code=403, detail=NO_ACCOUNT_SELECTED)
+
+    # Same pre-tenant read as `resolve_principal` — `account_context` is entered below, after
+    # this. See `bind_user_guc`.
+    bind_user_guc(db, auth.user_id)
 
     membership = db.execute(
         select(_MEMBERSHIPS.c.id, _MEMBERSHIPS.c.role).where(

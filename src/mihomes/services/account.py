@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import uuid
 
+from sqlalchemy import text as sa_text
 from sqlalchemy.orm import Session
 
 from mihomes.models.account import Account
@@ -67,17 +68,31 @@ def rename_account(session: Session, account_id: uuid.UUID, name: str) -> Accoun
     account.name = cleaned
     session.flush()
 
-    # **`account_context`, because `audit_log` is a tenant table.** The rename itself touches
-    # only `accounts`, which is GLOBAL and needs no tenant bound — but the audit row does, and
-    # `_stamp_tenant_on_insert` reads `current_account` to fill its `account_id`, raising
-    # `LookupError` when unset (fail closed, by design). Measured: without this the rename
-    # succeeded and then died on the audit insert, so the name changed and the trail did not.
+    # **`audit_log` is a tenant table, so the audit row needs the account bound two ways.**
     #
-    # Bound around the audit write rather than the whole function so the validation above still
-    # runs with whatever context the caller had.
+    # The rename itself touches only `accounts`, which is GLOBAL — but the audit row is
+    # tenant-owned, and it needs *both*:
+    #
+    #   the ContextVar   `_stamp_tenant_on_insert` reads `current_account` to fill `account_id`,
+    #                    and raises `LookupError` when unset (fail closed, by design)
+    #   the GUC          RLS's `WITH CHECK` compares `account_id` against
+    #                    `current_setting('app.current_account')`, which is stamped once at
+    #                    `after_begin` — so on a transaction already open before this call it
+    #                    still holds whatever it held then, and `account_context` alone does not
+    #                    update it
+    #
+    # Measured with only the ContextVar: the rename committed and the audit insert was refused
+    # with `InsufficientPrivilege ... for table "audit_log"`, so the estate was renamed and the
+    # trail recording it was not — the one outcome an audit trail must never have.
     from mihomes.tenancy import account_context
+    from mihomes.tenancy.connection import ACCOUNT_GUC
 
     with account_context(account.id):
+        if session.get_bind().dialect.name == "postgresql":
+            session.execute(
+                sa_text("SELECT set_config(:guc, :acct, true)"),
+                {"guc": ACCOUNT_GUC, "acct": str(account.id)},
+            )
         record_change(
             session,
             entity_type="account",

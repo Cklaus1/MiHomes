@@ -61,10 +61,56 @@ from sqlalchemy.orm import Session
 
 from mihomes.tenancy.context import current_account, current_user
 
-__all__ = ["ACCOUNT_GUC", "USER_GUC", "install_connection_listeners"]
+__all__ = [
+    "ACCOUNT_GUC",
+    "USER_GUC",
+    "bind_user_guc",
+    "install_connection_listeners",
+]
 
 ACCOUNT_GUC = "app.current_account"
 USER_GUC = "app.current_user"
+
+
+def bind_user_guc(session: Session, user_id) -> None:
+    """Stamp `app.current_user` so RLS's `membership_self` policy can see this user's rows.
+
+    **Every membership read that runs before a tenant is bound needs this, and six of them
+    were missing it.** `memberships` is a tenant table. The pre-account reads — session
+    lookup, principal resolution, sign-in's account binding — are covered not by
+    `ACCOUNT_GUC` (there is no account yet; that is what they are resolving) but by the
+    `membership_self` policy:
+
+        USING (user_id = (SELECT NULLIF(current_setting('app.current_user', true), '')::uuid))
+
+    `auth/sessions.py`'s docstring names that policy as the enforcement for exactly these
+    reads. But the GUC is otherwise only stamped by `_set_tenant_guc` from the `current_user`
+    ContextVar, which is unset on these paths — the request is *becoming* authenticated. So the
+    policy evaluated against NULL and the reads returned **zero rows for a user with a
+    perfectly good membership**, with no error to hint at it.
+
+    Measured on a live install, and the symptoms did not look like one bug:
+
+      * `lookup_session` found no membership → returned `None` → every request read as
+        unauthenticated → **the browser bounced back to `/login` in a loop**.
+      * `resolve_principal` found none → 403 "No account selected" → **stuck on the onboarding
+        wizard**, unable to reach any other page.
+      * `sole_account_for` found none → the session was never bound to an account at sign-in.
+
+    Invisible to the whole suite, whose fixtures connect as a superuser — RLS does not apply to
+    one at all (`rls.py` records that measurement), so the policies were present and bound to
+    nothing.
+
+    Lives here rather than in each caller because it is one rule about one GUC, and six copies
+    is how five of them end up missing it. `is_local=true` keeps it transaction-scoped (N3), so
+    it cannot leak onto a pooled connection.
+    """
+    if session.get_bind().dialect.name != "postgresql":
+        return
+    session.execute(
+        text("SELECT set_config(:guc, :value, true)"),
+        {"guc": USER_GUC, "value": str(user_id)},
+    )
 
 
 def _set_tenant_guc(session: Session, transaction, connection) -> None:

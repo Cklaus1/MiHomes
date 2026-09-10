@@ -79,6 +79,29 @@ def resume(request: Request, db: Session = Depends(get_db)):
 
     step = onboarding.current_step(db, account.id)
     if step == onboarding.STEP_DASHBOARD:
+        # **Bind the session to this account before sending them to `/`, or the two routes
+        # bounce off each other forever.**
+        #
+        # `/` requires a bound account and answers 403 `NO_ACCOUNT_SELECTED` without one, which
+        # `app.py`'s handler turns into a redirect *back here* — and onboarding is finished, so
+        # this branch redirects to `/` again. Measured on a live install, and the log is just
+        # the two lines alternating:
+        #
+        #     GET /            303 See Other   -> /onboarding/
+        #     GET /onboarding/ 303 See Other   -> /
+        #
+        # The 403-to-onboarding redirect turned what used to be a dead end into a loop, so this
+        # is the other half of that change: onboarding must *resolve* the missing binding, not
+        # hand the request back unchanged.
+        #
+        # Reachable whenever a membership was created outside the wizard — a CLI bootstrap, the
+        # importer, a repair script — since only `establish_session` and `_select_account` bind,
+        # and neither of those ran. `set_current_account` re-verifies the membership server-side,
+        # so this cannot bind an account the user is not actually in.
+        current = lookup_session(db, request.cookies.get(SESSION_COOKIE))
+        if current is not None and current.account_id is None:
+            set_current_account(db, current.session_id, account.id)
+
         return RedirectResponse("/", status_code=303)
 
     template = {

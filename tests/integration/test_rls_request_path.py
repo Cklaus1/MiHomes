@@ -306,3 +306,46 @@ def test_the_wizard_does_not_mint_a_second_account_for_a_member(rls_app):
         f"{accounts} accounts exist — the wizard minted another one for an existing member, "
         f"stranding their data on the first"
     )
+
+
+def test_an_unbound_session_does_not_bounce_between_root_and_onboarding(rls_app):
+    """**The redirect loop**, and it was half my own making.
+
+    `/` requires a bound account and answers 403 `NO_ACCOUNT_SELECTED` without one, which the
+    403 handler turns into a redirect to `/onboarding/`. But onboarding is *finished* for this
+    account, so `resume` redirected straight back to `/`. The two routes then bounced off each
+    other forever, and the log is just the same two lines alternating:
+
+        GET /            303 See Other   -> /onboarding/
+        GET /onboarding/ 303 See Other   -> /
+
+    Before the 403 handler existed this was a dead end (a bare JSON 403) rather than a loop, so
+    adding the redirect required onboarding to *resolve* the missing binding instead of handing
+    the request back unchanged. This test is what pins that pairing.
+
+    Reachable whenever a membership was created outside the wizard — a CLI bootstrap, the
+    importer, a repair script — because only `establish_session` and `_select_account` bind an
+    account, and neither of those ran.
+    """
+    import mihomes.db as db_module
+
+    client, _ = rls_app
+    _sign_in(client)
+
+    with db_module._engine.begin() as conn:
+        conn.execute(text("update sessions set current_account_id = null"))
+
+    path = "/"
+    for _ in range(6):
+        response = client.get(path, headers=_HTML)
+        if response.status_code != 303:
+            break
+        path = response.headers["location"]
+    else:
+        pytest.fail(
+            "still redirecting after 6 hops — / and /onboarding/ are bouncing off each other"
+        )
+
+    assert response.status_code == 200, (
+        f"the chain from / settled on {response.status_code} at {path!r} rather than rendering"
+    )

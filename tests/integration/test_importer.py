@@ -564,3 +564,138 @@ def test_the_refusal_names_the_plan_and_the_count(source_db, target):
     message = str(exc.value)
     assert "Nothing was imported" in message
     assert "re-run" in message
+
+
+# --- RLS: the importer must prove which tenant it is acting as ---------------------
+
+@pytest.fixture
+def target_rls(_pg_engine):
+    """Like `target`, but reached as a **non-superuser** so RLS actually applies.
+
+    **Why this fixture had to exist.** `target` connects as `postgres`, and plain RLS does not
+    apply to a superuser — nor to the table owner, which is why `0002_rls` also sets `FORCE ROW
+    LEVEL SECURITY`. `install_rls` does emit the policies on `create_all`, so the policies were
+    present in every test database all along; what was missing was a connection that they bind
+    to. So the whole file exercised the importer with RLS effectively switched off, and a live
+    failure — `InsufficientPrivilege: new row violates row-level security policy for table
+    "ai_conversations"` on a real Postgres install — was invisible to eight passing tests.
+
+    Kept separate rather than converting `target`: the other tests are about row counts, FK
+    remapping and file moves, and running them through a restricted role would make an
+    unrelated permission slip look like an importer bug.
+    """
+    from sqlalchemy.engine import make_url
+
+    from tests.conftest import APP_PASSWORD, APP_ROLE
+
+    name = f"mihomes_import_rls{uuid.uuid4().hex[:8]}"
+    admin = create_engine(
+        str(_pg_engine.url.set(database="postgres")), isolation_level="AUTOCOMMIT", future=True
+    )
+    with admin.connect() as conn:
+        conn.exec_driver_sql(f'CREATE DATABASE "{name}"')
+
+    owner_url = str(_pg_engine.url.set(database=name))
+    owner_engine = create_engine(owner_url, future=True)
+
+    from mihomes.models import Base
+
+    Base.metadata.create_all(owner_engine)  # `install_rls` fires here
+
+    account_id = uuid.uuid4()
+    with owner_engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO accounts (id, slug, name, type, plan, subscription_status) "
+                "VALUES (:i, 'imported', 'Imported', 'household', 'estate', 'active')"
+            ),
+            {"i": account_id},
+        )
+    with owner_engine.begin() as conn:
+        conn.exec_driver_sql(f"GRANT USAGE ON SCHEMA public TO {APP_ROLE}")
+        conn.exec_driver_sql(
+            "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public "
+            f"TO {APP_ROLE}"
+        )
+        conn.exec_driver_sql(
+            f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {APP_ROLE}"
+        )
+    owner_engine.dispose()
+
+    app_url = make_url(owner_url).set(username=APP_ROLE, password=APP_PASSWORD)
+    engine = create_engine(app_url, future=True)
+    try:
+        yield engine, account_id
+    finally:
+        engine.dispose()
+        with admin.connect() as conn:
+            conn.exec_driver_sql(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                f"WHERE datname = '{name}' AND pid <> pg_backend_pid()"
+            )
+            conn.exec_driver_sql(f'DROP DATABASE IF EXISTS "{name}"')
+        admin.dispose()
+
+
+def test_import_sets_the_tenant_guc_so_rls_admits_the_rows(source_db, target_rls):
+    """**The regression.** Without the GUC, RLS rejects the first protected insert.
+
+    `tenancy/connection.py` installs the `set_config('app.current_account', …, true)` listener
+    on SQLAlchemy's `Session` *class*, and the importer's insert loop uses a raw
+    `engine.begin()` — so the listener never fired, the GUC read NULL, and `0002_rls`'s
+    `WITH CHECK (account_id = current_setting('app.current_account', true)::uuid)` refused the
+    row. Every row already carried the correct `account_id`; the connection simply could not
+    prove which tenant it was.
+
+    Reverting the `set_config` in `import_sqlite` fails this with exactly the production error.
+    """
+    engine, account_id = target_rls
+
+    report = import_sqlite(source_db, engine, account_id)
+
+    assert report.total_inserted > 0, "nothing was imported at all"
+
+    # The rows are readable back *as the same tenant*, which is the other half of the claim:
+    # inserting under one account and reading under another must not see them.
+    from mihomes.tenancy.connection import ACCOUNT_GUC
+
+    with engine.begin() as conn:
+        conn.execute(
+            text("SELECT set_config(:g, :a, true)"), {"g": ACCOUNT_GUC, "a": str(account_id)}
+        )
+        n = conn.execute(text("SELECT count(*) FROM properties")).scalar()
+    assert n > 0, "rows committed but not visible to their own tenant"
+
+
+def test_the_empty_account_guard_is_not_silently_disabled_by_rls(source_db, target_rls):
+    """**The second bug, and the quieter one.**
+
+    `_require_empty_account` counts existing rows to refuse a re-import. RLS's `USING` clause
+    uses `current_setting(..., true)`, whose `missing_ok` makes an unset GUC yield NULL — so the
+    predicate is NULL and the count returns **zero rows rather than an error**
+    (`rls.py`: "fail closed and quiet"). Correct for a route that forgot its context; fatal
+    here, because the guard then sees an empty account whatever it holds and permits a second
+    import, duplicating every row — the half-imported account it exists to prevent.
+
+    `test_refuses_a_non_empty_account` could not catch this: it runs as superuser, where the
+    counts are visible regardless.
+    """
+    engine, account_id = target_rls
+
+    first = import_sqlite(source_db, engine, account_id)
+    assert first.total_inserted > 0
+
+    with pytest.raises(ImportError_, match="already has data"):
+        import_sqlite(source_db, engine, account_id)
+
+    # And the refusal must be a *refusal*, not a partial second write.
+    from mihomes.tenancy.connection import ACCOUNT_GUC
+
+    with engine.begin() as conn:
+        conn.execute(
+            text("SELECT set_config(:g, :a, true)"), {"g": ACCOUNT_GUC, "a": str(account_id)}
+        )
+        n = conn.execute(text("SELECT count(*) FROM properties")).scalar()
+    assert n == first.inserted.get("properties", 0), (
+        "the second import wrote rows despite being refused — the account is now duplicated"
+    )

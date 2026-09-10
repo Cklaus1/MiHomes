@@ -58,6 +58,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from sqlalchemy import func, inspect, select
+from sqlalchemy import text as sa_text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
@@ -747,7 +748,33 @@ def import_sqlite(
 
         from mihomes.models import Base
 
+        # **The tenant GUC must be stamped on this connection, or RLS refuses every insert.**
+        #
+        # `tenancy/connection.py` installs the `set_config('app.current_account', …, true)`
+        # listener on SQLAlchemy's `Session` *class*, so a raw `engine.begin()` never fires it.
+        # The GUC then reads NULL, and `0002_rls`'s policy —
+        # `WITH CHECK (account_id = current_setting('app.current_account', true)::uuid)` —
+        # rejects the row:
+        #
+        #     InsufficientPrivilege: new row violates row-level security policy
+        #     for table "ai_conversations"
+        #
+        # Every row carries the right `account_id` already (`_rewrite_row` stamps it); the
+        # failure is purely that the *connection* could not prove which tenant it was acting
+        # as. Which table surfaces first is incidental — it is whichever RLS-protected table
+        # the topological order reaches first, so this was never specific to
+        # `ai_conversations`.
+        #
+        # Set explicitly rather than by routing through a `Session`: this loop issues Core
+        # inserts against `Base.metadata.tables` and wants no ORM unit-of-work, and the
+        # `str(uuid)` here is the same value the listener would stamp. `is_local=true` keeps it
+        # transaction-scoped (N3), so it cannot leak onto a pooled connection afterwards.
         with engine.begin() as conn:
+            if conn.dialect.name == "postgresql":
+                conn.execute(
+                    sa_text("SELECT set_config('app.current_account', :acct, true)"),
+                    {"acct": str(account_id)},
+                )
             for table in order:
                 if table not in target:
                     continue
@@ -936,6 +963,22 @@ def _require_empty_account(engine: Engine, account_id: uuid.UUID) -> None:
     from mihomes.tenancy.registry import TENANT_TABLES
 
     with engine.connect() as conn:
+        # **The same GUC the insert loop needs, and here its absence is silent.** RLS's
+        # `USING` clause uses `current_setting('app.current_account', true)`, whose `missing_ok`
+        # makes an unset GUC yield NULL — so the predicate is NULL and every count comes back
+        # **zero rows rather than an error** (`rls.py`: "fail closed and quiet").
+        #
+        # That is the correct behaviour for a route that forgot its context, and exactly wrong
+        # for this guard: without the GUC, `_require_empty_account` sees an empty account no
+        # matter what the account actually holds, and cheerfully permits a second import —
+        # duplicating every row, which is the "half-imported account" this function exists to
+        # rule out. A guard that cannot fail is worse than no guard, because it reads as one.
+        if conn.dialect.name == "postgresql":
+            conn.execute(
+                sa_text("SELECT set_config('app.current_account', :acct, true)"),
+                {"acct": str(account_id)},
+            )
+
         present = set(inspect(engine).get_table_names())
         for table in sorted(TENANT_TABLES):
             if table not in present:

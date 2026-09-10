@@ -12,6 +12,28 @@ def _demo_flag() -> bool:
     return "--demo" in sys.argv
 
 
+def _configure_logging() -> None:
+    """Install the rotating file log for the **web** process (L1).
+
+    **This was missing, and it made every web 500 undiagnosable.** `setup_logging()` was called
+    only from the CLI root callback (`cli/__init__.py`), and `mihomes-web` / `mihomes-dev` are
+    separate entry points that run uvicorn directly — so no handler was ever attached and
+    `logging_config`'s deliberate lack of a console handler meant the records went nowhere at
+    all.
+
+    The visible cost: `errors.py`'s catch-all handler renders *"quote this reference and we can
+    find exactly what failed"* with a request id, and `logger.exception` wrote that traceback to
+    a logger with no handlers. So the page promised a lookup that could not succeed, and
+    `grep <request-id> ~/.mihomes/logs/mihomes.log` returned nothing — measured on a real 500.
+
+    Idempotent (see `setup_logging`), so calling it here as well as from the CLI is safe when a
+    process is both.
+    """
+    from mihomes.logging_config import setup_logging
+
+    setup_logging()
+
+
 def _seed_demo_db() -> None:
     """Create and seed demo.db if it hasn't been seeded yet."""
     from sqlalchemy import create_engine, inspect
@@ -54,6 +76,7 @@ def _stamp_head(url: str) -> None:
 
 def main() -> None:
     ensure_dirs()
+    _configure_logging()
     demo = _demo_flag()
     if demo:
         _seed_demo_db()
@@ -90,6 +113,7 @@ def main() -> None:
 def dev() -> None:
     """Development server — no-reload by default, stable on Windows."""
     ensure_dirs()
+    _configure_logging()
     demo = _demo_flag()
     if demo:
         _seed_demo_db()

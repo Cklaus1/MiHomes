@@ -64,12 +64,45 @@ from mihomes.tenancy.context import current_account, current_user
 __all__ = [
     "ACCOUNT_GUC",
     "USER_GUC",
+    "bind_account_guc",
     "bind_user_guc",
     "install_connection_listeners",
 ]
 
 ACCOUNT_GUC = "app.current_account"
 USER_GUC = "app.current_user"
+
+
+def bind_account_guc(session: Session, account_id) -> None:
+    """Stamp `ACCOUNT_GUC` on the **already-open** transaction, for a tenant write.
+
+    **`account_context` alone is not enough, and this is the trap.** That context manager sets
+    the `current_account` ContextVar, which is what `_stamp_tenant_on_insert` reads to fill a
+    new row's `account_id` — so the *stamp* works. But RLS's `WITH CHECK` compares that
+    `account_id` against `current_setting('app.current_account')`, and the GUC is written once
+    per transaction by `_set_tenant_guc` on `after_begin`. On a transaction that opened before
+    the context was entered — every web request, which begins its transaction in `get_db` and
+    only later learns which account it is acting for — the GUC still holds whatever it held
+    then, usually empty. The insert is then refused:
+
+        InsufficientPrivilege: new row violates row-level security policy
+        for table "onboarding_state"
+
+    Three separate writes hit exactly this and each looked like its own bug: the onboarding
+    state row (which made `GET /onboarding/` 500 for an existing member, so the wizard could
+    neither be finished nor escaped), the estate-rename audit row, and the owner membership at
+    account creation. The pattern to reach for is `account_context(...)` *plus* this — the
+    ContextVar for the stamp, the GUC for the policy.
+
+    Kept beside `bind_user_guc` and the listener that owns the same rule, because a copy per
+    call site is how the fourth one gets forgotten.
+    """
+    if session.get_bind().dialect.name != "postgresql":
+        return
+    session.execute(
+        text("SELECT set_config(:guc, :value, true)"),
+        {"guc": ACCOUNT_GUC, "value": str(account_id)},
+    )
 
 
 def bind_user_guc(session: Session, user_id) -> None:

@@ -45,6 +45,14 @@ def _account_for(db: Session, user: User):
 
     from mihomes.models.account import Account
     from mihomes.models.membership import Membership
+    from mihomes.tenancy.connection import bind_user_guc
+
+    # **Without the user GUC this read returns nothing and the wizard misdiagnoses the user.**
+    # `memberships` is a tenant table; a pre-account read is covered by the `membership_self`
+    # policy, keyed on `app.current_user`. Unbound, an existing owner looked account-less —
+    # so `create_account` fell past its idempotency guard and tried to mint a *second* account,
+    # and `resume` re-showed step 2 forever. Measured on a live install. See `bind_user_guc`.
+    bind_user_guc(db, user.id)
 
     row = db.execute(
         select(Membership.__table__.c.account_id).where(

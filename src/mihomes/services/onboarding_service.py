@@ -85,8 +85,17 @@ def get_state(session: Session, account_id: uuid.UUID) -> OnboardingState:
     this account through the signed-in user's own membership.
     """
     from mihomes.tenancy import account_context
+    from mihomes.tenancy.connection import bind_account_guc
 
     with account_context(account_id):
+        # **The GUC as well as the ContextVar.** `account_context` covers the `account_id`
+        # stamp; RLS's `WITH CHECK` compares against `current_setting('app.current_account')`,
+        # which was written at `after_begin` — before this request knew its account — so the
+        # INSERT below was refused with `InsufficientPrivilege ... for table
+        # "onboarding_state"`. That made `GET /onboarding/` 500 for an existing member, so the
+        # wizard could neither be completed nor escaped. See `bind_account_guc`.
+        bind_account_guc(session, account_id)
+
         state = session.get(OnboardingState, account_id)
         if state is None:
             state = OnboardingState(account_id=account_id, completed_steps=[])
@@ -231,17 +240,12 @@ def create_account_step(
     # `set_config` alone is undone by the next SAVEPOINT, as above. So: stamp this transaction
     # directly, and set the var so every later `after_begin` (i.e. `enrol`'s savepoint) stamps
     # the same account.
-    from sqlalchemy import text as _sa_text
-
     from mihomes.tenancy import current_account as _current_account_var
+    from mihomes.tenancy.connection import bind_account_guc
 
     _token = _current_account_var.set(account.id)
     try:
-        if session.get_bind().dialect.name == "postgresql":
-            session.execute(
-                _sa_text("SELECT set_config('app.current_account', :acct, true)"),
-                {"acct": str(account.id)},
-            )
+        bind_account_guc(session, account.id)
 
         session.add(
             Membership(

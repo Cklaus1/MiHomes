@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import text as sa_text
 from sqlalchemy.orm import Session
 
 from mihomes.models.account import Account
@@ -85,14 +84,10 @@ def rename_account(session: Session, account_id: uuid.UUID, name: str) -> Accoun
     # with `InsufficientPrivilege ... for table "audit_log"`, so the estate was renamed and the
     # trail recording it was not — the one outcome an audit trail must never have.
     from mihomes.tenancy import account_context
-    from mihomes.tenancy.connection import ACCOUNT_GUC
+    from mihomes.tenancy.connection import bind_account_guc
 
     with account_context(account.id):
-        if session.get_bind().dialect.name == "postgresql":
-            session.execute(
-                sa_text("SELECT set_config(:guc, :acct, true)"),
-                {"guc": ACCOUNT_GUC, "acct": str(account.id)},
-            )
+        bind_account_guc(session, account.id)
         record_change(
             session,
             entity_type="account",

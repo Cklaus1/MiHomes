@@ -248,3 +248,61 @@ def test_renaming_the_estate_works_end_to_end(rls_app):
             text("select count(*) from audit_log where action = 'rename'")
         ).scalar()
         assert rename_rows == 1, "the rename committed without an audit row"
+
+
+def test_onboarding_resume_does_not_500_without_a_state_row(rls_app):
+    """**`GET /onboarding/` 500'd for an existing member, so the wizard was inescapable.**
+
+    `get_state` lazily inserts the account's `onboarding_state` row on first read. That table is
+    tenant-owned, and `account_context` sets only the ContextVar — RLS's `WITH CHECK` compares
+    against `current_setting('app.current_account')`, stamped at `after_begin` before the request
+    knew its account. So the INSERT was refused:
+
+        InsufficientPrivilege: new row violates row-level security policy
+        for table "onboarding_state"
+
+    This is the state a member reaches when their membership was created outside the wizard (a
+    CLI bootstrap, the importer, a repair script): account and property exist, the onboarding
+    row does not. The fixture deliberately leaves it absent, so the lazy insert runs here.
+    """
+    client, _ = rls_app
+    _sign_in(client)
+
+    response = client.get("/onboarding/", headers=_HTML)
+    assert response.status_code < 500, (
+        f"/onboarding/ answered {response.status_code} — the lazy onboarding_state insert was "
+        f"refused, and the wizard can be neither completed nor escaped"
+    )
+
+
+def test_the_wizard_does_not_mint_a_second_account_for_a_member(rls_app):
+    """`_account_for` reads memberships pre-tenant; unbound it reported "no account".
+
+    The idempotency guard in `create_account` then fell through and tried to create a *second*
+    account for someone who already owned one — which is how a rename attempt became a 500 and,
+    worse, nearly a forked estate.
+    """
+    import mihomes.db as db_module
+
+    client, _ = rls_app
+    _sign_in(client)
+
+    # **Unbind the session's account first.** `_account_for` is only consulted on a session that
+    # has not resolved one — the state a member is in when their membership was created outside
+    # the wizard. With the account already bound, `resolve_principal` answers first and the
+    # guard is never reached, so the test would pass against the bug.
+    with db_module._engine.begin() as conn:
+        conn.execute(text("update sessions set current_account_id = null"))
+
+    client.post(
+        "/onboarding/account",
+        data={"name": "Should Not Create This", "account_type": "household"},
+        headers=_HTML,
+    )
+
+    with db_module._engine.begin() as conn:
+        accounts = conn.execute(text("select count(*) from accounts")).scalar()
+    assert accounts == 1, (
+        f"{accounts} accounts exist — the wizard minted another one for an existing member, "
+        f"stranding their data on the first"
+    )

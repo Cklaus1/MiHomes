@@ -1199,3 +1199,57 @@ What follows is what closing them turned up, which is more interesting than the 
   every request and response, real exception handlers, `/healthz` on the product app. **Nobody is
   paged.** `sentry-sdk` is config-gated and unconfigured, `PRD_REVIEW` E4 asked which monitoring
   stack and no doc has answered. At GA someone still has to be watching.
+
+- [DEFER][SPEC-006 §5.1 / SPEC-002 §7] **The gateway's "one legitimately unscoped read" is not
+  actually unscoped — RLS hides it.** `gateways/identity.py`'s docstring carves out
+  `resolve_sender` as the one read that runs before tenant context exists, and says a **Core
+  `select` against `__table__`** is what makes that safe, "which does not go through the ORM's
+  `do_orm_execute` tenancy listener and therefore does not demand the context it is trying to
+  establish." That is true of the ORM listener and **false of row-level security**, which is
+  enforced in the database and does not care which SQLAlchemy API issued the statement.
+
+  Measured as a non-superuser against a schema with `(relrowsecurity, relforcerowsecurity) =
+  (True, True)` on `telegram_links`, with a link row that demonstrably exists:
+
+  | path | result under RLS | direction |
+  |---|---|---|
+  | `gateways/identity.resolve_sender` | raises `UnlinkedSender` — "no active telegram link in any account" | fails closed; **every inbound message gets the link prompt** |
+  | `telegram_link_service.resolve_sender` | returns `None` | fails closed, but **silently downgrades every linked sender to staff** via D16's unlinked fallback |
+  | `financial_guard.group_contains_staff` | `linked` is empty → every member reads as unlinked → `True` | fails closed: finances are redacted, for the wrong reason |
+
+  All three fail in the safe direction, which is why this is a defect and not an incident. The
+  second is the one that will mislead: an owner whose bot answers as though they were staff
+  looks like a permissions bug, and nothing in the symptom points at RLS.
+
+  **This is not another missed `bind_user_guc` call.** The eight web-layer instances fixed on
+  2026-09-10/11 were forgotten bindings — the account was knowable and nobody bound it. Here the
+  account is genuinely unknown at read time; discovering it is the function's entire purpose, and
+  the module says so. It is a gap in the carve-out's reasoning, not a missing call site.
+
+  **Why no policy was written.** The obvious fix — a `membership_self`-shaped policy on
+  `telegram_links` keyed on the sender — does not work, and the reason is worth recording so
+  nobody re-derives it. `membership_self` is safe because a session cookie names the user before
+  any account is known: `app.current_user` is attacker-uncontrolled. A Telegram webhook has no
+  session. Its only credential is the shared `X-Telegram-Bot-Api-Secret-Token`, and the sender id
+  comes from the **request body** (`web/routes/gateways.py`, step 3). A policy keyed on that
+  would let the payload choose which tenant's rows become visible — the cross-account read RLS
+  exists to prevent, re-introduced as a policy. **Do not write that policy.**
+
+  Three options for whoever picks this up, smallest first:
+
+  1. **Split the exemption by sensitivity.** `telegram_links` alone maps a Telegram id to a
+     membership; reading it cross-tenant leaks "this id is linked somewhere", not estate data.
+     `memberships` is the sensitive half. Unscoped link lookup + role resolution scoped to the
+     account it returns may be sufficient, and is much smaller than a policy change.
+  2. **A dedicated read path.** A second engine/role with `SELECT` on `telegram_links` and
+     `memberships` only — not `BYPASSRLS` (N5 forbids it), not the app role. Keeps the exemption
+     in one auditable place instead of in a policy that applies to every query forever.
+  3. **Revisit D11.** If neither holds, the "resolve once at ingress" boundary may need the
+     account to arrive from the transport (a per-account webhook path or token) rather than be
+     discovered from the payload.
+
+  **Not urgent**: `mihomes_dev` has zero `telegram_links` rows and no `telegram.*` configuration,
+  so no live install is hitting this. It becomes blocking the moment the bot is pointed at a
+  Postgres deployment — which is what `project_vm_deployment_telegram_bot` describes as paused.
+  Reproduction: `tests/integration/test_rls_request_path.py` has the non-superuser fixture
+  pattern; the audit script drove the three calls directly against a `tg2_app` role.

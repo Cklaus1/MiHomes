@@ -17,6 +17,8 @@ against a no-op cipher.**
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 
 from mihomes.services import config_service
@@ -709,3 +711,103 @@ class TestEditingYourOwnProfile:
             text("select name from users where id = :i"), {"i": victim}
         ).scalar()
         assert still == "Victim", "the route honoured a user id from the request body"
+
+
+class TestMembersSection:
+    """The rendered page and the five routes behind it.
+
+    Separate from the service tests in `test_settings_members.py` for the reason G8 taught:
+    `redact_for_role` passed its unit tests for two whole groups while nothing called it. These
+    go through HTTP, so they fail if the wiring is wrong even when every service is correct.
+    """
+
+    def test_the_page_lists_members(self, web_client_as):
+        client = web_client_as("owner")
+        response = client.get("/settings")
+
+        assert response.status_code == 200
+        assert "Members" in response.text
+        # The signed-in owner is a member, so their own address must be on the page.
+        assert "owner-" in response.text
+
+    def test_invite_renders_the_link_once(self, web_client_as):
+        """**The defect this feature exists to fix**, asserted end to end.
+
+        `create_invite` hands back a token that exists nowhere else — `team.py:114` drops it and
+        no invite email template exists. If this route redirected like that one does, the
+        invitation would consume a seat and produce a link nobody could retrieve. The response
+        body is the only delivery mechanism, so the response body is what gets asserted.
+        """
+        client = web_client_as("owner")
+        response = client.post(
+            "/settings/members/invite",
+            data={"email": "newcomer@example.com", "role": "admin"},
+        )
+
+        assert response.status_code == 200, "must render, not redirect — the token is in the body"
+        assert "/invite/" in response.text, "the invitation link must be shown"
+        assert "newcomer@example.com" in response.text
+
+    def test_staff_invite_without_properties_is_refused_on_the_page(self, web_client_as):
+        """A21/D3 surfaces as a form error rather than a 500."""
+        client = web_client_as("owner")
+        response = client.post(
+            "/settings/members/invite",
+            data={"email": "housekeeper@example.com", "role": "staff"},
+        )
+
+        assert response.status_code == 400
+        assert "at least one property" in response.text
+
+    def test_admin_cannot_revoke_themselves(self, web_client_as):
+        """The lockout guard — one click, no confirmation, no way back in.
+
+        R1 covers role changes but `offboard` has no self-check, so this is the only thing
+        standing between an admin and locking themselves out of the estate. The template omits
+        the button; this posts anyway, because the form is not the gate.
+        """
+        client = web_client_as("admin")
+        response = client.post(f"/settings/members/{client.membership_id}/revoke")
+
+        assert response.status_code == 400
+        assert "your own access" in response.text
+
+        # And they are still in.
+        assert client.get("/settings").status_code == 200
+
+    def test_a_membership_from_another_estate_is_not_found(self, web_client_as):
+        """D9's reasoning: ids arrive from a form, so an unknown one must not be actionable.
+
+        A random uuid stands in for another account's membership — the response must be
+        identical either way, or the pair of responses enumerates which ids are real.
+        """
+        client = web_client_as("owner")
+        stranger = uuid.uuid4()
+
+        assert client.post(f"/settings/members/{stranger}/revoke").status_code == 404
+        assert client.post(
+            f"/settings/members/{stranger}/role", data={"role": "staff"}
+        ).status_code == 404
+
+    def test_staff_never_reach_any_member_route(self, web_client_as):
+        """Rows 10-13 are all `DENY` for staff, applied by the dependency before the body runs."""
+        client = web_client_as("staff", scoped_to=[])
+        target = uuid.uuid4()
+
+        assert client.get("/settings").status_code == 403
+        assert client.post(
+            "/settings/members/invite", data={"email": "x@example.com", "role": "admin"}
+        ).status_code == 403
+        assert client.post(
+            f"/settings/members/{target}/role", data={"role": "admin"}
+        ).status_code == 403
+        assert client.post(f"/settings/members/{target}/revoke").status_code == 403
+
+    def test_billing_link_is_owner_only(self, web_client_as):
+        """`billing.manage` is owner-only (row 15) — an admin runs the estate, not the card.
+
+        A link an admin cannot follow would be a 403 dressed as a feature, so the page omits it
+        rather than rendering one that refuses.
+        """
+        assert "/billing" in web_client_as("owner").get("/settings").text
+        assert "/billing" not in web_client_as("admin").get("/settings").text

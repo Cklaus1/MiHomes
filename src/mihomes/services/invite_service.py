@@ -38,6 +38,7 @@ __all__ = [
     "create_invite",
     "find_pending",
     "hash_token",
+    "list_pending_for_account",
     "revoke_invite",
     "seats_used",
 ]
@@ -334,3 +335,29 @@ def email_mismatch(invite: Invite, user) -> bool:
     notification is what turns a stolen invite into something the account can see.
     """
     return (getattr(user, "email", "") or "").strip().lower() != invite.email
+
+
+def list_pending_for_account(session: Session, account_id: uuid.UUID) -> list[Invite]:
+    """Pending, unexpired invitations — the other half of the seat count.
+
+    A page that listed only memberships would show "2 members" while `seats_used` reported 4,
+    and the difference would be invisible: a pending invite holds a seat from the moment it is
+    created (D6), precisely so the account never emails an invitation it cannot honour. Showing
+    them is what makes the seat line explicable, and it is the only surface on which an invite
+    can be revoked to free its seat again.
+
+    Expiry is filtered in the query rather than after it, so an invite that lapsed an hour ago
+    stops occupying a row the moment it stops occupying a seat — the two must agree, or the page
+    offers a revoke button for something that is already gone.
+    """
+    return list(
+        session.execute(
+            select(Invite)
+            .where(
+                Invite.account_id == account_id,
+                Invite.status == "pending",
+                Invite.expires_at > datetime.now(timezone.utc),
+            )
+            .order_by(Invite.created_at)
+        ).scalars()
+    )

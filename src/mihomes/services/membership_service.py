@@ -19,18 +19,57 @@ atomic.
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
+from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from mihomes.models.membership import Membership
+from mihomes.ids import new_id
+from mihomes.models.membership import Membership, MembershipPropertyScope
+from mihomes.models.property import Property
+from mihomes.models.user import User
+from mihomes.services.audit import record_change
+from mihomes.tenancy import account_context
+from mihomes.tenancy.connection import bind_account_guc
 
 __all__ = [
+    "MemberView",
     "MembershipError",
     "change_role",
+    "list_members",
     "offboard",
+    "property_scopes_by_membership",
+    "set_property_scope",
     "transfer_ownership",
 ]
+
+#: Owner, then admin, then staff. A rank rather than an alphabetical sort on the role string,
+#: which would read admin/owner/staff and put the person who runs the estate in the middle.
+_ROLE_ORDER = {"owner": 0, "admin": 1, "staff": 2}
+
+
+@dataclass(frozen=True)
+class MemberView:
+    """One row of the members list — a read model, deliberately not a `Membership`.
+
+    The template needs the person's name and email, which live on `users` (GLOBAL), alongside
+    their role, which lives on `memberships` (tenant-owned). Handing the template two ORM
+    objects to join in Jinja would put a query in the render path for every row; flattening it
+    here keeps the page one query.
+    """
+
+    membership_id: uuid.UUID
+    user_id: uuid.UUID
+    name: str | None
+    email: str
+    role: str
+    joined_at: datetime
+
+    @property
+    def display_name(self) -> str:
+        """Their name, or the email that is all we have until they set one."""
+        return self.name or self.email
 
 
 class MembershipError(Exception):
@@ -170,3 +209,155 @@ def transfer_ownership(
     session.flush()          # ...and exactly one again
 
     return from_membership, to_membership
+
+
+def list_members(session: Session, account_id: uuid.UUID) -> list[MemberView]:
+    """Every active member of the account, as an org chart rather than an insertion log.
+
+    Joins `users` — which is GLOBAL — to `memberships`, which is not. That crossing is the
+    reason this reuses the shape of `billing/service.py::_billing_email` rather than inventing
+    one: that query already reaches `User` fields through `Membership` and already filters on
+    `status == "active"`, which matters here for the same reason it matters there. A revoked
+    member keeps their row (`offboard` is a soft revoke, so the account keeps their work), so a
+    query keyed only on `account_id` would list people who no longer have access.
+
+    Ordered owner, then admin, then staff, alphabetical within each. Insertion order would put
+    a housekeeper hired last at the bottom and the owner wherever they happened to land, which
+    reads as a log; this reads as who runs the estate.
+    """
+    rows = session.execute(
+        select(
+            Membership.id,
+            Membership.role,
+            Membership.created_at,
+            User.id.label("user_id"),
+            User.name,
+            User.email,
+        )
+        .join(User, User.id == Membership.user_id)
+        .where(
+            Membership.account_id == account_id,
+            Membership.status == "active",
+        )
+    ).all()
+
+    return sorted(
+        (
+            MemberView(
+                membership_id=row.id,
+                user_id=row.user_id,
+                name=row.name,
+                email=row.email,
+                role=row.role,
+                joined_at=row.created_at,
+            )
+            for row in rows
+        ),
+        key=lambda m: (_ROLE_ORDER.get(m.role, len(_ROLE_ORDER)), (m.name or m.email).lower()),
+    )
+
+
+def set_property_scope(
+    session: Session,
+    membership: Membership,
+    property_ids: list[uuid.UUID],
+) -> None:
+    """Replace a staff member's property whitelist wholesale.
+
+    **Refuses an empty list**, the same refusal `create_invite` makes at creation time and for
+    the same reason (A21/D3): zero scope rows means zero properties visible, and a member who
+    can sign in and see nothing cannot tell that from the product being broken. The fail-closed
+    direction of D3 means the fix cannot be "grant all", so the only safe answer is to refuse
+    the write.
+
+    **Refuses for owner and admin.** `scoped_property_ids` ignores their scope rows outright
+    (`ONBOARDING:44`), so rows written here would never be read — state that looks like it
+    governs access and does not. Storing it would invite exactly one bug: someone reads the
+    rows back, believes they are the whitelist, and narrows an owner who is in fact unrestricted.
+
+    Every id is checked against this account before anything is written, so a property id
+    belonging to another estate cannot enter the whitelist.
+    """
+    if membership.role != "staff":
+        raise MembershipError(
+            f"a {membership.role} already sees every property, so a scope cannot be set for "
+            "them — scope rows are read only for staff (ONBOARDING:44)"
+        )
+
+    requested = list(dict.fromkeys(property_ids))
+    if not requested:
+        raise MembershipError(
+            "a staff member must keep at least one property — zero scope rows means zero "
+            "properties visible, which is indistinguishable from a broken account (D3)"
+        )
+
+    with account_context(membership.account_id):
+        bind_account_guc(session, membership.account_id)
+
+        known = set(
+            session.execute(
+                select(Property.id).where(
+                    Property.id.in_(requested),
+                    Property.account_id == membership.account_id,
+                )
+            ).scalars()
+        )
+        missing = [p for p in requested if p not in known]
+        if missing:
+            # One message for "another account's" and "does not exist" alike — the same
+            # reasoning D9 applies to targets, on a surface where the ids come from a form.
+            raise MembershipError("that property is not part of this estate")
+
+        session.execute(
+            delete(MembershipPropertyScope).where(
+                MembershipPropertyScope.membership_id == membership.id,
+                MembershipPropertyScope.account_id == membership.account_id,
+            )
+        )
+        for property_id in requested:
+            session.add(
+                MembershipPropertyScope(
+                    id=new_id(),
+                    account_id=membership.account_id,
+                    membership_id=membership.id,
+                    property_id=property_id,
+                )
+            )
+
+        record_change(
+            session,
+            entity_type="membership",
+            entity_id=membership.id,
+            # `audit_log.action` is `String(10)`, and every existing value fits it
+            # ("create", "update", "rename", "replace"). "scope_changed" does not — caught by
+            # the test, as a DataError on the audit insert rather than on the scope write.
+            action="rescope",
+            changes={"property_ids": [str(p) for p in requested]},
+        )
+        session.flush()
+
+
+def property_scopes_by_membership(
+    session: Session, account_id: uuid.UUID
+) -> dict[uuid.UUID, set[uuid.UUID]]:
+    """Every staff whitelist in the account, keyed by membership.
+
+    One query for the whole page rather than one per staff row: the members list renders a
+    checkbox per property per staff member, and resolving each row's scope separately would put
+    a query inside the render loop.
+
+    Absent keys are meaningful. A staff member with no scope rows does not appear here at all,
+    and the template's `.get(id, [])` renders that as every box unchecked — which is what zero
+    scope rows means (D3), rather than something that failed to load.
+    """
+    rows = session.execute(
+        select(
+            MembershipPropertyScope.membership_id,
+            MembershipPropertyScope.property_id,
+        ).where(MembershipPropertyScope.account_id == account_id)
+    ).all()
+
+    scopes: dict[uuid.UUID, set[uuid.UUID]] = {}
+    for membership_id, property_id in rows:
+        scopes.setdefault(membership_id, set()).add(property_id)
+    return scopes

@@ -2,69 +2,137 @@
 {% block title %}Settings — MiHomes{% endblock %}
 {% block content %}
 <div class="max-w-2xl mx-auto py-6 sm:py-10">
-  <h1 class="text-xl sm:text-2xl font-semibold mb-6">Settings</h1>
+  <h1 class="text-xl sm:text-2xl font-semibold mb-8">Settings</h1>
 
+  {# Two separate error slots, because two independent forms can fail and a shared one would
+     show a password refusal above the estate-name field. #}
   {% if error %}
     <p class="mb-4 rounded border border-red-300 bg-red-50 px-3 py-2 text-red-800">{{ error }}</p>
   {% endif %}
 
-  {# The estate name, first — it is the one setting with a plain-English name rather than a
-     config key, and onboarding's "You can change this later" points here. #}
-  <h2 class="text-lg font-medium mb-1">Estate name</h2>
-  <p class="text-sm text-gray-500 mb-3">Shown throughout the app. Renaming is safe — it does
-    not affect your data or the <span class="font-mono text-xs">--account</span> name used on
-    the command line.</p>
-  <form method="post" action="/settings/account" class="flex flex-col sm:flex-row gap-3 mb-10">
-    <label for="account-name" class="sr-only">Estate name</label>
-    <input id="account-name" name="name" required maxlength="200"
-           value="{{ account.name if account else '' }}"
-           class="flex-1 border rounded px-3 py-2" />
-    <button class="bg-brand-600 text-white rounded px-4 py-2 whitespace-nowrap">Save name</button>
-  </form>
+  {# ── Estate ─────────────────────────────────────────────────────────────── #}
+  <section class="mb-10">
+    <h2 class="text-lg font-medium mb-1">Estate</h2>
+    <p class="text-sm text-gray-500 mb-3">The name shown throughout the app. Renaming is safe —
+      it does not affect your data, and the
+      <span class="font-mono text-xs">--account</span> name used on the command line stays the
+      same.</p>
+    <form method="post" action="/settings/account" class="flex flex-col sm:flex-row gap-3">
+      <label for="account-name" class="sr-only">Estate name</label>
+      <input id="account-name" name="name" required maxlength="200"
+             value="{{ account.name if account else '' }}"
+             class="flex-1 border rounded px-3 py-2" />
+      <button class="bg-brand-600 text-white rounded px-4 py-2 whitespace-nowrap">Save</button>
+    </form>
+  </section>
 
-  <h2 class="text-lg font-medium mb-3">Configuration</h2>
+  {# ── Your profile ───────────────────────────────────────────────────────── #}
+  <section class="mb-10">
+    <h2 class="text-lg font-medium mb-1">Your profile</h2>
+    <p class="text-sm text-gray-500 mb-3">Your own name and sign-in address. Other members of
+      the estate are not affected.</p>
 
-  <div class="overflow-x-auto">
-  <table class="w-full text-sm mb-8">
-    <thead class="text-left text-gray-500">
-      <tr><th class="py-2">Key</th><th class="py-2">Value</th><th class="py-2">Source</th></tr>
-    </thead>
-    <tbody>
-      {% for c in configs %}
-        <tr class="border-t">
-          <td class="py-2 font-mono">{{ c.key }}</td>
-          {# Already masked by list_config_for_display — the template never sees a raw secret,
-             so it cannot leak one by forgetting a filter (N3's reasoning applied to config). #}
-          <td class="py-2 font-mono">
-            {{ c.value or "—" }}
-            {% if c.secret %}
-              <span class="ml-2 text-xs text-gray-500">(hidden)</span>
-            {% endif %}
-          </td>
-          <td class="py-2 text-gray-500">{{ c.source }}</td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  </div>
+    {% if profile_error %}
+      <p class="mb-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-red-800">
+        {{ profile_error }}</p>
+    {% endif %}
 
-  <h2 class="text-lg font-medium mb-3">Change a setting</h2>
-  <form method="post" action="/settings" class="space-y-3">
-    <input name="key" placeholder="currency.default" required
-           class="w-full border rounded px-3 py-2 font-mono" />
-    <input name="value" placeholder="USD" required
-           class="w-full border rounded px-3 py-2 font-mono" />
-    <button class="bg-brand-600 text-white rounded px-4 py-2">Save</button>
-  </form>
+    <form method="post" action="/settings/profile" class="space-y-3">
+      <div>
+        <label for="profile-name" class="block text-sm text-gray-600 mb-1">Name</label>
+        <input id="profile-name" name="name" required maxlength="200"
+               value="{{ user.name or '' if user else '' }}"
+               class="w-full border rounded px-3 py-2" />
+      </div>
 
-  {# This used to read "stored unencrypted … until at-rest encryption ships." It has shipped
-     (SPEC-003 U1), so the text changed — but it still states the residual rather than claiming
-     the problem is gone. Telling the operator exactly how far the protection reaches is worth
-     more than either the mask or the encryption on its own. #}
-  <p class="mt-6 text-xs text-gray-500">
-    API keys and tokens are hidden here and encrypted in the database, so a backup or database
-    copy does not expose them. The encryption key lives in the server's environment, so anyone
-    with access to the server itself can still read them.
-  </p>
+      {% if can_change_email %}
+        <div>
+          <label for="profile-email" class="block text-sm text-gray-600 mb-1">
+            Email <span class="text-gray-400">— this is how you sign in</span>
+          </label>
+          <input id="profile-email" name="email" type="email" required
+                 value="{{ user.email if user else '' }}"
+                 class="w-full border rounded px-3 py-2" />
+        </div>
+        <div>
+          <label for="profile-password" class="block text-sm text-gray-600 mb-1">
+            Current password <span class="text-gray-400">— only needed to change your email</span>
+          </label>
+          <input id="profile-password" name="current_password" type="password"
+                 autocomplete="current-password"
+                 class="w-full border rounded px-3 py-2" />
+        </div>
+        {# States the residual plainly. Nothing here proves the new address receives mail, so a
+           well-formed typo is still a lockout — saying so is worth more than a control that
+           looks safer than it is. #}
+        <p class="text-xs text-gray-500">
+          Changing your email changes the address you sign in with, immediately. There is no
+          confirmation email yet, so check it carefully before saving.
+        </p>
+      {% else %}
+        {# A Google identity has no password to verify and its address is managed upstream, so
+           the field is absent rather than present-and-always-refused. #}
+        <input type="hidden" name="email" value="{{ user.email if user else '' }}" />
+        <div>
+          <span class="block text-sm text-gray-600 mb-1">Email</span>
+          <p class="text-sm">{{ user.email if user else '' }}
+            <span class="text-gray-500">— managed by Google sign-in</span></p>
+        </div>
+      {% endif %}
+
+      <button class="bg-brand-600 text-white rounded px-4 py-2">Save profile</button>
+    </form>
+  </section>
+
+  {# ── Configuration ──────────────────────────────────────────────────────── #}
+  <section>
+    <h2 class="text-lg font-medium mb-1">Configuration</h2>
+    <p class="text-sm text-gray-500 mb-3">Advanced settings, stored as key/value pairs. Editing
+      these is rarely necessary.</p>
+
+    <div class="overflow-x-auto">
+    <table class="w-full text-sm mb-6">
+      <thead class="text-left text-gray-500">
+        <tr><th class="py-2">Key</th><th class="py-2">Value</th><th class="py-2">Source</th></tr>
+      </thead>
+      <tbody>
+        {% for c in configs %}
+          <tr class="border-t">
+            <td class="py-2 font-mono">{{ c.key }}</td>
+            {# Already masked by list_config_for_display — the template never sees a raw secret,
+               so it cannot leak one by forgetting a filter (N3's reasoning applied to config). #}
+            <td class="py-2 font-mono">
+              {{ c.value or "—" }}
+              {% if c.secret %}
+                <span class="ml-2 text-xs text-gray-500">(hidden)</span>
+              {% endif %}
+            </td>
+            <td class="py-2 text-gray-500">{{ c.source }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+
+    <form method="post" action="/settings" class="space-y-3">
+      <label for="config-key" class="sr-only">Setting name</label>
+      <input id="config-key" name="key" placeholder="currency.default" required
+             class="w-full border rounded px-3 py-2 font-mono" />
+      <label for="config-value" class="sr-only">Value</label>
+      <input id="config-value" name="value" placeholder="USD" required
+             class="w-full border rounded px-3 py-2 font-mono" />
+      <button class="bg-brand-600 text-white rounded px-4 py-2">Save setting</button>
+    </form>
+
+    {# This used to read "stored unencrypted … until at-rest encryption ships." It has shipped
+       (SPEC-003 U1), so the text changed — but it still states the residual rather than claiming
+       the problem is gone. Telling the operator exactly how far the protection reaches is worth
+       more than either the mask or the encryption on its own. #}
+    <p class="mt-6 text-xs text-gray-500">
+      API keys and tokens are hidden here and encrypted in the database, so a backup or database
+      copy does not expose them. The encryption key lives in the server's environment, so anyone
+      with access to the server itself can still read them.
+    </p>
+  </section>
 </div>
 {% endblock %}

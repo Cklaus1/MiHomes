@@ -50,11 +50,18 @@ def _page_context(db: Session, principal, **extra):
     that built its own dict was a chance to omit `account`, which the estate-name field reads.
     """
     from mihomes.models.account import Account
+    from mihomes.models.user import User
 
+    user = db.get(User, principal.user_id)
     context = {
         "page": "settings",
         "configs": config_service.list_config_for_display(db),
         "account": db.get(Account, principal.account_id),
+        "user": user,
+        # The template hides the email field entirely for a Google identity rather than
+        # rendering one that always refuses — a control that cannot succeed is worse than no
+        # control, because the reason is invisible until you try it.
+        "can_change_email": user is not None and user.password_hash is not None,
     }
     context.update(extra)
     return context
@@ -68,6 +75,65 @@ def index(request: Request, principal=require_authenticated(),
     return templates.TemplateResponse(
         request, "settings/index.html", _page_context(db, principal)
     )
+
+
+#: Editing **your own** profile, and the reason this is not `_SETTINGS_ACTION`.
+#:
+#: The estate rename is owner/admin — it changes what every member sees. Your own display name
+#: is not: a staff member must be able to fix the spelling of their own name without being
+#: granted account administration. Row 20 (`gateway.link_self`) is the existing key with exactly
+#: that shape — *"allowed to everyone, narrowed to self by the mechanism"* — and the mechanism
+#: here is that the route reads `principal.user_id` and accepts no user id from the request, so
+#: there is no version of this call that edits somebody else.
+#:
+#: Reusing row 20 rather than adding a 21st: the matrix is pinned at 20 rows by
+#: `test_matrix_has_twenty_rows`, and a new key for "edit your own profile" would be a second
+#: spelling of a grant pattern that already exists. Recorded because the name reads oddly at
+#: this call site — the vocabulary gap logged at G6, not a misuse.
+_PROFILE_ACTION = "gateway.link_self"
+
+
+@router.post("/settings/profile")
+@declares(_PROFILE_ACTION, Access.ACCOUNT)
+def update_profile_route(
+    request: Request,
+    name: str = Form(...),
+    email: str = Form(...),
+    current_password: str = Form(""),
+    principal=require_authenticated(),
+    db: Session = Depends(get_db),
+):
+    """Update the signed-in user's own name and email.
+
+    **Takes no user id.** The record edited is `principal.user_id` and nothing in the request
+    can change that, which is what makes a permission open to every role safe here.
+
+    The audit row this writes is tenant-owned while `users` is not, so the account has to be
+    bound around the call — the same pairing `services/account.py` documents.
+    """
+    from mihomes.services.profile import ProfileError, update_profile
+    from mihomes.tenancy import account_context
+    from mihomes.tenancy.connection import bind_account_guc
+
+    try:
+        with account_context(principal.account_id):
+            bind_account_guc(db, principal.account_id)
+            update_profile(
+                db,
+                principal.user_id,
+                name=name,
+                email=email,
+                current_password=current_password or None,
+            )
+    except ProfileError as exc:
+        return templates.TemplateResponse(
+            request,
+            "settings/index.html",
+            _page_context(db, principal, profile_error=str(exc)),
+            status_code=400,
+        )
+
+    return RedirectResponse("/settings", status_code=303)
 
 
 @router.post("/settings/account")

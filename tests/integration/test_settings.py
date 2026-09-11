@@ -563,3 +563,149 @@ class TestRenamingTheEstate:
         before = rename_rows()
         client.post("/settings/account", data={"name": "Stable Name"})
         assert rename_rows() == before, "an unchanged re-submit recorded an audit event"
+
+
+class TestSettingsIsReachable:
+    """**The page existed and nothing linked to it**, which is the same as not existing.
+
+    `/settings` shipped with SPEC-003 G15 and the estate rename was added to it, but no
+    template carried an `href="/settings"` — so it was reachable only by typing the URL. The
+    feature was reported missing by someone looking at the dashboard, which is the only
+    evidence that matters for a nav link.
+    """
+
+    def test_the_sidebar_links_to_settings(self, web_client_as):
+        client = web_client_as("owner")
+        page = client.get("/")
+        assert 'href="/settings"' in page.text, (
+            "no link to /settings anywhere in the chrome — the page is reachable only by "
+            "typing the URL, which from the outside is the feature not existing"
+        )
+
+
+class TestEditingYourOwnProfile:
+    """Name and sign-in email, for the signed-in user only."""
+
+    @staticmethod
+    def _email_of(conn):
+        """The fixture mints a random `owner-<hex>@example.com`, so it must be read, not
+        assumed — posting a different address reads as an email *change* and takes the
+        password path."""
+        from sqlalchemy import text
+
+        return conn.execute(text("select email from users limit 1")).scalar()
+
+    def test_a_name_change_needs_no_password(self, web_client_as):
+        """Renaming yourself is a display tweak. Demanding a password for it trains people to
+        type their password for trivial things, which is its own hazard."""
+        client = web_client_as("owner")
+        response = client.post(
+            "/settings/profile",
+            data={
+                "name": "Renamed Person",
+                "email": self._email_of(web_client_as.connection),
+            },
+            follow_redirects=False,
+        )
+        assert response.status_code == 303, response.text
+        assert "Renamed Person" in client.get("/settings").text
+
+    def test_changing_the_email_requires_the_current_password(self, web_client_as):
+        """**The guard that matters.** The email is the sign-in credential, so a borrowed
+        session must not be able to move the account to an attacker's address.
+
+        The fixture's user signs in with Google, so it is given a password here first — a
+        Google identity has no password to verify and is refused earlier, by
+        `test_a_google_identity_cannot_change_its_email`.
+        """
+        from sqlalchemy import text
+
+        from mihomes.auth.passwords import hash_password
+
+        client = web_client_as("owner")
+        conn = web_client_as.connection
+        conn.execute(
+            text("update users set password_hash = :h, password_set_at = now()"),
+            {"h": hash_password("correct horse battery staple")},
+        )
+        before = conn.execute(text("select email from users limit 1")).scalar()
+
+        response = client.post(
+            "/settings/profile",
+            data={
+                "name": "Someone",
+                "email": "attacker@example.com",
+                "current_password": "not-the-password",
+            },
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+        assert "password is not correct" in response.text
+
+        after = conn.execute(text("select email from users limit 1")).scalar()
+        assert after == before, "the email changed despite the wrong password"
+
+    def test_a_google_identity_cannot_change_its_email(self, web_client_as):
+        """A Google account has no password to verify and its address is managed upstream, so
+        the change is refused with a reason rather than silently failing verification."""
+        client = web_client_as("owner")
+        response = client.post(
+            "/settings/profile",
+            data={"name": "Someone", "email": "elsewhere@example.com"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+        assert "managed by Google" in response.text or "Google" in response.text
+
+    def test_a_malformed_email_is_refused(self, web_client_as):
+        client = web_client_as("owner")
+        response = client.post(
+            "/settings/profile",
+            data={"name": "Someone", "email": "not-an-email"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+        assert "does not look like an email" in response.text
+
+    def test_an_empty_name_is_refused(self, web_client_as):
+        client = web_client_as("owner")
+        response = client.post(
+            "/settings/profile",
+            data={"name": "   ", "email": self._email_of(web_client_as.connection)},
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+        assert "cannot be empty" in response.text
+
+    def test_the_route_edits_only_the_signed_in_user(self, web_client_as):
+        """**Why a permission open to every role is safe here.**
+
+        The handler reads `principal.user_id` and accepts no user id from the request, so there
+        is no version of this call that edits somebody else. A stray `user_id` field must be
+        ignored rather than honoured.
+        """
+        from sqlalchemy import text
+
+        client = web_client_as("owner")
+        conn = web_client_as.connection
+        victim = conn.execute(
+            text(
+                "insert into users (id, email, name, created_at) values "
+                "(gen_random_uuid(), 'victim@example.com', 'Victim', now()) returning id"
+            )
+        ).scalar()
+
+        client.post(
+            "/settings/profile",
+            data={
+                "name": "Hijacked",
+                "email": self._email_of(conn),
+                "user_id": str(victim),
+            },
+            follow_redirects=False,
+        )
+
+        still = conn.execute(
+            text("select name from users where id = :i"), {"i": victim}
+        ).scalar()
+        assert still == "Victim", "the route honoured a user id from the request body"

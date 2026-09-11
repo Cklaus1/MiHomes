@@ -53,6 +53,16 @@
         </div>
       {% endif %}
     </dl>
+
+    {# Changing the plan is `billing.manage`, which the matrix grants to the owner only — an
+       admin runs the estate, not the card. So the link is offered to the owner alone; a
+       non-owner sees the plan but no way to change it, which is the intended boundary rather
+       than a missing control. #}
+    {% if role == "owner" %}
+      <a href="/billing" class="mt-4 inline-block rounded border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50">
+        Manage plan &amp; billing
+      </a>
+    {% endif %}
   </section>
 
   {# ── Your profile ───────────────────────────────────────────────────────── #}

@@ -26,6 +26,35 @@
     </form>
   </section>
 
+  {# ── Membership ─────────────────────────────────────────────────────────── #}
+  <section class="mb-10">
+    <h2 class="text-lg font-medium mb-1">Membership</h2>
+    <p class="text-sm text-gray-500 mb-3">Your estate's plan and your role in it.</p>
+
+    <dl class="text-sm space-y-2">
+      <div class="flex justify-between border-t pt-2">
+        <dt class="text-gray-500">Plan</dt>
+        <dd class="font-medium capitalize">{{ account.plan if account else "—" }}</dd>
+      </div>
+      <div class="flex justify-between border-t pt-2">
+        <dt class="text-gray-500">Your role</dt>
+        <dd class="font-medium capitalize">{{ role or "—" }}</dd>
+      </div>
+      {% if account and account.subscription_status %}
+        <div class="flex justify-between border-t pt-2">
+          <dt class="text-gray-500">Subscription</dt>
+          <dd class="font-medium capitalize">{{ account.subscription_status }}</dd>
+        </div>
+      {% endif %}
+      {% if account and account.current_period_end %}
+        <div class="flex justify-between border-t pt-2">
+          <dt class="text-gray-500">Current period ends</dt>
+          <dd class="font-medium">{{ account.current_period_end.strftime("%b %d, %Y") }}</dd>
+        </div>
+      {% endif %}
+    </dl>
+  </section>
+
   {# ── Your profile ───────────────────────────────────────────────────────── #}
   <section class="mb-10">
     <h2 class="text-lg font-medium mb-1">Your profile</h2>

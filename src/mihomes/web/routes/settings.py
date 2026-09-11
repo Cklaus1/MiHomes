@@ -58,6 +58,7 @@ def _page_context(db: Session, principal, **extra):
         "configs": config_service.list_config_for_display(db),
         "account": db.get(Account, principal.account_id),
         "user": user,
+        "role": principal.role,
         # The template hides the email field entirely for a Google identity rather than
         # rendering one that always refuses — a control that cannot succeed is worse than no
         # control, because the reason is invisible until you try it.

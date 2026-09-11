@@ -210,6 +210,27 @@ class TestPropertyScope:
         set_property_scope(session, staff, [cove.id])
         assert property_scopes_by_membership(session, account_a)[staff.id] == {cove.id}
 
+    def test_the_change_is_audited(self, session, account_a, belle):
+        """The audit row is what proves the tenant binding, not decoration.
+
+        `audit_log` is tenant-owned while the write is driven from a route, so the account has
+        to be bound with **both** the ContextVar and the GUC — `services/account.py:83-85`
+        records measuring the alternative: the change committed and the audit insert was
+        refused under RLS, leaving the estate altered and no trail of it. Asserting the row
+        exists is what makes that failure loud if the pairing is ever dropped.
+        """
+        from mihomes.models.audit_log import AuditLog
+
+        staff = _member(session, account_a, "staff")
+        set_property_scope(session, staff, [belle.id])
+
+        entry = (
+            session.query(AuditLog)
+            .filter_by(entity_type="membership", entity_id=staff.id, action="rescope")
+            .one()
+        )
+        assert entry.changes["property_ids"] == [str(belle.id)]
+
 
 class TestMemberListing:
     def test_revoked_members_are_absent(self, session, account_a):

@@ -811,3 +811,106 @@ class TestMembersSection:
         """
         assert "/billing" in web_client_as("owner").get("/settings").text
         assert "/billing" not in web_client_as("admin").get("/settings").text
+
+
+class TestStaffPropertyAccess:
+    """The staff whitelist **through the page** — the access-control half of the feature.
+
+    `test_settings_members.py` exercises `set_property_scope` directly, which leaves the form
+    itself untested: the checkbox loop only renders when there is both a staff member and a
+    property, and a Jinja mistake inside that branch would ship silently. G8's lesson again —
+    a service can be correct while nothing calls it.
+    """
+
+    @staticmethod
+    def _seed_staff_and_property(web_client_as):
+        """A property and a staff member in the same account, returned as ids.
+
+        Built through the ORM rather than a hand-written INSERT: `properties` carries several
+        NOT NULL columns whose defaults live on the model (`currency`, and the two enums, which
+        are stored as the Python enum *names* rather than their values). Naming columns by hand
+        rediscovers each one as a separate failure, which is how this was first written.
+        """
+        import uuid as _uuid
+
+        from mihomes.models.membership import Membership
+        from mihomes.models.property import Property
+        from mihomes.models.user import User
+
+        ids: dict[str, _uuid.UUID] = {}
+
+        def build(session):
+            account_id = session.query(Membership).first().account_id
+
+            prop = Property(
+                id=_uuid.uuid4(), account_id=account_id, name="Belle Estate",
+                slug=f"belle-{_uuid.uuid4().hex[:6]}",
+            )
+            user = User(
+                id=_uuid.uuid4(), google_sub=f"sub-{_uuid.uuid4().hex[:12]}",
+                email=f"house-{_uuid.uuid4().hex[:6]}@example.com",
+            )
+            session.add_all([prop, user])
+            session.flush()
+
+            membership = Membership(
+                id=_uuid.uuid4(), account_id=account_id, user_id=user.id,
+                role="staff", status="active",
+            )
+            session.add(membership)
+            session.flush()
+
+            ids["staff"] = membership.id
+            ids["property"] = prop.id
+
+        web_client_as.seed(build)
+        return ids["staff"], ids["property"]
+
+    def test_the_property_checkboxes_render_for_a_staff_member(self, web_client_as):
+        """The branch that only exists when there is a staff row *and* a property."""
+        client = web_client_as("owner")
+        staff_id, _ = self._seed_staff_and_property(web_client_as)
+
+        response = client.get("/settings")
+
+        assert response.status_code == 200
+        assert "Belle Estate" in response.text, "the property must be offered as a checkbox"
+        assert f"/settings/members/{staff_id}/scope" in response.text, (
+            "the staff row must carry a scope form"
+        )
+
+    def test_scope_can_be_set_through_the_page(self, web_client_as):
+        client = web_client_as("owner")
+        staff_id, property_id = self._seed_staff_and_property(web_client_as)
+
+        response = client.post(
+            f"/settings/members/{staff_id}/scope",
+            data={"property_ids": [str(property_id)]},
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 303
+
+        # And it comes back checked, which is what `member_scopes` is for.
+        page = client.get("/settings").text
+        assert "checked" in page
+
+    def test_unchecking_everything_is_refused_on_the_page(self, web_client_as):
+        """D3 reaching a user rather than a service caller.
+
+        The pair to the staff-invite refusal above: unchecking every box would leave someone
+        able to sign in and see nothing, so it is an error they can read rather than a silent
+        lockout of the person they were configuring.
+        """
+        client = web_client_as("owner")
+        staff_id, property_id = self._seed_staff_and_property(web_client_as)
+        client.post(
+            f"/settings/members/{staff_id}/scope",
+            data={"property_ids": [str(property_id)]},
+            follow_redirects=False,
+        )
+
+        response = client.post(f"/settings/members/{staff_id}/scope", data={})
+
+        assert response.status_code == 400
+        assert "at least one property" in response.text

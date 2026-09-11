@@ -114,13 +114,14 @@
             <span class="text-sm capitalize text-gray-600">{{ member.role }}</span>
           </div>
 
-          {# R1: nobody changes their own role, and an admin never changes the owner's. The
-             control is omitted rather than shown-and-refused — a button that cannot succeed
-             hides its reason until someone presses it. The service refuses either case anyway,
-             because this template is not the gate. #}
+          {# R1: nobody changes their own role, and nobody demotes the owner — not an admin
+             (R1), and not the owner themselves, since D2 moves ownership only by transfer and
+             A22 refuses the last one. So the control is omitted for every owner row rather
+             than only for an admin's view of it. Omitted rather than shown-and-refused: a
+             button that cannot succeed hides its reason until someone presses it. The service
+             refuses either case anyway, because this template is not the gate. #}
           {% set may_change_role = member.membership_id != membership_id
-                                   and not (member.role == "owner")
-                                   and not (role == "admin" and member.role == "owner") %}
+                                   and member.role != "owner" %}
 
           {% if may_change_role %}
             <form method="post" action="/settings/members/{{ member.membership_id }}/role"

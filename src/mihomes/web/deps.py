@@ -33,7 +33,7 @@ from mihomes.authz.scope import authz_context, current_role, scoped_property_ids
 from mihomes.db import get_session
 from mihomes.models.membership import Membership
 from mihomes.tenancy import account_context, current_user
-from mihomes.tenancy.connection import bind_user_guc
+from mihomes.tenancy.connection import bind_account_guc, bind_user_guc
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
@@ -253,6 +253,13 @@ async def enforce_declared_action(
 
     principal = resolve_principal(request, db)
     with account_context(principal.account_id, principal.user_id):
+        # The ContextVar alone leaves RLS reading an empty GUC: `_set_tenant_guc` stamps it on
+        # `after_begin`, and this request's transaction opened in `get_db` before the account
+        # was known. Every tenant read then matches zero rows — silently, since RLS filters
+        # rather than errors. `bind_account_guc`'s docstring records the same trap for writes;
+        # reads reach it on every authenticated request. Invisible to the suite, whose fixtures
+        # connect as a superuser and so bypass RLS entirely.
+        bind_account_guc(db, principal.account_id)
         grant = require_action_gate(db, principal, action)
 
         # `SCOPED` is answered here, by binding the whitelist the query layer reads (§9.4

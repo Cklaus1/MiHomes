@@ -82,6 +82,11 @@ to catch.
 
 These block **launching**, not building, except O1 and O2 which block the pricing page's content.
 
+> **O6 and O7 are the long-lead items, and neither is an engineering task.** A NonCommercial
+> license and unpublished legal pages both block *charging money* — the goal this whole spec
+> serves — and no amount of build work moves either. Everything else in this table is downstream
+> of them. Start them first; they are the critical path.
+
 | # | Question | Blocks | Notes |
 |---|---|---|---|
 | **O1** | **Final prices** — is Pro $20/mo and Estate $60/mo, or does research move them? | The pricing page showing numbers at all | `PRICING:18-19` still marks both `PLACEHOLDER`. Until ratified, D14/D20 hold and the page shows shapes only |

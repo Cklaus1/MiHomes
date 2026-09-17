@@ -47,6 +47,23 @@ from sqlalchemy.orm import sessionmaker  # noqa: E402
 #: be logged into by hand. 12 characters is `MIN_PASSWORD_LENGTH`.
 PASSWORD = "TesterPass123!"
 
+#: The unprivileged role the *server* connects as. Not used by this script, which connects as
+#: the owner to write `accounts` and grant-free tables — it is printed in the instructions.
+#:
+#: `0002_rls` is explicit that provisioning owns this role rather than the migration, because a
+#: role is cluster-wide and `CREATE ROLE` would collide on the second database. `mihomes_dev`
+#: had none, so `mihomes-dev` refused to start (N5). Created with exactly that migration's
+#: documented recipe:
+#:
+#:     CREATE ROLE mihomes_dev_app LOGIN PASSWORD 'devapp';
+#:     GRANT USAGE ON SCHEMA public TO mihomes_dev_app;
+#:     GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO mihomes_dev_app;
+#:     GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO mihomes_dev_app;
+#:     ALTER DEFAULT PRIVILEGES IN SCHEMA public
+#:         GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO mihomes_dev_app;
+APP_ROLE = "mihomes_dev_app"
+APP_ROLE_PASSWORD = "devapp"
+
 
 # Each tester gets its **own** user. `uq_membership_one_owner` permits one active owner per
 # account, so reusing an existing user as owner of a second account violates it — `dev_setup.py`
@@ -155,7 +172,14 @@ def reset_plans(engine) -> None:
     That is the product behaving correctly, and it is also a tester that has stopped testing what
     it was made for. This puts it back rather than requiring the accounts be dropped and reseeded
     (which would discard the mock data along with them).
+
+    **Homes added past the cap are removed too, newest first.** Restoring `plan` alone would
+    leave a Free account holding two homes — over its own limit, which is a state the product
+    cannot itself produce, so every later `can("property.add")` reads from a position the app
+    would never have allowed. The seeded homes are the oldest rows and are kept.
     """
+    plan_caps = {"free": 1, "pro": 5}
+
     with engine.begin() as c:
         for spec in TESTERS:
             c.execute(
@@ -165,6 +189,23 @@ def reset_plans(engine) -> None:
                 ),
                 {"p": spec["plan"], "s": spec["slug"]},
             )
+
+            # Delete by `created_at DESC` rather than by name: a home added through the UI has
+            # whatever name the tester typed, so matching on a known string would miss it.
+            removed = c.execute(
+                text(
+                    "DELETE FROM properties WHERE id IN ("
+                    "  SELECT p.id FROM properties p"
+                    "  JOIN accounts a ON a.id = p.account_id"
+                    "  WHERE a.slug = :s ORDER BY p.created_at DESC, p.id DESC"
+                    "  LIMIT GREATEST(("
+                    "    SELECT count(*) FROM properties p2"
+                    "    JOIN accounts a2 ON a2.id = p2.account_id WHERE a2.slug = :s"
+                    "  ) - :cap, 0))"
+                ),
+                {"s": spec["slug"], "cap": plan_caps[spec["plan"]]},
+            ).rowcount
+
             row = c.execute(
                 text(
                     "SELECT a.plan, count(p.id) FROM accounts a"
@@ -174,7 +215,9 @@ def reset_plans(engine) -> None:
                 {"s": spec["slug"]},
             ).first()
             if row:
-                print(f"{spec['slug']}: plan={row[0]}, {row[1]} properties")
+                extra = f", removed {removed} over-cap propert{'y' if removed == 1 else 'ies'}" \
+                    if removed else ""
+                print(f"{spec['slug']}: plan={row[0]}, {row[1]} properties{extra}")
             else:
                 print(f"{spec['slug']}: not seeded yet")
     print("\nTrial cleared. Note the Free tester is at its 1-home cap: adding another "
@@ -282,20 +325,53 @@ def main() -> None:
 
     if not cookies:
         print("\nnothing to do — both testers already exist")
+        print_howto()
         return
+
+    print_howto(cookies)
+
+
+def print_howto(cookies: list | None = None) -> None:
+    """How to actually reach these accounts in a browser.
+
+    **Printed rather than left to a README** because the two env vars are not guessable and
+    getting either wrong fails in a way that does not name the cause:
+
+    - without `DATABASE_URL` the server uses the configured default, where these accounts do
+      not exist — an empty app rather than an error
+    - as `postgres` the server refuses to start at all (N5, `verify_runtime_role`), because a
+      superuser bypasses RLS silently
+
+    `mihomes-dev` hardcodes port 5000, so anything already bound there — an SSH tunnel to the
+    VM, for instance — has to be closed first, or this server cannot bind and the browser keeps
+    showing the other thing entirely.
+    """
+    from mihomes.auth import sessions as sess
 
     print()
     print("=" * 78)
-    print("  Sign in with email + password at http://localhost:5000/login")
+    print("  Start the server against the LOCAL dev database:")
     print()
-    for spec, _raw in cookies:
+    print('      $env:DATABASE_URL  = "postgresql+psycopg://'
+          f'{APP_ROLE}:{APP_ROLE_PASSWORD}@127.0.0.1:5432/{DB}"')
+    print('      $env:MIHOMES_SECRET_KEY = "<any 44-char base64 key>"')
+    print("      mihomes-dev")
+    print()
+    print("  Port 5000 must be free first — `netstat -ano | findstr :5000`. If an SSH tunnel to")
+    print("  the VM is bound there, localhost:5000 is the VM, and these accounts are NOT on it.")
+    print()
+    print("  Then sign in at http://localhost:5000/login")
+    print()
+    for spec in TESTERS:
         print(f"      {spec['email']:<18} {PASSWORD}    ({spec['plan']})")
-    print()
-    print("  Or paste a cookie into the browser CONSOLE (F12) to skip the form:")
-    print()
-    for spec, raw in cookies:
-        print(f"    # {spec['plan']}")
-        print(f'    document.cookie = "{sess.SESSION_COOKIE}={raw}; path=/"; location.reload();')
+    if cookies:
+        print()
+        print("  Or paste a cookie into the browser CONSOLE (F12) to skip the form:")
+        print()
+        for spec, raw in cookies:
+            print(f"    # {spec['plan']}")
+            print(f'    document.cookie = "{sess.SESSION_COOKIE}={raw}; '
+                  'path=/"; location.reload();')
     print("=" * 78)
 
 

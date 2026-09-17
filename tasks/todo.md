@@ -234,8 +234,22 @@ enforced (as `postgres` it is silently bypassed, and the check would prove nothi
 
 **Found while testing:** pushing the Free tester past its 1-home cap converts it to
 Pro-on-trial (`maybe_start_trial`, §4.2 by design) with nothing on screen to say so — hence
-`--reset`. New provisioning step: `mihomes_dev` had no non-superuser role, so the server
-refused to start (N5). Created `mihomes_dev_app`, granted per `0002_rls`'s documented recipe.
+`--reset`, which clears the trial *and* removes homes past the cap (restoring the plan alone
+would leave a Free account holding 2 homes, a state the product cannot itself produce).
+New provisioning step: `mihomes_dev` had no non-superuser role, so the server refused to start
+(N5). Created `mihomes_dev_app`, granted per `0002_rls`'s documented recipe.
+
+**Two caveats worth knowing before looking at these accounts:**
+
+- **`localhost:5000` is currently an SSH tunnel to the VM** (`ssh -L 5000:localhost:5000
+  millena@evo-dev`), so the browser there is showing VM data — these testers are laptop-only
+  and are *not* on the VM. The tunnel has to be closed before `mihomes-dev` can bind 5000.
+  The script prints the exact env vars and says this.
+- **The upgrade prompts are not surfaced in the UI yet.** Every denial carries the right
+  `upgrade_target` at the service layer, but `/properties/new` renders no hint and `/billing`
+  does not show which plan the account is on — SPEC-004's known §4.3 gap ("working mechanism
+  but no UI"). The tier *difference* is visible as data (1 vs 3 homes, vendors only on Pro);
+  the *paywall* is provable via `can()` rather than on screen.
 
 **Caveat to report:** every limit in `limits.py` is marked `PLACEHOLDER` except Free's
 1 home / 3 seats (SPEC-004 O1, founder's call, blocks-ship). The *gating* is real; the

@@ -21,6 +21,7 @@ from mihomes.authz.declare import declares_session
 from mihomes.models.user import User
 from mihomes.services import onboarding_service as onboarding
 from mihomes.tenancy import account_context, require_user
+from mihomes.tenancy.connection import bind_account_guc
 from mihomes.web.deps import get_db, templates
 
 router = APIRouter()
@@ -161,7 +162,22 @@ def add_property(
     if account is None:
         return RedirectResponse("/onboarding/", status_code=303)
 
+    # **The GUC as well as the ContextVar, or RLS refuses the insert.**
+    #
+    # `account_context` covers the `account_id` stamp, but RLS's `WITH CHECK` compares against
+    # `current_setting('app.current_account')`, which is stamped at `after_begin` — before this
+    # request knew its account, because the account is created one step earlier in the same
+    # sitting. Measured as a non-superuser:
+    #
+    #     InsufficientPrivilege: new row violates row-level security policy
+    #     for table "properties"
+    #
+    # i.e. **every brand-new user got a 500 on "add your first home"** — the one mandatory step
+    # they cannot skip (`MANDATORY_STEPS`), so signup could not be completed at all. It passed
+    # in testing because the suite's fixtures connect as a superuser, which bypasses RLS
+    # unconditionally. Same defect, same fix, as `create_account_step` and `get_state`.
     with account_context(account.id, user.id):
+        bind_account_guc(db, account.id)
         create_property(db, name, address=address or None)
     onboarding.complete_step(db, account.id, onboarding.STEP_ADD_HOME)
     return RedirectResponse("/onboarding/", status_code=303)

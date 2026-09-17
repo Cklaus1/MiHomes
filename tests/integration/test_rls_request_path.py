@@ -349,3 +349,58 @@ def test_an_unbound_session_does_not_bounce_between_root_and_onboarding(rls_app)
     assert response.status_code == 200, (
         f"the chain from / settled on {response.status_code} at {path!r} rather than rendering"
     )
+
+
+def test_a_brand_new_user_can_add_their_first_home(rls_app):
+    """Signup → create account → add first home, as a role RLS applies to.
+
+    **This is the mandatory path, and it was broken for every new user.** `add_property` bound
+    the account through `account_context` alone, which sets the `account_id` stamp but not the
+    `app.current_account` GUC that RLS's `WITH CHECK` compares against — and the GUC is stamped
+    at `after_begin`, before this request knew its account, because the account is created one
+    step earlier in the same sitting. The insert was refused:
+
+        InsufficientPrivilege: new row violates row-level security policy for table "properties"
+
+    `STEP_ADD_HOME` is in `MANDATORY_STEPS` and the wizard will not advance past it, so a new
+    user could not finish signing up at all — a 500 on the third screen, every time.
+
+    The existing fixture cannot catch this: it inserts an account and property directly and
+    marks onboarding finished, so it never drives step 3. This walks the wizard instead, which
+    is the only way the missing binding shows up.
+    """
+    client, _ = rls_app
+
+    email = f"newcomer-{uuid.uuid4().hex[:8]}@example.com"
+    signup = client.post(
+        "/signup",
+        data={"email": email, "password": PASSWORD, "name": "Newcomer"},
+        headers=_HTML,
+    )
+    assert signup.status_code == 303, f"signup did not take: {signup.status_code}"
+
+    account = client.post(
+        "/onboarding/account",
+        data={"name": "The Newcomer Household", "account_type": "household"},
+        headers=_HTML,
+    )
+    assert account.status_code == 303, f"step 2 did not take: {account.status_code}"
+
+    # The assertion this file exists for. A 500 here is the RLS refusal above; anything other
+    # than the redirect means the wizard cannot advance past its one unskippable step.
+    home = client.post(
+        "/onboarding/property",
+        data={"name": "First Home", "address": ""},
+        headers=_HTML,
+    )
+    assert home.status_code == 303, (
+        f"adding the first home returned {home.status_code} — a brand-new user cannot complete "
+        "onboarding, which is the state every signup lands in"
+    )
+
+    client.post("/onboarding/finish", data={}, headers=_HTML)
+    dashboard = client.get("/", headers=_HTML)
+    assert dashboard.status_code == 200, (
+        f"the new user did not reach a dashboard ({dashboard.status_code})"
+    )
+    assert "First Home" in dashboard.text, "the home they just added is not on their dashboard"

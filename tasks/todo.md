@@ -199,6 +199,50 @@ Replace the WhatsApp/Baileys bridge with a Telegram bot — no Node.js, no pairi
 
 ---
 
+## ACTIVE: Tier tester accounts (`scripts/seed_tiers.py`)
+
+> Goal: see the Free/Pro/Estate difference in a running app. `mlim@fusen.world` is already
+> Estate (account `belle`), so only Free and Pro need seeding.
+> Target: local `mihomes_dev` only — the tier code exists **only** in this worktree, and the
+> VM holds real estate data that fake tenants must not touch.
+
+- [x] **Seed script** — `scripts/seed_tiers.py`, same `mihomes_dev` guard as `dev_setup.py`
+- [x] **Free tester** — `free@test.local`, plan `free`, 1 property (its cap — 2 would show an unreachable state)
+- [x] **Pro tester** — `pro@test.local`, plan `pro`, 3 properties, vendors + work orders
+- [x] **`subscription_status="active"` on both** — `limits_for` collapses `canceled`/`unpaid`/`incomplete` to Free, so a Pro row without this is Free wearing a Pro label
+- [x] **Own user row per account** — `uq_membership_one_owner` is a partial unique index; reusing `mlim@` would violate it
+- [x] **Password identity** — via `create_password_user`, so the form login works, not just the cookie
+- [x] **Session with `current_account_id`** — without it every route 403s ("No account selected")
+- [x] **Verify gates differ via `can()`**, not by reading the table:
+  - [x] Free denied `vendor.rate` + `work_order.schedule` → `upgrade_target="pro"`
+  - [x] Pro allowed both, denied `audit.export` + `predictive_maintenance` → `upgrade_target="estate"`
+  - [x] Free `property.add` refused at 1 home; Pro allowed to 5
+- [x] **Record lesson** — branch-scoped search concluded a feature did not exist
+
+### Review (2026-09-17)
+
+Verified over real HTTP, served as the unprivileged `mihomes_dev_app` role so RLS is actually
+enforced (as `postgres` it is silently bypassed, and the check would prove nothing):
+
+- both testers sign in with **email + password** (303 → `/`, dashboard 200)
+- each sees **only its own** properties/vendors — Free: Oak Street House; Pro: Harbour View,
+  Lakeside Cabin, Dune Cottage, Kestrel Plumbing, Birchwood Landscaping
+- gates differ exactly as `PRICING` §3.1 writes them, and every denial names the plan that
+  would allow it (Free → pro for `vendor.rate`/`work_order.schedule`; both → estate for
+  `audit.export`/`maintenance.predict`/`report.weekly_ai`)
+- 62 entitlement/billing tests pass; no source file changed, the script is additive
+
+**Found while testing:** pushing the Free tester past its 1-home cap converts it to
+Pro-on-trial (`maybe_start_trial`, §4.2 by design) with nothing on screen to say so — hence
+`--reset`. New provisioning step: `mihomes_dev` had no non-superuser role, so the server
+refused to start (N5). Created `mihomes_dev_app`, granted per `0002_rls`'s documented recipe.
+
+**Caveat to report:** every limit in `limits.py` is marked `PLACEHOLDER` except Free's
+1 home / 3 seats (SPEC-004 O1, founder's call, blocks-ship). The *gating* is real; the
+numbers are not final.
+
+---
+
 ## Known Issues / Tech Debt
 - `tasks/todo.md` was stale for months (fixed 2026-05-14)
 - WhatsApp bridge pairing blocked since wacli-integration branch

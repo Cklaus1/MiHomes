@@ -738,3 +738,25 @@ Review this at the start of each session.
   for one statement both rows carry a password on the same address. Stash the value, delete first,
   then write. **Rule:** for a merge under a partial unique index, vacate the index before
   populating it, and wrap it in a transaction whose post-conditions RAISE rather than commit half.
+
+- **A feature can exist in the repo and not in your branch — grep the branch you are on, then say
+  which branch you searched.** Asked for tier tester accounts, I grepped for `subscription|tier|
+  plan`, found only unrelated hits, and told the user the product had no accounts, no tiers and no
+  backend — "MiHomes is a local-first, single-user CLI application". All of that was true of
+  `telegram-bot`, the checked-out branch, and false of the project: `worktree-spec-build-harness`
+  holds `entitlements/`, `services/billing/`, `auth/`, RLS and a three-plan table, built over four
+  SPECs. Two things would each have caught it: `git branch -a` / `git worktree list` before
+  concluding a *product-level* absence, and reading my own memory index, which named SPEC-004
+  "Phase 3 billing" and an auth stack that "lives ONLY in the spec-build-harness worktree".
+  **Rule:** "X does not exist" is a claim about a working tree, not a codebase. Before answering a
+  capability question with *no*, check the other branches and worktrees, and scope the answer to
+  what was actually searched — "not on `telegram-bot`" is honest where "not in this product" is a
+  guess that reads as fact.
+
+- **Seeding at a plan's ceiling is not the same as seeding past it, and the product notices.**
+  The Free tester is capped at 1 home. Adding a second does not simply fail: `_check_home_
+  entitlement` denies, then `maybe_start_trial` fires (§4.2 starts the no-card trial at the first
+  denied action, deliberately), leaving the account `plan='pro'` with `trial_ends_at` set — a Free
+  tester that is no longer Free, with no error to say so. Measured by POSTing a second property
+  over HTTP. **Rule:** when seeding fixtures against gated limits, seed *to* the cap, never
+  through it, and give the fixture a reset path — the gate may have side effects beyond refusing.

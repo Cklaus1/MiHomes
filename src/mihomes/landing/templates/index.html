@@ -18,6 +18,10 @@
 {% block content %}
   {# ---- 2.1 Hero ---- #}
   <section class="hero">
+    <p class="eyebrow">AI estate management</p>
+    {# Kept as one unbroken text node on purpose: `test_all_nine_sections_present` and
+       `test_anonymous_root_renders_the_marketing_page` both match the headline as a literal
+       substring, and a <br> between the clauses breaks both. The wrap is CSS's job. #}
     <h1>Every home, under control.</h1>
     <p class="lede">
       The AI-first command center for multi-home owners. Your properties, staff,
@@ -26,15 +30,15 @@
     {# `signup_url` is set only when this page is served from the product app, where the Free
        tier actually exists. Standalone (Phase 0) it is undefined and the CTA stays the OAuth
        stub feeding the waitlist — there is nothing to sign up *to* in that deployment. #}
-    <p style="margin:24px 0 0">
+    <div class="cta-row">
       {% if signup_url %}
       <a href="{{ signup_url }}"><button type="button">Start free</button></a>
-      <a href="{{ signin_url }}" class="muted" style="margin-left:14px">Sign in</a>
+      <a href="{{ signin_url }}" class="muted">Sign in</a>
       {% else %}
       <a href="/auth/google/start"><button type="button">Continue with Google</button></a>
       {% endif %}
-      <a href="#how-it-works" class="muted" style="margin-left:14px">See how it works ↓</a>
-    </p>
+      <a href="#how-it-works" class="muted">See how it works ↓</a>
+    </div>
     {# The landing app serves this from its own static dir; the product app's /static does not
        carry it, so `hero_src` is explicitly None there rather than a 404. #}
     {% if hero_src is not defined or hero_src %}
@@ -45,39 +49,44 @@
   </section>
 
   {# ---- 2.2 Credibility (NOT social proof — see the note above) ---- #}
+  {# GTM:30 — the category claim must be explicit: "'command center' alone is not a
+     differentiator." Consumer home apps are single-home with no concept of a team;
+     landlord suites are tenant-side and per-door priced. #}
   <section>
-    <p class="muted" style="margin:0">
-      Built by people who have managed estates.
+    <p class="closer" style="max-width:54ch">
+      The only <strong style="color:var(--brand-dark)">owner-side</strong>, multi-home,
+      team-aware, AI-first system for running the homes you own.
     </p>
+    <p class="muted" style="margin:14px 0 0">Built by people who have managed estates.</p>
   </section>
 
   {# ---- 2.3 The problem ---- #}
   <section>
     <h2>Running multiple homes is chaos.</h2>
-    <ul>
+    <ul class="pains">
       <li>Maintenance lives in text threads.</li>
       <li>The schedule is in someone's head.</li>
       <li>Invoices pile up in email.</li>
       <li>Your "system" is three spreadsheets.</li>
     </ul>
-    <p>Something always falls through the cracks.</p>
+    <p class="closer">Something always falls through the cracks.</p>
   </section>
 
   {# ---- 2.4 How it works ---- #}
   <section id="how-it-works">
     <h2>How it works</h2>
     <div class="grid grid-3">
-      <div class="card">
-        <strong>1. Add your homes</strong>
-        <p class="muted" style="margin:8px 0 0">Properties, rooms and inventory, in minutes.</p>
+      <div class="card step">
+        <strong><span class="num">1</span> Add your homes</strong>
+        <p class="muted" style="margin:10px 0 0">Properties, rooms and inventory, in minutes.</p>
       </div>
-      <div class="card">
-        <strong>2. Invite your team</strong>
-        <p class="muted" style="margin:8px 0 0">Staff and vendors, with role-scoped access.</p>
+      <div class="card step">
+        <strong><span class="num">2</span> Invite your team</strong>
+        <p class="muted" style="margin:10px 0 0">Staff and vendors, with role-scoped access.</p>
       </div>
-      <div class="card">
-        <strong>3. Let AI run point</strong>
-        <p class="muted" style="margin:8px 0 0">Your AI estate manager ranks what matters.</p>
+      <div class="card step">
+        <strong><span class="num">3</span> Let AI run point</strong>
+        <p class="muted" style="margin:10px 0 0">Your AI estate manager ranks what matters.</p>
       </div>
     </div>
   </section>
@@ -88,27 +97,28 @@
     <div class="grid grid-2">
       <div class="card">
         <strong>Properties</strong>
-        <p class="muted" style="margin:8px 0 0">One profile per home — rooms, systems, documents.</p>
+        <p class="muted" style="margin:9px 0 0">One profile per home — rooms, systems, documents.</p>
       </div>
       <div class="card">
         <strong>Tasks &amp; issues</strong>
-        <p class="muted" style="margin:8px 0 0">Track work and problems to resolution, per home.</p>
+        <p class="muted" style="margin:9px 0 0">Track work and problems to resolution, per home.</p>
       </div>
       <div class="card">
         <strong>Staff coordination</strong>
-        <p class="muted" style="margin:8px 0 0">Assign, schedule, and keep work accountable.</p>
+        <p class="muted" style="margin:9px 0 0">Assign, schedule, and keep work accountable.</p>
       </div>
       <div class="card">
         <strong>Vendors</strong>
-        <p class="muted" style="margin:8px 0 0">Contacts, jobs and history in one rolodex.</p>
+        <p class="muted" style="margin:9px 0 0">Contacts, jobs and history in one rolodex.</p>
       </div>
       <div class="card">
         <strong>Finances</strong>
-        <p class="muted" style="margin:8px 0 0">Costs and vendor spend, per home.</p>
+        <p class="muted" style="margin:9px 0 0">Costs and vendor spend, per home.</p>
       </div>
-      <div class="card" style="border-color:#bdbab0">
+      {# GTM §2.5: the AI card "gets slight visual emphasis — it's the differentiator". #}
+      <div class="card feature">
         <strong>AI estate manager</strong>
-        <p class="muted" style="margin:8px 0 0">
+        <p class="muted" style="margin:9px 0 0">
           SPACE-ranked priorities and plain-language advice. The difference between
           a database and a manager.
         </p>
@@ -116,11 +126,11 @@
     </div>
 
     {# D15: Telegram only. #}
-    <div class="card" style="margin-top:12px">
+    <div class="card" style="margin-top:14px">
       <strong>Message intake</strong>
-      <p class="muted" style="margin:8px 0 0">
-        Staff report from <strong>Telegram</strong> — forward a message and MiHomes
-        turns it into a task or an issue against the right home.
+      <p class="muted" style="margin:9px 0 0">
+        Staff report from <strong style="display:inline;font-size:inherit">Telegram</strong> —
+        forward a message and MiHomes turns it into a task or an issue against the right home.
       </p>
     </div>
   </section>
@@ -128,18 +138,27 @@
   {# ---- 2.6 Pricing teaser — SHAPES ONLY (D14/N6) ---- #}
   <section>
     <h2>Plans</h2>
+    {# D14/N6: plan SHAPES and real seat/home limits, never a dollar figure. The limits are
+       canon in entitlements/limits.py; the prices are all still PLACEHOLDER. #}
     <div class="grid grid-3">
       <div class="card">
         <strong>Free</strong>
-        <p class="muted" style="margin:8px 0 0">One home, three seats. Free forever.</p>
+        <p class="muted" style="margin:9px 0 0">
+          One home, three seats. Run your own household, free forever.
+        </p>
       </div>
-      <div class="card" style="border-color:#bdbab0">
-        <strong>Pro</strong> <span class="muted">— most popular</span>
-        <p class="muted" style="margin:8px 0 0">Multiple homes, plus staff and team seats.</p>
+      <div class="card plan-pop">
+        <span class="tag">Most popular</span>
+        <strong>Pro</strong>
+        <p class="muted" style="margin:9px 0 0">
+          Multiple homes, plus staff and team seats — and external staff invites.
+        </p>
       </div>
       <div class="card">
         <strong>Estate</strong>
-        <p class="muted" style="margin:8px 0 0">Everything in Pro, at family-office scale.</p>
+        <p class="muted" style="margin:9px 0 0">
+          Everything in Pro, at family-office scale, with priority AI.
+        </p>
       </div>
     </div>
     <p class="muted">
@@ -189,23 +208,26 @@
      can create an account right now. The Phase 0 form renders only in the standalone app. #}
   {% if signup_url %}
   <section id="start">
-    <h2>Get started</h2>
-    <p class="lede">
-      One home, three seats, free forever. No card required.
-    </p>
-    <p style="margin:24px 0 0">
-      <a href="{{ signup_url }}"><button type="button">Start free</button></a>
-      <a href="{{ signin_url }}" class="muted" style="margin-left:14px">Already have an account?</a>
-    </p>
+    <div class="panel">
+      <h2>Get started</h2>
+      <p class="lede">
+        One home, three seats, free forever. No credit card.
+      </p>
+      <div class="cta-row">
+        <a href="{{ signup_url }}"><button type="button">Start free</button></a>
+        <a href="{{ signin_url }}" class="muted">Already have an account?</a>
+      </div>
+    </div>
   </section>
   {% else %}
   <section id="waitlist">
+    <div class="panel">
     <h2>Get early access</h2>
     <p class="lede">
       Join the waitlist and lock in a founding-member offer.
     </p>
 
-    <form method="post" action="/waitlist" class="card">
+    <form method="post" action="/waitlist" class="card" style="margin-top:26px">
       {% for key, value in (utm or {}).items() %}
       <input type="hidden" name="{{ key }}" value="{{ value }}">
       {% endfor %}
@@ -249,6 +271,7 @@
         Prefer one click? <a href="/auth/google/start">Continue with Google</a>.
       </p>
     </form>
+    </div>
   </section>
   {% endif %}
 {% endblock %}

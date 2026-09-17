@@ -1,10 +1,102 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 480" role="img" aria-label="Three homes on an estate">
-  <rect width="800" height="480" fill="#f6f6f4"/>
-  <path d="M120 300h180v120H120z" fill="#e0ded6"/>
-  <path d="M110 300l100-70 100 70z" fill="#cfccc0"/>
-  <path d="M360 250h200v170H360z" fill="#e6e4dc"/>
-  <path d="M350 250l110-80 110 80z" fill="#d4d1c5"/>
-  <path d="M600 330h100v90H600z" fill="#dedbd2"/>
-  <path d="M592 330l58-42 58 42z" fill="#c9c6ba"/>
-  <rect y="418" width="800" height="4" fill="#c2bfb2"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 480" role="img"
+     aria-label="The MiHomes dashboard: three properties with an AI priorities panel ranking what needs attention">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#f1f5f9"/>
+    </linearGradient>
+    <clipPath id="frame"><rect width="800" height="480" rx="10"/></clipPath>
+  </defs>
+
+  <g clip-path="url(#frame)">
+    <rect width="800" height="480" fill="url(#sky)"/>
+
+    <!-- app chrome: dark rail, matching the product's gray-900 sidebar -->
+    <rect width="132" height="480" fill="#111827"/>
+    <circle cx="26" cy="30" r="5" fill="#0ea5e9"/>
+    <rect x="38" y="25" width="54" height="9" rx="4.5" fill="#e5e7eb"/>
+    <rect x="16" y="62" width="100" height="26" rx="6" fill="#1f2937"/>
+    <rect x="26" y="71" width="58" height="8" rx="4" fill="#9ca3af"/>
+    <g fill="#374151">
+      <rect x="26" y="105" width="72" height="8" rx="4"/>
+      <rect x="26" y="133" width="60" height="8" rx="4"/>
+      <rect x="26" y="161" width="78" height="8" rx="4"/>
+      <rect x="26" y="189" width="52" height="8" rx="4"/>
+      <rect x="26" y="217" width="66" height="8" rx="4"/>
+    </g>
+
+    <!-- top bar -->
+    <rect x="132" width="668" height="52" fill="#ffffff"/>
+    <rect x="132" y="51" width="668" height="1" fill="#e5e7eb"/>
+    <rect x="156" y="20" width="96" height="11" rx="5.5" fill="#111827"/>
+
+    <!-- three property cards -->
+    <g>
+      <rect x="156" y="78" width="180" height="128" rx="9" fill="#fff" stroke="#e5e7eb"/>
+      <rect x="157" y="79" width="178" height="42" rx="8" fill="#e0f2fe"/>
+      <path d="M198 112h52v9h-52z" fill="#7dd3fc"/>
+      <path d="M194 112l30-21 30 21z" fill="#38bdf8"/>
+      <rect x="172" y="136" width="84" height="9" rx="4.5" fill="#111827"/>
+      <rect x="172" y="156" width="120" height="7" rx="3.5" fill="#d1d5db"/>
+      <rect x="172" y="176" width="46" height="16" rx="8" fill="#dcfce7"/>
+      <circle cx="181" cy="184" r="3" fill="#16a34a"/>
+      <rect x="188" y="181" width="22" height="6" rx="3" fill="#16a34a" opacity=".55"/>
+    </g>
+    <g>
+      <rect x="350" y="78" width="180" height="128" rx="9" fill="#fff" stroke="#e5e7eb"/>
+      <rect x="351" y="79" width="178" height="42" rx="8" fill="#e0f2fe"/>
+      <path d="M392 112h52v9h-52z" fill="#7dd3fc"/>
+      <path d="M388 112l30-21 30 21z" fill="#38bdf8"/>
+      <rect x="366" y="136" width="96" height="9" rx="4.5" fill="#111827"/>
+      <rect x="366" y="156" width="110" height="7" rx="3.5" fill="#d1d5db"/>
+      <rect x="366" y="176" width="58" height="16" rx="8" fill="#fef3c7"/>
+      <circle cx="375" cy="184" r="3" fill="#d97706"/>
+      <rect x="382" y="181" width="34" height="6" rx="3" fill="#d97706" opacity=".55"/>
+    </g>
+    <g>
+      <rect x="544" y="78" width="180" height="128" rx="9" fill="#fff" stroke="#e5e7eb"/>
+      <rect x="545" y="79" width="178" height="42" rx="8" fill="#e0f2fe"/>
+      <path d="M586 112h52v9h-52z" fill="#7dd3fc"/>
+      <path d="M582 112l30-21 30 21z" fill="#38bdf8"/>
+      <rect x="560" y="136" width="74" height="9" rx="4.5" fill="#111827"/>
+      <rect x="560" y="156" width="124" height="7" rx="3.5" fill="#d1d5db"/>
+      <rect x="560" y="176" width="46" height="16" rx="8" fill="#dcfce7"/>
+      <circle cx="569" cy="184" r="3" fill="#16a34a"/>
+      <rect x="576" y="181" width="22" height="6" rx="3" fill="#16a34a" opacity=".55"/>
+    </g>
+
+    <!-- SPACE priorities panel: the differentiator, so it gets the visual weight -->
+    <rect x="156" y="230" width="568" height="212" rx="9" fill="#fff" stroke="#e5e7eb"/>
+    <circle cx="180" cy="258" r="8" fill="#0284c7"/>
+    <rect x="196" y="253" width="118" height="10" rx="5" fill="#111827"/>
+    <rect x="156" y="280" width="568" height="1" fill="#f1f5f9"/>
+
+    <!-- S — safety, the top-ranked row -->
+    <rect x="172" y="294" width="536" height="40" rx="7" fill="#fef2f2"/>
+    <rect x="172" y="294" width="3" height="40" rx="1.5" fill="#dc2626"/>
+    <circle cx="196" cy="314" r="10" fill="#dc2626"/>
+    <text x="196" y="318" font-family="-apple-system,Segoe UI,Roboto,sans-serif"
+          font-size="11" font-weight="700" fill="#fff" text-anchor="middle">S</text>
+    <rect x="218" y="303" width="176" height="8" rx="4" fill="#111827"/>
+    <rect x="218" y="319" width="252" height="6" rx="3" fill="#9ca3af"/>
+
+    <!-- P — presence -->
+    <rect x="172" y="342" width="536" height="40" rx="7" fill="#fffbeb"/>
+    <rect x="172" y="342" width="3" height="40" rx="1.5" fill="#d97706"/>
+    <circle cx="196" cy="362" r="10" fill="#d97706"/>
+    <text x="196" y="366" font-family="-apple-system,Segoe UI,Roboto,sans-serif"
+          font-size="11" font-weight="700" fill="#fff" text-anchor="middle">P</text>
+    <rect x="218" y="351" width="150" height="8" rx="4" fill="#111827"/>
+    <rect x="218" y="367" width="214" height="6" rx="3" fill="#9ca3af"/>
+
+    <!-- A — asset protection -->
+    <rect x="172" y="390" width="536" height="40" rx="7" fill="#f8fafc"/>
+    <rect x="172" y="390" width="3" height="40" rx="1.5" fill="#0284c7"/>
+    <circle cx="196" cy="410" r="10" fill="#0284c7"/>
+    <text x="196" y="414" font-family="-apple-system,Segoe UI,Roboto,sans-serif"
+          font-size="11" font-weight="700" fill="#fff" text-anchor="middle">A</text>
+    <rect x="218" y="399" width="192" height="8" rx="4" fill="#111827"/>
+    <rect x="218" y="415" width="230" height="6" rx="3" fill="#9ca3af"/>
+  </g>
+  <rect x=".5" y=".5" width="799" height="479" rx="10" fill="none" stroke="#e5e7eb"/>
 </svg>

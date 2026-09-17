@@ -24,8 +24,14 @@ here — `_check_home_entitlement` starts the no-card trial on the first denied 
 (§4.2), so trying to add a second home converts the account to Pro-on-trial. `--reset` puts it
 back without discarding the seeded data.
 
-**Local development only.** Like `dev_setup.py` it mints sessions without authenticating
-anyone, and it refuses to run against a database not named `mihomes_dev`.
+**Which database.** Defaults to a local `mihomes_dev`; set `DATABASE_URL` to point it
+elsewhere, including the VM. That is how the testers reach the install the app is actually
+used from — seeding them somewhere else produces accounts that cannot be logged into, which
+presents as a 401 and reads as "the tester accounts are broken".
+
+**It writes only the two accounts below.** It never deletes a user, never touches an account
+outside `TESTERS`, and `--reset` rewrites only those two slugs. That containment is what makes
+it safe to aim at a real database — not the database's name.
 """
 
 from __future__ import annotations
@@ -36,9 +42,23 @@ import sys
 DB = "mihomes_dev"
 URL = f"postgresql+psycopg://postgres@localhost:5432/{DB}"
 
-if os.environ.get("DATABASE_URL") and not os.environ["DATABASE_URL"].endswith(DB):
-    sys.exit(f"refusing to run: DATABASE_URL points somewhere other than {DB}")
-os.environ["DATABASE_URL"] = URL
+# **`DATABASE_URL` is honoured rather than refused, and that is a deliberate loosening.**
+#
+# This originally hard-refused any URL not ending in `mihomes_dev`, on the reasoning that a
+# script which mints logins without authenticating anybody should not be able to touch a real
+# database. The reasoning was right; the conclusion put the testers on a laptop database the
+# product is not used from, reachable only by closing an SSH tunnel and exporting two env vars.
+# They were never used, and the symptom was a 401 that looked like the accounts were broken.
+#
+# So the guard moves from *which database* to *what it will do*: it will not touch an account
+# that is not one of `TESTERS`, it never deletes a user, and `--reset` only ever rewrites the
+# two slugs below. Pointing this at a production database is now a deliberate act — pass
+# `DATABASE_URL` — rather than something that can happen by being in the wrong directory.
+if os.environ.get("DATABASE_URL"):
+    URL = os.environ["DATABASE_URL"]
+    DB = URL.rsplit("/", 1)[-1].split("?")[0]
+else:
+    os.environ["DATABASE_URL"] = URL
 
 from sqlalchemy import create_engine, text  # noqa: E402
 from sqlalchemy.orm import sessionmaker  # noqa: E402
@@ -345,22 +365,37 @@ def print_howto(cookies: list | None = None) -> None:
     `mihomes-dev` hardcodes port 5000, so anything already bound there — an SSH tunnel to the
     VM, for instance — has to be closed first, or this server cannot bind and the browser keeps
     showing the other thing entirely.
+
+    **Says where the accounts actually landed**, because that is the fact people get wrong. The
+    accounts live in whichever database this run wrote to; a browser pointed at a *different*
+    install answers 401, which reads as a broken account rather than a wrong address.
     """
     from mihomes.auth import sessions as sess
 
+    remote = DB != "mihomes_dev"
+
     print()
     print("=" * 78)
-    print("  Start the server against the LOCAL dev database:")
+    print(f"  These accounts are in the database: {DB}")
     print()
-    print('      $env:DATABASE_URL  = "postgresql+psycopg://'
-          f'{APP_ROLE}:{APP_ROLE_PASSWORD}@127.0.0.1:5432/{DB}"')
-    print('      $env:MIHOMES_SECRET_KEY = "<any 44-char base64 key>"')
-    print("      mihomes-dev")
-    print()
-    print("  Port 5000 must be free first — `netstat -ano | findstr :5000`. If an SSH tunnel to")
-    print("  the VM is bound there, localhost:5000 is the VM, and these accounts are NOT on it.")
-    print()
-    print("  Then sign in at http://localhost:5000/login")
+    if remote:
+        # Seeded into a server-side database (the VM). The server there is already running
+        # against it, so there is nothing to start — saying "set DATABASE_URL and run
+        # mihomes-dev" here would send the reader to the wrong machine.
+        print("  That is the database the running server already uses, so just sign in at")
+        print("  whichever address you normally use — via the SSH tunnel, http://localhost:5000")
+    else:
+        print("  Start the server against it:")
+        print()
+        print('      $env:DATABASE_URL  = "postgresql+psycopg://'
+              f'{APP_ROLE}:{APP_ROLE_PASSWORD}@127.0.0.1:5432/{DB}"')
+        print('      $env:MIHOMES_SECRET_KEY = "<any 44-char base64 key>"')
+        print("      mihomes-dev")
+        print()
+        print("  Port 5000 must be free first — `netstat -ano | findstr :5000`. If an SSH tunnel")
+        print("  to the VM is bound there, localhost:5000 is the VM, not this database.")
+        print()
+        print("  Then sign in at http://localhost:5000/login")
     print()
     for spec in TESTERS:
         print(f"      {spec['email']:<18} {PASSWORD}    ({spec['plan']})")

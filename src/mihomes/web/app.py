@@ -4,7 +4,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, Request
-from fastapi.responses import PlainTextResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -54,6 +54,43 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 STATIC_DIR = Path(__file__).parent / "static"
 
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+#: Where the marketing page's CTAs point when it is served from *this* app.
+#:
+#: The template is shared with the standalone landing app (`mihomes-landing`), where these
+#: paths resolve to Phase 0's waitlist. Served from here they must resolve to the real thing,
+#: so they are passed in rather than hardcoded in the template:
+#:
+#: - `signup_url` — the Free tier exists and works, so "start free" beats "join a queue".
+#: - `signin_url` — `/auth/google/start` means two different things in the two apps: a waitlist
+#:   stub there, real OIDC sign-in here. Naming it explicitly stops that difference from being
+#:   silent.
+#: - `hero_src` — the landing app serves `hero.svg` from its own static dir; this app's
+#:   `/static` is `web/static`, which does not contain it. Left unset, the hero 404s.
+MARKETING_LINKS = {
+    "signup_url": "/signup",
+    "signin_url": "/login",
+    "hero_src": None,
+}
+
+
+def render_marketing_page(request: Request) -> str:
+    """Render the public marketing page for a signed-out visitor.
+
+    Rendered through the landing app's Jinja environment, not this app's `templates`, so the
+    template stays outside `web/templates/`. That is deliberate: `test_no_raw_brand_hex` forbids
+    raw hex in this app's templates and the marketing palette is entirely raw hex, and
+    `test_css_is_current` would demand a Tailwind rebuild on every copy edit. The page carries
+    its own inlined CSS and needs neither.
+    """
+    from mihomes.landing.templates_env import render_page
+
+    utm = {
+        key: request.query_params[key]
+        for key in ("utm_campaign", "utm_source", "utm_medium")
+        if key in request.query_params
+    }
+    return render_page("index.html", {"utm": utm, **MARKETING_LINKS})
 
 
 def create_app() -> FastAPI:
@@ -211,12 +248,27 @@ def create_app() -> FastAPI:
         **Only a same-site path is preserved**, never a full URL: reflecting an absolute
         location here would make the login page an open redirector, which is a phishing
         primitive — "sign in at the real site, get sent anywhere". `_safe_next` enforces that.
+
+        **`/` is the exception: a signed-out browser gets the marketing page, not a login
+        form.** A visitor who has never heard of MiHomes should land on something that explains
+        it. Sending them to `/login` asks for credentials to an account they have no reason to
+        know they can create.
+
+        This is deliberately handled *here* rather than by making `/` a public route. The
+        dashboard keeps `/`, so the eight hardcoded post-auth redirects to `/` (`session_flow`,
+        `auth`, `onboarding`, `password`, `team`) stay correct. And `PERMANENT_ALLOWLIST` is
+        keyed by *module*: exempting `routes.dashboard` to free one path would exempt every
+        route in it from `enforce_declared_action`, which is an authorisation hole, not a
+        routing change. Nothing about the declared-action check moves.
         """
         from fastapi.responses import JSONResponse
 
         wants_html = "text/html" in request.headers.get("accept", "")
         is_htmx = request.headers.get("hx-request") == "true"
         already_there = request.url.path == "/login"
+
+        if wants_html and not is_htmx and request.url.path == "/":
+            return HTMLResponse(render_marketing_page(request))
 
         if wants_html and not is_htmx and not already_there:
             target = _safe_next(request.url.path, request.url.query)

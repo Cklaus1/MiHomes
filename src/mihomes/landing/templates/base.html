@@ -6,7 +6,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}MiHomes{% endblock %}</title>
+  {# Only the standalone landing app serves this file; the product app's /static is a
+     different directory. `hero_src` being defined signals that deployment. #}
+  {% if hero_src is not defined %}
   <link rel="icon" href="/static/hero.svg" type="image/svg+xml">
+  {% endif %}
   <style>
     :root{--ink:#1c1c1a;--muted:#6b6b66;--line:#e4e4df;--bg:#f6f6f4;--card:#fff}
     *{box-sizing:border-box}

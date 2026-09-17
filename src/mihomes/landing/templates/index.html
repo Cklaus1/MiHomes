@@ -23,12 +23,25 @@
       The AI-first command center for multi-home owners. Your properties, staff,
       vendors and money — in one place, prioritized by an AI estate manager.
     </p>
+    {# `signup_url` is set only when this page is served from the product app, where the Free
+       tier actually exists. Standalone (Phase 0) it is undefined and the CTA stays the OAuth
+       stub feeding the waitlist — there is nothing to sign up *to* in that deployment. #}
     <p style="margin:24px 0 0">
+      {% if signup_url %}
+      <a href="{{ signup_url }}"><button type="button">Start free</button></a>
+      <a href="{{ signin_url }}" class="muted" style="margin-left:14px">Sign in</a>
+      {% else %}
       <a href="/auth/google/start"><button type="button">Continue with Google</button></a>
+      {% endif %}
       <a href="#how-it-works" class="muted" style="margin-left:14px">See how it works ↓</a>
     </p>
-    <img src="/static/hero.svg" alt="Three homes on an estate, managed together"
+    {# The landing app serves this from its own static dir; the product app's /static does not
+       carry it, so `hero_src` is explicitly None there rather than a 404. #}
+    {% if hero_src is not defined or hero_src %}
+    <img src="{{ hero_src or '/static/hero.svg' }}"
+         alt="Three homes on an estate, managed together"
          width="800" height="480">
+    {% endif %}
   </section>
 
   {# ---- 2.2 Credibility (NOT social proof — see the note above) ---- #}
@@ -130,9 +143,14 @@
       </div>
     </div>
     <p class="muted">
-      {# Phase 0 has no product to "get started" with — all three CTAs resolve to
-         the waitlist (GTM §2.6 note). #}
+      {# Phase 0 had no product to "get started" with, so all three CTAs resolved to the
+         waitlist (GTM §2.6). Served from the product app, Free is real and reachable. #}
+      {% if signup_url %}
+      Free is free forever — <a href="{{ signup_url }}">start there</a>. Pro and Estate are
+      opening in stages.
+      {% else %}
       All three start with the waitlist below.
+      {% endif %}
     </p>
   </section>
 
@@ -151,14 +169,36 @@
         asset protection, compliance, economy — and explains why in plain language.
       </p></details>
     <details class="card"><summary>How do I sign in?</summary>
-      <p class="muted">With your Google account.</p></details>
+      {% if signup_url %}
+      <p class="muted">With your Google account, or an email and password.</p>
+      {% else %}
+      <p class="muted">With your Google account.</p>
+      {% endif %}</details>
     <details class="card"><summary>When does it launch?</summary>
-      <p class="muted">We're opening access in stages. The waitlist is how you get in.</p></details>
+      {% if signup_url %}
+      <p class="muted">We're opening access in stages — the free plan is available now.</p>
+      {% else %}
+      <p class="muted">We're opening access in stages. The waitlist is how you get in.</p>
+      {% endif %}</details>
     <details class="card"><summary>Is there a free plan?</summary>
       <p class="muted">Yes — one home, free forever.</p></details>
   </section>
 
   {# ---- 2.8 Closing CTA ---- #}
+  {# Served from the product app there is no /waitlist route and no reason for one: the visitor
+     can create an account right now. The Phase 0 form renders only in the standalone app. #}
+  {% if signup_url %}
+  <section id="start">
+    <h2>Get started</h2>
+    <p class="lede">
+      One home, three seats, free forever. No card required.
+    </p>
+    <p style="margin:24px 0 0">
+      <a href="{{ signup_url }}"><button type="button">Start free</button></a>
+      <a href="{{ signin_url }}" class="muted" style="margin-left:14px">Already have an account?</a>
+    </p>
+  </section>
+  {% else %}
   <section id="waitlist">
     <h2>Get early access</h2>
     <p class="lede">
@@ -210,4 +250,5 @@
       </p>
     </form>
   </section>
+  {% endif %}
 {% endblock %}

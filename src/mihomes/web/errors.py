@@ -35,6 +35,14 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from mihomes.entitlements.service import EntitlementDenied
+
+# `EntitlementError` is defined in `services/property.py` rather than beside `EntitlementDenied`
+# in the entitlements package — an accident of where the first gate was written. Imported from
+# where it actually lives rather than re-exported, so there is one definition and `except` blocks
+# elsewhere keep matching it.
+from mihomes.services.property import EntitlementError
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -116,6 +124,79 @@ def register_error_handlers(app: FastAPI, templates=None) -> None:
     so this module does not reach back into `web.app` and create the import cycle that would
     follow.
     """
+
+    @app.exception_handler(EntitlementError)
+    @app.exception_handler(EntitlementDenied)
+    async def _plan_required(request: Request, exc):
+        """A plan limit refused — render the upgrade prompt, not the 500 page.
+
+        **The gates worked; the answer did not reach anyone.** Five services raise
+        `EntitlementError` (`property.py` twice, `vendor_rating`, `work_order`, the AI meter) and
+        nothing was registered to catch it, so every correct refusal fell through to the
+        catch-all and rendered *"Something went wrong"* with a request id. A Free user clicking
+        a Pro feature saw a crash, which is indistinguishable from the product being broken —
+        and `PRICING` rule 4 exists precisely so that moment can say what would allow it.
+
+        **Two classes, one handler.** `EntitlementError` (bare `Exception`, from `property.py`)
+        and `EntitlementDenied` (`PermissionError`, from `entitlements.service`) both carry the
+        same `Denied`. They are not merged here: `EntitlementDenied` subclasses `PermissionError`
+        and `audit.py`/`privacy.py` already depend on that, so re-parenting either one to invent
+        a shared base would change what existing `except PermissionError` blocks catch. Two
+        decorators on one function costs nothing and moves no existing behaviour.
+
+        **`privacy.py` keeps its own `try/except` and still wins** — a route-level catch runs
+        before any app-level handler, so the one path that already returned a correct 402 is
+        untouched by this.
+
+        **402, matching the contract `privacy.py` established**, down to the JSON keys. A second
+        shape for the same condition would mean every client handling paywalls twice. Not 403:
+        that status is *"you may not"*, and this is *"not on this plan"* — a distinction the 403
+        handler above already turns into an onboarding redirect, which would send a Free user
+        trying to rate a vendor into the signup wizard.
+
+        `upgrade_target` is read off the decision rather than recomputed from the plan, because
+        `_upgrade_target()` walks the chain: a Free user denied an Estate-only feature must be
+        pointed at **estate**, not at pro, which would deny them again after they paid.
+        """
+        decision = getattr(exc, "decision", None)
+        upgrade_target = getattr(exc, "upgrade_target", None) or getattr(
+            decision, "upgrade_target", None
+        )
+        reason = getattr(decision, "reason", None) or str(exc)
+
+        # `info`, not `exception`: a plan gate refusing is the product working. Logging a
+        # stack trace here would put routine paywall hits in the same channel an operator
+        # watches for breakage, which is how a real incident gets lost in the noise.
+        logger.info(
+            "entitlement denied: %s %s upgrade_target=%s",
+            request.method,
+            request.url.path,
+            upgrade_target,
+            extra={"path": request.url.path, "upgrade_target": upgrade_target},
+        )
+
+        if _wants_json(request):
+            return JSONResponse(
+                status_code=402,
+                content={
+                    "error": "plan_required",
+                    "reason": reason,
+                    "upgrade_target": upgrade_target,
+                },
+            )
+
+        if templates is not None:
+            try:
+                return templates.TemplateResponse(
+                    request,
+                    "plan_required.html",
+                    {"reason": reason, "upgrade_target": upgrade_target},
+                    status_code=402,
+                )
+            except Exception:
+                logger.exception("plan_required template failed to render")
+
+        return PlainTextResponse(reason, status_code=402)
 
     @app.exception_handler(Exception)
     async def _unhandled(request: Request, exc: Exception):

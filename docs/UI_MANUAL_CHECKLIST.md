@@ -75,6 +75,7 @@ static tests do cover them directly.
 | `onboarding/invite.html` | — | 18 | ☐ | ☐ | ☐ |
 | `onboarding/property.html` | — | 17 | ☐ | ☐ | ☐ |
 | `onboarding/spaces.html` | — | 18 | ☐ | ☐ | ☐ |
+| `plan_required.html` | — | 45 | ☐ | ☐ | ☐ |
 | `password_reset.html` | /password/reset/{token} | 69 | ☐ | ☐ | ☐ |
 | `password_reset_request.html` | /password/reset | 71 | ☐ | ☐ | ☐ |
 | `playbook_detail.html` | — | 103 | ☐ | ☐ | ☐ |

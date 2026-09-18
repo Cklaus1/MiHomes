@@ -404,3 +404,95 @@ def test_a_brand_new_user_can_add_their_first_home(rls_app):
         f"the new user did not reach a dashboard ({dashboard.status_code})"
     )
     assert "First Home" in dashboard.text, "the home they just added is not on their dashboard"
+
+
+def test_a_plan_limit_renders_an_upgrade_prompt_not_a_500(rls_app):
+    """A Free account past its home cap gets 402 and the plan that would allow it.
+
+    **Every gate in the product refused correctly and then rendered as a crash.** Five services
+    raise `EntitlementError`; `web/app.py` registered no handler for it, so a correct refusal
+    fell through to the catch-all and produced *"Something went wrong"* with a request id. To
+    the user that is indistinguishable from the product being broken, and `PRICING` rule 4 — the
+    rule that every denial names the plan that would allow it — reached nobody.
+
+    The fixture's account is `estate` with one property, so it is put on `free` here (whose cap
+    is 1) and its trial marked spent. **`trial_used_at` matters**: without it the first denied
+    `property.add` starts the no-card trial (§4.2), the gate is re-asked, and the second home is
+    *allowed* — which is the product working as designed and would make this test pass while
+    asserting nothing about the handler.
+    """
+    import mihomes.db as db_module
+
+    client, account_id = rls_app
+    _sign_in(client)
+
+    with db_module._engine.begin() as conn:
+        conn.execute(
+            text(
+                "update accounts set plan = 'free', subscription_status = 'active',"
+                " trial_used_at = now() where id = :a"
+            ),
+            {"a": account_id},
+        )
+
+    response = client.post(
+        "/properties/", data={"name": "Second Home"}, headers=_HTML
+    )
+
+    assert response.status_code == 402, (
+        f"a plan denial answered {response.status_code}, not 402 — a 500 here is the bug this "
+        "test exists for: the gate fires, and the user sees a crash instead of a paywall"
+    )
+    assert "pro" in response.text.lower(), (
+        "the refusal must name the plan that would allow it (PRICING rule 4)"
+    )
+
+    # And the write really was refused — a paywall that renders while the row lands is worse
+    # than no paywall, because the limit then means nothing.
+    #
+    # **The tenant has to be bound to count.** This engine connects as the app role, which RLS
+    # applies to, so an unbound connection sees zero rows for every account — including the one
+    # property the fixture created. Counting without `app.current_account` set reads as "the
+    # denial worked" no matter what happened, which is the blind spot this whole file exists to
+    # avoid.
+    with db_module._engine.begin() as conn:
+        conn.execute(
+            text("select set_config('app.current_account', :a, true)"), {"a": str(account_id)}
+        )
+        homes = conn.execute(
+            text("select count(*) from properties where account_id = :a"), {"a": account_id}
+        ).scalar_one()
+    assert homes == 1, f"expected the fixture's single home, found {homes}"
+
+
+def test_a_plan_denial_answers_json_for_an_api_caller(rls_app):
+    """The same denial, asked for as JSON, keeps the 402 contract `privacy.py` established.
+
+    `{"error": "plan_required", "reason": ..., "upgrade_target": ...}` — the shape the audit
+    export already returns. Two shapes for one condition would mean every client handling
+    paywalls twice.
+    """
+    import mihomes.db as db_module
+
+    client, account_id = rls_app
+    _sign_in(client)
+
+    with db_module._engine.begin() as conn:
+        conn.execute(
+            text(
+                "update accounts set plan = 'free', subscription_status = 'active',"
+                " trial_used_at = now() where id = :a"
+            ),
+            {"a": account_id},
+        )
+
+    response = client.post(
+        "/properties/",
+        data={"name": "Second Home"},
+        headers={**_HTML, "Accept": "application/json"},
+    )
+
+    assert response.status_code == 402
+    body = response.json()
+    assert body["error"] == "plan_required", body
+    assert body["upgrade_target"] == "pro", body

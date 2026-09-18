@@ -1,0 +1,45 @@
+{# The paywall — shown when a plan gate refuses (402).
+
+   **Extends `base.html`, unlike `error.html`.** That page is deliberately standalone because it
+   renders when the principal chain may itself be broken, and inheriting the layout risks a
+   second exception with nowhere to send it. None of that applies here: an entitlement denial
+   means the user is signed in with a working account, so taking their navigation away would
+   make a routine paywall feel like a crash — the exact impression this page exists to remove.
+
+   `PRICING` rule 4: every denial names the plan that would allow it. `upgrade_target` comes off
+   the decision, so an Estate-only feature says Estate even when the user is on Free. #}
+{% extends "base.html" %}
+{% block title %}Upgrade required — MiHomes{% endblock %}
+{% block heading %}Upgrade required{% endblock %}
+{% block content %}
+<div class="max-w-xl mx-auto py-10">
+  <div class="rounded-lg border border-amber-300 bg-amber-50 p-6">
+    <h2 class="text-lg font-medium text-amber-900 mb-2">
+      {% if upgrade_target %}
+        This is included in {{ upgrade_target|capitalize }}
+      {% else %}
+        Not available on your plan
+      {% endif %}
+    </h2>
+
+    {# The service's own words. It knows which limit was hit and what the numbers were; a
+       generic "upgrade to continue" would drop the one detail that makes the refusal make
+       sense — e.g. "free allows 1 (max_homes); 1 in use". #}
+    <p class="text-sm text-amber-900/90 mb-5">{{ reason }}</p>
+
+    {% if upgrade_target %}
+      <a href="/billing"
+         class="inline-block rounded bg-amber-900 px-4 py-2 text-sm font-medium text-white hover:bg-amber-800">
+        See {{ upgrade_target|capitalize }} plans
+      </a>
+    {% endif %}
+    <a href="/" class="ml-3 inline-block text-sm text-amber-900 underline">Back to the dashboard</a>
+  </div>
+
+  {# Nothing was lost: these gates refuse *before* the write, so the user's data is untouched.
+     Saying so prevents the "did that half-save?" worry a bare refusal leaves behind. #}
+  <p class="mt-4 text-sm text-gray-500">
+    Nothing was changed — the action was stopped before anything was saved.
+  </p>
+</div>
+{% endblock %}

@@ -643,10 +643,16 @@ def test_invitee_without_google(client):
         owner = create_password_user(s, email="owner@example.com", password=GOOD_PASSWORD)
         s.flush()
         account_id = uuid.uuid4()
+        # **`pro`, not `free`** — this test is about how an invitee *without a Google account*
+        # redeems an invitation, and the invitation it needs is a staff one (A21's scope rule is
+        # exercised below). Free may not invite staff at all (`staff_invites_allowed`), so a
+        # Free account here would fail at setup on a plan limit that has nothing to do with what
+        # A14 asserts. Matches `conftest.DEFAULT_FIXTURE_PLAN`'s rule: only a test *about* a
+        # limit should pin itself to the tier that has it.
         s.execute(
             text(
                 "INSERT INTO accounts (id, slug, name, type, plan) "
-                "VALUES (:i, :s, :s, 'household', 'free')"
+                "VALUES (:i, :s, :s, 'household', 'pro')"
             ),
             {"i": account_id, "s": f"acct-{uuid.uuid4().hex[:8]}"},
         )

@@ -143,6 +143,9 @@ def create_invite(
             "and zero scope rows means zero properties visible (D3)"
         )
 
+    if role == "staff":
+        _check_staff_invite_entitlement(session, account_id)
+
     _check_seat_capacity(session, account_id)
 
     raw = secrets.token_urlsafe(_TOKEN_BYTES)
@@ -160,6 +163,36 @@ def create_invite(
     session.add(invite)
     session.flush()
     return invite, raw
+
+
+def _check_staff_invite_entitlement(session: Session, account_id: uuid.UUID) -> None:
+    """`staff_invites_allowed` — the Free tier may not invite staff at all.
+
+    **Deferred, then forgotten.** SPEC-003 §1.4 is explicit: *"Staff invites work in Phase 2
+    precisely because nothing gates them yet. The gate arrives with Stripe in Phase 3."* Phase 3
+    arrived and this did not, so `"invite.staff"` sat in `_BOOLEAN_ACTIONS` with **no caller** —
+    a declared entitlement that nothing consulted. A Free account could invite as many staff as
+    its seat cap allowed.
+
+    **Staff only.** Free's `roles_allowed` includes `admin`, and `staff_invites_allowed` is about
+    staff specifically; gating admin invites here would refuse something the plan permits.
+
+    **Before the seat check, deliberately.** A Free account that may not invite staff at all
+    should be told that, not "no seats left" — the seat message offers a remedy ("revoke a
+    pending invite or upgrade") whose first half would not help.
+
+    Raises `EntitlementError` rather than `InviteError`: the two routes that call this catch
+    `InviteError` and re-render the form with the message, which would turn a paywall into an
+    inline validation error with nothing to click. `EntitlementError` reaches the app-level
+    handler and renders the upgrade prompt, carrying the plan that would allow it.
+    """
+    from mihomes.entitlements import Denied, can
+    from mihomes.services.property import EntitlementError
+
+    account = session.get(Account, account_id)
+    decision = can(account, "invite.staff")
+    if isinstance(decision, Denied):
+        raise EntitlementError(decision)
 
 
 def _check_seat_capacity(session: Session, account_id: uuid.UUID) -> None:

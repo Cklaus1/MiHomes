@@ -560,6 +560,48 @@ def test_signed_out_pages_render_without_an_account_bound(rls_app, path):
     assert "trial" not in response.text.lower()
 
 
+def test_a_free_account_inviting_staff_gets_the_paywall_not_a_form_error(rls_app):
+    """The staff-invite gate reaches the browser as an upgrade prompt.
+
+    Both routes that create invites (`settings.py`, `team.py`) catch `InviteError` and
+    re-render the form with the message inline. That is right for "this staff invite needs a
+    property" and wrong for a plan limit — it would turn a paywall into a validation error with
+    nothing to click. The gate raises `EntitlementError` instead, which those handlers do not
+    catch, so it reaches the app-level handler added in `5502c90`.
+    """
+    import mihomes.db as db_module
+
+    client, account_id = rls_app
+    _sign_in(client)
+
+    with db_module._engine.begin() as conn:
+        conn.execute(
+            text(
+                "update accounts set plan = 'free', subscription_status = 'active'"
+                " where id = :a"
+            ),
+            {"a": account_id},
+        )
+        conn.execute(
+            text("select set_config('app.current_account', :a, true)"), {"a": str(account_id)}
+        )
+        property_id = conn.execute(
+            text("select id from properties where account_id = :a limit 1"), {"a": account_id}
+        ).scalar_one()
+
+    response = client.post(
+        "/team/invites",
+        data={"email": "helper@example.com", "role": "staff", "property_ids": str(property_id)},
+        headers=_HTML,
+    )
+
+    assert response.status_code == 402, (
+        f"a Free account inviting staff got {response.status_code}; 400 means the form "
+        "swallowed it as a validation error, 500 means nothing caught it at all"
+    )
+    assert "pro" in response.text.lower()
+
+
 def test_a_plan_denial_answers_json_for_an_api_caller(rls_app):
     """The same denial, asked for as JSON, keeps the 402 contract `privacy.py` established.
 

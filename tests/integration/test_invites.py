@@ -168,6 +168,100 @@ class TestStaffScopeIsRequired:
         assert [s.property_id for s in scopes] == [belle.id]
 
 
+class TestStaffInviteEntitlement:
+    """`staff_invites_allowed` — Free may not invite staff at all.
+
+    SPEC-003 §1.4 deferred this explicitly: *"Staff invites work in Phase 2 precisely because
+    nothing gates them yet. The gate arrives with Stripe in Phase 3."* Phase 3 arrived and the
+    gate did not, so `"invite.staff"` sat in `_BOOLEAN_ACTIONS` with no caller — a declared
+    entitlement nothing consulted, and a Free account could invite staff up to its seat cap.
+
+    These run against a **Free** account explicitly, per `conftest.DEFAULT_FIXTURE_PLAN`'s note
+    that a limit test which inherits its plan can pass for the wrong reason.
+    """
+
+    @pytest.fixture
+    def free_account(self, _pg_engine):
+        from tests.conftest import _create_account
+
+        return _create_account(_pg_engine, prefix="acct-free", name="Free Account", plan="free")
+
+    @pytest.fixture
+    def free_property(self, session, free_account):
+        prop = Property(
+            id=uuid.uuid4(), account_id=free_account, name="Only Home",
+            slug=f"only-{uuid.uuid4().hex[:6]}",
+        )
+        session.add(prop)
+        session.flush()
+        return prop
+
+    def test_free_cannot_invite_staff(self, session, free_account, free_property):
+        from mihomes.services.property import EntitlementError
+
+        with pytest.raises(EntitlementError) as excinfo:
+            create_invite(
+                session, free_account, None, "helper@example.com", "staff", [free_property.id]
+            )
+
+        # `PRICING` rule 4 — the refusal names the plan that would allow it, or the UI has
+        # nothing to offer and the paywall is a dead end.
+        assert excinfo.value.decision.upgrade_target == "pro"
+
+    def test_free_can_still_invite_an_admin(self, session, free_account):
+        """The gate is `staff_invites_allowed`, and it is about **staff**.
+
+        Free's `roles_allowed` includes `admin`, so refusing admin invites here would deny
+        something the plan permits — the regression a broader check would introduce.
+        """
+        invite, _raw = create_invite(
+            session, free_account, None, "admin@example.com", "admin", []
+        )
+        assert invite.role == "admin"
+
+    def test_pro_can_invite_staff(self, session, _pg_engine):
+        from tests.conftest import _create_account
+
+        pro = _create_account(_pg_engine, prefix="acct-pro", name="Pro Account", plan="pro")
+        prop = Property(
+            id=uuid.uuid4(), account_id=pro, name="Pro Home",
+            slug=f"pro-{uuid.uuid4().hex[:6]}",
+        )
+        session.add(prop)
+        session.flush()
+
+        invite, _raw = create_invite(
+            session, pro, None, "helper@example.com", "staff", [prop.id]
+        )
+        assert invite.role == "staff"
+
+    def test_the_plan_refusal_comes_before_the_seat_message(
+        self, session, free_account, free_property
+    ):
+        """A Free account is told it cannot invite staff, not that it is out of seats.
+
+        The seat message offers "revoke a pending invite or upgrade", and the first half of that
+        would not help — no amount of freeing seats lets Free invite staff. Ordering the checks
+        the other way round would send the user to do something useless.
+        """
+        from mihomes.services.property import EntitlementError
+
+        # Fill every seat, so the seat check would also refuse if it ran first.
+        for _ in range(3):
+            session.add(
+                Membership(
+                    id=uuid.uuid4(), account_id=free_account, user_id=_user(session).id,
+                    role="admin", status="active",
+                )
+            )
+        session.flush()
+
+        with pytest.raises(EntitlementError):
+            create_invite(
+                session, free_account, None, "helper@example.com", "staff", [free_property.id]
+            )
+
+
 class TestSeatAccounting:
     def test_pending_invite_consumes_a_seat(self, session, account_a, belle):
         """D6 — *"a pending invite consumes a seat immediately"*, counted across **two** tables.

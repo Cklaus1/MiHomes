@@ -12,8 +12,10 @@ current_account, ...)` has no source for its first two arguments without this.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from collections.abc import AsyncIterator
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Generator
@@ -35,7 +37,22 @@ from mihomes.models.membership import Membership
 from mihomes.tenancy import account_context, current_user
 from mihomes.tenancy.connection import bind_account_guc, bind_user_guc
 
+logger = logging.getLogger(__name__)
+
 TEMPLATES_DIR = Path(__file__).parent / "templates"
+
+#: The billing banner for the request being served, or `None` when there is nothing to say.
+#:
+#: **A ContextVar with a default, and the default is the point.** `TemplateResponse` renders
+#: every page including `/login`, `/signup`, the marketing page and `error.html`, none of which
+#: have an account bound — and `tenancy.current_account` is declared with *no* default, so
+#: reading it there raises `LookupError` and turns every signed-out page into a 500. That is the
+#: same defect that broke onboarding step 3 (fixed in `50aa03a`), reached from the other side.
+#:
+#: Populated in `resolve_principal`, where the request already holds a session and the tenant is
+#: bound, rather than read back inside the renderer: a query there would run outside the request
+#: transaction, unbound for RLS, once per page.
+trial_banner: ContextVar[dict | None] = ContextVar("trial_banner", default=None)
 
 #: The detail on the one 403 that is **recoverable**, and the reason it is a named constant.
 #:
@@ -54,6 +71,64 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 NO_ACCOUNT_SELECTED = "No account selected"
 
 
+def _bind_trial_banner(db: Session, account_id: uuid.UUID) -> None:
+    """Work out what, if anything, the layout should say about a trial.
+
+    **Nothing in the app told anyone a trial had started.** No template mentioned one, so an
+    account that tripped a plan limit was silently moved to `plan='pro'`,
+    `subscription_status='trialing'` and kept going — the user's next fourteen days looked like
+    Pro with no explanation, and the day it lapsed looked like the product breaking. Measured on
+    the Free tester: adding a second home upgraded the account and said nothing.
+
+    **Gated on `subscription_status`, not on `is_on_trial()`.** That helper is date-aware and
+    returns `False` the moment `trial_ends_at` passes — but `start_trial` set `plan='pro'`, and
+    only `jobs.trial_sweep` puts it back. With no scheduler running the sweep (there is none on
+    the VM today), an expired trial keeps full Pro entitlements indefinitely while
+    `is_on_trial()` reports `False`. Gating the banner on it would show nothing during exactly
+    the state a user most needs explained.
+
+    Failures are swallowed: a banner must never be able to break the page it decorates.
+    """
+    from datetime import datetime, timezone
+
+    try:
+        from mihomes.models.account import Account
+
+        account = db.get(Account, account_id)
+        if account is None or account.subscription_status != "trialing":
+            trial_banner.set(None)
+            return
+
+        ends_at = account.trial_ends_at
+        if ends_at is None:
+            trial_banner.set(None)
+            return
+
+        remaining = ends_at - datetime.now(timezone.utc)
+
+        # **Rounded up, not truncated.** `timedelta.days` floors, so a trial with 8 days and 23
+        # hours to run reads "8 days left" — and on the final day, with hours still on the
+        # clock, it reads "0 days left" while the trial is demonstrably still running. Ceiling
+        # matches how a person reads a countdown: the day you are in still counts.
+        days = -((-remaining.total_seconds()) // 86400)
+        days = int(days)
+
+        trial_banner.set(
+            {
+                "plan": account.plan,
+                "ends_at": ends_at,
+                "days_left": max(days, 0),
+                # Expired-but-not-swept. The entitlements still say Pro, so telling the user the
+                # trial "ended" while the features keep working would be its own confusion; the
+                # template says it is over and being tidied up.
+                "expired": remaining.total_seconds() <= 0,
+            }
+        )
+    except Exception:  # pragma: no cover - defensive
+        logger.exception("could not resolve trial banner for account %s", account_id)
+        trial_banner.set(None)
+
+
 class RedactingTemplates(Jinja2Templates):
     """Jinja2Templates that redacts the context before rendering (SPEC-003 §6 Step 8).
 
@@ -69,6 +144,23 @@ class RedactingTemplates(Jinja2Templates):
 
     def TemplateResponse(self, *args, **kwargs):
         role = current_role.get()
+
+        # The trial banner rides along with the redaction pass, for the same reason redaction
+        # lives here: this is the one place every page renders through, so the layout can show
+        # it without 142 routes each remembering to pass it.
+        #
+        # Injected *before* `redact_context` rather than after, so it is subject to the same
+        # filtering as everything else — a context key that skipped redaction would be a hole in
+        # N3 no matter how harmless its contents look today.
+        banner = trial_banner.get()
+        if banner is not None:
+            if "context" in kwargs:
+                kwargs["context"].setdefault("trial", banner)
+            else:
+                for value in args:
+                    if isinstance(value, dict):
+                        value.setdefault("trial", banner)
+                        break
 
         # Starlette's signature moved: the modern form is
         # `TemplateResponse(request, name, context=None, ...)`, the legacy one
@@ -260,6 +352,7 @@ async def enforce_declared_action(
         # reads reach it on every authenticated request. Invisible to the suite, whose fixtures
         # connect as a superuser and so bypass RLS entirely.
         bind_account_guc(db, principal.account_id)
+        _bind_trial_banner(db, principal.account_id)
         grant = require_action_gate(db, principal, action)
 
         # `SCOPED` is answered here, by binding the whitelist the query layer reads (§9.4

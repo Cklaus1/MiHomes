@@ -20,6 +20,14 @@ dependencies = [
     "jinja2>=3.1",
     "python-multipart>=0.0.9",
     "aiofiles>=23.0",
+    # The production server (`mihomes-web` → `web/server.py:main()`), which serves the ASGI app
+    # through waitress. **Undeclared until now, so `mihomes-web` had never started on a clean
+    # install** — it died on `ModuleNotFoundError: a2wsgi`, which is why every deployment ran
+    # `mihomes-dev` instead. That mattered beyond convenience: `dev()` does not call
+    # `verify_runtime_role`, so the N5 check that refuses to serve as an RLS-bypassing role was
+    # never running in the one place it is meant to.
+    "a2wsgi>=1.10",
+    "waitress>=3.0",
     # SPEC-001 Phase 0 (landing + waitlist). Postgres is the target engine from
     # Phase 0 onward (D3); the landing app is Postgres-only.
     "psycopg[binary]>=3.2",

@@ -110,43 +110,8 @@ def main() -> None:
     serve(wsgi_app, host=host, port=5000)
 
 
-def _warn_if_already_serving() -> bool:
-    """Say *"it is already running"* rather than let the bind fail with a stock OS error.
-
-    On a supervised install this is the common case, not an error: cron keeps the server up, so
-    typing `mihomes-dev` starts a second copy that cannot have the port. What came back was
-
-        ERROR: [Errno 98] error while attempting to bind on address ('127.0.0.1', 5000):
-        address already in use
-
-    after a *successful*-looking startup banner — which reads as the app being broken when the
-    app is in fact fine and answering. Checking first turns a puzzle into a sentence.
-
-    Returns True if something is already serving, so the caller can exit without the traceback.
-    """
-    import socket
-    from contextlib import closing
-
-    host = os.environ.get("MIHOMES_HOST", "127.0.0.1")
-    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as probe:
-        probe.settimeout(1.0)
-        if probe.connect_ex((host, 5000)) != 0:
-            return False
-
-    print("MiHomes is already running on http://localhost:5000 — nothing to do.")
-    print()
-    print("  If it is supervised (cron keepalive), it restarts itself; to pick up new code:")
-    print("      pkill -f mihomes-dev      # cron restarts it within a minute")
-    print("  Or restart it immediately:")
-    print("      pkill -f mihomes-dev && bash scripts/mihomes-keepalive.sh")
-    return True
-
-
 def dev() -> None:
     """Development server — no-reload by default, stable on Windows."""
-    if _warn_if_already_serving():
-        return
-
     ensure_dirs()
     _configure_logging()
     demo = _demo_flag()

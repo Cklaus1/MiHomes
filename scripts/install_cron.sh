@@ -43,15 +43,21 @@ crontab - <<'CRON'
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
+# **Invoked through `bash`, not as bare paths.** A bare path needs the executable bit, and that
+# bit is one `git checkout` away from vanishing: the scripts were first committed mode 100644,
+# so restoring them from git silently left cron unable to run them — supervision looked
+# installed and did nothing, which is the worst of both. `bash <path>` does not care about the
+# mode, so the crontab keeps working however the file arrives.
+#
 # Keep the web app up. Idempotent: exits at once if it is already running, so this both
 # starts it after a restart and revives it after a crash.
-@reboot           /home/millena/MiHomes/scripts/mihomes-keepalive.sh
-* * * * *         /home/millena/MiHomes/scripts/mihomes-keepalive.sh
+@reboot           bash /home/millena/MiHomes/scripts/mihomes-keepalive.sh
+* * * * *         bash /home/millena/MiHomes/scripts/mihomes-keepalive.sh
 
 # Expire finished trials — the trial's only clock. 00:17 UTC: `trial_ends_at` is stored in UTC
 # and this box runs UTC, so "the day it ends" means the same thing to both. A few minutes past
 # the hour keeps it clear of everything else that fires at :00.
-17 0 * * *        /home/millena/MiHomes/scripts/mihomes-trial-sweep.sh
+17 0 * * *        bash /home/millena/MiHomes/scripts/mihomes-trial-sweep.sh
 CRON
 
 crontab -l | grep -v '^#' | grep -v '^$' | sed 's/^/  /'

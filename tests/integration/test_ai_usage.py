@@ -21,6 +21,77 @@ from mihomes.models.ai_usage import AIUsageEvent, AIUsageRollup
 from mihomes.services.metering.meter import billing_period, current_usage, record_usage
 
 
+class TestTheCeilingReachesTheUser:
+    """The ceiling denies, and the denial arrives as words a user can act on.
+
+    The gate itself was never the problem — `check_and_reserve` returns a `Denied` carrying
+    *"AI paused until <date> — N of N calls used this period"* and an `upgrade_target`. But
+    every AI route wraps its call in `except Exception` and renders `_ai_error(str(e))`, whose
+    fallback is *"AI request failed: …"* — the phrasing it uses for a broken provider. So
+    reaching your monthly limit read as the AI being down, and the upgrade target was discarded.
+    """
+
+    def test_the_ceiling_denies_at_the_cap(self, session, account_a):
+        """Reachable at all — the meter fails *open* on an infrastructure error, so a message
+        wired for a denial that never arrives would be coverage-shaped dead code.
+
+        Moves the fixture's own account to `free` rather than creating a second one: the
+        `session` fixture is bound to `account_a`, so a rollup written for any other account is
+        invisible to it (measured — the first version of this test wrote 200 calls somewhere the
+        meter could not see and then failed looking for them).
+        """
+        from mihomes.entitlements.limits import PLAN_LIMITS
+        from mihomes.entitlements.service import Denied
+        from mihomes.services.metering.meter import check_and_reserve
+
+        account = session.get(Account, account_a)
+        account.plan = "free"
+        account.subscription_status = "active"
+        session.flush()
+
+        cap = PLAN_LIMITS["free"]["ai_calls_per_month"]
+
+        assert not isinstance(
+            check_and_reserve(session, account, entry_point="web.agent"), Denied
+        ), "a fresh Free account must be allowed to use AI"
+
+        for _ in range(cap):
+            record_usage(session, account, entry_point="web.agent", provider="Claude",
+                         method="complete")
+
+        decision = check_and_reserve(session, account, entry_point="web.agent")
+        assert isinstance(decision, Denied), f"{cap} of {cap} used and still allowed"
+        assert decision.upgrade_target == "pro"
+
+    def test_the_message_names_the_limit_and_the_plan(self):
+        """What the user actually reads in the chat bubble.
+
+        Asserts against `_plan_message` rather than the raw `Denied`, because the bug was in the
+        rendering, not the decision: the route had the right object and said the wrong thing.
+        """
+        from mihomes.entitlements.service import Denied
+        from mihomes.services.property import EntitlementError
+        from mihomes.web.routes.ai import _ai_error, _plan_message
+
+        decision = Denied(
+            reason="AI paused until 2026-09-30 — 200 of 200 calls used this period.",
+            upgrade_target="pro",
+            limit=200,
+        )
+        message = _plan_message(EntitlementError(decision))
+
+        assert "200 of 200" in message, "the user needs the numbers to know what happened"
+        assert "Pro" in message, "PRICING rule 4 — name the plan that would allow it"
+        assert "/billing" in message, "and give them somewhere to go"
+
+        # The regression in one line: the old path sent this through `_ai_error`, which has no
+        # case for a plan denial and falls through to its provider-failure wording.
+        assert _ai_error(str(decision.reason)).startswith("AI request failed"), (
+            "if this no longer holds, `_ai_error` has grown a plan case and `_plan_message` "
+            "may be redundant"
+        )
+
+
 class TestRecordUsage:
     def test_the_counter_moves(self, session, account_a):
         account = session.get(Account, account_a)

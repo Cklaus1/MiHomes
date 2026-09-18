@@ -15,6 +15,10 @@ from mihomes.models.document import DocumentType
 from mihomes.services import document as doc_svc
 from mihomes.services import property as prop_svc
 from mihomes.services.ai.file_processor import Attachment, process_upload
+
+# The AI ceiling raises this from inside the provider wrapper. Imported from where it is
+# defined rather than re-exported, so `except` here matches the object that is actually raised.
+from mihomes.services.property import EntitlementError
 from mihomes.web.deps import get_db, templates
 from mihomes.web.forms import save_document_text
 
@@ -211,6 +215,33 @@ def _ai_error(msg: str) -> str:
     return f"AI request failed: {msg}"
 
 
+def _plan_message(exc) -> str:
+    """The message for a plan denial, read off the decision rather than parsed out of a string.
+
+    **Every AI route wraps its call in `except Exception` and renders `_ai_error(str(e))`.** That
+    is right for a provider failure and wrong for the monthly ceiling: `MeteredProvider._check`
+    raises `EntitlementError` carrying a `Denied` — *"AI paused until 2026-09-30 — 200 of 200
+    calls used this period. Upgrade to continue."* — and `_ai_error` turned it into *"AI request
+    failed: …"*, the phrasing it uses for a broken provider. So hitting your plan limit read as
+    the AI being down, and the `upgrade_target` was discarded on the way.
+
+    Matched by exception class, never by keyword. `_ai_error` classifies by substring because a
+    provider error arrives as prose and there is nothing else to go on; a plan denial arrives as
+    a typed object, and sniffing its text would throw away the structure that makes it
+    actionable.
+
+    These routes answer with HTMX fragments, so the app-level 402 handler cannot help — swapping
+    a full page into a chat bubble is worse than the wrong words. The message goes where the
+    error text already goes; only its wording and its source change.
+    """
+    decision = getattr(exc, "decision", None)
+    reason = getattr(decision, "reason", None) or str(exc)
+    target = getattr(decision, "upgrade_target", None)
+    if target:
+        return f"{reason} See plans at /billing to move to {target.capitalize()}."
+    return reason
+
+
 @router.get("/")
 @declares("ai.use", Access.COLLECTION)
 def ai_page(request: Request, db: Session = Depends(get_db)):
@@ -336,6 +367,11 @@ async def ai_ask(
         resp = ask(db, query, role=role or None, property_slug=property_id or None, attachments=attachments or None)
         response_text = resp.text
         active_role = resp.role
+    except EntitlementError as e:
+        # `info`, not `exception`: a plan ceiling refusing is the product working, and a stack
+        # trace would file it alongside the provider outages an operator is watching for.
+        logger.info("ai ask denied by plan: %s", getattr(e, "decision", e))
+        error = _plan_message(e)
     except Exception as e:
         # N15: degraded deliberately (the user sees the error) but never silently — an AI
         # provider that is down must be visible to an operator, not only to whoever asked.
@@ -375,6 +411,9 @@ async def situation_report(
             attachments=attachments or None,
         )
         report_text = resp.text
+    except EntitlementError as e:
+        logger.info("ai report denied by plan: %s", getattr(e, "decision", e))
+        error = _plan_message(e)
     except Exception as e:
         logger.exception("ai report failed")  # N15
         error = _ai_error(str(e))
@@ -427,6 +466,9 @@ async def estate_digest(
             attachments=attachments or None,
         )
         report_text = resp.text
+    except EntitlementError as e:
+        logger.info("ai digest denied by plan: %s", getattr(e, "decision", e))
+        error = _plan_message(e)
     except Exception as e:
         logger.exception("ai report failed")  # N15
         error = _ai_error(str(e))
@@ -473,6 +515,9 @@ async def ai_ask_stream(
             )
         else:
             system_prompt = primary_role.system_prompt
+    except EntitlementError as e:
+        logger.info("ai stream denied by plan: %s", getattr(e, "decision", e))
+        error_msg = _plan_message(e)
     except Exception as e:
         logger.exception("ai stream setup failed")  # N15
         error_msg = _ai_error(str(e))
@@ -546,6 +591,13 @@ async def ai_ask_stream(
                         provider=provider_name,
                         model=model,
                     ))
+            except EntitlementError as exc:
+                # The ceiling can be reached here as well as at setup: the worker is where the
+                # provider is actually invoked, so `MeteredProvider._check` fires inside this
+                # thread. Travels as the same SSE "error" event the stream already knows how to
+                # render — a 402 has nowhere to go once the stream is open.
+                logger.info("ai stream worker denied by plan: %s", getattr(exc, "decision", exc))
+                loop.call_soon_threadsafe(queue.put_nowait, ("error", _plan_message(exc)))
             except Exception as exc:
                 logger.exception("ai_ask_stream worker failed")
                 loop.call_soon_threadsafe(queue.put_nowait, ("error", _ai_error(str(exc))))

@@ -48,6 +48,17 @@ def _ctx(db: Session) -> dict:
         "active_vendors": active_vendors,
         "inactive_vendors": inactive_vendors,
         "vendor_ratings": {v.slug: vendor_svc.get_vendor_ratings(db, v.slug)["ratings"] for v in all_vendors},
+        # Whether this plan includes vendor ratings, so the template can mark the control
+        # instead of offering it and refusing on click. `ratings_are_entitled` is the same
+        # question `rate_vendor` asks before writing, asked without raising.
+        #
+        # **No new query on the request path.** It reads the account row this request already
+        # has, inside the route's own transaction — deliberately unlike the trial banner
+        # (reverted in 6628d39), which added a read to *every* page inside
+        # `resolve_principal` and left the transaction open when it failed, hanging the app.
+        # Confining plan lookups to the routes that render plan-dependent UI is what keeps a
+        # failure here a failure of this page rather than of the whole site.
+        "ratings_entitled": vendor_svc.ratings_are_entitled(db),
         "notes_map": {v.id: note_svc.list_notes(db, f"vendor:{v.id}") for v in all_vendors},
         "properties": properties,
         "vendor_properties": vendor_properties,

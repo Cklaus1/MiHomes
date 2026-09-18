@@ -390,6 +390,19 @@
           {% endif %}
 
           <!-- Add rating form -->
+          {# Vendor ratings are a Pro feature. On Free the form is replaced by the offer rather
+             than hidden: a control that vanishes leaves the user wondering whether the product
+             has the feature at all, where this says what it costs. Posting directly still hits
+             the 402 in `rate_vendor` — this is presentation, never the enforcement. #}
+          {% if not ratings_entitled %}
+          <div>
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Add Rating</div>
+            <div class="bg-amber-50 rounded-xl p-4 border border-amber-200 text-sm text-amber-900">
+              Vendor ratings are included in <span class="font-medium">Pro</span>.
+              <a href="/billing" class="underline font-medium">See plans</a>
+            </div>
+          </div>
+          {% else %}
           <div>
             <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Add Rating</div>
             <form hx-post="/vendors/{{ vendor.slug }}/rate"
@@ -429,6 +442,7 @@
               </button>
             </form>
           </div>
+          {% endif %}
         </div>
 
         <!-- Notes tab (hidden by default) -->
@@ -737,6 +751,16 @@
           {% else %}
           <div class="text-sm text-gray-400 bg-gray-50 rounded-xl p-4 text-center border border-gray-100">No reviews yet</div>
           {% endif %}
+          {# Same gate as the panel above — see the note there. #}
+          {% if not ratings_entitled %}
+          <div>
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Add Rating</div>
+            <div class="bg-amber-50 rounded-xl p-4 border border-amber-200 text-sm text-amber-900">
+              Vendor ratings are included in <span class="font-medium">Pro</span>.
+              <a href="/billing" class="underline font-medium">See plans</a>
+            </div>
+          </div>
+          {% else %}
           <div>
             <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Add Rating</div>
             <form hx-post="/vendors/{{ vendor.slug }}/rate" hx-target="body" hx-swap="innerHTML"
@@ -773,6 +797,7 @@
                       class="w-full py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">Submit Rating</button>
             </form>
           </div>
+          {% endif %}
         </div>
         <div id="vendor-panel-{{ vendor.slug }}-notes" class="hidden px-6 py-5" data-notes-container>
           {% with notes=notes_map[vendor.id], post_url="/vendors/"+vendor.slug+"/notes", delete_url_prefix="/vendors/"+vendor.slug+"/notes" %}

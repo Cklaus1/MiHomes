@@ -507,6 +507,56 @@ def test_a_free_account_inviting_staff_gets_the_paywall_not_a_form_error(rls_app
     assert "pro" in response.text.lower()
 
 
+def test_the_vendors_page_offers_ratings_only_when_the_plan_includes_them(rls_app):
+    """Free sees the upgrade offer where the rating form goes; Estate sees the form.
+
+    Both halves matter. Gating on a context key that a route forgets to pass would make the
+    control vanish for *everyone* — Jinja renders an undefined name as falsy — so the Estate
+    case is what proves the flag is actually reaching the template rather than the page simply
+    never showing the form any more.
+
+    The paywall in `rate_vendor` is untouched and still refuses a direct POST. This only stops
+    the product from offering something it will then refuse.
+    """
+    import mihomes.db as db_module
+
+    client, account_id = rls_app
+    _sign_in(client)
+
+    with db_module._engine.begin() as conn:
+        conn.execute(
+            text("select set_config('app.current_account', :a, true)"), {"a": str(account_id)}
+        )
+        conn.execute(
+            text(
+                "insert into vendors (id, account_id, slug, company_name, active, created_at)"
+                " values (:i, :a, 'acme', 'Acme Plumbing', true, now())"
+            ),
+            {"i": uuid.uuid4(), "a": account_id},
+        )
+
+    # The fixture's account is `estate`, which includes ratings.
+    page = client.get("/vendors/", headers=_HTML)
+    assert page.status_code == 200
+    assert "/rate" in page.text, "an Estate account should be offered the rating form"
+
+    with db_module._engine.begin() as conn:
+        conn.execute(
+            text("update accounts set plan = 'free', subscription_status = 'active'"
+                 " where id = :a"),
+            {"a": account_id},
+        )
+
+    page = client.get("/vendors/", headers=_HTML)
+    assert page.status_code == 200
+    assert "/rate" not in page.text, (
+        "a Free account was still offered the rating form, which the service will refuse"
+    )
+    assert "included in" in page.text and "Pro" in page.text, (
+        "the offer should say what the feature costs, not simply disappear"
+    )
+
+
 def test_a_plan_denial_answers_json_for_an_api_caller(rls_app):
     """The same denial, asked for as JSON, keeps the 402 contract `privacy.py` established.
 

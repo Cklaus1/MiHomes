@@ -1,6 +1,15 @@
 set -euo pipefail
 
-# Install cron-based supervision for the MiHomes app and the trial sweep.
+# Schedule the MiHomes trial sweep.
+#
+# **The sweep only.** This originally also supervised the web app on a per-minute keepalive;
+# that was removed at the owner's request, and the reasoning is worth keeping: a cron job
+# cannot tell "hung but still listening" from "healthy", so it restarts what has died and sits
+# blind through what has wedged. Starting the app is a person's job on this box. The keepalive
+# script stays in the repo, unscheduled, for anyone who wants it back.
+#
+# The sweep is different in kind: nothing else ends a trial, so a missed run is not an
+# inconvenience but a Pro account nobody is billing for.
 #
 # systemd units were written first and removed: this box is a Docker container with sshd as
 # PID 1 and systemd not booted, so they could never have run. Cron is the scheduler that
@@ -43,27 +52,33 @@ crontab - <<'CRON'
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-# **Invoked through `bash`, not as bare paths.** A bare path needs the executable bit, and that
+# **Invoked through `bash`, not as a bare path.** A bare path needs the executable bit, and that
 # bit is one `git checkout` away from vanishing: the scripts were first committed mode 100644,
-# so restoring them from git silently left cron unable to run them — supervision looked
-# installed and did nothing, which is the worst of both. `bash <path>` does not care about the
-# mode, so the crontab keeps working however the file arrives.
+# so restoring them from git silently left cron unable to run them — installed and doing
+# nothing, which is the worst of both. `bash <path>` does not care about the mode.
 #
-# Keep the web app up. Idempotent: exits at once if it is already running, so this both
-# starts it after a restart and revives it after a crash.
-@reboot           bash /home/millena/MiHomes/scripts/mihomes-keepalive.sh
-* * * * *         bash /home/millena/MiHomes/scripts/mihomes-keepalive.sh
-
-# Expire finished trials — the trial's only clock. 00:17 UTC: `trial_ends_at` is stored in UTC
-# and this box runs UTC, so "the day it ends" means the same thing to both. A few minutes past
-# the hour keeps it clear of everything else that fires at :00.
+# Expire finished trials — **the trial's only clock.** A no-card trial creates no Stripe
+# subscription, so `trial_will_end` never fires and nothing else ends a trial: without this,
+# `start_trial` sets plan='pro' and nothing sets it back, so a lapsed trial keeps full Pro
+# entitlements indefinitely.
+#
+# 00:17 UTC: `trial_ends_at` is stored in UTC and this box runs UTC, so "the day it ends" means
+# the same to the timer and to the data. A few minutes past the hour keeps it clear of
+# everything else that fires at :00. Idempotent, so a catch-up run is safe.
 17 0 * * *        bash /home/millena/MiHomes/scripts/mihomes-trial-sweep.sh
 CRON
 
 crontab -l | grep -v '^#' | grep -v '^$' | sed 's/^/  /'
 
 echo
-echo "=== 5. start the app now (do not wait for the next minute) ==="
-/home/millena/MiHomes/scripts/mihomes-keepalive.sh
-sleep 8
-pgrep -f 'mihomes-web' >/dev/null && echo "app is running (pid $(pgrep -f mihomes-web | head -1))" || echo "NOT RUNNING — see ~/.mihomes/logs/web.log"
+echo "=== 5. the web app is NOT supervised, by choice ==="
+# `mihomes-keepalive.sh` is kept in the repo and deliberately not scheduled. It was installed
+# on a per-minute schedule and then removed at the owner's request: a cron job that restarts a
+# process every minute cannot tell "hung but still listening" from "healthy" — measured, when a
+# wedged server held port 5000 while serving nothing and the keepalive saw a live process and
+# did nothing. Starting the app is a person's job here.
+#
+# Run it by hand if you want the behaviour back for a while:
+#     bash scripts/mihomes-keepalive.sh      # starts the server if it is not already up
+echo "  start the app with:  mihomes-dev"
+echo "  (or: bash scripts/mihomes-keepalive.sh, which is a no-op if it is already running)"

@@ -299,3 +299,25 @@ is at `/trial-status`, not under `/billing` (every `/billing` route is owner-onl
 
 **Deferred (deviation):** the 4th-seat trigger stays an inline "no seats left" error — making it a
 paywall touches `accept_invite`'s `FOR UPDATE` re-check.
+
+---
+
+## Billing page reflects the current plan (2026-09-23)
+
+**Problem.** `/billing` always showed "Upgrade to Pro" and "Upgrade to Estate": a Pro account was
+offered its own plan, there was no Free option for Pro/Estate, and nothing said what a plan
+includes. It also branched on `stripe_customer_id`, which `start_checkout` commits before the user
+reaches Stripe — an abandoned checkout left only "Manage billing", with no way to upgrade again.
+
+- [x] Three plan cards (Free / Pro / Estate) with bullets built from `PLAN_LIMITS`
+      (`services/billing/plans.py`), current plan highlighted
+- [x] Current plan = `effective_plan()` (extracted from `limits_for`), so a canceled Pro reads Free
+- [x] Paying (`stripe_subscription_id`): every change incl. "Cancel subscription" → Stripe portal,
+      never a checkout (would bill twice)
+- [x] Not paying: checkout only for plans above the current one; trial's Free card says when it
+      returns to Free; no button to drop to Free (no subscription; `free` not sellable, D4)
+- [x] Tests: unit matrix over every account state + one HTTP page test on `rls_app`
+- [ ] Deploy; read /billing as the Pro and Free testers
+
+**Not shown:** prices. The doc's $20/$60 are PLACEHOLDER and the charged amount is Stripe's
+`STRIPE_PRICE_*` — a shown price that disagrees with checkout is worse than none.

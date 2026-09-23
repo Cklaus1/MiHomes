@@ -194,6 +194,22 @@ def test_no_banner_when_not_on_a_trial(rls_app):  # noqa: F811
     assert "trial-banner" not in banner.text
 
 
+def test_the_billing_page_matches_the_plan(rls_app):  # noqa: F811
+    """Over HTTP: a Pro account sees Pro as current, is offered Estate, and no Pro upgrade."""
+    client, account_id = rls_app
+    _sign_in(client)
+    _set_plan(account_id, plan="pro")
+
+    page = client.get("/billing", headers=_HTML)
+
+    assert page.status_code == 200
+    assert "Upgrade to Pro" not in page.text
+    assert "Upgrade to Estate" in page.text
+    assert 'data-testid="plan-free"' in page.text
+    assert 'name="plan" value="free"' not in page.text
+    assert "Unlimited homes (fair use)" in page.text
+
+
 def test_pages_carry_the_lazy_banner_slot(rls_app):  # noqa: F811
     """The banner loads as its own request; the page itself does no plan lookup for it."""
     client, _ = rls_app

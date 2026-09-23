@@ -67,11 +67,20 @@ def index(request: Request, principal=require_authenticated(),
           db: Session = Depends(get_db)):
     """The plan page: current plan, status, and what upgrading would buy."""
     account = _account(db, principal)
-    return templates.TemplateResponse(
-        request,
-        "billing.html",
-        {"page": "billing", "account": account},
-    )
+    return templates.TemplateResponse(request, "billing.html", _page_context(account))
+
+
+def _page_context(account: Account, **extra) -> dict:
+    from mihomes.entitlements.limits import effective_plan
+    from mihomes.services.billing.plans import plan_cards
+
+    return {
+        "page": "billing",
+        "account": account,
+        "current_plan": effective_plan(account.plan, account.subscription_status),
+        "plans": plan_cards(account),
+        **extra,
+    }
 
 
 @router.post("/billing/checkout")
@@ -160,14 +169,13 @@ def success(request: Request, principal=require_authenticated(),
     return templates.TemplateResponse(
         request,
         "billing.html",
-        {
-            "page": "billing",
-            "account": account,
-            "notice": (
+        _page_context(
+            account,
+            notice=(
                 "Payment received. Your plan updates as soon as we get confirmation from the "
                 "payment provider — refresh in a moment if it is not shown yet."
             ),
-        },
+        ),
     )
 
 
@@ -180,7 +188,7 @@ def _error_page(request: Request, db: Session, principal, message: str, status: 
     return templates.TemplateResponse(
         request,
         "billing.html",
-        {"page": "billing", "account": _account(db, principal), "error": message},
+        _page_context(_account(db, principal), error=message),
         status_code=status,
     )
 

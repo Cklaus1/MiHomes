@@ -181,14 +181,23 @@ def limits_for(plan: str, subscription_status: str | None = None,
     for paid features: a garbled plan string must not be read as an entitlement.
     """
     table = table if table is not None else PLAN_LIMITS
+    return table.get(effective_plan(plan, subscription_status, table), table["free"])
 
-    effective_plan = plan if plan in table else "free"
+
+def effective_plan(plan: str, subscription_status: str | None = None,
+                   table: dict[str, dict[str, Any]] | None = None) -> str:
+    """The plan whose limits actually apply — `limits_for`'s answer, as a name.
+
+    A canceled Pro account is on Free *now*, whatever `account.plan` still says. The billing
+    page asks this so "Current plan" cannot disagree with what the gates enforce.
+    """
+    table = table if table is not None else PLAN_LIMITS
+    resolved = plan if plan in table else "free"
     if subscription_status is not None:
         override = _STATUS_TO_EFFECTIVE_PLAN.get(subscription_status, "free")
         if override is not None:
-            effective_plan = override
-
-    return table.get(effective_plan, table["free"])
+            resolved = override
+    return resolved
 
 
 def check_entitlement(plan: str, feature: str,

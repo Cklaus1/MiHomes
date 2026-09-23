@@ -1,0 +1,17 @@
+{# Fetched by base.html after load (`GET /trial-status`). Empty unless on a trial. #}
+{% if trial %}
+<div data-testid="trial-banner"
+     class="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg px-4 py-2 text-sm
+            {% if trial.expired %}border border-amber-300 bg-amber-50 text-amber-900{% else %}border border-blue-200 bg-blue-50 text-blue-900{% endif %}">
+  <span>
+    {% if trial.expired %}
+      Your {{ trial.plan|capitalize }} trial has ended.
+    {% elif trial.days_left <= 1 %}
+      Your free {{ trial.plan|capitalize }} trial ends today.
+    {% else %}
+      You are on a free {{ trial.plan|capitalize }} trial — {{ trial.days_left }} days left.
+    {% endif %}
+  </span>
+  {% if is_owner %}<a href="/billing" class="font-medium underline">See plans</a>{% endif %}
+</div>
+{% endif %}

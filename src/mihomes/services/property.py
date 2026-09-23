@@ -40,23 +40,54 @@ def _check_home_entitlement(session: Session) -> None:
 
     decision = can(account, "property.add", {"current_homes": current})
     if isinstance(decision, Denied):
-        # **§4.2's "first gated action" — the trial starts here, not at signup.**
-        #
-        # *"A trial that starts at signup is often burned before the 2nd home or first staff hire
-        # appears."* This is that moment: the user has just been refused the exact thing a trial
-        # would grant, so the clock starts while they actually need Pro.
-        #
-        # Re-asked rather than assumed granted. `maybe_start_trial` refuses an account that has
-        # already used its trial or is a paying customer, and re-running `can()` is what keeps
-        # this honest: if the trial did not start, or started and still would not allow the
-        # action, the original denial stands.
-        from mihomes.services.billing.trial import maybe_start_trial
+        # **The gate refuses; it does not start a trial.** It used to (`maybe_start_trial` here),
+        # which meant a Free user adding a 2nd home was silently flipped to Pro-on-trial with
+        # nothing on screen — the cap looked broken. §4.1 asks for a *choice*: "Adding another
+        # home is a Pro feature. Start your 14-day Pro trial." The trial now starts only when the
+        # user presses that button (`POST /billing/trial`), still at the moment of intent §4.2
+        # wants, but with consent.
+        from mihomes.services.billing.trial import trial_available
 
-        if maybe_start_trial(session, account, action="property.add"):
-            decision = can(account, "property.add", {"current_homes": current})
+        raise EntitlementError(decision, trial_available=trial_available(account))
 
-        if isinstance(decision, Denied):
-            raise EntitlementError(decision)
+
+def home_upgrade_prompt(session: Session) -> dict | None:
+    """Would adding a home be refused right now? — the read-only twin of the gate above.
+
+    `None` when the add is allowed (or there is no bound account: CLI operator). Otherwise the
+    facts the upgrade popup needs: the service's reason, the plan that would allow it, and
+    whether this account can still start its one trial.
+
+    **No writes, and asked only by the routes that render the Add button** — the same shape as
+    `ratings_are_entitled`, deliberately unlike the reverted trial banner (6628d39), which read
+    the account on every request and hung the app when that read failed.
+    """
+    from sqlalchemy import func, select
+
+    from mihomes.entitlements import Denied, can
+    from mihomes.models.account import Account
+    from mihomes.services.billing.trial import trial_available
+    from mihomes.tenancy import current_account
+
+    account_id = current_account.get(None)
+    if account_id is None:
+        return None
+    account = session.get(Account, account_id)
+    if account is None:  # pragma: no cover - a bound account always exists
+        return None
+
+    current = session.execute(
+        select(func.count()).select_from(Property).where(Property.account_id == account_id)
+    ).scalar_one()
+    decision = can(account, "property.add", {"current_homes": current})
+    if not isinstance(decision, Denied):
+        return None
+    return {
+        "reason": decision.reason,
+        "upgrade_target": decision.upgrade_target,
+        "limit": decision.limit,
+        "trial_available": trial_available(account),
+    }
 
 
 def _refuse_if_frozen(session: Session, prop: Property) -> None:
@@ -102,8 +133,15 @@ class EntitlementError(Exception):
     """A plan limit refused the action. Carries the `Denied` so the UI can render rule 4's
     upgrade prompt rather than a bare error string."""
 
-    def __init__(self, decision):
+    def __init__(self, decision, *, trial_available: bool = False):
+        from mihomes.authz.scope import current_role
+
         self.decision = decision
+        # Both captured at the raise site. The exception handler runs after the request's
+        # transaction has rolled back *and* after its authz context has been reset, so it can
+        # neither read the account nor see the role — it would call every owner a non-owner.
+        self.trial_available = trial_available
+        self.is_owner = current_role.get(None) == "owner"
         super().__init__(decision.reason)
 
 

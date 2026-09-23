@@ -98,17 +98,10 @@ def start_trial(session: Session, account, *, now: datetime | None = None) -> bo
     return True
 
 
-def maybe_start_trial(session: Session, account, *, action: str) -> bool:
-    """Start a trial **because the user just hit a gate** (§4.2's "first gated action").
+def trial_available(account) -> bool:
+    """Could this account start a trial now? — the eligibility half of `maybe_start_trial`.
 
-    Called with the action that was denied, so the trial begins at the moment of intent rather
-    than at signup — *"a trial that starts at signup is often burned before the 2nd home or first
-    staff hire appears."*
-
-    Returns whether a trial was started, so the caller can retry the action it just refused.
-    **Deliberately not retrying it here**: this module knows nothing about homes or seats, and a
-    trial service that re-invoked arbitrary callers would be a second control-flow path through
-    every gate in the app.
+    Asked by the upgrade prompts so they offer the trial button only when pressing it would work.
     """
     if getattr(account, "trial_used_at", None) is not None:
         return False
@@ -116,6 +109,22 @@ def maybe_start_trial(session: Session, account, *, action: str) -> bool:
         # Already a paying customer — a gate they hit is a real limit on a plan they bought, not
         # an invitation to trial. Reaching here would mean an Estate customer at their seat cap
         # being handed Pro, which is a downgrade dressed as a gift.
+        return False
+    return True
+
+
+def maybe_start_trial(session: Session, account, *, action: str) -> bool:
+    """Start a trial **because the user asked for one at a gate** (§4.1/§4.2).
+
+    Called with the action that was denied, so the trial begins at the moment of intent rather
+    than at signup — *"a trial that starts at signup is often burned before the 2nd home or first
+    staff hire appears."* The gates themselves no longer call this: they refuse and show the
+    upgrade prompt, and the prompt's "Start trial" button (`POST /billing/trial`) calls it. A
+    trial that started silently on the refused action read as the plan limit being broken.
+
+    Returns whether a trial was started, so the caller can send the user back to what they wanted.
+    """
+    if not trial_available(account):
         return False
 
     started = start_trial(session, account)

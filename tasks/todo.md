@@ -263,3 +263,39 @@ numbers are not final.
 - HA integration not documented in PRD (§10 phases)
 - `src/mihomes/api/` (REST API layer) is untracked — should be committed with web UI
 - No pre-commit hook; code review is the only quality gate
+
+---
+
+## Upgrade prompt instead of the silent trial (2026-09-23)
+
+**Problem.** A Free account adding a 2nd home silently started a 14-day Pro trial
+(`_check_home_entitlement` → `maybe_start_trial`) and let the add through — nothing on screen.
+`PRICING` §4.1 specifies a modal: *"Adding another home is a Pro feature. Start your 14-day Pro
+trial."* with a one-click trial start. Also: the add form is `hx-post`, and htmx 2 does not swap
+4xx responses, so a refused POST did nothing visible at all.
+
+- [x] Gate no longer starts a trial: `_check_home_entitlement` just raises `EntitlementError`
+- [x] `POST /billing/trial` — explicit trial start via `maybe_start_trial` (one per account, never
+      for a paying customer), owner-only, redirects to a safe `next`
+- [x] Pure helper `home_upgrade_prompt(session)` → None when allowed, else reason/target/trial flag
+- [x] `/properties` Add button opens the popup at the cap: **Start 14-day Pro trial** /
+      **See plans** / **Stay on Free**; `/properties/new` shows the same choice, no form (no-JS path)
+- [x] Property form → plain `method="post"` so a refusal renders the paywall page
+- [x] Paywall page (402) offers the trial button when one is available (staff invite path too)
+- [x] Trial banner, lazy-loaded from `GET /trial-status` (`hx-trigger="load"`) — cannot hold
+      another request's transaction open, which is what hung pages last time (6628d39)
+- [x] Tests on the non-superuser `rls_app` path; mutation-check by restoring the silent trial
+- [ ] Push; restart evo-dev; verify on the Free tester without spending its trial
+
+**Result.** 336 affected tests pass; full suite 2893 passed, with 4 failures that are not this
+change (2 landing-DB isolation tests fail on the base commit c650baa; 2 waitlist tests pass alone
+and fail only in a full run — order-dependent). Mutation check: restoring the silent trial makes
+`test_a_refused_add_does_not_start_the_trial` and `test_the_gate_refuses_and_does_not_start_the_trial`
+fail.
+
+Found on the way: the exception handler runs after the request's authz context is reset, so it
+cannot read the role — `is_owner` is captured on `EntitlementError` at the raise site. The banner
+is at `/trial-status`, not under `/billing` (every `/billing` route is owner-only, held by a test).
+
+**Deferred (deviation):** the 4th-seat trigger stays an inline "no seats left" error — making it a
+paywall touches `accept_invite`'s `FOR UPDATE` re-check.

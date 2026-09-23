@@ -1,11 +1,12 @@
 """Property routes."""
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from mihomes.authz.actions import Access
 from mihomes.authz.declare import declares
+from mihomes.authz.scope import current_role
 from mihomes.models.property import PropertyStatus, PropertyType
 from mihomes.models.task import TaskStatus
 from mihomes.services import issue as issue_svc
@@ -19,20 +20,38 @@ from mihomes.web.deps import get_db, templates
 router = APIRouter()
 
 
+def _list_context(db: Session) -> dict:
+    """The /properties page, including the upgrade popup when the plan's home cap is reached.
+
+    `home_upgrade_prompt` is asked here, in this route's transaction, and nowhere else — the
+    Add button is the only thing that needs it.
+    """
+    return {
+        "page": "properties",
+        "properties": prop_svc.list_properties(db),
+        "upgrade": _upgrade_context(db),
+    }
+
+
+def _upgrade_context(db: Session) -> dict | None:
+    prompt = prop_svc.home_upgrade_prompt(db)
+    if prompt is None:
+        return None
+    return {**prompt, "is_owner": current_role.get() == "owner"}
+
+
 @router.get("/")
 @declares("property.view", Access.COLLECTION)
 def list_properties(request: Request, db: Session = Depends(get_db)):
-    properties = prop_svc.list_properties(db)
-    return templates.TemplateResponse(
-        request,
-        "properties.html",
-        {"page": "properties", "properties": properties},
-    )
+    return templates.TemplateResponse(request, "properties.html", _list_context(db))
 
 
 @router.get("/new")
 @declares("property.add", Access.ACCOUNT)
-def new_property_form(request: Request):
+def new_property_form(request: Request, db: Session = Depends(get_db)):
+    # At the cap, the choice replaces the form — the same one the popup on /properties offers,
+    # for a bookmarked link or a browser without JS. Showing a form that can only be refused
+    # would be the dead end §4.1 exists to prevent.
     return templates.TemplateResponse(
         request,
         "property_form.html",
@@ -41,6 +60,7 @@ def new_property_form(request: Request):
             "property": None,
             "property_types": [t.value for t in PropertyType],
             "property_statuses": [s.value for s in PropertyStatus],
+            "upgrade": _upgrade_context(db),
         },
     )
 
@@ -62,15 +82,14 @@ def create_property(
         property_type=PropertyType(property_type),
         status=PropertyStatus(status),
     )
-    properties = prop_svc.list_properties(db)
-    # L11: the form targets hx-target="body", so return the full page (as the
-    # edit route does) — a bare partial swapped into <body> wiped the chrome.
-    return templates.TemplateResponse(
-        request,
-        "properties.html",
-        {"page": "properties", "properties": properties},
-        headers={"HX-Push-Url": "/properties"},
-    )
+    # Flushed here, while the tenant context is still bound: the insert's `account_id` is stamped
+    # at flush, and `get_db`'s commit runs after the context has been reset. Rendering the list
+    # used to force this flush as a side effect of the query.
+    db.flush()
+    # A plain form post, answered with a redirect (post/redirect/get). It used to be `hx-post`,
+    # and htmx 2 does not swap a 4xx — so a plan refusal (402) left the user staring at an
+    # unchanged form. A normal post renders the paywall page like any other navigation.
+    return RedirectResponse("/properties/", status_code=303)
 
 
 @router.get("/{slug}")
@@ -143,24 +162,14 @@ def edit_property(
     if status:
         kwargs["status"] = PropertyStatus(status)
     prop_svc.update_property(db, slug, **kwargs)
-    properties = prop_svc.list_properties(db)
-    return templates.TemplateResponse(
-        request,
-        "properties.html",
-        {"page": "properties", "properties": properties},
-    )
+    return templates.TemplateResponse(request, "properties.html", _list_context(db))
 
 
 @router.post("/{slug}/delete", response_class=HTMLResponse)
 @declares("property.delete", Access.ITEM)
 def delete_property(request: Request, slug: str, db: Session = Depends(get_db)):
     prop_svc.delete_property(db, slug)
-    properties = prop_svc.list_properties(db)
-    return templates.TemplateResponse(
-        request,
-        "properties.html",
-        {"page": "properties", "properties": properties},
-    )
+    return templates.TemplateResponse(request, "properties.html", _list_context(db))
 
 
 def _rooms_ctx(db, slug: str) -> dict:

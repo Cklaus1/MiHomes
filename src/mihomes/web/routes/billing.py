@@ -29,7 +29,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from mihomes.authz.actions import Access
@@ -182,4 +182,76 @@ def _error_page(request: Request, db: Session, principal, message: str, status: 
         "billing.html",
         {"page": "billing", "account": _account(db, principal), "error": message},
         status_code=status,
+    )
+
+
+@router.post("/billing/trial")
+@declares(BILLING_ACTION, Access.ACCOUNT)
+def start_trial(
+    request: Request,
+    action: str = Form(""),
+    next: str = Form(""),
+    principal=require_authenticated(),
+    db: Session = Depends(get_db),
+):
+    """The upgrade prompt's **Start 14-day Pro trial** button — `PRICING` §4.1's one-click start.
+
+    The gates refuse and show the prompt; this is the only thing that starts a trial, so a trial
+    is always something the owner chose. `maybe_start_trial` enforces one trial per account and
+    none for a paying customer, so a replayed or hand-crafted POST can do nothing a real click
+    could not.
+
+    On success, back to what they were trying to do (`next`, through `safe_next` so this cannot be
+    an open redirect). If no trial was available — already used, or already paying — to the plan
+    page, which is the remaining way forward.
+    """
+    from mihomes.auth.session_flow import safe_next
+    from mihomes.services.billing.trial import maybe_start_trial
+
+    if maybe_start_trial(db, _account(db, principal), action=action or "upgrade_prompt"):
+        return RedirectResponse(safe_next(next) or "/", status_code=303)
+    return RedirectResponse("/billing", status_code=303)
+
+
+@router.get("/trial-status", response_class=HTMLResponse)
+@declares("property.view", Access.COLLECTION)
+def trial_status(request: Request, principal=require_authenticated(),
+                 db: Session = Depends(get_db)):
+    """The trial banner, as a fragment `base.html` fetches after the page has loaded.
+
+    **Not under `/billing/`**: every `/billing` route is owner-only (row 15) and a test holds
+    that line, but the banner is for everyone in the account — a housekeeper should know the
+    plan's Pro features lapse in three days as much as the owner should.
+
+    **Its own request on purpose.** The first banner (3eb0dd4, reverted in 6628d39) read the
+    account inside `resolve_principal` on *every* request and swallowed its errors; one failure
+    left a transaction idle-in-transaction holding locks, and every later request blocked on the
+    session update — the whole app hung. Here the read runs in this route's own `get_db`
+    transaction with nothing swallowed: if it fails, this fragment is empty and the page around
+    it is unaffected.
+
+    Keyed on `subscription_status == "trialing"` rather than `is_on_trial()`, so the window
+    between `trial_ends_at` and the nightly sweep says "ended" instead of saying nothing while
+    the account still has Pro.
+    """
+    from datetime import UTC, datetime
+    from math import ceil
+
+    account = _account(db, principal)
+    trial = None
+    if account is not None and account.subscription_status == "trialing" and account.trial_ends_at:
+        ends_at = account.trial_ends_at
+        if ends_at.tzinfo is None:
+            ends_at = ends_at.replace(tzinfo=UTC)
+        seconds_left = (ends_at - datetime.now(UTC)).total_seconds()
+        trial = {
+            "plan": account.plan,
+            "days_left": max(0, ceil(seconds_left / 86400)),
+            "expired": seconds_left <= 0,
+        }
+    return templates.TemplateResponse(
+        request,
+        "partials/trial_banner.html",
+        # The plans link only for the owner — for anyone else it would be a 403 (row 15).
+        {"trial": trial, "is_owner": principal.role == "owner"},
     )

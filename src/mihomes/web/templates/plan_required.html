@@ -27,6 +27,21 @@
        sense — e.g. "free allows 1 (max_homes); 1 in use". #}
     <p class="text-sm text-amber-900/90 mb-5">{{ reason }}</p>
 
+    {# §4.1's one-click trial, offered only when pressing it would work (one trial per account,
+       none for a paying customer) and only to the owner, who alone may manage billing. #}
+    {% if trial_available and upgrade_target == 'pro' and is_owner %}
+      <form method="post" action="/billing/trial" class="mb-3">
+        <input type="hidden" name="action" value="{{ trial_action or '' }}">
+        <input type="hidden" name="next" value="{{ trial_next or '/' }}">
+        <button type="submit" data-testid="start-trial"
+                class="rounded bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700">
+          Start 14-day Pro trial — no card needed
+        </button>
+      </form>
+    {% elif upgrade_target and not is_owner %}
+      <p class="text-sm text-amber-900/90 mb-3">Ask the account owner to upgrade the plan.</p>
+    {% endif %}
+
     {% if upgrade_target %}
       <a href="/billing"
          class="inline-block rounded bg-amber-900 px-4 py-2 text-sm font-medium text-white hover:bg-amber-800">

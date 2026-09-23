@@ -157,25 +157,33 @@ class TestOneTrialEver:
 
 
 class TestStartedOnFirstGatedAction:
-    def test_the_gate_starts_the_trial(self, session, free_account):
-        """§4.2 — the clock starts when the user wants the thing, not at signup.
+    def test_the_gate_refuses_and_does_not_start_the_trial(self, session, free_account):
+        """§4.1 — the trial is the user's choice at the gate, not a side effect of it.
 
-        Exercised through the real gate: a Free account creating its second home is denied, the
-        trial starts, and the action then succeeds. That end-to-end shape is the criterion —
-        testing `maybe_start_trial` alone would prove the function works and not that anything
-        calls it.
+        The gate used to start the trial and let the second home through, so a Free account
+        silently became Pro-on-trial and the 1-home cap looked broken. It now refuses, leaves the
+        trial unspent, and says one is available — the upgrade prompt offers the button.
         """
+        from mihomes.services.property import EntitlementError, create_property
+
+        create_property(session, "First Home")
+        with pytest.raises(EntitlementError) as refused:
+            create_property(session, "Second Home")
+
+        assert refused.value.trial_available is True
+        session.refresh(free_account)
+        assert free_account.trial_used_at is None, "a refused add must not spend the trial"
+        assert free_account.plan == "free"
+        assert session.query(Property).count() == 1
+
+    def test_the_add_succeeds_once_the_user_starts_the_trial(self, session, free_account):
+        """The other half: pressing "Start trial" (`maybe_start_trial`) makes the add allowed."""
         from mihomes.services.property import create_property
 
         create_property(session, "First Home")
-        assert free_account.trial_used_at is None
+        assert maybe_start_trial(session, free_account, action="property.add") is True
 
         create_property(session, "Second Home")
-
-        session.refresh(free_account)
-        assert free_account.trial_used_at is not None, (
-            "the second home is the gated action §4.2 starts the trial on"
-        )
         assert free_account.plan == TRIAL_PLAN
         assert session.query(Property).count() == 2
 
@@ -192,8 +200,11 @@ class TestStartedOnFirstGatedAction:
         session.commit()
 
         create_property(session, "Only Home")
-        with pytest.raises(EntitlementError):
+        with pytest.raises(EntitlementError) as refused:
             create_property(session, "Second Home")
+        assert refused.value.trial_available is False, (
+            "the prompt must not offer a trial the account already used"
+        )
 
 
 class TestExpiryIsNondestructive:

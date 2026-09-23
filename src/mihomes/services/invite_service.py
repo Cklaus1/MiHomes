@@ -187,12 +187,13 @@ def _check_staff_invite_entitlement(session: Session, account_id: uuid.UUID) -> 
     handler and renders the upgrade prompt, carrying the plan that would allow it.
     """
     from mihomes.entitlements import Denied, can
+    from mihomes.services.billing.trial import trial_available
     from mihomes.services.property import EntitlementError
 
     account = session.get(Account, account_id)
     decision = can(account, "invite.staff")
     if isinstance(decision, Denied):
-        raise EntitlementError(decision)
+        raise EntitlementError(decision, trial_available=trial_available(account))
 
 
 def _check_seat_capacity(session: Session, account_id: uuid.UUID) -> None:

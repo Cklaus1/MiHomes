@@ -4,10 +4,29 @@
 {% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ properties|length }} propert{{ 'y' if properties|length == 1 else 'ies' }}</p>{% endblock %}
 
 {% block actions %}
-<a href="/properties/new" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
+{# At the plan's home cap the button opens the upgrade choice instead of the form. It stays an
+   `<a href="/properties/new">` so it still works without JS — that page shows the same choice. #}
+<a href="/properties/new" data-testid="add-property"
+   {% if upgrade %}onclick="event.preventDefault();document.getElementById('upgrade-modal').classList.remove('hidden')"{% endif %}
+   class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
   Add Property
 </a>
+{% if upgrade %}
+<div id="upgrade-modal" data-testid="upgrade-modal"
+     class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+     onclick="if(event.target===this)this.classList.add('hidden')">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+    {% with headline="Adding another home is a " ~ ((upgrade.upgrade_target or 'paid')|capitalize) ~ " feature",
+            reason=upgrade.reason, upgrade_target=upgrade.upgrade_target,
+            trial_available=upgrade.trial_available, is_owner=upgrade.is_owner,
+            trial_action="property.add", trial_next="/properties/new",
+            dismiss="document.getElementById('upgrade-modal').classList.add('hidden')" %}
+      {% include "partials/upgrade_choice.html" %}
+    {% endwith %}
+  </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block content %}

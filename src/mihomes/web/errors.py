@@ -107,6 +107,14 @@ def check_database() -> None:
         conn.execute(text("SELECT 1"))
 
 
+#: Where a refused POST came from, so the paywall's "Start trial" button records the action and
+#: sends the user back to retry it. Paths not listed still get the button, returning to `/`.
+_TRIAL_ACTIONS = {"/properties": "property.add", "/team/invites": "invite.staff",
+                  "/settings/members/invite": "invite.staff"}
+_TRIAL_NEXT = {"/properties": "/properties/new", "/team/invites": "/team",
+               "/settings/members/invite": "/settings"}
+
+
 def _wants_json(request: Request) -> bool:
     """Is this an API-ish caller?
 
@@ -186,11 +194,20 @@ def register_error_handlers(app: FastAPI, templates=None) -> None:
             )
 
         if templates is not None:
+            # The trial button's two facts come off the exception, captured where it was raised:
+            # by now the transaction is rolled back and the request's role context is reset.
             try:
                 return templates.TemplateResponse(
                     request,
                     "plan_required.html",
-                    {"reason": reason, "upgrade_target": upgrade_target},
+                    {
+                        "reason": reason,
+                        "upgrade_target": upgrade_target,
+                        "trial_available": getattr(exc, "trial_available", False),
+                        "is_owner": getattr(exc, "is_owner", False),
+                        "trial_action": _TRIAL_ACTIONS.get(request.url.path.rstrip("/")),
+                        "trial_next": _TRIAL_NEXT.get(request.url.path.rstrip("/"), "/"),
+                    },
                     status_code=402,
                 )
             except Exception:

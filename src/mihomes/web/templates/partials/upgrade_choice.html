@@ -1,0 +1,73 @@
+{# The three-way choice at a plan limit — `PRICING` §4.1: "Adding another home is a Pro feature.
+   Start your 14-day Pro trial."
+
+   Shared by the popup on /properties, the /properties/new page and the 402 paywall, so the
+   choice reads the same wherever the limit is met. Expects:
+
+     headline         what was refused, in the product's words ("Adding another home …")
+     reason           the entitlement service's own reason (which limit, what numbers)
+     upgrade_target   the plan that would allow it ("pro" / "estate"), or none
+     trial_available  whether this account can still start its one trial
+     is_owner         only the owner may start a trial or buy a plan (billing.manage)
+     trial_action     the gated action, recorded when the trial starts
+     trial_next       where to send the user once the trial has started
+     dismiss          JS for "Stay on Free" in a popup; absent → a link back
+
+   The trial is started only by this button's POST. The gates refuse; nothing starts a trial
+   silently any more — that is what made the Free cap look broken. #}
+{% set plan_name = (upgrade_target or 'a higher plan')|capitalize %}
+<div class="space-y-4">
+  <div>
+    <h2 class="text-lg font-semibold text-gray-900">{{ headline }}</h2>
+    <p class="mt-1 text-sm text-gray-600">
+      {% if trial_available and upgrade_target == 'pro' %}
+        Start your 14-day Pro trial to continue — no card needed. After the trial you can
+        subscribe, or go back to Free and keep one home.
+      {% elif upgrade_target %}
+        This is included in {{ plan_name }}.
+      {% else %}
+        This is not available on your plan.
+      {% endif %}
+    </p>
+    {% if reason %}<p class="mt-2 text-xs text-gray-400" data-testid="upgrade-reason">{{ reason }}</p>{% endif %}
+  </div>
+
+  {% if is_owner %}
+    <div class="flex flex-col gap-2">
+      {% if trial_available and upgrade_target == 'pro' %}
+        <form method="post" action="/billing/trial">
+          <input type="hidden" name="action" value="{{ trial_action or '' }}">
+          <input type="hidden" name="next" value="{{ trial_next or '/' }}">
+          <button type="submit" data-testid="start-trial"
+                  class="w-full rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700">
+            Start 14-day Pro trial
+          </button>
+        </form>
+      {% endif %}
+      {% if upgrade_target %}
+        <a href="/billing" data-testid="see-plans"
+           class="block w-full rounded-lg border border-gray-300 px-4 py-2 text-center text-sm font-medium text-gray-700 hover:bg-gray-50">
+          See plans
+        </a>
+      {% endif %}
+    </div>
+  {% else %}
+    <p class="rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600">
+      Ask the account owner to upgrade the plan.
+    </p>
+  {% endif %}
+
+  <div class="text-center">
+    {% if dismiss %}
+      <button type="button" onclick="{{ dismiss }}" data-testid="stay-on-free"
+              class="text-sm text-gray-500 underline hover:text-gray-700">
+        {% if upgrade_target == 'pro' %}Stay on Free{% else %}Not now{% endif %}
+      </button>
+    {% else %}
+      <a href="{{ back_href or '/' }}" data-testid="stay-on-free"
+         class="text-sm text-gray-500 underline hover:text-gray-700">
+        {% if upgrade_target == 'pro' %}Stay on Free{% else %}Not now{% endif %}
+      </a>
+    {% endif %}
+  </div>
+</div>

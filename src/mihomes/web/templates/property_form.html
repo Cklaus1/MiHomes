@@ -5,7 +5,20 @@
 {% block content %}
 <div class="max-w-lg">
   <div class="bg-white rounded-xl border border-gray-200 p-6">
-    <form hx-post="/properties" hx-target="body" hx-push-url="/properties" class="space-y-4">
+    {% if upgrade %}
+    {# At the home cap: the choice, not a form that could only be refused. #}
+    <div data-testid="upgrade-choice">
+      {% with headline="Adding another home is a " ~ ((upgrade.upgrade_target or 'paid')|capitalize) ~ " feature",
+              reason=upgrade.reason, upgrade_target=upgrade.upgrade_target,
+              trial_available=upgrade.trial_available, is_owner=upgrade.is_owner,
+              trial_action="property.add", trial_next="/properties/new", back_href="/properties/" %}
+        {% include "partials/upgrade_choice.html" %}
+      {% endwith %}
+    </div>
+    {% else %}
+    {# A plain post, not hx-post: htmx 2 does not swap a 4xx, so a plan refusal (402) would leave
+       this form sitting there unchanged. A normal post renders the paywall page. #}
+    <form method="post" action="/properties/" class="space-y-4">
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-1">Name</label>
         <input type="text" name="name" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" placeholder="e.g. Beach House" />
@@ -33,6 +46,7 @@
         <a href="/properties" class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 text-center">Cancel</a>
       </div>
     </form>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

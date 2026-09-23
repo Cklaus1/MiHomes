@@ -61,8 +61,54 @@ __all__ = [
 SESSION_COOKIE = "mihomes_session"
 SESSION_TTL = timedelta(days=14)
 
+# `last_seen_at` is written at most this often per session. Nothing reads it for enforcement —
+# expiry is `expires_at` — so a coarse value costs nothing and spares a write per request.
+_LAST_SEEN_RESOLUTION = timedelta(seconds=60)
+
 # The Core table, so membership reads carry no ORM mappers. See the module docstring.
 _MEMBERSHIPS = Membership.__table__
+
+
+def _touch_last_seen(db: DbSession, row: SessionRow) -> None:
+    """Record activity on the session **without ever waiting for its row lock**.
+
+    **This used to hang the whole app.** It was `row.last_seen_at = now()`, which autoflushed an
+    `UPDATE sessions` on the next query and held that row's lock until the request committed. A
+    page load fires several requests on one session at once (`/`, `/alerts/badge`, `/weather`,
+    `/trial-status`); the second one's UPDATE waited on the first's lock — and it waited *on the
+    event loop*, because `enforce_declared_action` is async and runs this synchronously. The
+    first request's commit is scheduled by that same loop, so it never ran: both requests stuck,
+    and every later request with them. Postgres showed exactly this — one connection
+    `idle in transaction` after a SELECT, one blocked on `UPDATE sessions SET last_seen_at`.
+    The reverted trial banner (6628d39) was blamed for this; it was only one more concurrent
+    request making the collision likelier.
+
+    `FOR UPDATE SKIP LOCKED` makes a contended touch update zero rows instead of waiting — some
+    other request on this session is writing the same timestamp anyway. The resolution check
+    keeps it to one write a minute. Core statements, not the ORM attribute, so there is no
+    pending change for autoflush to push out later.
+    """
+    from sqlalchemy import update
+
+    now = datetime.now(timezone.utc)
+    last = row.last_seen_at
+    if last is not None:
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+        if now - last < _LAST_SEEN_RESOLUTION:
+            return
+
+    table = SessionRow.__table__
+    target = select(table.c.id).where(table.c.id == row.id)
+    # SQLite has no row locks and no `FOR UPDATE` syntax, so the lock clause is Postgres-only.
+    if db.get_bind().dialect.name == "postgresql":
+        target = target.with_for_update(skip_locked=True)
+    db.execute(
+        update(table)
+        .where(table.c.id.in_(target.scalar_subquery()))
+        .values(last_seen_at=now)
+        .execution_options(synchronize_session=False)
+    )
 
 # 32 bytes -> 43 URL-safe characters. Guessing one is not a threat model at this size; the reason
 # to be explicit is that a *shorter* id would be, and defaults drift.
@@ -171,7 +217,7 @@ def lookup_session(db: DbSession, raw: str | None) -> AuthenticatedSession | Non
             return None
         role = membership.role
 
-    row.last_seen_at = datetime.now(timezone.utc)
+    _touch_last_seen(db, row)
     return AuthenticatedSession(
         session_id=row.id,
         user_id=row.user_id,

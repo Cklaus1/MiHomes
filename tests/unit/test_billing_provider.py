@@ -67,6 +67,9 @@ class FakeBillingProvider:
     def cancel(self, *, subscription_id: str, at_period_end: bool = True) -> None:
         return None
 
+    def resume(self, *, subscription_id: str) -> None:
+        return None
+
     def create_portal_session(self, *, customer_id: str, return_url: str) -> str:
         return f"https://portal.example/{customer_id}"
 
@@ -103,15 +106,19 @@ class TestProtocolShape:
                 f"{list(expected.parameters)[1:]} != {list(actual.parameters)}"
             )
 
-    def test_protocol_declares_the_six_methods_billing_names(self):
-        """§4.1's method set, exactly. A missing one is a step that cannot be built later."""
+    def test_protocol_declares_the_methods_billing_names(self):
+        """§4.1's method set, exactly. A missing one is a step that cannot be built later.
+
+        `resume` joined 2026-09-23 with the in-app Cancel button: undoing a cancel-at-period-end
+        needs the provider, and a cancel without an undo is a one-way door for a paying customer.
+        """
         declared = {
             name for name in dir(BillingProvider)
             if not name.startswith("_") and callable(getattr(BillingProvider, name, None))
         }
         assert declared == {
             "create_customer", "create_checkout_session", "get_subscription",
-            "cancel", "create_portal_session", "handle_webhook_event",
+            "cancel", "resume", "create_portal_session", "handle_webhook_event",
         }
 
 

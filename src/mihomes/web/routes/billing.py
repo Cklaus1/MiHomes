@@ -193,6 +193,80 @@ def _error_page(request: Request, db: Session, principal, message: str, status: 
     )
 
 
+@router.get("/billing/cancel")
+@declares(BILLING_ACTION, Access.ACCOUNT)
+def cancel_confirm(request: Request, principal=require_authenticated(),
+                   db: Session = Depends(get_db)):
+    """The confirm step for "Downgrade to Free" — says what will change before anything does.
+
+    A separate page rather than a JS `confirm()`: the consequences are counted (homes that become
+    read-only, when it takes effect) and the owner of a four-home estate must read them.
+    """
+    from mihomes.services.billing.cancel import downgrade_consequences
+
+    account = _account(db, principal)
+    return templates.TemplateResponse(
+        request,
+        "billing_cancel.html",
+        {"page": "billing", "account": account,
+         "consequences": downgrade_consequences(db, account)},
+    )
+
+
+@router.post("/billing/cancel")
+@declares(BILLING_ACTION, Access.ACCOUNT)
+def cancel(request: Request, principal=require_authenticated(),
+           db: Session = Depends(get_db)):
+    """Downgrade to Free: at period end for a paid subscription, at once otherwise."""
+    from mihomes.services.billing.cancel import NothingToCancel, cancel_plan
+
+    account = _account(db, principal)
+    try:
+        when = cancel_plan(db, account)
+    except NothingToCancel:
+        return RedirectResponse("/billing", status_code=303)
+    except BillingProviderError:
+        logger.exception("cancel failed at the billing provider")
+        return _error_page(
+            request, db, principal,
+            "We could not reach the payment provider, so nothing was changed. Please try again.",
+            502,
+        )
+    notice = (
+        "Your plan will change to Free at the end of the current billing period. "
+        "You keep everything until then, and can undo this any time before."
+        if when == "at_period_end"
+        else "You are now on the Free plan. Nothing was deleted."
+    )
+    return templates.TemplateResponse(
+        request, "billing.html", _page_context(_account(db, principal), notice=notice)
+    )
+
+
+@router.post("/billing/resume")
+@declares(BILLING_ACTION, Access.ACCOUNT)
+def resume(request: Request, principal=require_authenticated(),
+           db: Session = Depends(get_db)):
+    """Undo a pending cancel: the subscription keeps renewing."""
+    from mihomes.services.billing.cancel import NothingToCancel, resume_plan
+
+    try:
+        resume_plan(db, _account(db, principal))
+    except NothingToCancel:
+        return RedirectResponse("/billing", status_code=303)
+    except BillingProviderError:
+        logger.exception("resume failed at the billing provider")
+        return _error_page(
+            request, db, principal,
+            "We could not reach the payment provider, so nothing was changed. Please try again.",
+            502,
+        )
+    return templates.TemplateResponse(
+        request, "billing.html",
+        _page_context(_account(db, principal), notice="Cancellation undone — your plan continues."),
+    )
+
+
 @router.post("/billing/trial")
 @declares(BILLING_ACTION, Access.ACCOUNT)
 def start_trial(

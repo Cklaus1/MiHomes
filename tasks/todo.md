@@ -321,3 +321,45 @@ reaches Stripe — an abandoned checkout left only "Manage billing", with no way
 
 **Not shown:** prices. The doc's $20/$60 are PLACEHOLDER and the charged amount is Stripe's
 `STRIPE_PRICE_*` — a shown price that disagrees with checkout is worse than none.
+
+---
+
+## Cancel, deactivate, delete, 3-month rule (2026-09-23)
+
+Decisions (user, 2026-09-23): cancel → Free **at end of paid period** (immediate when not paying
+through Stripe); delete → **30-day undo window**, then permanent; 3-month auto-delete applies to
+**deactivated accounts only**; owner's delete/deactivate takes **the whole household**, and
+non-owners get "Leave household" / "Delete my profile".
+
+Four slices, each committed + deployed on its own (a `pg_dump` before every migrating deploy):
+
+**Slice 1 — Cancel / downgrade to Free** (owner only)
+- [x] Non-Stripe account: immediate drop to Free (same field set as `_expire_trial`)
+- [x] Paying account: `provider.cancel(at_period_end=True)`; persist `cancel_at_period_end`
+      (migration 0018); page says "Pro until X, then Free" + **Undo** (`resume`)
+- [x] Confirm step lists consequences ("2 homes become read-only; nothing is deleted")
+- [x] Update `plan_cards` + its tests (Free card now has a button)
+- [x] Found on the way: "paying" was the stored subscription id, never cleared when Stripe ends a
+      subscription — now `has_live_subscription` (id + a status Stripe can still modify)
+
+**Slice 2 — Deactivate / reactivate** (owner only)
+- [ ] `accounts.deactivated_at`; deactivating revokes every member's sessions and cancels billing
+- [ ] Enforced at sign-in, not per request (no account read in `enforce_declared_action` — the
+      async path that just deadlocked); owner sees "Reactivate", others "deactivated by owner"
+- [ ] Jobs skip deactivated / deletion-pending accounts
+
+**Slice 3 — Delete** (owner only; on the existing `request_deletion`/`purge`)
+- [ ] Settings "Delete account": download-my-data first, typed confirmation, locks like
+      deactivation; restore during the 30 days = `cancel_deletion`
+- [ ] `mihomes jobs purge-deletions` in `SCHEDULE`; purge also scrubs the account row, deletes
+      users whose only membership it was, deletes the Stripe customer
+- [ ] Purge tested as the app role; mutation-check it refuses before `purge_after`
+
+**Slice 4 — 3-month rule + non-owners**
+- [ ] `purge-deletions` also deletes accounts deactivated > 90 days (`last_login_at` is never
+      written; reactivating = signing in, so `deactivated_at` is the honest clock)
+- [ ] Non-owners: "Leave household", "Delete my profile"
+
+**Blocker to report:** no scheduler on evo-dev — purges and the 90-day sweep never run by
+themselves until Chris schedules `mihomes jobs purge-deletions` (or someone runs it). Backups
+outlive deletion.

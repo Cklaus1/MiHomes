@@ -60,7 +60,8 @@ static tests do cover them directly.
 | `assets.html` | /assets/ | 802 | ☐ | ☐ | ☐ |
 | `assets_properties.html` | — | 89 | ☐ | ☐ | ☐ |
 | `assets_spaces.html` | — | 160 | ☐ | ☐ | ☐ |
-| `billing.html` | — | 67 | ☐ | ☐ | ☐ |
+| `billing.html` | /billing | 124 | ☐ | ☐ | ☐ |
+| `billing_cancel.html` | /billing/cancel | 57 | ☐ | ☐ | ☐ |
 | `budget.html` | /budget/ | 700 | ☐ | ☐ | ☐ |
 | `calendar.html` | /calendar/ | 423 | ☐ | ☐ | ☐ |
 | `contracts.html` | /contracts/ | 311 | ☐ | ☐ | ☐ |

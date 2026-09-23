@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Downgrade to Free — MiHomes{% endblock %}
+{% block heading %}Downgrade to Free{% endblock %}
+{% block content %}
+{# The confirm step: counted consequences before anything changes (services/billing/cancel.py). #}
+{% set c = consequences %}
+<div class="max-w-xl mx-auto py-6">
+  <div class="rounded-xl border border-gray-200 bg-white p-6">
+    <h2 class="text-lg font-semibold text-gray-900">Move from {{ account.plan|capitalize }} to Free?</h2>
+
+    <ul class="mt-4 space-y-2 text-sm text-gray-700" data-testid="cancel-consequences">
+      <li>
+        {% if c.at_period_end and c.period_end %}
+          You keep {{ account.plan|capitalize }} until <strong>{{ c.period_end.strftime("%d %b %Y") }}</strong>,
+          the end of the period you have paid for. Then the account moves to Free.
+        {% elif c.at_period_end %}
+          You keep {{ account.plan|capitalize }} until the end of the period you have paid for.
+          Then the account moves to Free.
+        {% else %}
+          The account moves to Free <strong>straight away</strong>.
+        {% endif %}
+      </li>
+      <li>
+        Free includes {{ c.free_homes }} home and {{ c.free_seats }} seats.
+        {% if c.frozen_homes %}
+          You have {{ c.homes }} homes, so <strong>{{ c.frozen_homes }} home{{ 's' if c.frozen_homes != 1 }}
+          will become read-only</strong> — still visible and exportable, just not editable.
+        {% endif %}
+      </li>
+      <li><strong>Nothing is deleted.</strong> Upgrading again restores full access at once.</li>
+      {% if c.at_period_end %}
+        <li>You can undo this any time before the period ends.</li>
+      {% endif %}
+    </ul>
+
+    <div class="mt-6 flex flex-wrap gap-3">
+      <form method="post" action="/billing/cancel">
+        <button type="submit" data-testid="confirm-cancel"
+                class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700">
+          Downgrade to Free
+        </button>
+      </form>
+      <a href="/billing" class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+        Keep {{ account.plan|capitalize }}
+      </a>
+    </div>
+  </div>
+</div>
+{% endblock %}

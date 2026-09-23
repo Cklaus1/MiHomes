@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, func
+from sqlalchemy import Boolean, DateTime, String, false, func
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -39,6 +39,15 @@ class Account(Base):
     # columns ship now so Phase 3 needs no migration on a live table.
     trial_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     trial_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Lifecycle (migration 0018). `cancel_at_period_end`: the owner cancelled a paid plan, which
+    # Stripe keeps `active` until the period ends — the flag is how the billing page can say
+    # "Pro until X, then Free". `deactivated_at`: the household is switched off until the owner
+    # reactivates it; also the clock for the 90-day permanent-deletion rule.
+    cancel_at_period_end: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
+    deactivated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

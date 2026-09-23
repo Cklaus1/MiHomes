@@ -17,9 +17,11 @@ from mihomes.entitlements.limits import PLAN_LIMITS
 from mihomes.services.billing.plans import plan_cards
 
 
-def _account(plan="free", status=None, *, customer=None, subscription=None, trial_ends=None):
+def _account(plan="free", status=None, *, customer=None, subscription=None, trial_ends=None,
+             cancelling=False, period_end=None):
     return SimpleNamespace(plan=plan, subscription_status=status, stripe_customer_id=customer,
-                           stripe_subscription_id=subscription, trial_ends_at=trial_ends)
+                           stripe_subscription_id=subscription, trial_ends_at=trial_ends,
+                           cancel_at_period_end=cancelling, current_period_end=period_end)
 
 
 def _by_key(account):
@@ -38,25 +40,36 @@ def test_pro_without_stripe_is_not_offered_pro_again():
     cards = _by_key(_account("pro", "active"))
     assert cards["pro"].current and cards["pro"].action is None
     assert cards["estate"].action == "checkout"
-    assert cards["free"].action is None, "no subscription to cancel; free is not sellable (D4)"
+    assert (cards["free"].action, cards["free"].action_label) == ("cancel", "Downgrade to Free")
 
 
-def test_a_trial_says_it_returns_to_free():
+def test_a_trial_can_downgrade_and_says_when_it_ends():
     ends = datetime(2026, 10, 7, tzinfo=UTC)
     cards = _by_key(_account("pro", "trialing", trial_ends=ends))
     assert cards["pro"].current
+    assert cards["free"].action == "cancel"
     assert "07 Oct 2026" in cards["free"].note
     assert cards["estate"].action == "checkout"
 
 
 @pytest.mark.parametrize("plan", ["pro", "estate"])
-def test_a_paying_customer_changes_plan_only_through_the_portal(plan):
+def test_a_paying_customer_never_gets_a_checkout(plan):
     """Never a checkout form: it would open a second subscription and bill twice."""
     cards = _by_key(_account(plan, "active", customer="cus_1", subscription="sub_1"))
     others = [c for c in cards.values() if not c.current]
     assert cards[plan].current
-    assert all(c.action == "portal" for c in others), [(c.key, c.action) for c in others]
-    assert cards["free"].action_label == "Cancel subscription"
+    assert all(c.action in ("portal", "cancel") for c in others), [(c.key, c.action) for c in others]
+    assert cards["free"].action == "cancel"
+
+
+def test_a_pending_cancel_offers_undo():
+    end = datetime(2026, 10, 23, tzinfo=UTC)
+    cards = _by_key(_account("pro", "active", customer="cus_1", subscription="sub_1",
+                             cancelling=True, period_end=end))
+    assert cards["pro"].current
+    assert (cards["pro"].action, cards["pro"].action_label) == ("resume", "Keep Pro")
+    assert "23 Oct 2026" in cards["pro"].note
+    assert cards["free"].action is None, "already cancelling — no second Downgrade button"
 
 
 def test_paying_estate_switches_down_to_pro():
@@ -71,11 +84,21 @@ def test_an_abandoned_checkout_can_still_upgrade():
     assert cards["estate"].action == "checkout"
 
 
+def test_an_ended_subscription_is_not_treated_as_paying():
+    """The id is never cleared when Stripe ends a subscription; the status says it is over."""
+    cards = _by_key(_account("pro", "canceled", customer="cus_1", subscription="sub_1",
+                             cancelling=True, period_end=datetime(2026, 10, 23, tzinfo=UTC)))
+    assert cards["free"].current and cards["free"].action is None
+    assert cards["pro"].action == "checkout", "they can subscribe again, not open a dead portal"
+    assert not any(c.action == "resume" for c in cards.values())
+
+
 def test_a_canceled_subscription_shows_free_as_current():
     """`account.plan` may still say pro; the gates already treat it as Free."""
     cards = _by_key(_account("pro", "canceled", customer="cus_1"))
     assert cards["free"].current and not cards["pro"].current
     assert cards["pro"].action == "checkout"
+    assert cards["free"].action is None, "already on Free — nothing to downgrade"
 
 
 def test_features_come_from_the_limits_table():

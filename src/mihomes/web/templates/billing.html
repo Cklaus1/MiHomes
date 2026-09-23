@@ -90,6 +90,20 @@
               {{ plan.action_label }}
             </button>
           </form>
+        {% elif plan.action == "cancel" %}
+          {# A link to the confirm page, not a POST: the consequences are shown first. #}
+          {% if plan.note %}<p class="mb-2 text-center text-xs text-gray-500">{{ plan.note }}</p>{% endif %}
+          <a href="/billing/cancel" data-testid="downgrade-free"
+             class="block w-full rounded-lg border border-gray-300 px-4 py-2 text-center text-sm font-medium text-gray-700 hover:bg-gray-50">
+            {{ plan.action_label }}
+          </a>
+        {% elif plan.action == "resume" %}
+          <p class="mb-2 text-center text-xs font-medium text-amber-700" data-testid="cancel-pending">{{ plan.note }}</p>
+          <form method="post" action="/billing/resume">
+            <button type="submit" class="w-full rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700">
+              {{ plan.action_label }}
+            </button>
+          </form>
         {% elif plan.note %}
           <p class="text-center text-xs text-gray-500">{{ plan.note }}</p>
         {% elif plan.current %}

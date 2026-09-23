@@ -210,6 +210,26 @@ def test_the_billing_page_matches_the_plan(rls_app):  # noqa: F811
     assert "Unlimited homes (fair use)" in page.text
 
 
+def test_downgrade_to_free_over_http(rls_app):  # noqa: F811
+    """Confirm page first, then the drop — for a Pro account not paying through Stripe."""
+    client, account_id = rls_app
+    _sign_in(client)
+    _set_plan(account_id, plan="pro")
+
+    billing = client.get("/billing", headers=_HTML)
+    assert 'data-testid="downgrade-free"' in billing.text
+
+    confirm = client.get("/billing/cancel", headers=_HTML)
+    assert confirm.status_code == 200
+    assert "Nothing is deleted" in confirm.text
+    assert _account_state(account_id)[1] == "pro", "the confirm page must not change anything"
+
+    done = client.post("/billing/cancel", headers=_HTML)
+    assert done.status_code == 200
+    assert "You are now on the Free plan" in done.text
+    assert _account_state(account_id)[:2] == (1, "free")
+
+
 def test_pages_carry_the_lazy_banner_slot(rls_app):  # noqa: F811
     """The banner loads as its own request; the page itself does no plan lookup for it."""
     client, _ = rls_app

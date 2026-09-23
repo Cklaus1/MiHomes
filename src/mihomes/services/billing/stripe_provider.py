@@ -183,6 +183,9 @@ class StripeProvider:
         else:
             self._stripe.Subscription.delete(subscription_id)
 
+    def resume(self, *, subscription_id: str) -> None:
+        self._stripe.Subscription.modify(subscription_id, cancel_at_period_end=False)
+
     # -- reconciliation -----------------------------------------------------------------
 
     def get_subscription(self, *, customer_id: str) -> SubscriptionState:

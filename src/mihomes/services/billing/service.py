@@ -260,6 +260,17 @@ def apply_subscription_state(
         account.current_period_end = state.current_period_end
         changed = True
 
+    # Only a subscription-bearing state speaks for this flag: an `invoice.paid` with no
+    # subscription must not clear a pending cancel the owner asked for.
+    # A subscription that has ended has nothing left to cancel — clear the flag, or the page
+    # keeps saying "Ends X, then Free" after it already has.
+    wanted = False if account.subscription_status == "canceled" else bool(state.cancel_at_period_end)
+    if (state.provider_subscription_id is not None or account.subscription_status == "canceled") and (
+        bool(account.cancel_at_period_end) != wanted
+    ):
+        account.cancel_at_period_end = wanted
+        changed = True
+
     if changed:
         session.commit()
         logger.info(

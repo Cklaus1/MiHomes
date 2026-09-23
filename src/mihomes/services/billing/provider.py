@@ -100,6 +100,10 @@ class BillingProvider(Protocol):
 
     def cancel(self, *, subscription_id: str, at_period_end: bool = True) -> None: ...
 
+    def resume(self, *, subscription_id: str) -> None:
+        """Undo a cancel-at-period-end: the subscription keeps renewing."""
+        ...
+
     def create_portal_session(self, *, customer_id: str, return_url: str) -> str:
         """Self-serve management; returns a hosted Customer Portal URL."""
         ...

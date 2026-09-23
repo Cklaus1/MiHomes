@@ -29,6 +29,8 @@ class FakeProvider:
         self.created_customers: list[tuple[str, str, str]] = []
         self.checkout_calls: list[dict] = []
         self.portal_calls: list[dict] = []
+        self.cancel_calls: list[dict] = []
+        self.resume_calls: list[str] = []
 
     def create_customer(self, *, account_id: str, email: str, name: str) -> str:
         self.created_customers.append((account_id, email, name))
@@ -49,8 +51,12 @@ class FakeProvider:
     def get_subscription(self, *, customer_id) -> SubscriptionState:  # pragma: no cover
         return SubscriptionState(None, None, None, None, False)
 
-    def cancel(self, *, subscription_id, at_period_end=True) -> None:  # pragma: no cover
-        return None
+    def cancel(self, *, subscription_id, at_period_end=True) -> None:
+        self.cancel_calls.append({"subscription_id": subscription_id,
+                                  "at_period_end": at_period_end})
+
+    def resume(self, *, subscription_id) -> None:
+        self.resume_calls.append(subscription_id)
 
     def handle_webhook_event(self, *, payload, signature):  # pragma: no cover
         return None

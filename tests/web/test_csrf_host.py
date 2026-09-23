@@ -64,3 +64,32 @@ def test_same_origin_post_allowed(client):
 def test_foreign_host_rejected(client):
     resp = client.get("/", headers={"Host": "evil.example.com"})
     assert resp.status_code == 400
+
+
+TS_HOST = "evo-dev.tail6765ef.ts.net"
+
+
+def test_allowed_hosts_env_admits_named_host(client, monkeypatch):
+    monkeypatch.setenv("MIHOMES_ALLOWED_HOSTS", f" {TS_HOST.upper()} , other.example ")
+    assert client.get("/", headers={"Host": TS_HOST}).status_code == 200
+
+
+def test_allowed_hosts_env_admits_matching_origin_on_post(client, monkeypatch):
+    monkeypatch.setenv("MIHOMES_ALLOWED_HOSTS", TS_HOST)
+    resp = client.post(
+        "/budget/transactions",
+        data={"property_id": "1", "description": "x", "amount": "5", "category": "general"},
+        headers={"Host": TS_HOST, "Origin": f"https://{TS_HOST}"},
+    )
+    assert resp.status_code not in (400, 403)
+
+
+def test_allowed_hosts_env_admits_nothing_else(client, monkeypatch):
+    monkeypatch.setenv("MIHOMES_ALLOWED_HOSTS", TS_HOST)
+    assert client.get("/", headers={"Host": "evil.example.com"}).status_code == 400
+    resp = client.post(
+        "/budget/transactions",
+        data={"property_id": "1", "description": "x", "amount": "5", "category": "general"},
+        headers={"Host": TS_HOST, "Origin": "https://evil.example.com"},
+    )
+    assert resp.status_code == 403

@@ -17,6 +17,8 @@ appropriate for a localhost tool, matching the "won't-fix bridge is accepted"
 threat posture while still blocking the browser-driven cross-site case.
 """
 
+import os
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse
@@ -25,6 +27,18 @@ SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 # Host values (sans port) that denote the local machine.
 _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "[::1]", "::1", "0.0.0.0"})
+
+
+def _allowed_hosts() -> frozenset[str]:
+    """Loopback plus any hostnames named in ``MIHOMES_ALLOWED_HOSTS`` (comma-separated).
+
+    For a deliberate non-loopback front door — e.g. Tailscale Serve proxying
+    ``https://evo-dev.<tailnet>.ts.net`` to the loopback-bound app. Exact matches only, no
+    wildcards: each entry is a name the operator controls, so DNS rebinding stays closed for
+    every other hostname. Read per request so the guard cannot disagree with the environment.
+    """
+    extra = os.environ.get("MIHOMES_ALLOWED_HOSTS", "")
+    return _LOCAL_HOSTS | {h.strip().lower() for h in extra.split(",") if h.strip()}
 
 
 def _host_only(host_header: str) -> str:
@@ -86,8 +100,9 @@ class HostAndOriginGuardMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # 1. Host guard (DNS-rebinding): reject non-loopback hosts outright.
+        allowed = _allowed_hosts()
         host = _host_only(request.headers.get("host", ""))
-        if host and host.lower() not in _LOCAL_HOSTS:
+        if host and host.lower() not in allowed:
             return PlainTextResponse("Invalid Host header.", status_code=400)
 
         # 2. Origin guard (CSRF): only for state-changing methods.
@@ -98,7 +113,7 @@ class HostAndOriginGuardMiddleware(BaseHTTPMiddleware):
 
             origin = request.headers.get("origin", "")
             if origin:
-                if _origin_host(origin).lower() not in _LOCAL_HOSTS:
+                if _origin_host(origin).lower() not in allowed:
                     return PlainTextResponse(
                         "Cross-origin request blocked.", status_code=403
                     )

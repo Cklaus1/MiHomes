@@ -204,10 +204,16 @@ def cancel_confirm(request: Request, to: str = "free", principal=require_authent
     read them.
     """
     from mihomes.services.billing.cancel import DOWNGRADE_TARGETS, downgrade_consequences
+    from mihomes.services.billing.plans import plan_cards
 
     if to not in DOWNGRADE_TARGETS:
         return RedirectResponse("/billing", status_code=303)
     account = _account(db, principal)
+    # Only a move the billing page itself offers — no confirm page for Pro → Pro, a paying
+    # Estate's Pro (that is the portal), or Free while a cancel is already pending.
+    offered = {c.key for c in plan_cards(account) if c.action in ("cancel", "downgrade")}
+    if to not in offered:
+        return RedirectResponse("/billing", status_code=303)
     return templates.TemplateResponse(
         request,
         "billing_cancel.html",

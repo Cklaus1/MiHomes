@@ -248,6 +248,19 @@ def test_estate_downgrade_to_pro_over_http(rls_app):  # noqa: F811
     assert _account_state(account_id)[1] == "pro"
 
 
+def test_the_confirm_page_only_offers_real_moves(rls_app):  # noqa: F811
+    """A Pro account typing ?to=pro gets sent back, not a page whose button does nothing."""
+    client, account_id = rls_app
+    _sign_in(client)
+    _set_plan(account_id, plan="pro")
+
+    for target in ("pro", "estate", "nonsense"):
+        response = client.get(f"/billing/cancel?to={target}", headers=_HTML,
+                              follow_redirects=False)
+        assert (response.status_code, response.headers.get("location")) == (303, "/billing"), target
+    assert client.get("/billing/cancel?to=free", headers=_HTML).status_code == 200
+
+
 def test_pages_carry_the_lazy_banner_slot(rls_app):  # noqa: F811
     """The banner loads as its own request; the page itself does no plan lookup for it."""
     client, _ = rls_app

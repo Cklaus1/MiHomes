@@ -48,8 +48,14 @@ def has_live_subscription(account) -> bool:
     )
 
 
-def downgrade_consequences(session: Session, account: Account) -> dict:
-    """What dropping to Free would do, in numbers, for the confirm step.
+#: Plans an owner may move *down* to from this page. Estate → Pro here is only for accounts not
+#: paying through Stripe; a paying Estate account switches in the Stripe portal, where the
+#: mid-period price change (proration) is Stripe's to calculate.
+DOWNGRADE_TARGETS = ("free", "pro")
+
+
+def downgrade_consequences(session: Session, account: Account, target: str = "free") -> dict:
+    """What moving down to `target` would do, in numbers, for the confirm step.
 
     Counted, not guessed: an owner with four homes must see "3 homes become read-only" before
     pressing the button, not discover it afterwards.
@@ -59,15 +65,55 @@ def downgrade_consequences(session: Session, account: Account) -> dict:
     homes = session.execute(
         select(func.count()).select_from(Property).where(Property.account_id == account.id)
     ).scalar_one()
-    free = PLAN_LIMITS["free"]
+    limits = PLAN_LIMITS[target]
     return {
+        "target": target,
         "homes": homes,
-        "free_homes": free["max_homes"],
-        "frozen_homes": max(0, homes - free["max_homes"]),
-        "free_seats": free["max_seats"],
-        "at_period_end": has_live_subscription(account),
+        "target_homes": limits["max_homes"],
+        "frozen_homes": max(0, homes - limits["max_homes"]),
+        "target_seats": limits["max_seats"],
+        # Only a move to Free waits for the period end; Estate → Pro here is non-Stripe only.
+        "at_period_end": target == "free" and has_live_subscription(account),
         "period_end": account.current_period_end,
+        "lost_features": _lost_features(effective_plan(account.plan, account.subscription_status),
+                                        target),
     }
+
+
+def _lost_features(current: str, target: str) -> list[str]:
+    """Features the current plan has and the target does not, in the billing page's words."""
+    from mihomes.services.billing.plans import feature_labels
+
+    # Same rows of §3.1 in the same order, so position pairs a feature with itself.
+    return [
+        label
+        for (ok_now, label), (ok_then, _) in zip(
+            feature_labels(current), feature_labels(target), strict=True
+        )
+        if ok_now and not ok_then
+    ]
+
+
+def downgrade_plan(session: Session, account: Account, target: str) -> None:
+    """Move a non-Stripe account down to a lower paid plan (Estate → Pro), at once.
+
+    A paying account never comes here — `plan_cards` sends it to the Stripe portal — and this
+    refuses it too, because writing `plan` under a live subscription would leave the app and
+    Stripe disagreeing about what the customer pays for. Moving *down* cannot gain access.
+    """
+    from mihomes.services.billing.plans import PLAN_ORDER
+
+    current = effective_plan(account.plan, account.subscription_status)
+    if target not in PLAN_ORDER or target == "free":
+        raise NothingToCancel(f"not a paid downgrade target: {target}")
+    if PLAN_ORDER.index(target) >= PLAN_ORDER.index(current):
+        raise NothingToCancel(f"{target} is not below {current}")
+    if has_live_subscription(account):
+        raise NothingToCancel("a paying account changes plan in the Stripe portal")
+
+    account.plan = target
+    session.commit()
+    logger.info("downgraded to %s immediately for account %s", target, account.id)
 
 
 def cancel_plan(session: Session, account: Account, *, provider=None) -> str:

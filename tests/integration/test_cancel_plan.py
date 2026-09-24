@@ -12,6 +12,7 @@ from mihomes.services.billing.cancel import (
     NothingToCancel,
     cancel_plan,
     downgrade_consequences,
+    downgrade_plan,
     resume_plan,
 )
 from mihomes.services.billing.provider import SubscriptionState
@@ -141,6 +142,37 @@ def test_consequences_count_the_homes_that_freeze(session, account):
     assert (c["homes"], c["frozen_homes"], c["at_period_end"]) == (
         session.query(Property).count(), session.query(Property).count() - 1, False,
     )
+
+
+def test_estate_downgrades_to_pro_at_once(session, account):
+    account.plan = "estate"
+    session.commit()
+    downgrade_plan(session, account, "pro")
+    assert (account.plan, account.subscription_status) == ("pro", "active")
+
+
+def test_downgrade_to_pro_refuses_the_wrong_cases(session, account):
+    # Pro → Pro and Pro → Estate are not downgrades.
+    with pytest.raises(NothingToCancel):
+        downgrade_plan(session, account, "pro")
+    with pytest.raises(NothingToCancel):
+        downgrade_plan(session, account, "estate")
+    # A paying Estate account switches in the Stripe portal, never by writing `plan` here.
+    account.plan = "estate"
+    session.commit()
+    _pay(session, account)
+    with pytest.raises(NothingToCancel):
+        downgrade_plan(session, account, "pro")
+    assert account.plan == "estate"
+
+
+def test_pro_consequences_name_the_estate_features_that_go(session, account):
+    account.plan = "estate"
+    session.commit()
+    c = downgrade_consequences(session, account, "pro")
+    assert c["target"] == "pro" and c["at_period_end"] is False
+    assert "Predictive maintenance" in c["lost_features"]
+    assert "Vendor ratings" not in c["lost_features"], "Pro keeps vendor ratings"
 
 
 def test_nothing_is_deleted(session, account):

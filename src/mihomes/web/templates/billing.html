@@ -97,6 +97,11 @@
              class="block w-full rounded-lg border border-gray-300 px-4 py-2 text-center text-sm font-medium text-gray-700 hover:bg-gray-50">
             {{ plan.action_label }}
           </a>
+        {% elif plan.action == "downgrade" %}
+          <a href="/billing/cancel?to={{ plan.key }}" data-testid="downgrade-{{ plan.key }}"
+             class="block w-full rounded-lg border border-gray-300 px-4 py-2 text-center text-sm font-medium text-gray-700 hover:bg-gray-50">
+            {{ plan.action_label }}
+          </a>
         {% elif plan.action == "resume" %}
           <p class="mb-2 text-center text-xs font-medium text-amber-700" data-testid="cancel-pending">{{ plan.note }}</p>
           <form method="post" action="/billing/resume">

@@ -195,32 +195,46 @@ def _error_page(request: Request, db: Session, principal, message: str, status: 
 
 @router.get("/billing/cancel")
 @declares(BILLING_ACTION, Access.ACCOUNT)
-def cancel_confirm(request: Request, principal=require_authenticated(),
+def cancel_confirm(request: Request, to: str = "free", principal=require_authenticated(),
                    db: Session = Depends(get_db)):
-    """The confirm step for "Downgrade to Free" — says what will change before anything does.
+    """The confirm step for "Downgrade to Free/Pro" — says what will change before anything does.
 
     A separate page rather than a JS `confirm()`: the consequences are counted (homes that become
-    read-only, when it takes effect) and the owner of a four-home estate must read them.
+    read-only, features that go, when it takes effect) and the owner of a four-home estate must
+    read them.
     """
-    from mihomes.services.billing.cancel import downgrade_consequences
+    from mihomes.services.billing.cancel import DOWNGRADE_TARGETS, downgrade_consequences
 
+    if to not in DOWNGRADE_TARGETS:
+        return RedirectResponse("/billing", status_code=303)
     account = _account(db, principal)
     return templates.TemplateResponse(
         request,
         "billing_cancel.html",
         {"page": "billing", "account": account,
-         "consequences": downgrade_consequences(db, account)},
+         "consequences": downgrade_consequences(db, account, to)},
     )
 
 
 @router.post("/billing/cancel")
 @declares(BILLING_ACTION, Access.ACCOUNT)
-def cancel(request: Request, principal=require_authenticated(),
+def cancel(request: Request, to: str = Form("free"), principal=require_authenticated(),
            db: Session = Depends(get_db)):
-    """Downgrade to Free: at period end for a paid subscription, at once otherwise."""
-    from mihomes.services.billing.cancel import NothingToCancel, cancel_plan
+    """Downgrade to Free (at period end for a paid subscription, at once otherwise), or from
+    Estate to Pro for an account not paying through Stripe (at once)."""
+    from mihomes.services.billing.cancel import NothingToCancel, cancel_plan, downgrade_plan
 
     account = _account(db, principal)
+    if to == "pro":
+        try:
+            downgrade_plan(db, account, "pro")
+        except NothingToCancel:
+            return RedirectResponse("/billing", status_code=303)
+        return templates.TemplateResponse(
+            request, "billing.html",
+            _page_context(_account(db, principal),
+                          notice="You are now on the Pro plan. Nothing was deleted."),
+        )
     try:
         when = cancel_plan(db, account)
     except NothingToCancel:

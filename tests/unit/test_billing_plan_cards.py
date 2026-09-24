@@ -84,6 +84,14 @@ def test_an_abandoned_checkout_can_still_upgrade():
     assert cards["estate"].action == "checkout"
 
 
+def test_estate_without_stripe_can_downgrade_to_pro():
+    """**The reported gap**: an Estate account not paying through Stripe had no Pro option."""
+    cards = _by_key(_account("estate", "active"))
+    assert cards["estate"].current
+    assert (cards["pro"].action, cards["pro"].action_label) == ("downgrade", "Downgrade to Pro")
+    assert cards["free"].action == "cancel"
+
+
 def test_an_ended_subscription_is_not_treated_as_paying():
     """The id is never cleared when Stripe ends a subscription; the status says it is over."""
     cards = _by_key(_account("pro", "canceled", customer="cus_1", subscription="sub_1",

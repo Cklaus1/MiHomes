@@ -14,7 +14,7 @@ go on promising the old numbers after the gates started enforcing new ones.
   the Stripe Customer Portal. Never a checkout form: `/billing/checkout` would open a *second*
   subscription on the same customer and bill them twice.
 - **No subscription** (Free, a no-card trial, or a hand-seeded plan): checkout for the plans above
-  the current one.
+  the current one; "Downgrade to Pro" for Estate, through the same confirm page, applied at once.
 
 "Paying" is `has_live_subscription` — a subscription id *and* a status Stripe can still modify —
 **not** `stripe_customer_id` (committed before the user reaches Stripe, so an abandoned checkout
@@ -48,7 +48,7 @@ class PlanCard:
     tagline: str
     features: list[tuple[bool, str]] = field(default_factory=list)
     current: bool = False
-    #: "checkout" | "portal" | "cancel" | "resume" | None — what the card's button does.
+    #: "checkout" | "portal" | "cancel" | "downgrade" | "resume" | None — the card's button.
     action: str | None = None
     action_label: str = ""
     #: Shown instead of a button, e.g. when a trial will return to Free by itself.
@@ -75,6 +75,11 @@ def _features(limits: dict) -> list[tuple[bool, str]]:
         (limits["audit_export"], "Audit log export"),
         (True, _SUPPORT.get(limits["support_tier"], "Support")),
     ]
+
+
+def feature_labels(plan: str) -> list[tuple[bool, str]]:
+    """A plan's (included, label) rows — the same list its card shows."""
+    return _features(PLAN_LIMITS[plan])
 
 
 def plan_cards(account) -> list[PlanCard]:
@@ -110,5 +115,10 @@ def plan_cards(account) -> list[PlanCard]:
         elif i > rank:
             card.action = "checkout"
             card.action_label = f"Upgrade to {card.name}"
+        else:
+            # A lower paid plan, not paying through Stripe (Estate → Pro): the same confirm page
+            # as Downgrade to Free, applied at once.
+            card.action = "downgrade"
+            card.action_label = f"Downgrade to {card.name}"
         cards.append(card)
     return cards

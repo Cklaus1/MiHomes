@@ -230,6 +230,24 @@ def test_downgrade_to_free_over_http(rls_app):  # noqa: F811
     assert _account_state(account_id)[:2] == (1, "free")
 
 
+def test_estate_downgrade_to_pro_over_http(rls_app):  # noqa: F811
+    client, account_id = rls_app
+    _sign_in(client)
+    _set_plan(account_id, plan="estate")
+
+    billing = client.get("/billing", headers=_HTML)
+    assert 'data-testid="downgrade-pro"' in billing.text
+
+    confirm = client.get("/billing/cancel?to=pro", headers=_HTML)
+    assert "Move from Estate to Pro?" in confirm.text
+    assert "Predictive maintenance" in confirm.text
+    assert _account_state(account_id)[1] == "estate", "the confirm page must not change anything"
+
+    done = client.post("/billing/cancel", data={"to": "pro"}, headers=_HTML)
+    assert "You are now on the Pro plan" in done.text
+    assert _account_state(account_id)[1] == "pro"
+
+
 def test_pages_carry_the_lazy_banner_slot(rls_app):  # noqa: F811
     """The banner loads as its own request; the page itself does no plan lookup for it."""
     client, _ = rls_app

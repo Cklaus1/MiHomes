@@ -77,13 +77,19 @@
         {% if plan.action == "checkout" %}
           {# Plan and interval only — never a price id. The client picking its own price id would
              be a self-service discount (D3/N2); the server validates against SELLABLE_PLANS. #}
-          <form method="post" action="/billing/checkout">
-            <input type="hidden" name="plan" value="{{ plan.key }}">
-            <input type="hidden" name="interval" value="monthly">
-            <button type="submit" class="w-full rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700">
-              {{ plan.action_label }}
-            </button>
-          </form>
+          <p class="mb-2 text-center text-xs text-gray-500">{{ plan.action_label }} — pay monthly or yearly</p>
+          <div class="grid grid-cols-2 gap-2">
+            {% for interval, label in (("monthly", "Monthly"), ("annual", "Yearly")) %}
+            <form method="post" action="/billing/checkout">
+              <input type="hidden" name="plan" value="{{ plan.key }}">
+              <input type="hidden" name="interval" value="{{ interval }}">
+              <button type="submit" data-testid="checkout-{{ plan.key }}-{{ interval }}"
+                      class="w-full rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700">
+                {{ label }}
+              </button>
+            </form>
+            {% endfor %}
+          </div>
         {% elif plan.action == "portal" %}
           <form method="post" action="/billing/portal">
             <button type="submit" class="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">

@@ -10,9 +10,10 @@ go on promising the old numbers after the gates started enforcing new ones.
   A paid subscription is cancelled at period end (with Undo while pending); a trial or hand-set
   plan drops to Free at once (`services/billing/cancel.py`). A write that can only *lower* the
   plan cannot be abused to gain access, which is why this one is allowed outside the webhook.
-- **Paying through Stripe** (`stripe_subscription_id` set): moving between paid plans goes through
-  the Stripe Customer Portal. Never a checkout form: `/billing/checkout` would open a *second*
-  subscription on the same customer and bill them twice.
+- **Paying through Stripe** (`stripe_subscription_id` set): moving between paid plans posts to
+  `/billing/change`, which opens Stripe's confirm screen for that exact price. Never a checkout
+  form: `/billing/checkout` would open a *second* subscription on the same customer and bill
+  them twice.
 - **No subscription** (Free, a no-card trial, or a hand-seeded plan): checkout for the plans above
   the current one; "Downgrade to Pro" for Estate, through the same confirm page, applied at once.
 
@@ -48,7 +49,7 @@ class PlanCard:
     tagline: str
     features: list[tuple[bool, str]] = field(default_factory=list)
     current: bool = False
-    #: "checkout" | "portal" | "cancel" | "downgrade" | "resume" | None — the card's button.
+    #: "checkout" | "change" | "cancel" | "downgrade" | "resume" | None — the card's button.
     action: str | None = None
     action_label: str = ""
     #: Shown instead of a button, e.g. when a trial will return to Free by itself.
@@ -110,7 +111,7 @@ def plan_cards(account) -> list[PlanCard]:
                         f"{account.trial_ends_at.strftime('%d %b %Y')} anyway."
                     )
         elif paying:
-            card.action = "portal"
+            card.action = "change"
             card.action_label = f"{'Upgrade' if i > rank else 'Switch'} to {card.name}"
         elif i > rank:
             card.action = "checkout"

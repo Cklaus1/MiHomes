@@ -349,6 +349,29 @@ def start_portal_session(
     )
 
 
+def start_plan_change(
+    account: Account, *, plan: str, interval: str, return_url: str,
+    provider: object | None = None,
+) -> str:
+    """URL where a paying customer confirms moving to `(plan, interval)`.
+
+    Only for a live subscription — Free and ended accounts go through checkout, and a checkout
+    here would open a second subscription (see `plans.py`). Grants nothing: the webhook does.
+    """
+    from mihomes.services.billing.cancel import has_live_subscription
+    from mihomes.services.billing.provider import BillingProviderError, get_billing_provider
+
+    if not has_live_subscription(account):
+        raise BillingProviderError("no live subscription to change — use checkout instead")
+
+    billing = provider if provider is not None else get_billing_provider("stripe")
+    return billing.create_plan_change_session(
+        customer_id=account.stripe_customer_id,
+        subscription_id=account.stripe_subscription_id,
+        plan=plan, interval=interval, return_url=return_url,
+    )
+
+
 def _billing_email(session: Session, account: Account) -> str:
     """The owner's email — Stripe needs one for receipts and dunning.
 

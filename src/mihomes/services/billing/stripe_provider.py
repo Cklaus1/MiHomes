@@ -177,6 +177,30 @@ class StripeProvider:
         )
         return session.url
 
+    def create_plan_change_session(self, *, customer_id: str, subscription_id: str, plan: str,
+                                   interval: str, return_url: str) -> str:
+        """The portal opened straight on its confirm screen for one price — the customer sees the
+        prorated charge and confirms there. The change still lands via webhook (D1)."""
+        from mihomes.services.billing.prices import price_id_for
+
+        sub = self._stripe.Subscription.retrieve(subscription_id)
+        item_id = sub["items"]["data"][0]["id"]
+        session = self._stripe.billing_portal.Session.create(
+            customer=customer_id,
+            return_url=return_url,
+            flow_data={
+                "type": "subscription_update_confirm",
+                "subscription_update_confirm": {
+                    "subscription": subscription_id,
+                    "items": [{"id": item_id, "price": price_id_for(plan, interval),
+                               "quantity": 1}],
+                },
+                "after_completion": {"type": "redirect",
+                                     "redirect": {"return_url": return_url}},
+            },
+        )
+        return session.url
+
     def cancel(self, *, subscription_id: str, at_period_end: bool = True) -> None:
         if at_period_end:
             self._stripe.Subscription.modify(subscription_id, cancel_at_period_end=True)
@@ -279,7 +303,11 @@ class StripeProvider:
         if items:
             price_id = _get(_get(items[0], "price") or {}, "id")
 
-        period_end = _get(sub, "current_period_end")
+        # API 2025-03-31 moved the period onto each subscription item; older versions keep it on
+        # the subscription. Reading only the old field left "Renews" blank on every new account.
+        period_end = _get(sub, "current_period_end") or (
+            _get(items[0], "current_period_end") if items else None
+        )
         return SubscriptionState(
             provider_subscription_id=_get(sub, "id"),
             plan=plan_for_price_id(price_id) if price_id else None,

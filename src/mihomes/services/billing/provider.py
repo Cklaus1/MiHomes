@@ -108,6 +108,12 @@ class BillingProvider(Protocol):
         """Self-serve management; returns a hosted Customer Portal URL."""
         ...
 
+    def create_plan_change_session(self, *, customer_id: str, subscription_id: str, plan: str,
+                                   interval: str, return_url: str) -> str:
+        """Move a live subscription to `(plan, interval)`; returns a hosted URL where the customer
+        confirms the change. Like checkout, takes a plan — never a price id (D3/N2)."""
+        ...
+
     def handle_webhook_event(self, *, payload: bytes, signature: str) -> NormalizedEvent | None:
         """Verify the signature and normalize a provider event.
 

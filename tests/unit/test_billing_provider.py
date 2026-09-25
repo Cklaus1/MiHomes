@@ -73,6 +73,10 @@ class FakeBillingProvider:
     def create_portal_session(self, *, customer_id: str, return_url: str) -> str:
         return f"https://portal.example/{customer_id}"
 
+    def create_plan_change_session(self, *, customer_id: str, subscription_id: str, plan: str,
+                                   interval: str, return_url: str) -> str:
+        return f"https://portal.example/{subscription_id}/{plan}/{interval}"
+
     def handle_webhook_event(self, *, payload: bytes, signature: str) -> NormalizedEvent | None:
         return None
 
@@ -118,7 +122,8 @@ class TestProtocolShape:
         }
         assert declared == {
             "create_customer", "create_checkout_session", "get_subscription",
-            "cancel", "resume", "create_portal_session", "handle_webhook_event",
+            "cancel", "resume", "create_portal_session", "create_plan_change_session",
+            "handle_webhook_event",
         }
 
 

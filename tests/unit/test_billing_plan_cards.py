@@ -58,7 +58,7 @@ def test_a_paying_customer_never_gets_a_checkout(plan):
     cards = _by_key(_account(plan, "active", customer="cus_1", subscription="sub_1"))
     others = [c for c in cards.values() if not c.current]
     assert cards[plan].current
-    assert all(c.action in ("portal", "cancel") for c in others), [(c.key, c.action) for c in others]
+    assert all(c.action in ("change", "cancel") for c in others), [(c.key, c.action) for c in others]
     assert cards["free"].action == "cancel"
 
 
@@ -70,6 +70,12 @@ def test_a_pending_cancel_offers_undo():
     assert (cards["pro"].action, cards["pro"].action_label) == ("resume", "Keep Pro")
     assert "23 Oct 2026" in cards["pro"].note
     assert cards["free"].action is None, "already cancelling — no second Downgrade button"
+
+
+def test_paying_pro_changes_to_estate_in_place():
+    """A paying account's upgrade is a plan change on the same subscription, not a checkout."""
+    cards = _by_key(_account("pro", "active", customer="cus_1", subscription="sub_1"))
+    assert (cards["estate"].action, cards["estate"].action_label) == ("change", "Upgrade to Estate")
 
 
 def test_paying_estate_switches_down_to_pro():

@@ -29,6 +29,7 @@ class FakeProvider:
         self.created_customers: list[tuple[str, str, str]] = []
         self.checkout_calls: list[dict] = []
         self.portal_calls: list[dict] = []
+        self.change_calls: list[dict] = []
         self.cancel_calls: list[dict] = []
         self.resume_calls: list[str] = []
 
@@ -47,6 +48,12 @@ class FakeProvider:
     def create_portal_session(self, *, customer_id, return_url) -> str:
         self.portal_calls.append({"customer_id": customer_id, "return_url": return_url})
         return f"https://portal.example/{customer_id}"
+
+    def create_plan_change_session(self, *, customer_id, subscription_id, plan, interval,
+                                   return_url) -> str:
+        self.change_calls.append({"customer_id": customer_id, "subscription_id": subscription_id,
+                                  "plan": plan, "interval": interval})
+        return f"https://portal.example/{subscription_id}/{plan}/{interval}"
 
     def get_subscription(self, *, customer_id) -> SubscriptionState:  # pragma: no cover
         return SubscriptionState(None, None, None, None, False)
@@ -283,6 +290,45 @@ class TestPortal:
         )
 
         assert provider.portal_calls[0]["customer_id"] == "cus_existing"
+
+
+class TestPlanChange:
+    def test_change_targets_the_live_subscription(self, session, account_a):
+        from mihomes.services.billing.service import start_plan_change
+
+        account = session.get(Account, account_a)
+        account.stripe_customer_id, account.stripe_subscription_id = "cus_1", "sub_1"
+        account.subscription_status = "active"
+        provider = FakeProvider()
+
+        start_plan_change(account, plan="estate", interval="annual",
+                          return_url="http://localhost/billing", provider=provider)
+
+        assert provider.change_calls == [{"customer_id": "cus_1", "subscription_id": "sub_1",
+                                          "plan": "estate", "interval": "annual"}]
+        assert account.plan != "estate", "the webhook grants the plan, not this call (D1)"
+
+    @pytest.mark.parametrize("status", [None, "canceled"])
+    def test_change_refuses_without_a_live_subscription(self, session, account_a, status):
+        """Free or ended accounts buy through checkout; there is nothing to change."""
+        from mihomes.services.billing.provider import BillingProviderError
+        from mihomes.services.billing.service import start_plan_change
+
+        account = session.get(Account, account_a)
+        account.stripe_customer_id, account.stripe_subscription_id = "cus_1", "sub_1"
+        account.subscription_status = status
+        provider = FakeProvider()
+
+        with pytest.raises(BillingProviderError):
+            start_plan_change(account, plan="pro", interval="monthly",
+                              return_url="http://localhost/billing", provider=provider)
+        assert provider.change_calls == []
+
+    def test_an_unsellable_plan_is_refused(self, web_client_as):
+        response = web_client_as("owner").post(
+            "/billing/change", data={"plan": "free", "interval": "monthly"},
+        )
+        assert response.status_code == 400
 
 
 class TestSuccessGrantsNothing:

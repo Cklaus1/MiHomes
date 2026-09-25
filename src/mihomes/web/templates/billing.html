@@ -74,16 +74,17 @@
       </ul>
 
       <div class="mt-5">
-        {% if plan.action == "checkout" %}
+        {% if plan.action in ("checkout", "change") %}
           {# Plan and interval only — never a price id. The client picking its own price id would
-             be a self-service discount (D3/N2); the server validates against SELLABLE_PLANS. #}
+             be a self-service discount (D3/N2); the server validates against SELLABLE_PLANS.
+             "change" is a paying account: Stripe's confirm screen, never a second checkout. #}
           <p class="mb-2 text-center text-xs text-gray-500">{{ plan.action_label }} — pay monthly or yearly</p>
           <div class="grid grid-cols-2 gap-2">
             {% for interval, label in (("monthly", "Monthly"), ("annual", "Yearly")) %}
-            <form method="post" action="/billing/checkout">
+            <form method="post" action="/billing/{{ plan.action }}">
               <input type="hidden" name="plan" value="{{ plan.key }}">
               <input type="hidden" name="interval" value="{{ interval }}">
-              <button type="submit" data-testid="checkout-{{ plan.key }}-{{ interval }}"
+              <button type="submit" data-testid="{{ plan.action }}-{{ plan.key }}-{{ interval }}"
                       class="w-full rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700">
                 {{ label }}
               </button>

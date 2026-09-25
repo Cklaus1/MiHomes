@@ -154,6 +154,39 @@ def portal(request: Request, principal=require_authenticated(),
     return RedirectResponse(url, status_code=303)
 
 
+@router.post("/billing/change")
+@declares(BILLING_ACTION, Access.ACCOUNT)
+def change_plan(
+    request: Request,
+    plan: str = Form(...),
+    interval: str = Form("monthly"),
+    principal=require_authenticated(),
+    db: Session = Depends(get_db),
+):
+    """Send a paying customer to Stripe's confirm screen for one plan and cadence."""
+    if plan not in SELLABLE_PLANS or interval not in SELLABLE_INTERVALS:
+        return _error_page(request, db, principal, "That plan is not available.", 400)
+
+    base = str(request.base_url).rstrip("/")
+    try:
+        url = billing_service.start_plan_change(
+            _account(db, principal), plan=plan, interval=interval, return_url=f"{base}/billing",
+        )
+    except PriceConfigurationError:
+        logger.exception("plan change blocked: price configuration incomplete")
+        return _error_page(
+            request, db, principal,
+            "Billing is not fully configured yet. Please try again later.", 503,
+        )
+    except BillingProviderError:
+        logger.exception("plan change failed at the billing provider")
+        return _error_page(
+            request, db, principal,
+            "We could not start the plan change. Please try again.", 502,
+        )
+    return RedirectResponse(url, status_code=303)
+
+
 @router.get("/billing/success")
 @declares(BILLING_ACTION, Access.ACCOUNT)
 def success(request: Request, principal=require_authenticated(),

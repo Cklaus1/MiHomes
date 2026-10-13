@@ -26,6 +26,7 @@ import os
 
 __all__ = [
     "PRICE_ENV_VARS",
+    "plan_and_interval_for_price_id",
     "plan_for_price_id",
     "price_id_for",
 ]
@@ -87,9 +88,15 @@ def plan_for_price_id(price_id: str) -> str | None:
     that sets `STRIPE_PRICE_*` with `monkeypatch` must be visible here, and a module-level cache
     would freeze whatever the environment held when the first import happened.
     """
+    found = plan_and_interval_for_price_id(price_id)
+    return found[0] if found else None
+
+
+def plan_and_interval_for_price_id(price_id: str) -> tuple[str, str] | None:
+    """`(plan, interval)` for a configured price id — one lookup, so the two cannot disagree."""
     if not price_id:
         return None
-    for (plan, _interval), env_var in PRICE_ENV_VARS.items():
+    for key, env_var in PRICE_ENV_VARS.items():
         if os.environ.get(env_var) == price_id:
-            return plan
+            return key
     return None

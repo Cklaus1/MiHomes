@@ -1,5 +1,20 @@
 # MiHomes — Project State & Next Actions
 
+## ACTIVE: Billing page redesign (2026-10-13)
+
+> Mockup: https://claude.ai/artifact/PuLbfwYuucmvpB84Vy9wbf · branch `worktree-spec-build-harness`
+
+- [ ] Prices on cards, read from Stripe by price id (process cache, fail soft → no price shown)
+- [ ] `accounts.billing_interval` (migration 0019), written only by `apply_subscription_state`
+- [ ] One Monthly/Yearly switch; one form per card whose hidden `interval` the switch rewrites
+- [ ] Plain-language summary box: plan · price · renews; past_due banner; card actions moved here
+- [ ] "Switch to yearly" prompt for monthly subscribers (POST /billing/change, same plan, annual)
+- [ ] "Everything in X, plus:" feature lists; "Most popular" on Pro; Pro first on phones
+- [ ] Keep every existing state + testid (cancel-pending undo, trial, non-Stripe Estate→Pro)
+- [ ] `npm run build:css && npm run stamp`; tests; deploy + reconcile on evo-dev
+
+---
+
 Last updated: 2026-08-06
 
 ---

@@ -55,6 +55,10 @@ class FakeProvider:
                                   "plan": plan, "interval": interval})
         return f"https://portal.example/{subscription_id}/{plan}/{interval}"
 
+    def get_price(self, *, plan, interval):  # pragma: no cover
+        from mihomes.services.billing.provider import PriceInfo
+        return PriceInfo(amount=1900, currency="usd")
+
     def get_subscription(self, *, customer_id) -> SubscriptionState:  # pragma: no cover
         return SubscriptionState(None, None, None, None, False)
 
@@ -147,16 +151,17 @@ class TestOwnerOnly:
         response = web_client_as("owner").get("/billing")
         assert response.status_code == 200
 
-    def test_plan_page_offers_monthly_and_yearly_checkout(self, web_client_as):
-        """Both cadences are sold, so every checkout card posts both — each value one the route
-        accepts, or the Yearly button would 400."""
+    def test_plan_page_has_one_interval_switch_and_one_button_per_plan(self, web_client_as):
+        """One Monthly/Yearly switch for the page; each upgrade card is one form whose interval
+        the switch rewrites. Both switch values must be ones the route accepts."""
         from mihomes.web.routes.billing import SELLABLE_INTERVALS
 
         html = web_client_as("owner").get("/billing").text
+        assert html.count("data-billing-switch") == 1
+        for interval in SELLABLE_INTERVALS:
+            assert f'data-interval="{interval}"' in html
         for plan in ("pro", "estate"):
-            for interval in SELLABLE_INTERVALS:
-                assert f'data-testid="checkout-{plan}-{interval}"' in html
-        assert html.count('name="interval" value="annual"') == 2
+            assert html.count(f'data-testid="checkout-{plan}"') == 1
 
     def test_every_billing_route_declares_the_billing_action(self):
         """The gate behind the gate.

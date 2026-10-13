@@ -72,13 +72,37 @@ def index(request: Request, principal=require_authenticated(),
 
 def _page_context(account: Account, **extra) -> dict:
     from mihomes.entitlements.limits import effective_plan
-    from mihomes.services.billing.plans import plan_cards
+    from mihomes.services.billing.cancel import has_live_subscription
+    from mihomes.services.billing.plans import plan_cards, plan_prices, yearly_saving
+
+    prices = plan_prices()
+    current = effective_plan(account.plan, account.subscription_status)
+    paying = has_live_subscription(account)
+    interval = account.billing_interval if paying and account.billing_interval in SELLABLE_INTERVALS else None
+    saving = yearly_saving(prices)
+
+    paying_now = None
+    if paying and interval and (account.plan, interval) in prices:
+        from mihomes.services.billing.plans import money
+
+        p = prices[(account.plan, interval)]
+        paying_now = f"{money(p.amount, p.currency)} a {'year' if interval == 'annual' else 'month'}"
 
     return {
         "page": "billing",
         "account": account,
-        "current_plan": effective_plan(account.plan, account.subscription_status),
-        "plans": plan_cards(account),
+        "current_plan": current,
+        "paying": paying,
+        "paying_now": paying_now,
+        # The switch starts on what a subscriber pays now, so their own card reads true.
+        "start_interval": interval or "monthly",
+        "saving": saving,
+        # Same plan, monthly → yearly: the change customers who stay are most likely to want.
+        "offer_yearly": (
+            paying and interval == "monthly" and not account.cancel_at_period_end
+            and account.subscription_status == "active" and account.plan in saving
+        ),
+        "plans": plan_cards(account, prices),
         **extra,
     }
 

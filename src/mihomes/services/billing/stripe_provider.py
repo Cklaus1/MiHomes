@@ -29,6 +29,7 @@ from datetime import UTC, datetime
 from mihomes.services.billing.provider import (
     BillingAuthError,
     NormalizedEvent,
+    PriceInfo,
     SubscriptionState,
     WebhookVerificationError,
 )
@@ -201,6 +202,12 @@ class StripeProvider:
         )
         return session.url
 
+    def get_price(self, *, plan: str, interval: str) -> PriceInfo:
+        from mihomes.services.billing.prices import price_id_for
+
+        price = self._stripe.Price.retrieve(price_id_for(plan, interval))
+        return PriceInfo(amount=int(price["unit_amount"]), currency=str(price["currency"]))
+
     def cancel(self, *, subscription_id: str, at_period_end: bool = True) -> None:
         if at_period_end:
             self._stripe.Subscription.modify(subscription_id, cancel_at_period_end=True)
@@ -296,7 +303,7 @@ class StripeProvider:
 
         Every read goes through `_get` — see `_normalize` on why `.get()` is not available here.
         """
-        from mihomes.services.billing.prices import plan_for_price_id
+        from mihomes.services.billing.prices import plan_and_interval_for_price_id
 
         price_id = None
         items = _get(_get(sub, "items") or {}, "data") or []
@@ -308,9 +315,11 @@ class StripeProvider:
         period_end = _get(sub, "current_period_end") or (
             _get(items[0], "current_period_end") if items else None
         )
+        plan, interval = plan_and_interval_for_price_id(price_id) or (None, None)
         return SubscriptionState(
             provider_subscription_id=_get(sub, "id"),
-            plan=plan_for_price_id(price_id) if price_id else None,
+            plan=plan,
+            interval=interval,
             status=_normalize_status(_get(sub, "status")),
             current_period_end=(
                 datetime.fromtimestamp(period_end, tz=UTC) if period_end else None

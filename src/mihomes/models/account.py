@@ -34,6 +34,7 @@ class Account(Base):
     stripe_subscription_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     subscription_status: Mapped[str | None] = mapped_column(String(30), nullable=True)  # A3: NOT billing_status
     current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    billing_interval: Mapped[str | None] = mapped_column(String(10), nullable=True)  # 0019; monthly|annual
 
     # App-managed no-card trial (PRICING 4.2, BILLING:485). DEFERRED (Phase 3) but the
     # columns ship now so Phase 3 needs no migration on a live table.

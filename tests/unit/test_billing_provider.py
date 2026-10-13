@@ -29,6 +29,7 @@ from mihomes.services.billing.provider import (
     BillingProvider,
     BillingProviderError,
     NormalizedEvent,
+    PriceInfo,
     SubscriptionState,
     WebhookVerificationError,
     get_billing_provider,
@@ -77,6 +78,9 @@ class FakeBillingProvider:
                                    interval: str, return_url: str) -> str:
         return f"https://portal.example/{subscription_id}/{plan}/{interval}"
 
+    def get_price(self, *, plan: str, interval: str) -> PriceInfo:
+        return PriceInfo(amount=1900, currency="usd")
+
     def handle_webhook_event(self, *, payload: bytes, signature: str) -> NormalizedEvent | None:
         return None
 
@@ -123,7 +127,7 @@ class TestProtocolShape:
         assert declared == {
             "create_customer", "create_checkout_session", "get_subscription",
             "cancel", "resume", "create_portal_session", "create_plan_change_session",
-            "handle_webhook_event",
+            "get_price", "handle_webhook_event",
         }
 
 
@@ -159,7 +163,7 @@ class TestNormalizedEventKeepsTheSeam:
         fields = {f.name for f in dataclasses.fields(SubscriptionState)}
         assert fields == {
             "provider_subscription_id", "plan", "status",
-            "current_period_end", "cancel_at_period_end",
+            "current_period_end", "cancel_at_period_end", "interval",
         }
 
     def test_a_normalized_event_round_trips(self):

@@ -56,6 +56,15 @@ class SubscriptionState:
     status: str | None          # normalized status (see BILLING §5 mapping)
     current_period_end: datetime | None
     cancel_at_period_end: bool
+    interval: str | None = None  # "monthly" | "annual"; None = unknown, like `plan`
+
+
+@dataclass(frozen=True)
+class PriceInfo:
+    """What a configured price charges, for display. Amount in the currency's minor unit."""
+
+    amount: int
+    currency: str
 
 
 @dataclass(frozen=True)
@@ -112,6 +121,11 @@ class BillingProvider(Protocol):
                                    interval: str, return_url: str) -> str:
         """Move a live subscription to `(plan, interval)`; returns a hosted URL where the customer
         confirms the change. Like checkout, takes a plan — never a price id (D3/N2)."""
+        ...
+
+    def get_price(self, *, plan: str, interval: str) -> PriceInfo:
+        """What `(plan, interval)` costs, so the plan page shows the price the customer will be
+        charged rather than a copy of it that can drift."""
         ...
 
     def handle_webhook_event(self, *, payload: bytes, signature: str) -> NormalizedEvent | None:

@@ -206,7 +206,8 @@ def _billing_url() -> str:
 def apply_subscription_state(
     session: Session, account: Account, state: SubscriptionState
 ) -> bool:
-    """**The single place `plan` / `subscription_status` / `current_period_end` are written.**
+    """**The single place `plan` / `subscription_status` / `current_period_end` /
+    `billing_interval` are written.**
 
     SPEC-002 §4.2 requires it in as many words — those columns are *"written ONLY by the billing
     webhook handler"* — and both the live webhook path and the reconciliation sweep (Step 18)
@@ -246,6 +247,10 @@ def apply_subscription_state(
 
     if state.plan is not None and account.plan != state.plan:
         account.plan = state.plan
+        changed = True
+
+    if state.interval is not None and account.billing_interval != state.interval:
+        account.billing_interval = state.interval
         changed = True
 
     if state.provider_subscription_id is not None and (

@@ -25,12 +25,22 @@ ends, so a canceled account read as paying and was offered a "Keep" that could n
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
 from mihomes.entitlements.limits import PLAN_LIMITS, UNLIMITED, effective_plan
 from mihomes.services.billing.cancel import has_live_subscription
 
+logger = logging.getLogger(__name__)
+
 PLAN_ORDER = ("free", "pro", "estate")
+PAID_PLANS = ("pro", "estate")
+INTERVALS = ("monthly", "annual")
+
+#: `(plan, interval)` → `PriceInfo`, for the life of the process. Safe because a Stripe Price's
+#: amount cannot be edited: a new amount is a new price id, which is a new env var value and a
+#: restart. Failures are not cached, so a Stripe outage heals on the next page load.
+_price_cache: dict = {}
 
 _TAGLINES = {
     "free": "Everything one household needs, for one home.",
@@ -54,6 +64,11 @@ class PlanCard:
     action_label: str = ""
     #: Shown instead of a button, e.g. when a trial will return to Free by itself.
     note: str = ""
+    #: "monthly"/"annual" → display dict from `_display_price`; empty when Stripe is unreachable.
+    prices: dict = field(default_factory=dict)
+    #: Features this plan adds over the one below it — the "Everything in X, plus:" list.
+    added: list[str] = field(default_factory=list)
+    plus_of: str = ""
 
 
 def _count(n: int, one: str, many: str) -> str:
@@ -78,12 +93,85 @@ def _features(limits: dict) -> list[tuple[bool, str]]:
     ]
 
 
+def _added_features(key: str) -> tuple[str, list[str]]:
+    """("Pro", [...]) — the labels `key` includes that the plan below it lacks or words
+    differently ("5 homes" vs "1 home"). Free has nothing below it: every included row."""
+    i = PLAN_ORDER.index(key)
+    mine = [label for ok, label in _features(PLAN_LIMITS[key]) if ok]
+    if i == 0:
+        return "", mine
+    below = PLAN_ORDER[i - 1]
+    theirs = {label for ok, label in _features(PLAN_LIMITS[below]) if ok}
+    return below.capitalize(), [label for label in mine if label not in theirs]
+
+
+def money(minor: int, currency: str) -> str:
+    symbol = {"usd": "$", "eur": "€", "gbp": "£"}.get(currency.lower(), "")
+    whole, cents = divmod(minor, 100)
+    text = f"{whole:,}" if cents == 0 else f"{minor / 100:,.2f}"
+    return f"{symbol}{text}" if symbol else f"{text} {currency.upper()}"
+
+
+def plan_prices(provider=None) -> dict:
+    """`{(plan, interval): PriceInfo}` for every price Stripe answered; missing keys mean "unknown".
+
+    Never raises: a plan page without prices is better than an error page, and far better than a
+    price that differs from the one the customer is charged.
+    """
+    missing = [(p, i) for p in PAID_PLANS for i in INTERVALS if (p, i) not in _price_cache]
+    if missing:
+        try:
+            if provider is None:
+                from mihomes.services.billing.provider import get_billing_provider
+                provider = get_billing_provider("stripe")
+            for plan, interval in missing:
+                _price_cache[(plan, interval)] = provider.get_price(plan=plan, interval=interval)
+        except Exception:
+            logger.warning("plan prices unavailable — showing the plan page without them", exc_info=True)
+    return {k: _price_cache[k] for k in _price_cache}
+
+
+def _display_prices(plan: str, prices: dict) -> dict:
+    """Both intervals in the words the card shows. Yearly shows its per-month equivalent with the
+    yearly total and the saving beneath — the saving is computed, never typed."""
+    monthly, annual = prices.get((plan, "monthly")), prices.get((plan, "annual"))
+    out = {}
+    if monthly:
+        out["monthly"] = {"amount": money(monthly.amount, monthly.currency), "per": "/ month",
+                          "note": "Billed monthly"}
+    if annual:
+        note = f"{money(annual.amount, annual.currency)} billed yearly"
+        if monthly and monthly.currency == annual.currency and monthly.amount * 12 > annual.amount:
+            note += f" · save {money(monthly.amount * 12 - annual.amount, annual.currency)}"
+        out["annual"] = {"amount": money(round(annual.amount / 12), annual.currency), "per": "/ month",
+                         "note": note}
+    return out
+
+
+def yearly_saving(prices: dict) -> dict:
+    """Page-level copy for the switch and the switch-to-yearly prompt: the best percentage across
+    paid plans, plus per-plan amounts. Empty when any price is unknown."""
+    out = {}
+    pcts = []
+    for plan in PAID_PLANS:
+        m, a = prices.get((plan, "monthly")), prices.get((plan, "annual"))
+        if not (m and a) or m.currency != a.currency or m.amount * 12 <= a.amount:
+            continue
+        pcts.append(round(100 * (m.amount * 12 - a.amount) / (m.amount * 12)))
+        out[plan] = {"saving": money(m.amount * 12 - a.amount, a.currency),
+                     "monthly": money(m.amount, m.currency), "annual": money(a.amount, a.currency)}
+    if pcts:
+        out["pct"] = max(pcts)
+    return out
+
+
 def feature_labels(plan: str) -> list[tuple[bool, str]]:
     """A plan's (included, label) rows — the same list its card shows."""
     return _features(PLAN_LIMITS[plan])
 
 
-def plan_cards(account) -> list[PlanCard]:
+def plan_cards(account, prices: dict | None = None) -> list[PlanCard]:
+    prices = prices or {}
     current = effective_plan(account.plan, account.subscription_status)
     rank = PLAN_ORDER.index(current) if current in PLAN_ORDER else 0
     paying = has_live_subscription(account)
@@ -93,7 +181,9 @@ def plan_cards(account) -> list[PlanCard]:
     cards = []
     for i, key in enumerate(PLAN_ORDER):
         card = PlanCard(key=key, name=key.capitalize(), tagline=_TAGLINES[key],
-                        features=_features(PLAN_LIMITS[key]), current=(key == current))
+                        features=_features(PLAN_LIMITS[key]), current=(key == current),
+                        prices=_display_prices(key, prices))
+        card.plus_of, card.added = _added_features(key)
         if card.current:
             if cancelling:
                 end = account.current_period_end

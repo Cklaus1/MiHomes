@@ -4,14 +4,19 @@
 
 > Mockup: https://claude.ai/artifact/PuLbfwYuucmvpB84Vy9wbf · branch `worktree-spec-build-harness`
 
-- [ ] Prices on cards, read from Stripe by price id (process cache, fail soft → no price shown)
-- [ ] `accounts.billing_interval` (migration 0019), written only by `apply_subscription_state`
-- [ ] One Monthly/Yearly switch; one form per card whose hidden `interval` the switch rewrites
-- [ ] Plain-language summary box: plan · price · renews; past_due banner; card actions moved here
-- [ ] "Switch to yearly" prompt for monthly subscribers (POST /billing/change, same plan, annual)
-- [ ] "Everything in X, plus:" feature lists; "Most popular" on Pro; Pro first on phones
-- [ ] Keep every existing state + testid (cancel-pending undo, trial, non-Stripe Estate→Pro)
-- [ ] `npm run build:css && npm run stamp`; tests; deploy + reconcile on evo-dev
+- [x] Prices on cards, read from Stripe by price id (process cache, fail soft → no price shown)
+- [x] `accounts.billing_interval` (migration 0019), written only by `apply_subscription_state`
+- [x] One Monthly/Yearly switch; one form per card whose hidden `interval` the switch rewrites
+- [x] Plain-language summary box: plan · price · renews; past_due banner; card actions moved here
+- [x] "Switch to yearly" prompt for monthly subscribers (POST /billing/change, same plan, annual)
+- [x] "Everything in X, plus:" feature lists; "Most popular" on Pro; Pro first on phones
+- [x] Keep every existing state + testid (cancel-pending undo, trial, non-Stripe Estate→Pro)
+- [x] `npm run build:css && npm run stamp`; tests; deploy + reconcile on evo-dev
+
+
+**Review (2026-10-13):** commit 2cb1709, deployed to evo-dev after a pg_dump backup; migration
+0019 applied; reconcile set the tester to monthly; server fetches all 4 Stripe prices. 1290 unit
+tests pass. NOT run: integration suite (no TEST_DATABASE_URL anywhere).
 
 ---
 

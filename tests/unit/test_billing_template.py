@@ -12,6 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import jinja2
+import pytest
 
 from mihomes.services.billing.provider import PriceInfo
 
@@ -117,6 +118,35 @@ def test_past_due_explains_and_offers_the_card_update():
 def test_non_stripe_estate_can_move_down_to_pro():
     html = _render(_account("estate", "active"))
     assert 'data-testid="downgrade-pro"' in html and "Downgrade to Pro" in html
+
+
+@pytest.mark.parametrize("status", [None, "active"], ids=["no-status", "active"])
+def test_complimentary_estate_reads_as_deliberate_not_broken(status):
+    """A hand-set Estate (the founder's own account): nothing is billed, so the page says so."""
+    html = _render(_account("estate", status))
+    estate = html[html.index('data-testid="plan-estate"'):]
+    assert "Complimentary" in html and "Included at no charge · Not billed" in html
+    assert "$0" in estate and "no charge" in estate
+    assert "Normally $49 / month" in estate, "list price only as what starting would cost"
+    assert estate.index("$0") < estate.index("Normally $49")
+
+    pro = html[html.index('data-testid="plan-pro"'):html.index('data-testid="plan-estate"')]
+    assert 'data-testid="downgrade-pro"' in pro, "the move down sits on the Pro card itself"
+    assert html.count('data-testid="downgrade-pro"') == 1
+    assert 'data-testid="downgrade-free"' in html
+
+    assert "data-billing-switch data-start" in html
+    assert [re.search(r'value="(\w+)"', f).group(1) for f in _forms(html, "checkout")] == ["estate"]
+    assert "Start paying for Estate" in html and "Most popular" not in html
+
+
+def test_a_trial_is_not_complimentary():
+    from mihomes.services.billing.plans import is_complimentary
+
+    assert not is_complimentary(_account("pro", "trialing", trial_ends=datetime(2026, 10, 7, tzinfo=UTC)))
+    assert not is_complimentary(_account("pro", "active", sub="sub_1", interval="monthly"))
+    assert not is_complimentary(_account())
+    assert is_complimentary(_account("pro", None))
 
 
 def test_estate_subscriber_switches_down_to_pro_on_the_confirm_screen():

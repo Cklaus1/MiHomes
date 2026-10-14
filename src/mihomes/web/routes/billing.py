@@ -73,7 +73,12 @@ def index(request: Request, principal=require_authenticated(),
 def _page_context(account: Account, **extra) -> dict:
     from mihomes.entitlements.limits import effective_plan
     from mihomes.services.billing.cancel import has_live_subscription
-    from mihomes.services.billing.plans import plan_cards, plan_prices, yearly_saving
+    from mihomes.services.billing.plans import (
+        is_complimentary,
+        plan_cards,
+        plan_prices,
+        yearly_saving,
+    )
 
     prices = plan_prices()
     current = effective_plan(account.plan, account.subscription_status)
@@ -94,6 +99,7 @@ def _page_context(account: Account, **extra) -> dict:
         "current_plan": current,
         "paying": paying,
         "paying_now": paying_now,
+        "comped": is_complimentary(account),
         # The switch starts on what a subscriber pays now, so their own card reads true.
         "start_interval": interval or "monthly",
         "saving": saving,

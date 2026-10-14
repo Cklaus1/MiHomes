@@ -37,6 +37,8 @@
             <span class="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">Cancelling</span>
           {% elif paying %}
             <span class="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-800">Active</span>
+          {% elif comped %}
+            <span class="rounded-full bg-violet-100 px-2.5 py-0.5 text-xs font-semibold text-violet-800">Complimentary</span>
           {% else %}
             <span class="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-semibold text-gray-700">Current plan</span>
           {% endif %}
@@ -47,6 +49,8 @@
           {%- elif paying -%}
             {{ paying_now or "Paid plan" }}
             {%- if account.current_period_end %} · {% if account.cancel_at_period_end %}Ends{% else %}Renews{% endif %} {{ account.current_period_end.strftime("%d %b %Y") }}{% endif %}
+          {%- elif comped -%}
+            Included at no charge · Not billed
           {%- elif current_plan == "free" -%}
             $0 · Upgrade or cancel any time
           {%- else -%}
@@ -79,7 +83,8 @@
 
     {# Leaving a plan lives here, quietly, rather than as a button on the Free card that
        competes with the upgrades. Same confirm pages as before (cancel.py). #}
-    {% set leave = plans | selectattr("action", "in", ["cancel", "downgrade", "resume"]) | list %}
+    {# Estate → Pro has its own button on the Pro card, so it is not repeated here. #}
+    {% set leave = plans | selectattr("action", "in", ["cancel", "resume"]) | list %}
     {% if leave %}
       <div class="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-gray-100 pt-3 text-sm">
         {% for plan in leave %}
@@ -88,13 +93,11 @@
             <form method="post" action="/billing/resume">
               <button type="submit" class="font-semibold text-brand-700 underline hover:text-brand-800">{{ plan.action_label }}</button>
             </form>
-          {% elif plan.action == "cancel" %}
+          {% else %}
             {% if plan.note %}<span class="text-gray-500">{{ plan.note }}</span>{% endif %}
             <a href="/billing/cancel" data-testid="downgrade-free" class="text-gray-600 underline hover:text-gray-900">
               {{- "Cancel subscription" if paying else plan.action_label -}}
             </a>
-          {% else %}
-            <a href="/billing/cancel?to={{ plan.key }}" data-testid="downgrade-{{ plan.key }}" class="text-gray-600 underline hover:text-gray-900">{{ plan.action_label }}</a>
           {% endif %}
         {% endfor %}
       </div>
@@ -123,7 +126,7 @@
      see that module's docstring. #}
   <div class="grid grid-cols-1 gap-5 md:grid-cols-3">
     {% for plan in plans %}
-    {% set featured = plan.key == "pro" and plan.action in ("checkout", "change") %}
+    {% set featured = plan.key == "pro" and plan.action in ("checkout", "change") and not plan.current %}
     <div data-testid="plan-{{ plan.key }}"
          class="relative flex flex-col gap-4 rounded-2xl bg-white p-6
                 {% if plan.current %}border-2 border-brand-600{% else %}border border-gray-200{% endif %}
@@ -143,6 +146,12 @@
       <div class="min-h-[4rem]">
         {% if plan.key == "free" %}
           <p class="flex items-baseline gap-1.5"><span class="text-4xl font-bold tracking-tight">$0</span><span class="text-sm text-gray-500">forever</span></p>
+        {% elif plan.comped %}
+          {# Not what they pay — they pay nothing. The list price is only what starting would cost. #}
+          <p class="flex items-baseline gap-1.5"><span class="text-4xl font-bold tracking-tight">$0</span><span class="text-sm text-gray-500">no charge</span></p>
+          {% for interval, p in plan.prices.items() %}
+          <p class="mt-0.5 text-sm text-gray-600" data-price-for="{{ interval }}" {% if interval != start_interval %}hidden{% endif %}>Normally {{ p.amount }} {{ p.per }}</p>
+          {% endfor %}
         {% elif plan.prices %}
           {% for interval, p in plan.prices.items() %}
           <div data-price-for="{{ interval }}" {% if interval != start_interval %}hidden{% endif %}>
@@ -165,6 +174,11 @@
             {{ plan.action_label }}
           </button>
         </form>
+      {% elif plan.action == "downgrade" %}
+        {# Estate → Pro for an account not paying through Stripe — the same confirm page as
+           Downgrade to Free, applied at once (cancel.py). Outlined, never the brand fill. #}
+        <a href="/billing/cancel?to={{ plan.key }}" data-testid="downgrade-{{ plan.key }}"
+           class="flex min-h-[44px] items-center justify-center rounded-lg border border-gray-300 text-sm font-semibold text-gray-700 hover:bg-gray-50">{{ plan.action_label }}</a>
       {% elif plan.current %}
         <p class="flex min-h-[44px] items-center justify-center rounded-lg bg-gray-100 text-sm font-semibold text-gray-600">You are on this plan</p>
       {% else %}

@@ -42,7 +42,7 @@ def get_ai_api_key(session: Session, provider: str = "claude") -> str:
 
 def get_ai_provider_name(session: Session) -> str:
     """Get configured AI provider name."""
-    return get_config(session, "ai.provider", "claude")
+    return get_config(session, "ai.provider", "nim")
 
 
 def get_ai_model(session: Session, provider: str = "claude") -> str:
@@ -60,6 +60,6 @@ def get_ai_model(session: Session, provider: str = "claude") -> str:
         "claude": DEFAULT_MODEL,
         "openai": "gpt-4o",
         "ollama": "llama3.1",
-        "nim": "meta/llama-3.2-11b-vision-instruct",
+        "nim": "z-ai/glm-5.3-flash",
     }
     return defaults.get(provider, DEFAULT_MODEL)

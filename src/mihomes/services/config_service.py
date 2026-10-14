@@ -8,7 +8,7 @@ from mihomes.models.configuration import Configuration
 DEFAULTS = {
     "currency.default": "USD",
     "calendar.provider": "manual",
-    "ai.provider": "claude",
+    "ai.provider": "nim",
     # ai.model intentionally omitted — get_ai_model() picks the provider-specific default
     "ai.max_context_tokens": "50000",
     "notifications.format": "rich",

@@ -3,30 +3,16 @@
 These tests find bugs by actually running the code paths, not reading them.
 """
 
+from datetime import date
+
 import pytest
-from datetime import date, timedelta
 
-from mihomes.models import Base
-from mihomes.models.property import Property, PropertyType, PropertyStatus
-from mihomes.models.staff import Staff, StaffRole
-from mihomes.models.vendor import Vendor
-from mihomes.models.task import Task, TaskPriority, TaskStatus, RecurrenceFrequency, TaskSchedule
-from mihomes.models.issue import Issue, IssueSeverity, IssueStatus
-from mihomes.models.budget import Budget, BudgetPeriod, Transaction
-from mihomes.models.asset import Asset, AssetType
-from mihomes.models.work_order import WorkOrder, WorkOrderStatus
-from mihomes.models.template import Template
-from mihomes.models.note import Note
-from mihomes.models.tag import Tag, TagAssignment
-from mihomes.models.alert import Alert
-from mihomes.models.configuration import Configuration
-from mihomes.models.event import Event, Guest, EventGuest
-from mihomes.models.document import Document, DocumentType
-from mihomes.models.contract import Contract
-from mihomes.models.insurance import InsurancePolicy, InsuranceType
-from mihomes.models.recurring_expense import RecurringExpense, ExpenseFrequency
 from mihomes.models.audit_log import AuditLog
-
+from mihomes.models.budget import BudgetPeriod, Transaction
+from mihomes.models.issue import Issue, IssueSeverity, IssueStatus
+from mihomes.models.property import Property, PropertyType
+from mihomes.models.task import RecurrenceFrequency, Task, TaskStatus
+from mihomes.models.work_order import WorkOrderStatus
 
 # ---- Property CRUD ----
 
@@ -60,9 +46,9 @@ class TestPropertyService:
         assert len(p.spaces) == 2  # Spaces preserved
 
     def test_delete_with_children(self, session):
+        from mihomes.services.issue import create_issue
         from mihomes.services.property import create_property, delete_property
         from mihomes.services.task import create_task
-        from mihomes.services.issue import create_issue
         p = create_property(session, "Doomed House")
         create_task(session, "Task 1", str(p.id))
         create_issue(session, "Issue 1", str(p.id), severity=IssueSeverity.LOW)
@@ -101,7 +87,7 @@ class TestTaskRecurrence:
         return create_property(session, "Rec House", climate_zone="northeast")
 
     def test_quarterly_creates_next(self, session):
-        from mihomes.services.task import create_task, complete_task
+        from mihomes.services.task import complete_task, create_task
         p = self._setup(session)
         t = create_task(session, "Clean Gutters", str(p.id), due_date=date(2026, 4, 1),
                         recurrence=RecurrenceFrequency.QUARTERLY)
@@ -119,7 +105,7 @@ class TestTaskRecurrence:
         assert next_task.schedule.frequency == RecurrenceFrequency.QUARTERLY
 
     def test_seasonal_spring_fall(self, session):
-        from mihomes.services.task import create_task, complete_task
+        from mihomes.services.task import complete_task, create_task
         p = self._setup(session)
         t = create_task(session, "Gutter Check", str(p.id), due_date=date(2026, 3, 1),
                         recurrence=RecurrenceFrequency.SEASONAL, season_spec="spring,fall")
@@ -133,7 +119,7 @@ class TestTaskRecurrence:
         assert next_task.due_date == date(2026, 9, 1)  # Fall for northeast
 
     def test_double_complete_rejected(self, session):
-        from mihomes.services.task import create_task, complete_task
+        from mihomes.services.task import complete_task, create_task
         p = self._setup(session)
         t = create_task(session, "One Time", str(p.id), due_date=date(2026, 5, 1))
         complete_task(session, str(t.id))
@@ -164,16 +150,16 @@ class TestTaskRecurrence:
 
 class TestWorkOrderLifecycle:
     def _setup(self, session):
+        from mihomes.services.issue import create_issue
         from mihomes.services.property import create_property
         from mihomes.services.vendor import create_vendor
-        from mihomes.services.issue import create_issue
         p = create_property(session, "WO House")
         v = create_vendor(session, "WO Vendor")
         i = create_issue(session, "Broken Thing", str(p.id), severity=IssueSeverity.HIGH)
         return p, v, i
 
     def test_full_lifecycle(self, session):
-        from mihomes.services.work_order import create_work_order, approve, complete, verify
+        from mihomes.services.work_order import approve, complete, create_work_order, verify
         p, v, i = self._setup(session)
         wo = create_work_order(session, "Fix it", str(p.id),
                                source_type="issue", source_id=i.id,
@@ -197,14 +183,14 @@ class TestWorkOrderLifecycle:
         assert i.status == IssueStatus.VERIFIED
 
     def test_invalid_transition_rejected(self, session):
-        from mihomes.services.work_order import create_work_order, complete
+        from mihomes.services.work_order import complete, create_work_order
         p, v, i = self._setup(session)
         wo = create_work_order(session, "Fix", str(p.id), estimated_cost=100)
         with pytest.raises(ValueError, match="Cannot transition"):
             complete(session, str(wo.id), actual_cost=100)
 
     def test_complete_without_cost_rejected(self, session):
-        from mihomes.services.work_order import create_work_order, approve, complete
+        from mihomes.services.work_order import approve, complete, create_work_order
         p, v, i = self._setup(session)
         wo = create_work_order(session, "Fix", str(p.id))
         approve(session, str(wo.id))
@@ -220,7 +206,7 @@ class TestBudget:
         return create_property(session, "Budget House")
 
     def test_budget_report(self, session):
-        from mihomes.services.budget import set_budget, add_transaction, get_budget_report
+        from mihomes.services.budget import add_transaction, get_budget_report, set_budget
         p = self._setup(session)
         set_budget(session, str(p.id), "maintenance", BudgetPeriod.ANNUAL, 10000,
                    date(2026, 1, 1))
@@ -255,8 +241,8 @@ class TestBudget:
 
 class TestNotes:
     def test_note_on_property(self, session):
-        from mihomes.services.property import create_property
         from mihomes.services.note import add_note, list_notes
+        from mihomes.services.property import create_property
         p = create_property(session, "Note House")
         n = add_note(session, "property:note-house", "Test note")
         assert n.entity_type == "property"
@@ -280,8 +266,8 @@ class TestNotes:
 class TestTags:
     def test_tag_lifecycle(self, session):
         from mihomes.services.property import create_property
-        from mihomes.services.tag import create_tag, apply_tag, get_tagged_entities
-        p = create_property(session, "Tagged House")
+        from mihomes.services.tag import apply_tag, create_tag, get_tagged_entities
+        create_property(session, "Tagged House")
         create_tag(session, "vip")
         count = apply_tag(session, "vip", ["property:tagged-house"])
         assert count == 1
@@ -291,8 +277,8 @@ class TestTags:
 
     def test_duplicate_tag_ignored(self, session):
         from mihomes.services.property import create_property
-        from mihomes.services.tag import create_tag, apply_tag
-        p = create_property(session, "DupTag House")
+        from mihomes.services.tag import apply_tag, create_tag
+        create_property(session, "DupTag House")
         create_tag(session, "test")
         apply_tag(session, "test", ["property:duptag-house"])
         count = apply_tag(session, "test", ["property:duptag-house"])
@@ -329,15 +315,15 @@ class TestConfig:
         assert get_config(session, "ai.provider", "claude") == "claude"
 
     def test_set_and_get(self, session):
-        from mihomes.services.config_service import set_config, get_config
+        from mihomes.services.config_service import get_config, set_config
         set_config(session, "test.key", "test_value")
         assert get_config(session, "test.key") == "test_value"
 
     def test_reset(self, session):
-        from mihomes.services.config_service import set_config, reset_config, get_config
+        from mihomes.services.config_service import get_config, reset_config, set_config
         set_config(session, "ai.provider", "openai")
         reset_config(session, "ai.provider")
-        assert get_config(session, "ai.provider") == "claude"  # Back to default
+        assert get_config(session, "ai.provider") == "nim"  # Back to default
 
 
 # ---- Search ----
@@ -352,8 +338,8 @@ class TestSearch:
 
     def test_search_by_type(self, session):
         from mihomes.services.property import create_property
-        from mihomes.services.vendor import create_vendor
         from mihomes.services.search import global_search
+        from mihomes.services.vendor import create_vendor
         create_property(session, "Test Search Prop")
         create_vendor(session, "Test Search Vendor")
         results = global_search(session, "test search", entity_type="vendor")
@@ -364,8 +350,8 @@ class TestSearch:
 
 class TestEvents:
     def test_event_with_guest_invite(self, session):
-        from mihomes.services.property import create_property
         from mihomes.services.event import create_event, create_guest, invite_guest, update_rsvp
+        from mihomes.services.property import create_property
         p = create_property(session, "Party House")
         ev = create_event(session, "BBQ", str(p.id), event_date=date(2026, 7, 4))
         g = create_guest(session, "Bob Smith", dietary_preferences="vegetarian")
@@ -376,8 +362,8 @@ class TestEvents:
         assert eg.rsvp_status == "accepted"
 
     def test_invalid_rsvp_rejected(self, session):
-        from mihomes.services.property import create_property
         from mihomes.services.event import create_event, create_guest, invite_guest, update_rsvp
+        from mihomes.services.property import create_property
         p = create_property(session, "RSVP House")
         ev = create_event(session, "Party", str(p.id), event_date=date(2026, 8, 1))
         g = create_guest(session, "Invalid RSVP Guest")

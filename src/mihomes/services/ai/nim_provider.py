@@ -11,14 +11,14 @@ except ImportError:
     openai = None
 
 NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
-DEFAULT_MODEL = "meta/llama-3.2-11b-vision-instruct"
+DEFAULT_MODEL = "z-ai/glm-5.3-flash"
 
 
 class NIMProvider:
     """AI provider using NVIDIA NIM's OpenAI-compatible API.
 
     Supports any model available in the NVIDIA NIM catalog.
-    Default: qwen/qwen3.5-122b-a10b (free tier, 128k context).
+    Default: z-ai/glm-5.3-flash (multimodal MoE; Qwen3.5 left the hosted catalog).
 
     API keys start with 'nvapi-' and are obtained at build.nvidia.com.
     """

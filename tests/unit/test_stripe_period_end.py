@@ -41,3 +41,40 @@ def test_period_end_is_read_from_either_shape(provider, shape):
 
 def test_no_period_anywhere_stays_unknown(provider):
     assert provider._to_state(_sub()).current_period_end is None
+
+
+class _Retrieve:
+    def __init__(self, obj):
+        self.obj = obj
+
+    def retrieve(self, _id):
+        return self.obj
+
+
+@pytest.mark.parametrize("pm,expected", [
+    ({"type": "card", "card": {"brand": "visa", "last4": "4242"}}, "Visa ending 4242"),
+    ({"type": "link", "link": {"email": "x@example.com"}}, "Paying with Link"),
+    ({"type": "us_bank_account"}, "Saved payment method"),
+])
+def test_card_on_file_names_what_stripe_will_charge(provider, pm, expected):
+    """The subscription's own payment method wins — that is where Checkout puts it."""
+    provider._stripe = type("S", (), {
+        "Subscription": _Retrieve({"default_payment_method": "pm_1"}),
+        "Customer": _Retrieve({"invoice_settings": {}}),
+        "PaymentMethod": _Retrieve(pm),
+    })
+    assert provider.get_card_on_file(customer_id="cus_1", subscription_id="sub_1") == expected
+
+
+def test_card_on_file_falls_back_to_the_customer_default_and_to_none(provider):
+    """No subscription (a card saved before buying): the customer's invoice default, where the
+    add-card screen puts it. Nothing anywhere: None, which the page shows as no card."""
+    card = {"type": "card", "card": {"brand": "mastercard", "last4": "4444"}}
+    provider._stripe = type("S", (), {
+        "Subscription": _Retrieve({}),
+        "Customer": _Retrieve({"invoice_settings": {"default_payment_method": "pm_2"}}),
+        "PaymentMethod": _Retrieve(card),
+    })
+    assert provider.get_card_on_file(customer_id="cus_1", subscription_id=None) == "Mastercard ending 4444"
+    provider._stripe.Customer = _Retrieve({"invoice_settings": {}})
+    assert provider.get_card_on_file(customer_id="cus_1", subscription_id=None) is None

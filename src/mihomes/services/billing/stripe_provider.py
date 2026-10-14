@@ -228,10 +228,15 @@ class StripeProvider:
             return None
         if not isinstance(pm_id, str):
             pm_id = _get(pm_id, "id")
-        card = _get(self._stripe.PaymentMethod.retrieve(pm_id), "card")
-        if not card:
-            return "Saved payment method"
-        return f"{str(_get(card, 'brand', 'Card')).capitalize()} ending {_get(card, 'last4', '????')}"
+        pm = self._stripe.PaymentMethod.retrieve(pm_id)
+        card = _get(pm, "card")
+        if card:
+            return f"{str(_get(card, 'brand', 'Card')).capitalize()} ending {_get(card, 'last4', '????')}"
+        # Checkout often saves a card through Link, Stripe's wallet: the card inside it is not
+        # exposed to the API, only the wallet is. Name the wallet rather than guess a card.
+        if _get(pm, "type") == "link":
+            return "Paying with Link"
+        return "Saved payment method"
 
     def get_price(self, *, plan: str, interval: str) -> PriceInfo:
         from mihomes.services.billing.prices import price_id_for

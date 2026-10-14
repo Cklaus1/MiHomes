@@ -312,7 +312,7 @@ class TestAuditLog:
 class TestConfig:
     def test_get_default(self, session):
         from mihomes.services.config_service import get_config
-        assert get_config(session, "ai.provider", "claude") == "claude"
+        assert get_config(session, "ai.provider", "claude") == "nim"  # DEFAULTS wins over the fallback arg
 
     def test_set_and_get(self, session):
         from mihomes.services.config_service import get_config, set_config

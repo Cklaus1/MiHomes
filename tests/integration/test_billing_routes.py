@@ -30,6 +30,7 @@ class FakeProvider:
         self.checkout_calls: list[dict] = []
         self.portal_calls: list[dict] = []
         self.change_calls: list[dict] = []
+        self.payment_method_calls: list[str] = []
         self.cancel_calls: list[dict] = []
         self.resume_calls: list[str] = []
 
@@ -54,6 +55,13 @@ class FakeProvider:
         self.change_calls.append({"customer_id": customer_id, "subscription_id": subscription_id,
                                   "plan": plan, "interval": interval})
         return f"https://portal.example/{subscription_id}/{plan}/{interval}"
+
+    def create_payment_method_session(self, *, customer_id, return_url) -> str:
+        self.payment_method_calls.append(customer_id)
+        return f"https://portal.example/{customer_id}/payment-method"
+
+    def get_card_on_file(self, *, customer_id, subscription_id):  # pragma: no cover
+        return None
 
     def get_price(self, *, plan, interval):  # pragma: no cover
         from mihomes.services.billing.provider import PriceInfo
@@ -295,6 +303,23 @@ class TestPortal:
         )
 
         assert provider.portal_calls[0]["customer_id"] == "cus_existing"
+
+
+class TestPaymentMethod:
+    def test_creates_the_customer_once_and_charges_nothing(self, session, billable_account):
+        """A Free owner can save a card before buying anything; the Customer is created once and
+        reused, and no plan, subscription or checkout comes of it."""
+        from mihomes.services.billing.service import start_payment_method_setup
+
+        account, provider = billable_account, FakeProvider()
+        for _ in range(2):
+            start_payment_method_setup(session, account, return_url="http://localhost/billing",
+                                       provider=provider)
+
+        assert len(provider.created_customers) == 1
+        assert provider.payment_method_calls == [account.stripe_customer_id] * 2
+        assert provider.checkout_calls == [] and account.plan == "free"
+        assert account.stripe_subscription_id is None
 
 
 class TestPlanChange:

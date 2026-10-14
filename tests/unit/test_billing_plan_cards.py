@@ -38,9 +38,7 @@ def test_free_is_offered_both_upgrades():
 def test_pro_without_stripe_is_not_offered_pro_again():
     """**The reported bug**, for a seeded or trialing Pro account."""
     cards = _by_key(_account("pro", "active"))
-    assert cards["pro"].current and "Upgrade" not in cards["pro"].action_label
-    # Hand-set, so complimentary: the only offer on its own card is to start paying for it.
-    assert (cards["pro"].action, cards["pro"].action_label) == ("checkout", "Start paying for Pro")
+    assert cards["pro"].current and cards["pro"].action is None
     assert cards["estate"].action == "checkout"
     assert (cards["free"].action, cards["free"].action_label) == ("cancel", "Downgrade to Free")
 

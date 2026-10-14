@@ -73,12 +73,7 @@ def index(request: Request, principal=require_authenticated(),
 def _page_context(account: Account, **extra) -> dict:
     from mihomes.entitlements.limits import effective_plan
     from mihomes.services.billing.cancel import has_live_subscription
-    from mihomes.services.billing.plans import (
-        is_complimentary,
-        plan_cards,
-        plan_prices,
-        yearly_saving,
-    )
+    from mihomes.services.billing.plans import plan_cards, plan_prices, yearly_saving
 
     prices = plan_prices()
     current = effective_plan(account.plan, account.subscription_status)
@@ -99,7 +94,7 @@ def _page_context(account: Account, **extra) -> dict:
         "current_plan": current,
         "paying": paying,
         "paying_now": paying_now,
-        "comped": is_complimentary(account),
+        "card": billing_service.card_on_file(account),
         # The switch starts on what a subscriber pays now, so their own card reads true.
         "start_interval": interval or "monthly",
         "saving": saving,
@@ -180,6 +175,25 @@ def portal(request: Request, principal=require_authenticated(),
         return _error_page(
             request, db, principal,
             "There is no billing account to manage yet.", 400,
+        )
+    return RedirectResponse(url, status_code=303)
+
+
+@router.post("/billing/payment-method")
+@declares(BILLING_ACTION, Access.ACCOUNT)
+def payment_method(request: Request, principal=require_authenticated(),
+                   db: Session = Depends(get_db)):
+    """Send the owner to Stripe to save a card. Charges nothing and changes no plan."""
+    base = str(request.base_url).rstrip("/")
+    try:
+        url = billing_service.start_payment_method_setup(
+            db, _account(db, principal), return_url=f"{base}/billing",
+        )
+    except BillingProviderError:
+        logger.exception("payment method setup failed at the billing provider")
+        return _error_page(
+            request, db, principal,
+            "We could not reach the payment provider. Please try again.", 502,
         )
     return RedirectResponse(url, status_code=303)
 

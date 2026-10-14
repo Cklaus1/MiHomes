@@ -123,6 +123,15 @@ class BillingProvider(Protocol):
         confirms the change. Like checkout, takes a plan — never a price id (D3/N2)."""
         ...
 
+    def create_payment_method_session(self, *, customer_id: str, return_url: str) -> str:
+        """Hosted page where the customer saves a card — charges nothing; it becomes the card
+        their invoices use. Works with or without a subscription."""
+        ...
+
+    def get_card_on_file(self, *, customer_id: str, subscription_id: str | None) -> str | None:
+        """The card that would be charged, as "Visa ending 4242"; None if there is none."""
+        ...
+
     def get_price(self, *, plan: str, interval: str) -> PriceInfo:
         """What `(plan, interval)` costs, so the plan page shows the price the customer will be
         charged rather than a copy of it that can drift."""

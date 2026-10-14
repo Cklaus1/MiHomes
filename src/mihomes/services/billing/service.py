@@ -313,14 +313,7 @@ def start_checkout(
     from mihomes.services.billing.provider import get_billing_provider
 
     billing = provider if provider is not None else get_billing_provider("stripe")
-
-    if not account.stripe_customer_id:
-        account.stripe_customer_id = billing.create_customer(
-            account_id=str(account.id),
-            email=_billing_email(session, account),
-            name=account.name,
-        )
-        session.commit()
+    _ensure_customer(session, account, billing)
 
     return billing.create_checkout_session(
         customer_id=account.stripe_customer_id,
@@ -329,6 +322,50 @@ def start_checkout(
         success_url=success_url,
         cancel_url=cancel_url,
     )
+
+
+def _ensure_customer(session: Session, account: Account, billing) -> None:
+    """Create and **commit** the account's Stripe Customer on first use (see `start_checkout`
+    on why the commit comes before anything else is created against it)."""
+    if not account.stripe_customer_id:
+        account.stripe_customer_id = billing.create_customer(
+            account_id=str(account.id),
+            email=_billing_email(session, account),
+            name=account.name,
+        )
+        session.commit()
+
+
+def start_payment_method_setup(
+    session: Session, account: Account, *, return_url: str, provider: object | None = None
+) -> str:
+    """URL where the owner saves a card. Charges nothing and changes no plan; a later upgrade
+    reuses the same Customer, so the card is already there at checkout."""
+    from mihomes.services.billing.provider import get_billing_provider
+
+    billing = provider if provider is not None else get_billing_provider("stripe")
+    _ensure_customer(session, account, billing)
+    return billing.create_payment_method_session(
+        customer_id=account.stripe_customer_id, return_url=return_url,
+    )
+
+
+def card_on_file(account: Account, provider: object | None = None) -> str | None:
+    """"Visa ending 4242" for the summary, or None. Never raises: Stripe being unreachable
+    leaves the line off rather than breaking the billing page."""
+    if not account.stripe_customer_id:
+        return None
+    try:
+        from mihomes.services.billing.provider import get_billing_provider
+
+        billing = provider if provider is not None else get_billing_provider("stripe")
+        return billing.get_card_on_file(
+            customer_id=account.stripe_customer_id,
+            subscription_id=account.stripe_subscription_id,
+        )
+    except Exception:
+        logger.warning("card on file unavailable for account %s", account.id, exc_info=True)
+        return None
 
 
 def start_portal_session(

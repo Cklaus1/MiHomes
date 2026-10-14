@@ -202,6 +202,37 @@ class StripeProvider:
         )
         return session.url
 
+    def create_payment_method_session(self, *, customer_id: str, return_url: str) -> str:
+        session = self._stripe.billing_portal.Session.create(
+            customer=customer_id,
+            return_url=return_url,
+            flow_data={
+                "type": "payment_method_update",
+                "after_completion": {"type": "redirect",
+                                     "redirect": {"return_url": return_url}},
+            },
+        )
+        return session.url
+
+    def get_card_on_file(self, *, customer_id: str, subscription_id: str | None) -> str | None:
+        """Checked in the order Stripe charges: the subscription's own card (where Checkout
+        puts it), then the customer's invoice default (where the add-card page puts it)."""
+        pm_id = None
+        if subscription_id:
+            pm_id = _get(self._stripe.Subscription.retrieve(subscription_id),
+                         "default_payment_method")
+        if not pm_id:
+            customer = self._stripe.Customer.retrieve(customer_id)
+            pm_id = _get(_get(customer, "invoice_settings") or {}, "default_payment_method")
+        if not pm_id:
+            return None
+        if not isinstance(pm_id, str):
+            pm_id = _get(pm_id, "id")
+        card = _get(self._stripe.PaymentMethod.retrieve(pm_id), "card")
+        if not card:
+            return "Saved payment method"
+        return f"{str(_get(card, 'brand', 'Card')).capitalize()} ending {_get(card, 'last4', '????')}"
+
     def get_price(self, *, plan: str, interval: str) -> PriceInfo:
         from mihomes.services.billing.prices import price_id_for
 

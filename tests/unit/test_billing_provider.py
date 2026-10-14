@@ -78,6 +78,12 @@ class FakeBillingProvider:
                                    interval: str, return_url: str) -> str:
         return f"https://portal.example/{subscription_id}/{plan}/{interval}"
 
+    def create_payment_method_session(self, *, customer_id: str, return_url: str) -> str:
+        return f"https://portal.example/{customer_id}/payment-method"
+
+    def get_card_on_file(self, *, customer_id: str, subscription_id: str | None) -> str | None:
+        return None
+
     def get_price(self, *, plan: str, interval: str) -> PriceInfo:
         return PriceInfo(amount=1900, currency="usd")
 
@@ -128,6 +134,7 @@ class TestProtocolShape:
             "create_customer", "create_checkout_session", "get_subscription",
             "cancel", "resume", "create_portal_session", "create_plan_change_session",
             "get_price", "handle_webhook_event",
+            "create_payment_method_session", "get_card_on_file",
         }
 
 

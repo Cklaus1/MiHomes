@@ -16,9 +16,6 @@ go on promising the old numbers after the gates started enforcing new ones.
   them twice.
 - **No subscription** (Free, a no-card trial, or a hand-seeded plan): checkout for the plans above
   the current one; "Downgrade to Pro" for Estate, through the same confirm page, applied at once.
-- **Complimentary** (a paid plan set by hand: no subscription, no trial — `is_complimentary`): the
-  current card shows no price, since none is charged, and offers "Start paying" — a checkout for
-  the same plan, which turns the comp into a Stripe subscription once its webhook lands.
 
 "Paying" is `has_live_subscription` — a subscription id *and* a status Stripe can still modify —
 **not** `stripe_customer_id` (committed before the user reaches Stripe, so an abandoned checkout
@@ -72,8 +69,6 @@ class PlanCard:
     #: Features this plan adds over the one below it — the "Everything in X, plus:" list.
     added: list[str] = field(default_factory=list)
     plus_of: str = ""
-    #: The current plan, granted without charge (`is_complimentary`).
-    comped: bool = False
 
 
 def _count(n: int, one: str, many: str) -> str:
@@ -175,17 +170,9 @@ def feature_labels(plan: str) -> list[tuple[bool, str]]:
     return _features(PLAN_LIMITS[plan])
 
 
-def is_complimentary(account) -> bool:
-    """On a paid plan that nothing bills for: set by hand, not a trial, no live subscription."""
-    current = effective_plan(account.plan, account.subscription_status)
-    return (current != "free" and not has_live_subscription(account)
-            and account.subscription_status != "trialing")
-
-
 def plan_cards(account, prices: dict | None = None) -> list[PlanCard]:
     prices = prices or {}
     current = effective_plan(account.plan, account.subscription_status)
-    comped = is_complimentary(account)
     rank = PLAN_ORDER.index(current) if current in PLAN_ORDER else 0
     paying = has_live_subscription(account)
     cancelling = paying and bool(getattr(account, "cancel_at_period_end", False))
@@ -203,11 +190,6 @@ def plan_cards(account, prices: dict | None = None) -> list[PlanCard]:
                 card.note = (f"Ends {end.strftime('%d %b %Y')}, then Free." if end
                              else "Ends at the end of this billing period, then Free.")
                 card.action, card.action_label = "resume", f"Keep {card.name}"
-            elif comped:
-                # What a comp would cost is not what it costs: the card leads with "no charge",
-                # and keeps the prices only to say what starting to pay would cost.
-                card.comped = True
-                card.action, card.action_label = "checkout", f"Start paying for {card.name}"
         elif key == "free":
             if cancelling:
                 card.note = "The account moves here when the current period ends."

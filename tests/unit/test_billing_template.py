@@ -12,7 +12,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import jinja2
-import pytest
 
 from mihomes.services.billing.provider import PriceInfo
 
@@ -30,7 +29,7 @@ def _account(plan="free", status=None, *, sub=None, interval=None, trial_ends=No
                            cancel_at_period_end=cancelling, current_period_end=END if sub else None)
 
 
-def _render(account, prices=PRICES):
+def _render(account, prices=PRICES, card=None):
     from mihomes.web.routes import billing as route
 
     env = jinja2.Environment(loader=jinja2.ChoiceLoader([
@@ -39,12 +38,14 @@ def _render(account, prices=PRICES):
     ]), undefined=jinja2.StrictUndefined)
     import mihomes.services.billing.plans as plans_mod
 
-    original = plans_mod.plan_prices
+    original_prices, original_card = plans_mod.plan_prices, route.billing_service.card_on_file
     plans_mod.plan_prices = lambda provider=None: prices
+    route.billing_service.card_on_file = lambda account, provider=None: card
     try:
         ctx = route._page_context(account)
     finally:
-        plans_mod.plan_prices = original
+        plans_mod.plan_prices = original_prices
+        route.billing_service.card_on_file = original_card
     ctx.update(error=None, notice=None)
     return env.get_template("billing.html").render(**ctx)
 
@@ -89,7 +90,8 @@ def test_monthly_subscriber_sees_what_they_pay_and_the_switch_to_yearly():
     offer = [f for f in _forms(html, "change") if 'value="annual"' in f and 'value="pro"' in f]
     assert offer, "the yearly offer posts the same plan with the annual interval"
     assert "Upgrade to Pro" not in html
-    assert "Cancel subscription" in html and 'data-testid="downgrade-free"' in html
+    free = html[html.index('data-testid="plan-free"'):html.index('data-testid="plan-pro"')]
+    assert 'data-testid="downgrade-free"' in free and "Downgrade to Free" in free
     assert "Status:" not in html, "no raw status values"
 
 
@@ -120,37 +122,56 @@ def test_non_stripe_estate_can_move_down_to_pro():
     assert 'data-testid="downgrade-pro"' in html and "Downgrade to Pro" in html
 
 
-@pytest.mark.parametrize("status", [None, "active"], ids=["no-status", "active"])
-def test_complimentary_estate_reads_as_deliberate_not_broken(status):
-    """A hand-set Estate (the founder's own account): nothing is billed, so the page says so."""
-    html = _render(_account("estate", status))
-    estate = html[html.index('data-testid="plan-estate"'):]
-    assert "Complimentary" in html and "Included at no charge · Not billed" in html
-    assert "$0" in estate and "no charge" in estate
-    assert "Normally $49 / month" in estate, "list price only as what starting would cost"
-    assert estate.index("$0") < estate.index("Normally $49")
-
-    pro = html[html.index('data-testid="plan-pro"'):html.index('data-testid="plan-estate"')]
-    assert 'data-testid="downgrade-pro"' in pro, "the move down sits on the Pro card itself"
-    assert html.count('data-testid="downgrade-pro"') == 1
-    assert 'data-testid="downgrade-free"' in html
-
-    assert "data-billing-switch data-start" in html
-    assert [re.search(r'value="(\w+)"', f).group(1) for f in _forms(html, "checkout")] == ["estate"]
-    assert "Start paying for Estate" in html and "Most popular" not in html
-
-
-def test_a_trial_is_not_complimentary():
-    from mihomes.services.billing.plans import is_complimentary
-
-    assert not is_complimentary(_account("pro", "trialing", trial_ends=datetime(2026, 10, 7, tzinfo=UTC)))
-    assert not is_complimentary(_account("pro", "active", sub="sub_1", interval="monthly"))
-    assert not is_complimentary(_account())
-    assert is_complimentary(_account("pro", None))
-
-
 def test_estate_subscriber_switches_down_to_pro_on_the_confirm_screen():
     html = _render(_account("estate", "active", sub="sub_1", interval="annual"))
     assert "Switch to Pro" in html and "Upgrade to Pro" not in html
     assert [re.search(r'value="(\w+)"', f).group(1) for f in _forms(html, "change")] == ["pro"]
     assert not _forms(html, "checkout"), "a paying account never gets a second checkout"
+
+
+def _card(html, key):
+    start = html.index(f'data-testid="plan-{key}"')
+    nxt = [html.find(f'data-testid="plan-{k}"', start + 1) for k in ("free", "pro", "estate")]
+    nxt = [n for n in nxt if n > start]
+    return html[start:min(nxt)] if nxt else html[start:]
+
+
+def test_every_owner_can_add_a_payment_method_without_buying_anything():
+    for account in (_account(), _account("pro", "active", sub="sub_1", interval="monthly"),
+                    _account("estate", "active")):
+        html = _render(account)
+        assert _forms(html, "payment-method"), "the button must not depend on the plan"
+        assert "Add payment method" in html and "No card on file" in html
+
+
+def test_a_saved_card_is_shown_and_the_button_offers_to_update_it():
+    html = _render(_account("estate", "active", sub="sub_1", interval="monthly"), card="Visa ending 4242")
+    assert "Visa ending 4242" in html and "No card on file" not in html
+    assert "Update payment method" in html and "Add payment method" not in html
+
+
+def test_moving_down_is_an_outlined_button_on_the_target_card():
+    """Both downgrades are buttons on the card they lead to, outlined grey, never brand-filled."""
+    html = _render(_account("estate", "active", sub="sub_1", interval="annual"))
+    free = _card(html, "free")
+    assert 'data-testid="downgrade-free"' in free and "Downgrade to Free" in free
+    assert "border-gray-300" in free and "bg-brand-700" not in free
+
+    html = _render(_account("estate", "active"))
+    pro = _card(html, "pro")
+    assert 'data-testid="downgrade-pro"' in pro and "border-gray-300" in pro
+    assert html.count('data-testid="downgrade-pro"') == 1
+
+
+def test_an_estate_subscriber_looks_like_any_other_paying_customer():
+    """The founder's account, once on a real (sandbox) subscription: no special-casing."""
+    html = _render(_account("estate", "active", sub="sub_1", interval="monthly"), card="Visa ending 4242")
+    assert "Active" in html and "$49 a month · Renews 24 Oct 2026" in html
+    assert "Invoices &amp; billing details" in html
+    for absent in ("Complimentary", "Start paying", "Not billed", "Most popular"):
+        assert absent not in html, absent
+
+
+def test_most_popular_marks_an_upgrade_never_a_move_down():
+    assert "Most popular" in _render(_account())
+    assert "Most popular" not in _render(_account("estate", "active", sub="sub_1", interval="monthly"))

@@ -14,12 +14,18 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import sessionmaker
 
 from mihomes.auth import sessions as sessions_mod
 from mihomes.auth.csrf import CSRF_COOKIE
-from mihomes.auth.oidc import IdentityClaims, InvalidIdentityToken, claims_from_dict, upsert_user
+from mihomes.auth.oidc import (
+    IdentityClaims,
+    InvalidIdentityToken,
+    PasswordAccountExists,
+    claims_from_dict,
+    upsert_user,
+)
 from mihomes.auth.sessions import (
     SESSION_COOKIE,
     create_session,
@@ -282,6 +288,58 @@ def test_identity_is_keyed_on_sub_not_email(db):
     # And the same email under a different sub is a *different* person.
     other = upsert_user(db, IdentityClaims(subject="other-sub", email="new@example.com"))
     assert other.id != first.id
+
+
+def _make_password_user(db, email: str) -> User:
+    user = User(id=uuid.uuid4(), google_sub=None, email=email, password_hash="scrypt$x")
+    db.add(user)
+    db.flush()
+    return user
+
+
+def test_google_signin_refuses_an_email_held_by_a_password_account(db):
+    """The mirror of SPEC-010's signup guard: no second row for a password user's address.
+
+    Before this, `upsert_user` matched only on `sub`, found nothing, and inserted a fresh row —
+    an empty identity with no membership — while the password row kept the estate. Case-folded
+    because `uq_users_email_password` is, and Google may report a different case.
+    """
+    _make_password_user(db, "owner@example.com")
+    with pytest.raises(PasswordAccountExists):
+        upsert_user(db, IdentityClaims(subject="new-sub", email="Owner@Example.com"))
+    count = db.execute(
+        select(func.count()).select_from(User).where(func.lower(User.email) == "owner@example.com")
+    ).scalar_one()
+    assert count == 1, "a Google sign-in forked the password user's identity"
+
+
+def test_a_returning_google_user_with_a_password_still_signs_in(db):
+    """A row carrying both credentials matches on `sub` first, so the guard never fires."""
+    user = _make_password_user(db, "both@example.com")
+    user.google_sub = "both-sub"
+    db.flush()
+    again = upsert_user(db, IdentityClaims(subject="both-sub", email="both@example.com"))
+    assert again.id == user.id
+
+
+def test_callback_sends_a_password_user_back_to_login(client, provider):
+    """The refusal reaches the person as a login-page message, not a bare 4xx."""
+    with client._Session() as s:
+        _make_password_user(s, "owner@example.com")
+        s.commit()
+
+    client.get("/auth/google/start", follow_redirects=False)
+    state = client.cookies.get("mihomes_oauth_state")
+    resp = client.get(
+        f"/auth/google/callback?code=good-code&state={state}", follow_redirects=False
+    )
+    assert resp.status_code == 303, resp.text
+    assert resp.headers["location"].startswith("/login?error=")
+    assert not client.cookies.get(SESSION_COOKIE), "a session was issued for the refused sign-in"
+    with client._Session() as s:
+        assert s.execute(
+            select(User).where(User.google_sub == "google-sub-12345")
+        ).scalar_one_or_none() is None
 
 
 # --------------------------------------------------------------------------------------

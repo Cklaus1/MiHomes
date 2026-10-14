@@ -76,7 +76,12 @@ def signup_form(
     return templates.TemplateResponse(
         request,
         "signup.html",
-        {"error": error, "min_length": MIN_PASSWORD_LENGTH, "next": safe_next(next) or ""},
+        {
+            "error": error,
+            "min_length": MIN_PASSWORD_LENGTH,
+            "next": safe_next(next) or "",
+            "oauth_configured": _oauth_configured(),
+        },
     )
 
 
@@ -107,6 +112,7 @@ def signup(
                 "min_length": MIN_PASSWORD_LENGTH,
                 "email": email,
                 "next": safe_next(next) or "",
+                "oauth_configured": _oauth_configured(),
             },
             status_code=400,
         )

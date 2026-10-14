@@ -884,3 +884,17 @@ def test_the_google_refusal_names_google_rather_than_a_password_reset(client):
         "the refusal does not mention Google, so the user is left to guess which of the two "
         "sign-in methods their address actually uses"
     )
+
+
+def test_signup_page_offers_google_only_when_configured(client, monkeypatch):
+    """A Google sign-up button with no credentials behind it would 500 on click."""
+    monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
+    monkeypatch.delenv("GOOGLE_CLIENT_SECRET", raising=False)
+    assert "/auth/google/start" not in client.get("/signup").text
+
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "id")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "secret")
+    r = client.get("/signup")
+    assert r.status_code == 200
+    assert "Sign up with Google" in r.text
+    assert 'href="/auth/google/start"' in r.text

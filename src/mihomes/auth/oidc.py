@@ -23,7 +23,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DbSession
 
 from mihomes.models.user import User
@@ -33,12 +33,33 @@ __all__ = [
     "IdentityClaims",
     "IdentityProvider",
     "InvalidIdentityToken",
+    "PasswordAccountExists",
     "upsert_user",
 ]
 
 
 class InvalidIdentityToken(Exception):
     """The ID token could not be verified, or its claims are unusable."""
+
+
+class PasswordAccountExists(Exception):
+    """A **password** account already holds this email, and it has no Google identity.
+
+    The mirror of `password_identity.EmailRegisteredWithGoogle`. Without it, a password user who
+    clicks "Sign in with Google" gets a *second* `users` row — `google_sub` matches nothing, and
+    `uq_users_email_password` is partial, so nothing stops the insert — and lands on an empty
+    identity with no membership while their estate sits on the row they no longer use.
+
+    **Refused, not linked.** Attaching this Google identity to the existing row would be the
+    account pre-hijacking pattern: anyone can create a password account for an address they do
+    not control, and the real owner's later Google sign-in would then merge into it, leaving the
+    squatter's password working. Linking is SPEC-010 U2 and needs proof of mailbox control first.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "That email has a MiHomes password. Sign in with your email and password instead."
+        )
 
 
 @dataclass(frozen=True)
@@ -154,6 +175,22 @@ def upsert_user(db: DbSession, claims: IdentityClaims) -> User:
     ).scalar_one_or_none()
 
     if user is None:
+        # Only rows with a password and no Google subject. Two Google users may still share an
+        # address (`test_identity_is_keyed_on_sub_not_email`), and a row already carrying a
+        # *different* sub is a different Google identity, not this one. `.first()` because
+        # databases from before SPEC-010's guard can hold duplicates on one address.
+        password_holder = db.execute(
+            select(User.id)
+            .where(
+                func.lower(User.email) == claims.email.strip().lower(),
+                User.password_hash.isnot(None),
+                User.google_sub.is_(None),
+            )
+            .limit(1)
+        ).first()
+        if password_holder is not None:
+            raise PasswordAccountExists()
+
         user = User(
             id=uuid.uuid4(),
             google_sub=claims.subject,

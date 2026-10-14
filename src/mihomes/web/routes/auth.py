@@ -22,6 +22,7 @@ import base64
 import hashlib
 import os
 import secrets
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
@@ -31,6 +32,7 @@ from mihomes.auth.csrf import CSRF_COOKIE, tokens_match
 from mihomes.auth.oidc import (
     GoogleOIDCProvider,
     InvalidIdentityToken,
+    PasswordAccountExists,
     upsert_user,
 )
 from mihomes.auth.session_flow import establish_session, safe_next, set_auth_cookie
@@ -154,7 +156,16 @@ def callback(request: Request, code: str = "", state: str = "", db: DbSession = 
         # user cannot act on "aud mismatch" anyway. The detail is logged, not returned.
         raise HTTPException(status_code=401, detail="Sign-in failed.") from None
 
-    user = upsert_user(db, claims)
+    try:
+        user = upsert_user(db, claims)
+    except PasswordAccountExists as exc:
+        # Back to the login form with the reason, rather than a bare 4xx: the person can act on
+        # this one — their account exists, it just opens with a password. The flow cookies are
+        # cleared here too, for the same reason as on success.
+        response = RedirectResponse(f"/login?{urlencode({'error': str(exc)})}", status_code=303)
+        response.delete_cookie(_STATE_COOKIE, path="/")
+        response.delete_cookie(_VERIFIER_COOKIE, path="/")
+        return response
 
     # Rotation, cookies and the `/` vs `/onboarding/` choice all moved to
     # `auth/session_flow.py` at SPEC-010, because a password login needs every one of them and

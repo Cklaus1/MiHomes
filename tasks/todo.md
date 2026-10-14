@@ -383,3 +383,16 @@ Four slices, each committed + deployed on its own (a `pg_dump` before every migr
 **Blocker to report:** no scheduler on evo-dev — purges and the 90-day sweep never run by
 themselves until Chris schedules `mihomes jobs purge-deletions` (or someone runs it). Backups
 outlive deletion.
+
+## Google OAuth sign-up / sign-in (2026-10-14)
+
+Flow code already existed (SPEC-002 G12); this is configuration plus two gaps.
+- [x] Refuse Google sign-in onto a password-only row (`PasswordAccountExists`) — mirror of
+      40b0600; it previously forked a second, empty identity. Refuse, not link (pre-hijack)
+- [x] "Sign up with Google" on `/signup`, shown only when credentials are set
+- [x] Tests: unit refusal, dual-credential user still signs in, callback → `/login?error=`, button gating
+- [x] `docs/deploy/GOOGLE-OAUTH.md` — console steps, env vars, troubleshooting
+- [ ] User: create Web OAuth client, redirect `https://evo-dev.tail6765ef.ts.net/auth/google/callback`, add test users
+- [ ] evo-dev: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `LANDING_BASE_URL` in web.env; deploy + restart
+- [ ] Live proof: real Google sign-in on the Tailscale URL lands on Belle Estate
+- Open: SPEC-010 U2 — link Google to an existing password account from signed-in Settings

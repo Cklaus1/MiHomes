@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from mihomes.authz.actions import Access
 from mihomes.authz.declare import declares
-from mihomes.models.task import TaskPriority, TaskStatus
+from mihomes.models.task import RecurrenceFrequency, TaskPriority, TaskStatus
 from mihomes.services import note as note_svc
 from mihomes.services import property as prop_svc
 from mihomes.services import staff as staff_svc
@@ -51,6 +51,7 @@ def _ctx(
     assignee_id=None,
     sort: str | None = None,
     recurrence: str | None = None,
+    form_error: str | None = None,
 ) -> dict:
     if overdue:
         tasks = task_svc.get_overdue_tasks(db)
@@ -104,6 +105,9 @@ def _ctx(
         "priority_groups": priority_groups,
         "frequency_groups": frequency_groups,
         "frequency_meta": FREQUENCY_ORDER,
+        # Form options in the same order as the Frequency view, one-time first for the default.
+        "frequency_options": [FREQUENCY_ORDER[-1]] + FREQUENCY_ORDER[:-1],
+        "form_error": form_error,
         "properties": prop_svc.list_properties(db),
         "staff": staff_svc.list_staff(db, category="Staff"),
         "overdue_ids": overdue_ids,
@@ -157,17 +161,34 @@ def create_task(
     property_id: str = Form(...),
     priority: str = Form("medium"),
     due_date: str = Form(None),
+    recurrence: str = Form("once"),
+    season_spec: str = Form(""),
     db: Session = Depends(get_db),
 ):
     due = date.fromisoformat(due_date) if due_date else None
-    task_svc.create_task(
-        db,
-        title=title,
-        property_id_or_slug=str(property_id),
-        priority=TaskPriority(priority),
-        due_date=due,
-    )
+    try:
+        task_svc.create_task(
+            db,
+            title=title,
+            property_id_or_slug=str(property_id),
+            priority=TaskPriority(priority),
+            due_date=due,
+            recurrence=_frequency(recurrence),
+            season_spec=season_spec.strip() or None,
+        )
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request, "tasks.html", _ctx(db, form_error=str(exc)), status_code=400
+        )
     return templates.TemplateResponse(request, "tasks.html", _ctx(db))
+
+
+def _frequency(value: str | None) -> RecurrenceFrequency:
+    """A form's frequency value, or ONCE for blank/unknown — never a 500 on a bad option."""
+    try:
+        return RecurrenceFrequency((value or "once").strip().lower())
+    except ValueError:
+        return RecurrenceFrequency.ONCE
 
 
 @router.post("/{slug}/complete", response_class=HTMLResponse)
@@ -187,6 +208,8 @@ def edit_task(
     due_date: str = Form(""),
     description: str = Form(""),
     status: str = Form(""),
+    recurrence: str | None = Form(None),
+    season_spec: str = Form(""),
     db: Session = Depends(get_db),
 ):
     kwargs = dict(
@@ -197,7 +220,19 @@ def edit_task(
     )
     if status:
         kwargs["status"] = TaskStatus(status)
-    task_svc.update_task(db, slug, **kwargs)
+    task = task_svc.update_task(db, slug, **kwargs)
+    # Only when the form sends it — a caller posting to /edit without a frequency field must not
+    # wipe the task's schedule (the slug may have changed with the title, so use the task's).
+    if recurrence is not None:
+        try:
+            task_svc.set_task_frequency(
+                db, task.slug, _frequency(recurrence), season_spec.strip() or None
+            )
+        except ValueError as exc:
+            db.rollback()
+            return templates.TemplateResponse(
+                request, "tasks.html", _ctx(db, form_error=str(exc)), status_code=400
+            )
     return templates.TemplateResponse(request, "tasks.html", _ctx(db))
 
 

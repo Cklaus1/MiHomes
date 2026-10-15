@@ -15,13 +15,13 @@ from mihomes.models.task import (
     TaskStatus,
 )
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
-from mihomes.services.update_helpers import safe_update
 from mihomes.services.recurrence import calculate_next_due
 from mihomes.services.slug import (
     ensure_unique_slug,
     generate_slug,
     resolve_identifier,
 )
+from mihomes.services.update_helpers import safe_update
 
 
 def create_task(
@@ -65,18 +65,8 @@ def create_task(
     session.add(task)
     session.flush()
 
-    # Validate seasonal spec
     if recurrence == RecurrenceFrequency.SEASONAL:
-        if not season_spec:
-            raise ValueError("Season spec required for seasonal recurrence (e.g., 'spring,fall')")
-        from mihomes.services.recurrence import SEASON_CALENDAR
-        zone = (prop.climate_zone or "default").lower()
-        calendar = SEASON_CALENDAR.get(zone, SEASON_CALENDAR["default"])
-        valid_seasons = set(calendar.keys())
-        requested = {s.strip().lower() for s in season_spec.split(",")}
-        invalid = requested - valid_seasons
-        if invalid:
-            raise ValueError(f"Invalid season(s) {invalid} for climate zone '{zone}'. Valid: {valid_seasons}")
+        _validate_season_spec(prop, season_spec)
 
     # Create schedule for recurring tasks
     if recurrence != RecurrenceFrequency.ONCE:
@@ -133,6 +123,72 @@ def list_tasks(
 
 def get_task(session: Session, id_or_slug: str) -> Task:
     return resolve_identifier(session, Task, id_or_slug)
+
+
+def _validate_season_spec(prop: Property, season_spec: str | None) -> None:
+    """Seasonal recurrence needs seasons valid for the property's climate zone."""
+    if not season_spec:
+        raise ValueError("Season spec required for seasonal recurrence (e.g., 'spring,fall')")
+    from mihomes.services.recurrence import SEASON_CALENDAR
+    zone = (prop.climate_zone or "default").lower()
+    calendar = SEASON_CALENDAR.get(zone, SEASON_CALENDAR["default"])
+    valid_seasons = set(calendar.keys())
+    requested = {s.strip().lower() for s in season_spec.split(",")}
+    invalid = requested - valid_seasons
+    if invalid:
+        raise ValueError(f"Invalid season(s) {invalid} for climate zone '{zone}'. Valid: {valid_seasons}")
+
+
+def set_task_frequency(
+    session: Session,
+    id_or_slug: str,
+    frequency: RecurrenceFrequency,
+    season_spec: str | None = None,
+) -> Task:
+    """Change how often a task repeats — the edit-side counterpart of `create_task(recurrence=…)`.
+
+    ONCE removes the schedule; any other frequency creates it or updates it in place. `next_due`
+    is recomputed from the task's due date the same way creation computes it, so changing the
+    frequency never leaves a stale next date behind. Audited as a `frequency` change on the task.
+    """
+    task = resolve_identifier(session, Task, id_or_slug)
+    schedule = task.schedule
+    old = schedule.frequency.value if schedule else RecurrenceFrequency.ONCE.value
+    old_season = schedule.season_spec if schedule else None
+
+    if frequency == RecurrenceFrequency.SEASONAL:
+        _validate_season_spec(task.property, season_spec)
+    else:
+        season_spec = None
+
+    if old == frequency.value and old_season == season_spec:
+        return task
+
+    if frequency == RecurrenceFrequency.ONCE:
+        if schedule is not None:
+            session.delete(schedule)
+    else:
+        next_due = None
+        if task.due_date:
+            next_due = calculate_next_due(
+                frequency.value, task.due_date,
+                climate_zone=task.property.climate_zone,
+                season_spec=season_spec,
+            )
+        if schedule is None:
+            session.add(TaskSchedule(
+                task_id=task.id, frequency=frequency,
+                season_spec=season_spec, next_due=next_due,
+            ))
+        else:
+            schedule.frequency = frequency
+            schedule.season_spec = season_spec
+            schedule.next_due = next_due
+    session.flush()
+    session.expire(task, ["schedule"])
+    record_change(session, "task", task.id, "update",
+                  {"frequency": {"old": old, "new": frequency.value}})
+    return task
 
 
 def update_task(session: Session, id_or_slug: str, **kwargs) -> Task:

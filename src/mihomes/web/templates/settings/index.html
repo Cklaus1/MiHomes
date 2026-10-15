@@ -9,6 +9,9 @@
   {% if error %}
     <p class="mb-4 rounded border border-red-300 bg-red-50 px-3 py-2 text-red-800">{{ error }}</p>
   {% endif %}
+  {% if saved %}
+    <p class="mb-4 rounded border border-green-300 bg-green-50 px-3 py-2 text-green-800">Settings saved.</p>
+  {% endif %}
 
   {# ── Estate ─────────────────────────────────────────────────────────────── #}
   <section class="mb-10">
@@ -23,6 +26,96 @@
              value="{{ account.name if account else '' }}"
              class="flex-1 border rounded px-3 py-2" />
       <button class="bg-brand-600 text-white rounded px-4 py-2 whitespace-nowrap">Save</button>
+    </form>
+  </section>
+
+  {# ── Preferences ────────────────────────────────────────────────────────── #}
+  {# Only `config_service.USER_SETTING_KEYS` reach this form, and POST /settings refuses any
+     other key. AI, retention and gateway configuration are the operator's (CLI), not here. #}
+  <section class="mb-10">
+    <h2 class="text-lg font-medium mb-1">Preferences</h2>
+    <p class="text-sm text-gray-500 mb-3">How amounts, times and weather are shown across the
+      estate.</p>
+    <form method="post" action="/settings" class="space-y-3">
+      <div>
+        <label for="pref-currency" class="block text-sm text-gray-600 mb-1">Currency</label>
+        <select id="pref-currency" name="currency.default" class="w-full border rounded px-3 py-2">
+          {% for code, name in currencies.items() %}
+            <option value="{{ code }}" {% if settings['currency.default'] == code %}selected{% endif %}>
+              {{ code }} — {{ name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="pref-timezone" class="block text-sm text-gray-600 mb-1">Time zone</label>
+        <select id="pref-timezone" name="locale.timezone" class="w-full border rounded px-3 py-2">
+          {% for zone in timezones %}
+            <option value="{{ zone }}" {% if settings['locale.timezone'] == zone %}selected{% endif %}>
+              {{ zone.replace('_', ' ') }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="pref-weather" class="block text-sm text-gray-600 mb-1">
+          Weather location <span class="text-gray-400">— used for properties without an address</span>
+        </label>
+        <input id="pref-weather" name="weather.default_location" required maxlength="120"
+               value="{{ settings['weather.default_location'] }}"
+               class="w-full border rounded px-3 py-2" />
+      </div>
+      <button class="bg-brand-600 text-white rounded px-4 py-2">Save preferences</button>
+    </form>
+  </section>
+
+  {# ── Notifications ──────────────────────────────────────────────────────── #}
+  <section class="mb-10">
+    <h2 class="text-lg font-medium mb-1">Notifications</h2>
+    <p class="text-sm text-gray-500 mb-3">Where the estate's alerts go and which ones you want.</p>
+    {# Stated plainly: these save, but nothing sends notifications yet. A preference that looks
+       live and does nothing reads as a bug the first time an alert doesn't arrive. #}
+    <p class="mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+      Your choices are saved now. Notifications themselves aren't being sent yet — they'll
+      follow these settings once they are.</p>
+    {% set chosen_events = (settings['notifications.events'] or '').split(',') %}
+    <form method="post" action="/settings" class="space-y-3">
+      <div>
+        <label for="notify-channel" class="block text-sm text-gray-600 mb-1">Send notifications by</label>
+        <select id="notify-channel" name="notifications.channel" class="w-full border rounded px-3 py-2">
+          {% for value, label in notification_channels.items() %}
+            <option value="{{ value }}" {% if settings['notifications.channel'] == value %}selected{% endif %}>
+              {{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <span class="block text-sm text-gray-600 mb-1">Notify me about</span>
+        <input type="hidden" name="_events_present" value="1" />
+        <div class="flex flex-wrap gap-x-4 gap-y-2">
+          {% for value, label in notification_events.items() %}
+            <label class="text-sm flex items-center gap-1">
+              <input type="checkbox" name="notifications.events" value="{{ value }}"
+                     {% if value in chosen_events %}checked{% endif %} />
+              {{ label }}
+            </label>
+          {% endfor %}
+        </div>
+      </div>
+      <div>
+        <span class="block text-sm text-gray-600 mb-1">Quiet hours
+          <span class="text-gray-400">— optional; no alerts between these times</span></span>
+        <div class="flex items-center gap-2">
+          <label for="quiet-start" class="sr-only">Quiet hours start</label>
+          <input id="quiet-start" name="notifications.quiet_start" type="time"
+                 value="{{ settings['notifications.quiet_start'] }}"
+                 class="border rounded px-3 py-2" />
+          <span class="text-sm text-gray-500">to</span>
+          <label for="quiet-end" class="sr-only">Quiet hours end</label>
+          <input id="quiet-end" name="notifications.quiet_end" type="time"
+                 value="{{ settings['notifications.quiet_end'] }}"
+                 class="border rounded px-3 py-2" />
+        </div>
+      </div>
+      <button class="bg-brand-600 text-white rounded px-4 py-2">Save notifications</button>
     </form>
   </section>
 
@@ -227,113 +320,6 @@
     </form>
   </section>
 
-  {# ── Your profile ───────────────────────────────────────────────────────── #}
-  <section class="mb-10">
-    <h2 class="text-lg font-medium mb-1">Your profile</h2>
-    <p class="text-sm text-gray-500 mb-3">Your own name and sign-in address. Other members of
-      the estate are not affected.</p>
-
-    {% if profile_error %}
-      <p class="mb-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-red-800">
-        {{ profile_error }}</p>
-    {% endif %}
-
-    <form method="post" action="/settings/profile" class="space-y-3">
-      <div>
-        <label for="profile-name" class="block text-sm text-gray-600 mb-1">Name</label>
-        <input id="profile-name" name="name" required maxlength="200"
-               value="{{ user.name or '' if user else '' }}"
-               class="w-full border rounded px-3 py-2" />
-      </div>
-
-      {% if can_change_email %}
-        <div>
-          <label for="profile-email" class="block text-sm text-gray-600 mb-1">
-            Email <span class="text-gray-400">— this is how you sign in</span>
-          </label>
-          <input id="profile-email" name="email" type="email" required
-                 value="{{ user.email if user else '' }}"
-                 class="w-full border rounded px-3 py-2" />
-        </div>
-        <div>
-          <label for="profile-password" class="block text-sm text-gray-600 mb-1">
-            Current password <span class="text-gray-400">— only needed to change your email</span>
-          </label>
-          <input id="profile-password" name="current_password" type="password"
-                 autocomplete="current-password"
-                 class="w-full border rounded px-3 py-2" />
-        </div>
-        {# States the residual plainly. Nothing here proves the new address receives mail, so a
-           well-formed typo is still a lockout — saying so is worth more than a control that
-           looks safer than it is. #}
-        <p class="text-xs text-gray-500">
-          Changing your email changes the address you sign in with, immediately. There is no
-          confirmation email yet, so check it carefully before saving.
-        </p>
-      {% else %}
-        {# A Google identity has no password to verify and its address is managed upstream, so
-           the field is absent rather than present-and-always-refused. #}
-        <input type="hidden" name="email" value="{{ user.email if user else '' }}" />
-        <div>
-          <span class="block text-sm text-gray-600 mb-1">Email</span>
-          <p class="text-sm">{{ user.email if user else '' }}
-            <span class="text-gray-500">— managed by Google sign-in</span></p>
-        </div>
-      {% endif %}
-
-      <button class="bg-brand-600 text-white rounded px-4 py-2">Save profile</button>
-    </form>
-  </section>
-
-  {# ── Configuration ──────────────────────────────────────────────────────── #}
-  <section>
-    <h2 class="text-lg font-medium mb-1">Configuration</h2>
-    <p class="text-sm text-gray-500 mb-3">Advanced settings, stored as key/value pairs. Editing
-      these is rarely necessary.</p>
-
-    <div class="overflow-x-auto">
-    <table class="w-full text-sm mb-6">
-      <thead class="text-left text-gray-500">
-        <tr><th class="py-2">Key</th><th class="py-2">Value</th><th class="py-2">Source</th></tr>
-      </thead>
-      <tbody>
-        {% for c in configs %}
-          <tr class="border-t">
-            <td class="py-2 font-mono">{{ c.key }}</td>
-            {# Already masked by list_config_for_display — the template never sees a raw secret,
-               so it cannot leak one by forgetting a filter (N3's reasoning applied to config). #}
-            <td class="py-2 font-mono">
-              {{ c.value or "—" }}
-              {% if c.secret %}
-                <span class="ml-2 text-xs text-gray-500">(hidden)</span>
-              {% endif %}
-            </td>
-            <td class="py-2 text-gray-500">{{ c.source }}</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    </div>
-
-    <form method="post" action="/settings" class="space-y-3">
-      <label for="config-key" class="sr-only">Setting name</label>
-      <input id="config-key" name="key" placeholder="currency.default" required
-             class="w-full border rounded px-3 py-2 font-mono" />
-      <label for="config-value" class="sr-only">Value</label>
-      <input id="config-value" name="value" placeholder="USD" required
-             class="w-full border rounded px-3 py-2 font-mono" />
-      <button class="bg-brand-600 text-white rounded px-4 py-2">Save setting</button>
-    </form>
-
-    {# This used to read "stored unencrypted … until at-rest encryption ships." It has shipped
-       (SPEC-003 U1), so the text changed — but it still states the residual rather than claiming
-       the problem is gone. Telling the operator exactly how far the protection reaches is worth
-       more than either the mask or the encryption on its own. #}
-    <p class="mt-6 text-xs text-gray-500">
-      API keys and tokens are hidden here and encrypted in the database, so a backup or database
-      copy does not expose them. The encryption key lives in the server's environment, so anyone
-      with access to the server itself can still read them.
-    </p>
-  </section>
+  {% include "settings/_personal.html" %}
 </div>
 {% endblock %}

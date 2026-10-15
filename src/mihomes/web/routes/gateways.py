@@ -115,7 +115,7 @@ async def telegram_webhook(request: Request) -> Response:
                 unscoped, gateway="telegram", sender_id=message["sender"]
             )
     except UnlinkedSender:
-        _reply(message["jid"], LINK_PROMPT)
+        _reply(message["jid"], _link_or_prompt(message))
         return Response(status_code=200)
     except AmbiguousSender:
         _reply(
@@ -128,6 +128,44 @@ async def telegram_webhook(request: Request) -> Response:
     # --- 4 & 5. scope to the resolved account, then dispatch -----------------------------
     _dispatch(resolved, message)
     return Response(status_code=200)
+
+
+#: Sent once a `/link CODE` redeems. Names no account, for the same reason `LINK_PROMPT` doesn't.
+LINK_SUCCESS = "You're linked. Messages you send here will now reach your estate."
+
+
+def _link_or_prompt(message: dict) -> str:
+    """The reply for an unlinked sender: redeem `/link CODE`, or explain how to link.
+
+    Redemption runs on its own unscoped session, the same carve-out `resolve_sender` uses: the
+    account is what the code *reveals*, so it cannot be bound beforehand. `get_session` commits
+    the link and the code's redeemed mark together, or neither.
+
+    Every refusal is a `LinkingError` carrying a sender-safe sentence (`linking.py`), so it is
+    passed through as-is; anything else is logged and answered generically, never echoed.
+    """
+    from mihomes.db import get_session
+    from mihomes.services.gateways.linking import (
+        LinkingError,
+        parse_link_command,
+        redeem_link_token,
+    )
+
+    code = parse_link_command(message.get("text"))
+    if code is None:
+        return LINK_PROMPT
+
+    try:
+        with get_session() as unscoped:
+            redeem_link_token(
+                unscoped, gateway="telegram", sender_id=message["sender"], raw_token=code
+            )
+    except LinkingError as exc:
+        return str(exc)
+    except Exception:
+        logger.exception("telegram webhook: link redemption failed")
+        return "Something went wrong linking your account. Please try again."
+    return LINK_SUCCESS
 
 
 def _configured_secret() -> str:

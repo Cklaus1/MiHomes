@@ -140,10 +140,24 @@ class TestMaskingIsDisplayOnly:
 
 
 class TestSettingsPage:
-    def test_staff_denied(self, web_client_as, session, account_a):
-        """A27 — staff get 403 from the enforcement dependency, before the route body runs."""
+    def test_staff_are_sent_to_their_own_page(self, web_client_as, session, account_a):
+        """Staff following the sidebar link land on Messenger connections, not a 403.
+
+        The estate page itself stays owner/admin: what changed is that the link everyone sees no
+        longer dead-ends for staff.
+        """
         client = web_client_as("staff", scoped_to=[])
-        assert client.get("/settings").status_code == 403
+        response = client.get("/settings", follow_redirects=False)
+        assert response.status_code == 303
+        assert response.headers["location"] == "/settings/connections"
+
+    def test_staff_cannot_save_estate_settings(self, web_client_as):
+        """The write routes still declare `member.manage`, so reaching the page is not enough."""
+        client = web_client_as("staff", scoped_to=[])
+        response = client.post(
+            "/settings", data={"currency.default": "GBP"}, follow_redirects=False
+        )
+        assert response.status_code == 403
 
     @pytest.mark.parametrize("role", ["owner", "admin"])
     def test_privileged_can_read_settings(self, web_client_as, role):
@@ -179,78 +193,132 @@ class TestSettingsPage:
         assert "sk-ant" not in body
 
 
-class TestSecretWriteNowSucceeds:
-    """N11's blanket refusal is lifted — narrowed, not deleted.
+class TestUserSettingsWrite:
+    """POST /settings writes only `USER_SETTING_KEYS` (2026-10-15).
 
-    Phase 2 refused *every* secret write from this form because O1 was unanswered. U1 answered it,
-    so the refusal now applies only where the answer does not reach: no configured key.
+    It used to write any key, which let an owner repoint the AI backend. Credentials and backend
+    configuration are now the operator's (`mihomes config set`); encryption of those is still
+    pinned at the service level by `TestValuesAreCiphertextAtRest` below.
     """
 
-    def test_secret_write_succeeds_when_a_key_is_configured(self, web_client_as, secret_key):
+    def _stored(self, web_client_as, key):
+        from sqlalchemy import text
+
+        return web_client_as.connection.execute(
+            text("SELECT value FROM configurations WHERE key = :k"), {"k": key}
+        ).scalar_one_or_none()
+
+    def test_a_preference_write_succeeds(self, web_client_as):
+        """Refusing *everything* would make the page decorative — F7's complaint again."""
         client = web_client_as("owner")
         response = client.post(
-            "/settings", data={"key": "ai.anthropic_api_key", "value": "sk-ant-NEW1234"},
-            follow_redirects=False,
-        )
-        assert response.status_code == 303, (
-            f"expected the write to succeed now that O1 is closed, got {response.status_code}"
-        )
-
-    def test_the_written_secret_reads_back_intact(self, web_client_as, secret_key):
-        """Encryption is worthless if it corrupts the value — the AI provider needs the real key."""
-        client = web_client_as("owner")
-        client.post(
-            "/settings", data={"key": "ai.anthropic_api_key", "value": "sk-ant-ROUNDTRIP99"},
-            follow_redirects=False,
-        )
-        session = web_client_as.session_for_scope()
-        assert config_service.get_config(session, "ai.anthropic_api_key") == "sk-ant-ROUNDTRIP99"
-
-    def test_non_secret_write_succeeds(self, web_client_as):
-        """The other half: refusing *everything* would make the page decorative.
-
-        Without this, "no config UI" and "a config UI that refuses all writes" are the same
-        product, and F7's complaint — a tenant cannot configure anything — would still hold.
-        """
-        client = web_client_as("owner")
-        response = client.post(
-            "/settings", data={"key": "currency.default", "value": "GBP"},
+            "/settings",
+            data={"currency.default": "GBP", "locale.timezone": "Europe/London",
+                  "weather.default_location": "London"},
             follow_redirects=False,
         )
         assert response.status_code == 303
+        session = web_client_as.session_for_scope()
+        assert config_service.get_config(session, "currency.default") == "GBP"
+        assert config_service.get_config(session, "locale.timezone") == "Europe/London"
 
+    @pytest.mark.parametrize(
+        "key, value",
+        [
+            ("ai.provider", "claude"),
+            ("ai.nim_model", "something/else"),
+            ("ai.anthropic_api_key", "sk-ant-NEW1234"),
+            ("smtp.password", "hunter2"),
+            ("telegram.chat_links", "{}"),
+            ("made.up", "x"),
+        ],
+    )
+    def test_a_backend_key_is_refused_and_not_written(self, web_client_as, key, value):
+        client = web_client_as("owner")
+        response = client.post("/settings", data={key: value}, follow_redirects=False)
+        assert response.status_code == 400
+        assert self._stored(web_client_as, key) is None
 
-class TestSecretWriteStillRefusedWithoutAKey:
-    """The surviving arm of N11, and the reason it survives.
-
-    With no key the only way to honour the write is plaintext — through a form whose user believes
-    the value is protected. Refusing is the same decision Phase 2 made, for a narrower reason.
-    """
-
-    def test_refusal_names_the_environment_variable(self, web_client_as, no_secret_key):
+    def test_one_bad_field_saves_nothing(self, web_client_as):
+        """Validation runs over every field before any is written — no half-applied form."""
         client = web_client_as("owner")
         response = client.post(
-            "/settings", data={"key": "ai.anthropic_api_key", "value": "sk-ant-NEW"}
+            "/settings",
+            data={"currency.default": "GBP", "locale.timezone": "Mars/Olympus"},
+            follow_redirects=False,
         )
-
         assert response.status_code == 400
-        assert "MIHOMES_SECRET_KEY" in response.text, (
-            "the refusal must name the variable, or it reads as a bug rather than as a fixable "
-            "configuration problem"
-        )
+        assert self._stored(web_client_as, "currency.default") is None
 
-    def test_the_refusal_does_not_write_the_value(self, web_client_as, no_secret_key):
-        """Belt and braces: a 400 that had already written the row would be the worst outcome —
-        the credential stored *and* the user told it was not."""
+    def test_notification_events_from_checkboxes(self, web_client_as):
+        client = web_client_as("owner")
+        client.post(
+            "/settings",
+            data={"_events_present": "1", "notifications.events": ["budget", "issues"],
+                  "notifications.channel": "telegram"},
+        )
+        session = web_client_as.session_for_scope()
+        assert config_service.get_config(session, "notifications.events") == "issues,budget"
+
+    def test_unticking_every_event_stores_none(self, web_client_as):
+        client = web_client_as("owner")
+        client.post("/settings", data={"_events_present": "1", "notifications.channel": "none"})
+        session = web_client_as.session_for_scope()
+        assert config_service.get_config(session, "notifications.events") == ""
+
+    def test_the_page_never_shows_backend_keys(self, web_client_as):
+        client = web_client_as("owner")
+        body = client.get("/settings").text
+        for key in ("ai.provider", "ai.max_context_tokens", "retention.", "telegram."):
+            assert key not in body, f"{key} is backend configuration and must not be rendered"
+
+
+class TestMessengerConnections:
+    """`/settings/connections` and the Telegram link code (2026-10-15)."""
+
+    def test_staff_can_open_their_connections(self, web_client_as):
+        client = web_client_as("staff", scoped_to=[])
+        response = client.get("/settings/connections")
+        assert response.status_code == 200
+        assert "Messenger connections" in response.text
+        assert "Preferences" not in response.text, "staff must not see estate settings"
+
+    @pytest.mark.parametrize("role", ["owner", "admin", "staff"])
+    def test_every_role_can_get_a_link_code(self, web_client_as, role):
+        from sqlalchemy import text
+
+        client = web_client_as(role) if role != "staff" else web_client_as("staff", scoped_to=[])
+        response = client.post("/settings/connections/telegram/code")
+        assert response.status_code == 200
+        assert 'data-testid="link-code"' in response.text
+
+        tokens = web_client_as.connection.execute(
+            text("SELECT gateway, token_hash FROM gateway_link_tokens")
+        ).all()
+        assert len(tokens) == 1 and tokens[0].gateway == "telegram"
+
+    def test_the_raw_code_is_not_stored(self, web_client_as):
+        """A4 end to end: the code is shown once and only its hash reaches the table."""
+        import re
+
         from sqlalchemy import text
 
         client = web_client_as("owner")
-        client.post("/settings", data={"key": "smtp.password", "value": "hunter2"})
+        body = client.post("/settings/connections/telegram/code").text
+        code = re.search(r"/link ([A-Z2-9]{8})", body).group(1)
+        hashes = web_client_as.connection.execute(
+            text("SELECT token_hash FROM gateway_link_tokens")
+        ).scalars().all()
+        assert code not in hashes
 
-        stored = web_client_as.connection.execute(
-            text("SELECT count(*) FROM configurations WHERE key = 'smtp.password'")
-        ).scalar_one()
-        assert stored == 0
+    def test_unlinking_someone_elses_link_is_a_404(self, web_client_as):
+        import uuid
+
+        client = web_client_as("owner")
+        response = client.post(
+            f"/settings/connections/telegram/{uuid.uuid4()}/unlink", follow_redirects=False
+        )
+        assert response.status_code == 404
 
 
 class TestValuesAreCiphertextAtRest:
@@ -338,15 +406,17 @@ class TestLegacyPlaintextStillReadable:
     def test_legacy_value_is_still_masked_on_the_page(
         self, web_client_as, account_a, secret_key
     ):
-        """A legacy row must not be *more* exposed than an encrypted one on the display path."""
+        """A legacy row must not be exposed on the page. Since 2026-10-15 the page renders no
+        backend keys at all, so neither the plaintext nor its masked tail may appear."""
         self._plant_legacy(web_client_as, account_a, "ai.openai_api_key", "sk-LEGACYPLAIN")
         client = web_client_as("owner")
-        body = client.get("/settings").text
-        assert "LEGACYPLAIN" not in body
-        assert "••••LAIN" in body, (
-            "the masked form should be present — asserting only the absence of the plaintext "
-            "passes vacuously if the page 500s or renders nothing"
+        response = client.get("/settings")
+        assert response.status_code == 200
+        assert "Preferences" in response.text, (
+            "asserting only absence passes vacuously if the page renders nothing"
         )
+        assert "LEGACYPLAIN" not in response.text
+        assert "LAIN" not in response.text
 
 
 class TestEncryptExistingSecrets:

@@ -1,5 +1,8 @@
 """Configuration service — key-value settings."""
 
+import re
+from zoneinfo import available_timezones
+
 from sqlalchemy.orm import Session
 
 from mihomes import crypto
@@ -7,17 +10,125 @@ from mihomes.models.configuration import Configuration
 
 DEFAULTS = {
     "currency.default": "USD",
+    "locale.timezone": "America/New_York",
     "calendar.provider": "manual",
     "ai.provider": "nim",
     # ai.model intentionally omitted — get_ai_model() picks the provider-specific default
     "ai.max_context_tokens": "50000",
     "notifications.format": "rich",
+    "notifications.channel": "none",
+    "notifications.events": "issues,work_orders",
+    "notifications.quiet_start": "",
+    "notifications.quiet_end": "",
     "retention.audit_years": "2",
     "retention.whatsapp_years": "1",
     "retention.ai_years": "1",
     # weather.default_location is used for properties that have no address set
     "weather.default_location": "Atlanta, GA",
 }
+
+
+# ── User-facing settings — the only keys the web settings page may write ──────
+#
+# Everything else in `configurations` (ai.*, retention.*, calendar.*, telegram.* poll state) is
+# backend configuration: an operator changes it with `mihomes config set`, never a tenant through
+# the web. The settings form used to accept any key, which let an owner repoint the AI provider
+# or invent keys; this table is the boundary that replaces that.
+
+CURRENCIES = {
+    "USD": "US dollar",
+    "EUR": "Euro",
+    "GBP": "British pound",
+    "CAD": "Canadian dollar",
+    "AUD": "Australian dollar",
+    "CHF": "Swiss franc",
+    "JPY": "Japanese yen",
+    "MXN": "Mexican peso",
+}
+
+NOTIFICATION_CHANNELS = {
+    "none": "Don't send notifications",
+    "telegram": "Telegram",
+    "email": "Email",
+}
+
+NOTIFICATION_EVENTS = {
+    "issues": "New issues reported",
+    "work_orders": "Work order updates",
+    "tasks_due": "Tasks coming due",
+    "budget": "Budget alerts",
+}
+
+USER_SETTING_KEYS = (
+    "currency.default",
+    "locale.timezone",
+    "weather.default_location",
+    "notifications.channel",
+    "notifications.events",
+    "notifications.quiet_start",
+    "notifications.quiet_end",
+)
+
+_HHMM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+class SettingError(ValueError):
+    """A user setting was refused. The message is safe to show on the settings page."""
+
+
+def timezone_choices() -> list[str]:
+    """IANA zone names a user may pick, sorted. Excludes the legacy aliases (`US/Eastern`,
+    `Etc/GMT+5`…) that clutter the list and mean the same thing as a canonical name."""
+    return sorted(
+        z for z in available_timezones()
+        if "/" in z and not z.startswith(("Etc/", "SystemV/", "US/"))
+    )
+
+
+def validate_user_setting(key: str, value: str) -> str:
+    """Return the cleaned value to store, or raise `SettingError`.
+
+    The single gate for every web write. A key outside `USER_SETTING_KEYS` is refused before its
+    value is looked at, so backend keys (`ai.provider`, …) are unreachable from the settings page
+    regardless of what the value is.
+    """
+    if key not in USER_SETTING_KEYS:
+        raise SettingError(f"{key} can't be changed from the settings page.")
+
+    value = (value or "").strip()
+
+    if key == "currency.default":
+        value = value.upper()
+        if value not in CURRENCIES:
+            raise SettingError("Choose a currency from the list.")
+    elif key == "locale.timezone":
+        if value not in timezone_choices():
+            raise SettingError("Choose a time zone from the list.")
+    elif key == "weather.default_location":
+        if not value:
+            raise SettingError("Enter a location, such as a city and state.")
+        if len(value) > 120:
+            raise SettingError("Location is too long — 120 characters at most.")
+    elif key == "notifications.channel":
+        if value not in NOTIFICATION_CHANNELS:
+            raise SettingError("Choose how notifications are sent.")
+    elif key == "notifications.events":
+        events = [e.strip() for e in value.split(",") if e.strip()]
+        unknown = [e for e in events if e not in NOTIFICATION_EVENTS]
+        if unknown:
+            raise SettingError(f"Unknown notification type: {', '.join(unknown)}.")
+        # Stored in a fixed order so the same choice always reads back the same string.
+        value = ",".join(e for e in NOTIFICATION_EVENTS if e in events)
+    elif key in ("notifications.quiet_start", "notifications.quiet_end"):
+        if value and not _HHMM.match(value):
+            raise SettingError("Quiet hours use 24-hour time, like 22:00.")
+
+    return value
+
+
+def get_user_settings(session: Session) -> dict[str, str]:
+    """Current value of every user-facing setting, defaults filled in."""
+    return {key: get_config(session, key) or "" for key in USER_SETTING_KEYS}
 
 
 # ── Secret handling — SPEC-003 §6 Step 15, F7; O1 CLOSED 2026-08-20 ───────────

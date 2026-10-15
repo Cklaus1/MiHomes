@@ -169,13 +169,16 @@ class TestTheAccountlessDeadEnd:
         """**The other half, and the one that matters more.**
 
         Two unrelated conditions raise 403, and only one is recoverable. Redirecting a role
-        denial would bounce a staff member who opened `/settings` into an onboarding wizard for
+        denial would bounce a staff member who opened `/team` into an onboarding wizard for
         an account they are already a member of — turning a correct refusal into what looks like
         a broken app, and quietly hiding that the app said no.
+
+        (`/team` rather than `/settings`: since 2026-10-15 staff opening `/settings` are
+        redirected to their own connections page by design, so it is no longer a denial.)
         """
         client = web_client_as("staff")
         response = client.get(
-            "/settings", headers={"accept": "text/html"}, follow_redirects=False
+            "/team", headers={"accept": "text/html"}, follow_redirects=False
         )
         assert response.status_code == 403, (
             f"a role denial answered {response.status_code} — the 403 handler is matching on the "

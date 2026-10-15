@@ -1,22 +1,19 @@
-"""Per-tenant config UI — SPEC-003 §6 Step 15, F7 (A27). O1 closed 2026-08-20.
+"""Per-tenant settings UI — SPEC-003 §6 Step 15, F7 (A27); reworked 2026-10-15.
 
 F7: SPEC-002 §7:614 assigns this here outright, and it matters more than it looks. **SPEC-002 D1
 drops local SQLite mode and makes the CLI an operator tool** — citing `web/routes/ai.py:47` as its
 own justification. With no user-facing CLI and no config UI, *"a tenant cannot configure anything
 at all."*
 
-**N11's refusal has been lifted, exactly as far as the answer reaches.** Phase 2 refused *every*
-secret write from this form, because O1 — at-rest encryption — was unanswered and accepting one
-would have put a fresh credential into a plaintext column through a brand-new path. That was the
-specified behaviour, not a gap. U1 answered O1: secrets are Fernet-encrypted in the column
-(`mihomes/crypto.py`), so the form accepts them.
+**Tenant preferences, not backend configuration (2026-10-15).** The page used to be a raw
+key/value editor over every `configurations` row, and its form wrote any key — so an owner could
+repoint `ai.provider`, read the Telegram poll state, or store credentials. It now offers only the
+user-facing keys in `config_service.USER_SETTING_KEYS` (currency, time zone, weather location,
+notification preferences), each validated. AI, retention, calendar and gateway configuration are
+the operator's, set with `mihomes config set`; credentials are no longer written from the web at
+all, so the encryption refusal this route used to carry has nothing left to guard.
 
-What survives is the **narrow** refusal: a secret is still turned away when `MIHOMES_SECRET_KEY`
-is absent, because the only remaining alternative is plaintext, written through a form whose user
-believes otherwise. The message names the variable, so it reads as a fixable configuration
-problem. Masking is unchanged and still separate — it addresses shoulder-surfing and pasted
-terminal output, which encryption does nothing about, while encryption addresses the database
-disclosure that masking never could.
+Messenger connections live on `/settings/connections`, the one settings page every role can open.
 """
 
 from __future__ import annotations
@@ -27,7 +24,6 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
-from mihomes import crypto
 from mihomes.authz.actions import Access
 from mihomes.authz.declare import declares
 from mihomes.services import config_service
@@ -43,6 +39,22 @@ router = APIRouter()
 #: This is the same vocabulary gap logged at G6 — the 21 keys have no entry for "account
 #: configuration" — recorded here rather than papered over.
 _SETTINGS_ACTION = "member.manage"
+
+#: Editing **your own** profile and messenger links, and the reason this is not
+#: `_SETTINGS_ACTION`.
+#:
+#: The estate rename is owner/admin — it changes what every member sees. Your own display name
+#: is not: a staff member must be able to fix the spelling of their own name without being
+#: granted account administration. Row 20 (`gateway.link_self`) is the existing key with exactly
+#: that shape — *"allowed to everyone, narrowed to self by the mechanism"* — and the mechanism
+#: here is that the route reads `principal.user_id` and accepts no user id from the request, so
+#: there is no version of this call that edits somebody else.
+#:
+#: Reusing row 20 rather than adding a 21st: the matrix is pinned at 20 rows by
+#: `test_matrix_has_twenty_rows`, and a new key for "edit your own profile" would be a second
+#: spelling of a grant pattern that already exists. Recorded because the name reads oddly at
+#: this call site — the vocabulary gap logged at G6, not a misuse.
+_PROFILE_ACTION = "gateway.link_self"
 
 
 def _page_context(db: Session, principal, **extra):
@@ -62,7 +74,13 @@ def _page_context(db: Session, principal, **extra):
 
     context = {
         "page": "settings",
-        "configs": config_service.list_config_for_display(db),
+        # Only the user-facing keys (`config_service.USER_SETTING_KEYS`). Backend configuration —
+        # AI provider and model, retention, Telegram poll state — is never rendered here.
+        "settings": config_service.get_user_settings(db),
+        "currencies": config_service.CURRENCIES,
+        "timezones": config_service.timezone_choices(),
+        "notification_channels": config_service.NOTIFICATION_CHANNELS,
+        "notification_events": config_service.NOTIFICATION_EVENTS,
         "account": account,
         "user": user,
         "role": principal.role,
@@ -91,35 +109,43 @@ def _page_context(db: Session, principal, **extra):
         # The actor's own membership, so the template can mark "you" and omit the controls R1
         # and the lockout guard would refuse anyway.
         "membership_id": principal.membership_id,
+        # Owner and admin see their own Messenger connections here too (settings/_personal.html).
+        "telegram_links": _own_telegram_links(db, principal),
     }
     context.update(extra)
     return context
 
 
+def _own_telegram_links(db: Session, principal):
+    """The signed-in member's Telegram links — never anyone else's (R2)."""
+    from sqlalchemy import select
+
+    from mihomes.models.telegram_link import TelegramLink
+
+    return db.execute(
+        select(TelegramLink).where(TelegramLink.membership_id == principal.membership_id)
+    ).scalars().all()
+
+
 @router.get("/settings")
-@declares(_SETTINGS_ACTION, Access.ACCOUNT)
+@declares(_PROFILE_ACTION, Access.ACCOUNT)
 def index(request: Request, principal=require_authenticated(),
           db: Session = Depends(get_db)):
-    """A27 — the settings page. Staff get 403 from the enforcement dependency, not from here."""
+    """A27 — the settings page, for owner and admin.
+
+    Declared as `gateway.link_self` (every role) rather than `member.manage`, so that staff
+    following the sidebar's Settings link are **redirected** to their own page instead of
+    hitting a 403 — the link is shown to everyone. The owner/admin gate is then this check;
+    every write route on this page still declares `member.manage`, so a staff member who
+    reached a form still could not submit it.
+    """
+    if principal.role not in ("owner", "admin"):
+        return RedirectResponse("/settings/connections", status_code=303)
     return templates.TemplateResponse(
-        request, "settings/index.html", _page_context(db, principal)
+        request,
+        "settings/index.html",
+        _page_context(db, principal, saved=request.query_params.get("saved") == "1"),
     )
-
-
-#: Editing **your own** profile, and the reason this is not `_SETTINGS_ACTION`.
-#:
-#: The estate rename is owner/admin — it changes what every member sees. Your own display name
-#: is not: a staff member must be able to fix the spelling of their own name without being
-#: granted account administration. Row 20 (`gateway.link_self`) is the existing key with exactly
-#: that shape — *"allowed to everyone, narrowed to self by the mechanism"* — and the mechanism
-#: here is that the route reads `principal.user_id` and accepts no user id from the request, so
-#: there is no version of this call that edits somebody else.
-#:
-#: Reusing row 20 rather than adding a 21st: the matrix is pinned at 20 rows by
-#: `test_matrix_has_twenty_rows`, and a new key for "edit your own profile" would be a second
-#: spelling of a grant pattern that already exists. Recorded because the name reads oddly at
-#: this call site — the vocabulary gap logged at G6, not a misuse.
-_PROFILE_ACTION = "gateway.link_self"
 
 
 @router.post("/settings/profile")
@@ -155,6 +181,13 @@ def update_profile_route(
                 current_password=current_password or None,
             )
     except ProfileError as exc:
+        if principal.role not in ("owner", "admin"):
+            return templates.TemplateResponse(
+                request,
+                "settings/connections.html",
+                _connections_context(db, principal, profile_error=str(exc)),
+                status_code=400,
+            )
         return templates.TemplateResponse(
             request,
             "settings/index.html",
@@ -162,7 +195,97 @@ def update_profile_route(
             status_code=400,
         )
 
-    return RedirectResponse("/settings", status_code=303)
+    return RedirectResponse(_home_for(principal), status_code=303)
+
+
+def _home_for(principal) -> str:
+    """The settings page this role lands on: the full page for owner/admin, connections for staff."""
+    return "/settings" if principal.role in ("owner", "admin") else "/settings/connections"
+
+
+# ── Messenger connections — every role, own membership only ────────────────────
+#
+# `gateway.link_self` (row 20, rule R2): allowed to everyone, narrowed to self by the mechanism.
+# The mechanism here is the same as `/settings/profile`'s — every route reads
+# `principal.membership_id` and accepts no membership id from the request, so there is no
+# version of these calls that links or unlinks somebody else.
+
+
+def _connections_context(db: Session, principal, **extra):
+    from mihomes.models.account import Account
+    from mihomes.models.user import User
+
+    user = db.get(User, principal.user_id)
+    context = {
+        "page": "settings",
+        "account": db.get(Account, principal.account_id),
+        "user": user,
+        "role": principal.role,
+        "telegram_links": _own_telegram_links(db, principal),
+        "can_change_email": user is not None and user.password_hash is not None,
+    }
+    context.update(extra)
+    return context
+
+
+@router.get("/settings/connections")
+@declares(_PROFILE_ACTION, Access.ACCOUNT)
+def connections(request: Request, principal=require_authenticated(),
+                db: Session = Depends(get_db)):
+    """Messenger connections and profile — the settings page staff can open.
+
+    Owner and admin have the same two sections on `/settings`, so they are sent there.
+    """
+    if principal.role in ("owner", "admin"):
+        return RedirectResponse("/settings#connections", status_code=303)
+    return templates.TemplateResponse(
+        request, "settings/connections.html", _connections_context(db, principal)
+    )
+
+
+@router.post("/settings/connections/telegram/code")
+@declares(_PROFILE_ACTION, Access.ACCOUNT)
+def telegram_link_code(request: Request, principal=require_authenticated(),
+                       db: Session = Depends(get_db)):
+    """Issue a one-time Telegram link code for **your own** membership and show it once.
+
+    The code is minted against `principal.membership_id`, so redeeming it can only ever bind a
+    chat to the person who asked for it (R2). Only its hash is stored (`linking.py`, A4) — this
+    response is the one place the raw code exists, which is why it is rendered rather than
+    redirected.
+    """
+    from mihomes.services.gateways.linking import DEFAULT_TTL_MINUTES, issue_link_token
+
+    code = issue_link_token(
+        db, principal.account_id, principal.membership_id, gateway="telegram"
+    )
+    shown = {"link_code": code, "link_ttl_minutes": DEFAULT_TTL_MINUTES}
+    if principal.role in ("owner", "admin"):
+        return templates.TemplateResponse(
+            request, "settings/index.html", _page_context(db, principal, **shown)
+        )
+    return templates.TemplateResponse(
+        request, "settings/connections.html", _connections_context(db, principal, **shown)
+    )
+
+
+@router.post("/settings/connections/telegram/{link_id}/unlink")
+@declares(_PROFILE_ACTION, Access.ACCOUNT)
+def telegram_unlink(link_id: uuid.UUID, principal=require_authenticated(),
+                    db: Session = Depends(get_db)):
+    """Remove one of **your own** Telegram links.
+
+    A link that belongs to another member, or does not exist, is the same 404 — the reasoning
+    `_member_in_account` gives: the pair of responses would otherwise confirm which ids are real.
+    """
+    from mihomes.models.telegram_link import TelegramLink
+
+    link = db.get(TelegramLink, link_id)
+    if link is None or link.membership_id != principal.membership_id:
+        raise HTTPException(status_code=404)
+    db.delete(link)
+    db.flush()
+    return RedirectResponse(_home_for(principal) + "#connections", status_code=303)
 
 
 @router.post("/settings/account")
@@ -200,42 +323,53 @@ def rename(
 
 @router.post("/settings")
 @declares(_SETTINGS_ACTION, Access.ACCOUNT)
-def update(
+async def update(
     request: Request,
-    key: str = Form(...),
-    value: str = Form(...),
     principal=require_authenticated(),
     db: Session = Depends(get_db),
 ):
-    """Write a setting. Secrets are **encrypted** now, or refused if that is impossible.
+    """Save the Preferences or Notifications form. **Only `USER_SETTING_KEYS` are writable.**
 
-    O1 is answered (U1), so N11's blanket refusal is lifted — but only exactly as far as the
-    answer reaches. A credential is accepted when it can be encrypted; when `MIHOMES_SECRET_KEY`
-    is absent it is still refused, because the alternative is writing a plaintext credential
-    through a form whose user believes it is protected. The refusal message names the variable, so
-    it reads as a fixable configuration problem rather than as a bug.
+    This route used to take a free-form `key`/`value` pair and write it, which let an owner
+    repoint `ai.provider` or invent keys. Backend configuration now belongs to the operator
+    (`mihomes config set`); a field outside the allowlist is refused with 400, never ignored, so
+    a crafted request learns nothing by being half-applied.
 
-    The narrower refusal is the point: the previous version turned away *every* secret because the
-    key-management question was open. It is now open only for the operator who has not set a key.
+    Every field is validated before any is written, so one bad value leaves the others unsaved
+    rather than half the form applied. `notifications.events` arrives as repeated checkboxes and
+    is joined here; an unticked set is posted as the `_events_present` marker, which is how "no
+    events" is told apart from "this form had no events field".
     """
-    if config_service.is_secret(key) and crypto.secret_key() is None:
+    form = await request.form()
+    submitted: dict[str, str] = {}
+    for key in form.keys():
+        if key in ("csrf_token", "notifications.events", "_events_present"):
+            continue
+        submitted[key] = str(form.get(key) or "")
+    if "_events_present" in form:
+        submitted["notifications.events"] = ",".join(
+            str(v) for v in form.getlist("notifications.events")
+        )
+
+    if not submitted:
+        return RedirectResponse("/settings", status_code=303)
+
+    try:
+        cleaned = {
+            key: config_service.validate_user_setting(key, value)
+            for key, value in submitted.items()
+        }
+    except config_service.SettingError as exc:
         return templates.TemplateResponse(
             request,
             "settings/index.html",
-            _page_context(
-                db,
-                principal,
-                error=(
-                    f"{key} holds a credential and cannot be stored: {crypto.SECRET_KEY_ENV} is "
-                    "not set, so it could only be written in plaintext. Generate a key with "
-                    "`mihomes config generate-key`, put it in the environment, and try again."
-                ),
-            ),
+            _page_context(db, principal, error=str(exc)),
             status_code=400,
         )
 
-    config_service.set_config(db, key, value)
-    return RedirectResponse("/settings", status_code=303)
+    for key, value in cleaned.items():
+        config_service.set_config(db, key, value)
+    return RedirectResponse("/settings?saved=1", status_code=303)
 
 
 # ── Members ───────────────────────────────────────────────────────────────────

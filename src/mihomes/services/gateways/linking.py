@@ -19,6 +19,7 @@ costs a re-issue rather than a silent cross-tenant write.
 from __future__ import annotations
 
 import logging
+import re
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -91,6 +92,19 @@ class AlreadyLinked(LinkingError):
     Refused with a clear message rather than surfacing the `IntegrityError` the constraint
     would raise anyway (§5.2), because the sender sees this text.
     """
+
+
+_LINK_COMMAND = re.compile(r"^/link(?:@\w+)?\s+(\S+)\s*$", re.IGNORECASE)
+
+
+def parse_link_command(text: str | None) -> str | None:
+    """The code from a `/link CODE` message, upper-cased, or `None` if it isn't one.
+
+    Accepts Telegram's `/link@BotName CODE` form, which group chats send. Upper-casing matches
+    `_ALPHABET`, so a code typed in lower case on a phone still redeems.
+    """
+    match = _LINK_COMMAND.match((text or "").strip())
+    return match.group(1).upper() if match else None
 
 
 def generate_code() -> str:

@@ -10,22 +10,36 @@ completed (`_advance_recurring_task`). Previews must chain `calculate_next_due` 
 due date exactly as completion does (monthly clamps: Jan 31 → Feb 28 → Mar 28), or a preview
 would sit on a date the real repeat never lands on.
 
-- [ ] `services/task_agenda.py` (pure, unit-testable): `period_bounds(span, anchor)` for
+- [x] `services/task_agenda.py` (pure, unit-testable): `period_bounds(span, anchor)` for
       day / week (Mon–Sun) / month; `build_agenda(tasks, span, anchor, today)` →
       overdue (due < today, open), one bucket per date in the period (real + preview entries),
       unscheduled (no due date). Previews only for open recurring tasks, only dates after the
       real due date, capped per task (daily over a month = 30 previews, no runaway)
-- [ ] Route: `GET /tasks/?view=agenda&span=week&date=YYYY-MM-DD` — span/date in the query so
+- [x] Route: `GET /tasks/?view=agenda&span=week&date=YYYY-MM-DD` — span/date in the query so
       ← / Today / → are plain links (shareable, back-button works); existing filters
       (property, assignee, status) still apply
-- [ ] Template: 4th view button "Calendar"; Day | Week | Month toggle; ← Today → with the
+- [x] Template: 4th view button "Calendar"; Day | Week | Month toggle; ← Today → with the
       period label; date headings (today highlighted, empty days shown in week, collapsed to
       "nothing due" lines); preview rows faded with a "repeats" badge and no complete button;
       real rows open the existing task modal
-- [ ] Remember last view/span in localStorage like the other views; `?view=agenda` wins
-- [ ] Tests: period bounds (month edges, week starting Monday, leap Feb), overdue/unscheduled
+- [x] Remember last view/span in localStorage like the other views; `?view=agenda` wins
+- [x] Tests: period bounds (month edges, week starting Monday, leap Feb), overdue/unscheduled
       split, preview dates equal chained `calculate_next_due` (incl. Jan 31 monthly), cap,
       completed/cancelled tasks never preview; CSS rebuild on evo-dev; deploy; check live
+- [x] (advisor) "today" in the estate's `locale.timezone` — server is UTC (`estate_today`)
+
+**Review (2026-10-15):** commits 8d64106, 7dcec0e, e0f1bb8; deployed to evo-dev. Live as the
+default owner: plain /tasks/ (the create/complete/edit/delete re-render path) renders with the
+Calendar button; day / week / month render with correct labels, 1 / 7 / n day headings and Today
+marked; `date=garbage` falls back to this week; paging back a week and to Feb 2027 work; filters
+ride on all 6 nav links; every agenda row has its modal. 28 agenda unit tests pass; unit suite
+1342 passed / 70 failed, all pre-existing kinds. Not checked: a staff render (no staff on
+evo-dev — redaction reviewed instead: Task has no redacted fields, unknown types pass through).
+
+**Data finding (not changed):** the default account's recurring tasks ("Daily: Bathroom care…",
+etc.) have **no due date** and are scheduled **WEEKLY** despite "Daily" titles — so they sit
+under "No due date" and produce no previews. Giving them due dates (and daily frequency where
+meant) makes them appear on their days.
 
 ## ACTIVE: Currency setting made real; weather default location removed (2026-10-15)
 

@@ -3,7 +3,7 @@
 from datetime import date
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Form, Query, Request
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
@@ -28,9 +28,6 @@ def _ctx(
     assignee_id=None,
     sort: str | None = None,
     recurrence: str | None = None,
-    view: str | None = None,
-    span: str | None = None,
-    date_: str | None = None,
 ) -> dict:
     if overdue:
         tasks = task_svc.get_overdue_tasks(db)
@@ -75,16 +72,9 @@ def _ctx(
         "low":    [t for t in tasks if t.priority == TaskPriority.LOW],
     }
 
-    agenda = _agenda_ctx(db, property_id, status, assignee_id, recurrence, view, span, date_)
-    # Task modals must exist for every task any view can open. The agenda ignores the
-    # "overdue" / "due this week" shortcuts, so it can show tasks the narrowed list doesn't.
-    seen = {t.id for t in tasks}
-    modal_tasks = list(tasks) + [t for t in agenda["agenda_tasks"] if t.id not in seen]
-
     return {
         "page": "tasks",
         "tasks": tasks,
-        "modal_tasks": modal_tasks,
         "columns": columns,
         "priority_groups": priority_groups,
         "properties": prop_svc.list_properties(db),
@@ -92,7 +82,7 @@ def _ctx(
         "overdue_ids": overdue_ids,
         "priorities": [p.value for p in TaskPriority],
         "statuses": [s.value for s in TaskStatus],
-        "notes_map": {t.id: note_svc.list_notes(db, f"task:{t.id}") for t in modal_tasks},
+        "notes_map": {t.id: note_svc.list_notes(db, f"task:{t.id}") for t in tasks},
         "filter_property": property_id,
         "filter_status": status,
         "filter_overdue": overdue,
@@ -100,9 +90,6 @@ def _ctx(
         "filter_assignee": assignee_id,
         "filter_sort": sort or "newest",
         "filter_recurrence": recurrence or "",
-        # Every render carries the agenda — the create / complete / edit / delete routes re-render
-        # this page with `_ctx(db)` alone, and a missing `agenda` would break the template.
-        **agenda,
     }
 
 
@@ -122,9 +109,6 @@ def list_tasks(
     assignee_id: str | None = None,
     sort: str | None = None,
     recurrence: str | None = None,
-    view: str | None = None,
-    span: str | None = None,
-    date_: str | None = Query(None, alias="date"),
     db: Session = Depends(get_db),
 ):
     # Blank and whitespace-only both mean "no filter". The `int()` these used to be
@@ -134,43 +118,8 @@ def list_tasks(
     aid = (assignee_id or "").strip() or None
     return templates.TemplateResponse(
         request, "tasks.html",
-        _ctx(db, pid, status or None, overdue, due_week, aid, sort, recurrence, view, span, date_),
+        _ctx(db, pid, status or None, overdue, due_week, aid, sort, recurrence),
     )
-
-
-def _agenda_ctx(db, property_id, status, assignee_id, recurrence, view, span, date_) -> dict:
-    """The Calendar (agenda) view: tasks by day / week / month (services/task_agenda.py).
-
-    Built from the property / assignee / status / recurrence filters but **not** the "overdue" or
-    "due this week" shortcuts — the agenda has its own overdue section and its own period, and
-    feeding it a pre-narrowed list would empty every day but the ones those shortcuts kept.
-    `?view=agenda` in the URL selects this view even when localStorage remembers another.
-    """
-    from mihomes.services.config_service import estate_today
-    from mihomes.services.task_agenda import build_agenda, normalise_span
-
-    # The estate's "today", not the UTC server's — see config_service.estate_today. (The Board
-    # and List views' overdue markers still use server time; out of scope here.)
-    today = estate_today(db)
-    try:
-        anchor = date.fromisoformat(date_) if date_ else today
-    except ValueError:
-        anchor = today
-    tasks = task_svc.list_tasks(
-        db,
-        property_id_or_slug=str(property_id) if property_id else None,
-        status=TaskStatus(status) if status else None,
-        assignee_id_or_slug=str(assignee_id) if assignee_id else None,
-    )
-    if recurrence == "recurring":
-        tasks = [t for t in tasks if t.schedule and t.schedule.frequency.value != "once"]
-    elif recurrence == "once":
-        tasks = [t for t in tasks if not t.schedule or t.schedule.frequency.value == "once"]
-    return {
-        "agenda": build_agenda(tasks, normalise_span(span), anchor, today),
-        "agenda_tasks": tasks,
-        "forced_view": "agenda" if view == "agenda" else "",
-    }
 
 
 @router.post("/", response_class=HTMLResponse)

@@ -6,12 +6,18 @@
 > built first from a misread of "daily, weekly, monthly" and has been reverted (8d64106,
 > 7dcec0e, e0f1bb8 reverted together).
 
-- [ ] Add a "Frequency" view beside Board / Priority / List, built like the Priority grouped view:
+- [x] Add a "Frequency" view beside Board / Priority / List, built like the Priority grouped view:
       sections Daily, Weekly, Biweekly, Monthly, Quarterly, Seasonal, Annual, One-time — in
       that order, empty sections hidden, count in each heading
-- [ ] One-time = no schedule or frequency `once`
-- [ ] Rows reuse the Priority view's task card (same modal, same markers)
-- [ ] Tests; CSS rebuild on evo-dev; deploy; check live
+- [x] One-time = no schedule or frequency `once`
+- [x] Rows reuse the Priority view's task card (same modal, same markers)
+- [x] Tests; CSS rebuild on evo-dev; deploy; check live
+
+**Review (2026-10-15):** d69914a (revert), 89de2b9 (view), plus the stamp commit; deployed to
+evo-dev. Live as the default owner: Frequency button present, Calendar gone; 72 tasks grouped
+Weekly 21 · Every 2 weeks 4 · Monthly 11 · Quarterly 14 · Seasonal 9 · Annual 6 · One-time 7;
+no Daily section (none are daily — see below). Unit suite 1319 passed / 70 failed, all
+pre-existing kinds.
 
 **Data finding (still true):** the default account's recurring tasks ("Daily: Bathroom care…",
 etc.) are scheduled **WEEKLY** despite "Daily" titles, so they will group under Weekly.

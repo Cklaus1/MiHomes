@@ -86,7 +86,9 @@ static tests do cover them directly.
 | `property_form.html` | — | 38 | ☐ | ☐ | ☐ |
 | `recurring.html` | — | 301 | ☐ | ☐ | ☐ |
 | `search.html` | /search/ | 150 | ☐ | ☐ | ☐ |
-| `settings/index.html` | — | 54 | ☐ | ☐ | ☐ |
+| `settings/_personal.html` | (included in /settings and /settings/connections) | — | ☐ | ☐ | ☐ |
+| `settings/connections.html` | /settings/connections (staff) | — | ☐ | ☐ | ☐ |
+| `settings/index.html` | /settings | 54 | ☐ | ☐ | ☐ |
 | `signup.html` | /signup | 87 | ☐ | ☐ | ☐ |
 | `staff.html` | /staff/ | 353 | ☐ | ☐ | ☐ |
 | `tasks.html` | /tasks/ | 503 | ☐ | ☐ | ☐ |

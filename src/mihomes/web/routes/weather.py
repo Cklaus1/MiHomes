@@ -45,11 +45,19 @@ def _extract_zip(address: str | None) -> str:
 
 
 def _group_by_zip(properties) -> list[dict]:
-    """Return list of {zip, props} dicts, preserving insertion order."""
+    """Return list of {zip, props} dicts, preserving insertion order.
+
+    Properties sharing a ZIP share one forecast card. A property **without** a ZIP is its own
+    group (2026-10-15): pooling every ZIP-less property into one "—" bucket let a single
+    geocodable address lend its forecast to properties that have no usable location at all,
+    which is exactly the "no location → no weather" rule this widget now follows.
+    """
     buckets: dict[str, list] = defaultdict(list)
     for prop in properties:
-        buckets[_extract_zip(prop.address)].append(prop)
-    return [{"zip": z, "props": ps} for z, ps in buckets.items()]
+        zip_code = _extract_zip(prop.address)
+        key = zip_code if zip_code != "—" else f"—:{id(prop)}"
+        buckets[key].append(prop)
+    return [{"zip": k.split(":")[0], "props": ps} for k, ps in buckets.items()]
 
 
 @router.get("", response_class=HTMLResponse)

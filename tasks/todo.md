@@ -10,30 +10,41 @@ Problem: the "Configuration" section is a raw key/value editor over every stored
 (`ai.provider`, `ai.max_context_tokens`, Telegram poll state…) and `POST /settings` writes any key
 with no allowlist — an owner can switch the AI backend or invent keys.
 
-- [ ] `config_service`: `USER_SETTINGS` allowlist (key → label, choices/validator, default):
+- [x] `config_service`: `USER_SETTINGS` allowlist (key → label, choices/validator, default):
       `currency.default`, `locale.timezone` (new, IANA, default `America/New_York`),
       `weather.default_location`, `notifications.channel` (none/telegram/email),
       `notifications.events` (multi: issues, work orders, tasks due, budget), 
       `notifications.quiet_start` / `quiet_end` (HH:MM, optional)
-- [ ] `POST /settings`: accept only allowlisted keys, validate each value; anything else → 400.
+- [x] `POST /settings`: accept only allowlisted keys, validate each value; anything else → 400.
       AI / retention / telegram.* / calendar.* stay backend-only (CLI `mihomes config set`)
-- [ ] Template: replace the key/value table + free-text form with labelled fields grouped as
+- [x] Template: replace the key/value table + free-text form with labelled fields grouped as
       **Preferences** (currency, time zone, weather location) and **Notifications** (with a
       "saved, not sent yet" note). Drop the raw config table entirely
-- [ ] **Messenger connections** section (every role, own membership):
+- [x] **Messenger connections** section (every role, own membership):
       Telegram — linked/not linked for me (`telegram_links`), "Get a link code" →
       `issue_link_token` → show the code once + "send `/link CODE` to the bot", 15-min expiry;
       unlink own Telegram. WhatsApp — "not available yet" status line
-- [ ] Access: staff can't load /settings today (member.manage). Messenger + profile must work for
+- [x] Access: staff can't load /settings today (member.manage). Messenger + profile must work for
       staff → either open GET /settings to all roles with owner/admin-only sections gated in the
       template, or a separate /settings/connections route. Check authz table before choosing
-- [ ] Tests: allowlist accept/reject (incl. `ai.provider` → 400), each validator, page never
+      → chose /settings/connections (gateway.link_self); GET /settings redirects staff there
+- [x] Tests: allowlist accept/reject (incl. `ai.provider` → 400), each validator, page never
       shows ai.* keys, link-code issue/display/expiry, staff can link their own Telegram,
       staff cannot change estate preferences; update test_settings.py cases that POST
       arbitrary keys
-- [ ] `npm run build:css && npm run stamp`; unit suite (70 pre-existing UI-build/route failures
+- [x] `npm run build:css && npm run stamp`; unit suite (70 pre-existing UI-build/route failures
       on 6f730e3 — compare against that baseline, don't count them)
-- [ ] Deploy to evo-dev; check page as owner + staff; issue a real code and `/link` it in Telegram
+- [~] Deploy to evo-dev; check page as owner + staff; issue a real code and `/link` it in Telegram
+      (owner checked live; no staff member exists on evo-dev; no Telegram bot runs there, so
+      `/link` was not exercised end to end)
+
+**Review (2026-10-15):** commits 4d95e30, ef59c96, c12b6f5; deployed to evo-dev. Live as the
+free-tester owner: /settings renders Preferences, Notifications, Messenger connections, Members,
+Profile; no ai.* / retention.* keys on the page; POST `ai.provider=claude` → 400 "ai.provider can't
+be changed from the settings page." and the provider stays nim; a link code is shown once.
+63 new unit tests pass. Unit suite 71 failed / 1296 passed, every failure a pre-existing kind
+(69 `content_globs`, one per template; 2 `route_declarations`). NOT run: integration suite (no
+TEST_DATABASE_URL), a staff render (no staff on evo-dev), a real `/link` in Telegram (no bot).
 
 ## ACTIVE: Billing page redesign (2026-10-13)
 

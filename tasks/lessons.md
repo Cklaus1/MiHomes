@@ -760,3 +760,17 @@ Review this at the start of each session.
   tester that is no longer Free, with no error to say so. Measured by POSTing a second property
   over HTTP. **Rule:** when seeding fixtures against gated limits, seed *to* the cap, never
   through it, and give the fixture a reset path — the gate may have side effects beyond refusing.
+
+- **A CSS stamp built on this Windows checkout never matches CI or the VM.** `core.autocrlf=true`
+  puts CRLF in the working tree, and `scripts/css_stamp.js` hashes template *bytes*, so
+  `npm run stamp` here records a hash nobody else can reproduce — `test_css_is_current` fails on
+  evo-dev while passing locally. `app.css` itself is unaffected (Tailwind ignores line endings).
+  **Rule:** after any template edit, build the stamp where the files are LF (evo-dev:
+  `npm run build:css && npm run stamp`) and commit that. Durable fix, not yet done: add
+  `*.html text eol=lf` to `.gitattributes`, as `*.sh` already is.
+
+- **Never rewrite a source file with a regex/script splice when Edit can do it.** Moving one
+  constant block with a node one-liner duplicated half of `settings.py` (two module docstrings,
+  two `router = APIRouter()`); it was caught only by grepping for the constant afterwards.
+  **Rule:** use Edit with exact old/new strings for moves, and after any scripted edit diff
+  the file against HEAD before doing anything else.

@@ -60,6 +60,6 @@ def get_ai_model(session: Session, provider: str = "claude") -> str:
         "claude": DEFAULT_MODEL,
         "openai": "gpt-4o",
         "ollama": "llama3.1",
-        "nim": "z-ai/glm-5.3-flash",
+        "nim": "meta/muse-glimmer-30b",
     }
     return defaults.get(provider, DEFAULT_MODEL)

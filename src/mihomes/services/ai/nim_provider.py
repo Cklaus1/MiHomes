@@ -11,14 +11,15 @@ except ImportError:
     openai = None
 
 NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
-DEFAULT_MODEL = "z-ai/glm-5.3-flash"
+DEFAULT_MODEL = "meta/muse-glimmer-30b"
 
 
 class NIMProvider:
     """AI provider using NVIDIA NIM's OpenAI-compatible API.
 
     Supports any model available in the NVIDIA NIM catalog.
-    Default: z-ai/glm-5.3-flash (multimodal MoE; Qwen3.5 left the hosted catalog).
+    Default: meta/muse-glimmer-30b (multimodal, built for structured output). GLM-5.3-Flash
+    and DeepSeek-V4.1-Flash were tried and hung on the free tier (2026-10-15).
 
     API keys start with 'nvapi-' and are obtained at build.nvidia.com.
     """

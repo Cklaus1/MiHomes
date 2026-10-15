@@ -17,6 +17,10 @@ from mihomes.services.task_agenda import (
 )
 
 TODAY = date(2026, 10, 15)  # a Thursday
+#: The Monday of TODAY's week. Tests that want open tasks to sit on their own day (rather than in
+#: Overdue) pass this as `today`: an open task due before today is overdue by design, and shows
+#: only at the top — never on its day as well.
+WEEK_START = date(2026, 10, 12)
 
 
 def _task(title, due=None, *, status=TaskStatus.PENDING, priority=TaskPriority.MEDIUM,
@@ -64,7 +68,7 @@ class TestBuckets:
         sun = _task("Sunday job", date(2026, 10, 18))
         floating = _task("Someday")
         next_week = _task("Next week", date(2026, 10, 20))
-        agenda = build_agenda([late, mon, sun, floating, next_week], "week", TODAY, TODAY)
+        agenda = build_agenda([late, mon, sun, floating, next_week], "week", TODAY, WEEK_START)
 
         assert agenda.overdue == [late]
         assert agenda.unscheduled == [floating]
@@ -73,6 +77,13 @@ class TestBuckets:
         assert by_day[date(2026, 10, 18)] == ["Sunday job"]
         assert "Next week" not in sum(by_day.values(), [])
         assert len(agenda.days) == 7
+
+    def test_an_open_task_due_earlier_this_week_is_overdue_not_on_its_day(self):
+        """Overdue shows once, at the top — the mockup the user chose."""
+        mon = _task("Monday job", date(2026, 10, 12))
+        agenda = build_agenda([mon], "week", TODAY, TODAY)
+        assert agenda.overdue == [mon]
+        assert agenda.count == 0
 
     def test_overdue_stays_visible_when_paging_ahead(self):
         late = _task("Late", date(2026, 10, 1))
@@ -94,7 +105,7 @@ class TestBuckets:
         low = _task("a low", date(2026, 10, 14), priority=TaskPriority.LOW)
         urgent = _task("z urgent", date(2026, 10, 14), priority=TaskPriority.URGENT)
         daily = _task("daily", date(2026, 10, 13), every="daily")
-        agenda = build_agenda([low, urgent, daily], "week", TODAY, TODAY)
+        agenda = build_agenda([low, urgent, daily], "week", TODAY, WEEK_START)
         tue = next(d for d in agenda.days if d.on == date(2026, 10, 14))
         assert [(e.task.title, e.preview) for e in tue.entries] == [
             ("z urgent", False), ("a low", False), ("daily", True),
@@ -104,7 +115,7 @@ class TestBuckets:
 class TestPreviews:
     def test_daily_fills_the_rest_of_the_week(self):
         daily = _task("Feed fish", date(2026, 10, 13), every="daily")
-        agenda = build_agenda([daily], "week", TODAY, TODAY)
+        agenda = build_agenda([daily], "week", TODAY, WEEK_START)
         real = [d.on for d in agenda.days for e in d.entries if not e.preview]
         previews = [d.on for d in agenda.days for e in d.entries if e.preview]
         assert real == [date(2026, 10, 13)]
@@ -146,6 +157,37 @@ class TestPreviews:
     def test_daily_over_a_month_is_bounded_and_complete(self):
         daily = _task("x", date(2026, 9, 30), every="daily")
         assert len(preview_dates(daily, date(2026, 10, 1), date(2026, 10, 31))) == 31
+
+
+class TestEstateToday:
+    """The agenda's "today" follows `locale.timezone`, not the UTC server clock."""
+
+    def _today_at(self, utc, zone):
+        from datetime import datetime, timezone
+        from unittest.mock import patch
+
+        from mihomes.services import config_service
+
+        fixed = datetime(*utc, tzinfo=timezone.utc)
+
+        class _DT(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return fixed.astimezone(tz) if tz else fixed
+
+        with patch("mihomes.services.config_service.get_config", return_value=zone), \
+             patch("datetime.datetime", _DT):
+            return config_service.estate_today(object())
+
+    def test_evening_in_new_york_is_still_today(self):
+        """01:30 UTC on the 16th is 21:30 on the 15th in New York."""
+        assert self._today_at((2026, 10, 16, 1, 30), "America/New_York") == date(2026, 10, 15)
+
+    def test_morning_in_tokyo_is_already_tomorrow(self):
+        assert self._today_at((2026, 10, 15, 20, 0), "Asia/Tokyo") == date(2026, 10, 16)
+
+    def test_unknown_zone_falls_back_to_utc(self):
+        assert self._today_at((2026, 10, 16, 1, 30), "Mars/Olympus") == date(2026, 10, 16)
 
 
 def test_labels():

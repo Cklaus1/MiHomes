@@ -146,12 +146,16 @@ def _agenda_ctx(db, property_id, status, assignee_id, recurrence, view, span, da
     feeding it a pre-narrowed list would empty every day but the ones those shortcuts kept.
     `?view=agenda` in the URL selects this view even when localStorage remembers another.
     """
+    from mihomes.services.config_service import estate_today
     from mihomes.services.task_agenda import build_agenda, normalise_span
 
+    # The estate's "today", not the UTC server's — see config_service.estate_today. (The Board
+    # and List views' overdue markers still use server time; out of scope here.)
+    today = estate_today(db)
     try:
-        anchor = date.fromisoformat(date_) if date_ else date.today()
+        anchor = date.fromisoformat(date_) if date_ else today
     except ValueError:
-        anchor = date.today()
+        anchor = today
     tasks = task_svc.list_tasks(
         db,
         property_id_or_slug=str(property_id) if property_id else None,
@@ -163,7 +167,7 @@ def _agenda_ctx(db, property_id, status, assignee_id, recurrence, view, span, da
     elif recurrence == "once":
         tasks = [t for t in tasks if not t.schedule or t.schedule.frequency.value == "once"]
     return {
-        "agenda": build_agenda(tasks, normalise_span(span), anchor, date.today()),
+        "agenda": build_agenda(tasks, normalise_span(span), anchor, today),
         "agenda_tasks": tasks,
         "forced_view": "agenda" if view == "agenda" else "",
     }

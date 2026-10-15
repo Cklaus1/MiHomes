@@ -216,12 +216,13 @@ def test_the_table_scan_finds_the_tables():
     total = sum(
         len(list(_tables_with_ancestors(t.read_text(encoding="utf-8")))) for t in templates()
     )
-    # The audit measured 20. One was deleted on purpose on 2026-10-15: the settings page's raw
-    # key/value config table, replaced by labelled forms — not a table that lost its wrapper.
-    assert total >= 19, (
-        f"found only {total} tables; the audit measured 20 and one (settings config) was "
-        "removed by design. If tables were deleted rather than wrapped, A5 is passing for the "
-        "wrong reason"
+    # The audit measured 20. Two were deleted on purpose on 2026-10-15, not unwrapped: the
+    # settings page's raw key/value config table (replaced by labelled forms) and the contracts
+    # list (the Contracts page was removed; contracts live in Documents).
+    assert total >= 18, (
+        f"found only {total} tables; the audit measured 20 and two (settings config, contracts) "
+        "were removed by design. If tables were deleted rather than wrapped, A5 is passing for "
+        "the wrong reason"
     )
 
 

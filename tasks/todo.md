@@ -1,5 +1,33 @@
 # MiHomes — Project State & Next Actions
 
+## ACTIVE: Currency setting made real; weather default location removed (2026-10-15)
+
+> User: keep currency so budgets etc. follow the estate's preference; remove weather location —
+> a property with an address shows weather, one without shows none (no fallback).
+
+Findings: `currency.default` is read by nothing; 8 models default `currency="USD"`, 7 services
+default `currency: str = "USD"`; 8 templates (23 spots) print a literal `$`. The weather
+fallback appends "Atlanta, GA" to every address before geocoding and, on a miss, shows Atlanta's
+weather for that property.
+
+**Currency**
+- [ ] Jinja `money(amount, currency=None, decimals=0)` filter: symbol for USD/EUR/GBP/CAD/AUD/
+      CHF/JPY/MXN, code suffix otherwise; falls back to the estate's `currency.default`
+- [ ] Replace the 23 hard-coded `$` in assets, budget, contracts, inventory, recurring,
+      work_orders, partials/budget_report, partials/transaction_list
+- [ ] New records take the estate's currency: services' `currency` param defaults to `None` →
+      `get_config(session, "currency.default")`. Existing rows keep their stored currency
+      (no data migration — changing the setting doesn't convert old amounts)
+- [ ] Settings page note: "applies to new budgets and costs; existing amounts keep their currency"
+
+**Weather**
+- [ ] Drop `weather.default_location` from DEFAULTS, USER_SETTING_KEYS and the Preferences form
+- [ ] `get_forecast_for_property`: geocode the property's address only; no address or no match →
+      None. No appended city hint, no Atlanta fallback
+- [ ] Dashboard widget: omit properties with no forecast (no "❓" card); widget hidden when none
+- [ ] Tests: weather (no fallback, no city suffix), money filter, service currency default,
+      user settings; CSS rebuild on evo-dev; deploy; check dashboard + settings live
+
 ## ACTIVE: Settings page — user preferences, no backend config (2026-10-15)
 
 > Branch `worktree-spec-build-harness`. Decisions (user, 2026-10-15): Telegram self-linking via

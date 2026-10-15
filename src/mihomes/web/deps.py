@@ -109,6 +109,25 @@ def _time_label(t) -> str:
 templates.env.filters["time_label"] = _time_label
 
 
+def _money_filter(amount, currency=None, decimals=0):
+    """`{{ amount | money }}` or `{{ amount | money(record.currency, 2) }}` — see services/money."""
+    from mihomes.services.money import format_money
+
+    return format_money(amount, currency, decimals)
+
+
+templates.env.filters["money"] = _money_filter
+
+
+def _currency_symbol():
+    from mihomes.services.money import currency_symbol
+
+    return currency_symbol()
+
+
+templates.env.globals["currency_symbol"] = _currency_symbol
+
+
 def get_db() -> Generator[Session, None, None]:
     with get_session() as session:
         yield session
@@ -275,11 +294,21 @@ async def enforce_declared_action(
             membership = db.get(Membership, principal.membership_id)
             scope = scoped_property_ids(db, membership) if membership else frozenset()
 
+        # The estate's display currency, read once per request through this tenant-bound session
+        # so the `money` template filter needs no session of its own (services/money.py).
+        from mihomes.services.config_service import get_config
+        from mihomes.services.money import estate_currency
+
+        currency_token = estate_currency.set(get_config(db, "currency.default") or "USD")
+
         # Role and scope bind together: a request with a scope but no role would filter rows
         # while redacting nothing, which reads as "redaction is broken" rather than "the role
         # was never set".
-        with authz_context(principal.role, scope):
-            yield principal
+        try:
+            with authz_context(principal.role, scope):
+                yield principal
+        finally:
+            estate_currency.reset(currency_token)
 
 
 async def _resolve_authenticated(

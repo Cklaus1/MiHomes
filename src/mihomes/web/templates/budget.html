@@ -112,7 +112,7 @@
         {% elif e.frequency.value == 'annual' %}{% set monthly.val = monthly.val + (e.amount / 12) %}
         {% endif %}
       {% endfor %}
-      <div class="text-2xl font-bold text-gray-900">{% if monthly.val %}${{ '{:,.0f}'.format(monthly.val) }}{% else %}—{% endif %}</div>
+      <div class="text-2xl font-bold text-gray-900">{% if monthly.val %}{{ monthly.val | money }}{% else %}—{% endif %}</div>
       <div class="text-xs text-gray-500 mt-0.5">Est. Monthly</div>
     </div>
   </div>
@@ -134,7 +134,7 @@
         {% for expense in expenses %}
         <tr class="hover:bg-gray-50 cursor-pointer transition-colors" onclick="openModal('expense-modal-{{ expense.id }}')">
           <td class="px-4 py-3 font-medium text-gray-900">{{ expense.name }}</td>
-          <td class="px-4 py-3 font-medium text-gray-700">${{ '{:,.2f}'.format(expense.amount) }}</td>
+          <td class="px-4 py-3 font-medium text-gray-700">{{ expense.amount | money(expense.currency, 2) }}</td>
           <td class="px-4 py-3 hidden md:table-cell"><span class="px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">
             {% if expense.frequency.value == 'custom_weeks' %}Every {{ expense.interval_count or 1 }}wk
             {% elif expense.frequency.value == 'custom_months' %}Every {{ expense.interval_count or 1 }}mo
@@ -213,7 +213,7 @@
                 <div class="font-medium text-gray-900">{{ row.property }}</div>
                 <div class="mt-1 h-1.5 bg-gray-100 rounded-full"><div class="h-1.5 bg-brand-500 rounded-full" style="width:{{ ((row.total_spending/max_s)*100)|round(1) }}%"></div></div>
               </td>
-              <td class="px-4 py-3 text-right font-medium text-gray-900">${{ '{:,.0f}'.format(row.total_spending) }}</td>
+              <td class="px-4 py-3 text-right font-medium text-gray-900">{{ row.total_spending | money }}</td>
               <td class="px-4 py-3 text-right text-gray-400 hidden sm:table-cell">{{ row.transaction_count }}</td>
             </tr>
             {% endfor %}
@@ -253,7 +253,7 @@
                 <div class="font-medium text-gray-900">{{ row.category.replace('-',' ').title() }}</div>
                 <div class="mt-1 h-1.5 bg-gray-100 rounded-full"><div class="h-1.5 bg-brand-500 rounded-full" style="width:{{ ((row.total/max_s)*100)|round(1) }}%"></div></div>
               </td>
-              <td class="px-4 py-3 text-right font-medium text-gray-900">${{ '{:,.0f}'.format(row.total) }}</td>
+              <td class="px-4 py-3 text-right font-medium text-gray-900">{{ row.total | money }}</td>
               <td class="px-4 py-3 text-right text-gray-400 hidden sm:table-cell">{{ row.transaction_count }}</td>
             </tr>
             {% endfor %}
@@ -293,7 +293,7 @@
                 <div class="font-medium text-gray-900">{{ row.vendor }}</div>
                 <div class="mt-1 h-1.5 bg-gray-100 rounded-full"><div class="h-1.5 bg-emerald-500 rounded-full" style="width:{{ ((row.total/max_s)*100)|round(1) }}%"></div></div>
               </td>
-              <td class="px-4 py-3 text-right font-medium text-gray-900">${{ '{:,.0f}'.format(row.total) }}</td>
+              <td class="px-4 py-3 text-right font-medium text-gray-900">{{ row.total | money }}</td>
               <td class="px-4 py-3 text-right text-gray-400 hidden sm:table-cell">{{ row.transaction_count }}</td>
             </tr>
             {% endfor %}
@@ -512,7 +512,7 @@
       <div id="expense-panel-{{ expense.id }}-details" class="px-6 py-5">
         <div id="expense-view-{{ expense.id }}">
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
-            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Amount</div><div class="font-medium text-sm text-gray-800">${{ '{:,.2f}'.format(expense.amount) }}</div></div>
+            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Amount</div><div class="font-medium text-sm text-gray-800">{{ expense.amount | money(expense.currency, 2) }}</div></div>
             <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Frequency</div><div class="font-medium text-sm text-gray-800">
               {% if expense.frequency.value == 'custom_weeks' %}Every {{ expense.interval_count or 1 }} week{{ 's' if (expense.interval_count or 1) != 1 else '' }}
               {% elif expense.frequency.value == 'custom_months' %}Every {{ expense.interval_count or 1 }} month{{ 's' if (expense.interval_count or 1) != 1 else '' }}
@@ -617,7 +617,7 @@ function initSpendingCharts() {
     indexAxis: 'y', responsive: true, maintainAspectRatio: false,
     plugins: { legend: { display: false } },
     scales: {
-      x: { grid: { color: '#f3f4f6' }, ticks: { callback: v => '$' + v.toLocaleString() } },
+      x: { grid: { color: '#f3f4f6' }, ticks: { callback: v => {{ currency_symbol() | tojson }} + v.toLocaleString() } },
       y: { grid: { display: false } },
     },
   };

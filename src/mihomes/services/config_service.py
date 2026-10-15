@@ -23,8 +23,6 @@ DEFAULTS = {
     "retention.audit_years": "2",
     "retention.whatsapp_years": "1",
     "retention.ai_years": "1",
-    # weather.default_location is used for properties that have no address set
-    "weather.default_location": "Atlanta, GA",
 }
 
 
@@ -62,7 +60,6 @@ NOTIFICATION_EVENTS = {
 USER_SETTING_KEYS = (
     "currency.default",
     "locale.timezone",
-    "weather.default_location",
     "notifications.channel",
     "notifications.events",
     "notifications.quiet_start",
@@ -104,11 +101,6 @@ def validate_user_setting(key: str, value: str) -> str:
     elif key == "locale.timezone":
         if value not in timezone_choices():
             raise SettingError("Choose a time zone from the list.")
-    elif key == "weather.default_location":
-        if not value:
-            raise SettingError("Enter a location, such as a city and state.")
-        if len(value) > 120:
-            raise SettingError("Location is too long — 120 characters at most.")
     elif key == "notifications.channel":
         if value not in NOTIFICATION_CHANNELS:
             raise SettingError("Choose how notifications are sent.")

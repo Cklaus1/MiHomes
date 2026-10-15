@@ -18,7 +18,7 @@
       <td class="px-4 py-3 text-gray-500 hidden sm:table-cell">{% if txn.property %}{{ txn.property.name }}{% else %}—{% endif %}</td>
       <td class="px-4 py-3 text-gray-500 hidden md:table-cell">{{ txn.category or '—' }}</td>
       <td class="px-4 py-3 text-right font-medium {% if txn.amount < 0 %}text-red-600{% else %}text-emerald-600{% endif %}">
-        {% if txn.amount >= 0 %}+{% endif %}${{ '{:,.2f}'.format(txn.amount | abs) }}
+        {% if txn.amount >= 0 %}+{% endif %}{{ txn.amount | abs | money(txn.currency, 2) }}
       </td>
       <td class="px-4 py-3 text-gray-400 text-xs hidden md:table-cell">
         {% if txn.date %}{{ txn.date.strftime('%b %d, %Y') }}{% endif %}
@@ -57,7 +57,7 @@
         <div class="col-span-2">
           <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Amount</dt>
           <dd class="text-2xl font-bold {% if txn.amount < 0 %}text-red-600{% else %}text-emerald-600{% endif %}">
-            {% if txn.amount >= 0 %}+{% endif %}${{ '{:,.2f}'.format(txn.amount | abs) }}
+            {% if txn.amount >= 0 %}+{% endif %}{{ txn.amount | abs | money(txn.currency, 2) }}
             <span class="text-sm font-normal text-gray-400 ml-1">{{ txn.currency }}</span>
           </dd>
         </div>

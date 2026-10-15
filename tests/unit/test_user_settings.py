@@ -31,6 +31,8 @@ from mihomes.services.config_service import (
         "telegram.bot_token",
         "telegram.chat_links",
         "notifications.format",
+        # Removed 2026-10-15: weather comes from each property's own address, with no fallback.
+        "weather.default_location",
         "made.up.key",
         "",
     ],
@@ -74,19 +76,6 @@ class TestTimezone:
         assert zones == sorted(zones)
         assert "America/New_York" in zones
         assert not any(z.startswith(("Etc/", "US/")) for z in zones)
-
-
-class TestWeatherLocation:
-    def test_location_is_trimmed(self):
-        assert validate_user_setting("weather.default_location", "  Austin, TX ") == "Austin, TX"
-
-    def test_blank_location_is_refused(self):
-        with pytest.raises(SettingError):
-            validate_user_setting("weather.default_location", "   ")
-
-    def test_overlong_location_is_refused(self):
-        with pytest.raises(SettingError):
-            validate_user_setting("weather.default_location", "x" * 121)
 
 
 class TestNotifications:

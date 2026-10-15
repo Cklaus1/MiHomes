@@ -73,7 +73,7 @@
         <td class="px-4 py-3"><span class="px-2 py-0.5 rounded-full text-xs font-medium {{ status_styles.get(wo.status.value,'bg-gray-100 text-gray-600') }}">{{ status_labels.get(wo.status.value, wo.status.value) }}</span></td>
         <td class="px-4 py-3 text-gray-600 hidden md:table-cell">{{ wo.property.name if wo.property else '—' }}</td>
         <td class="px-4 py-3 text-gray-600 hidden md:table-cell">{{ wo.vendor.company_name if wo.vendor else (wo.vendor_name or '—') }}</td>
-        <td class="px-4 py-3 hidden lg:table-cell">{% if wo.actual_cost %}<div class="font-medium text-gray-800">${{ '{:,.2f}'.format(wo.actual_cost) }}</div>{% if wo.estimated_cost %}<div class="text-xs text-gray-400">Est: ${{ '{:,.2f}'.format(wo.estimated_cost) }}</div>{% endif %}{% elif wo.estimated_cost %}<span class="text-gray-500">~${{ '{:,.2f}'.format(wo.estimated_cost) }}</span>{% else %}<span class="text-gray-400">—</span>{% endif %}</td>
+        <td class="px-4 py-3 hidden lg:table-cell">{% if wo.actual_cost %}<div class="font-medium text-gray-800">{{ wo.actual_cost | money(wo.currency, 2) }}</div>{% if wo.estimated_cost %}<div class="text-xs text-gray-400">Est: {{ wo.estimated_cost | money(wo.currency, 2) }}</div>{% endif %}{% elif wo.estimated_cost %}<span class="text-gray-500">~{{ wo.estimated_cost | money(wo.currency, 2) }}</span>{% else %}<span class="text-gray-400">—</span>{% endif %}</td>
         <td class="px-4 py-3 text-gray-600 hidden lg:table-cell">{{ wo.due_date.strftime('%b %d, %Y') if wo.due_date else '—' }}</td>
       </tr>
       {% endfor %}
@@ -196,8 +196,8 @@
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
             <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Vendor</div><div class="font-medium text-sm text-gray-800">{{ wo.vendor.company_name if wo.vendor else (wo.vendor_name or '—') }}</div></div>
             <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Assignee</div><div class="font-medium text-sm text-gray-800">{{ wo.assignee.full_name if wo.assignee else '—' }}</div></div>
-            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Estimated Cost</div><div class="font-medium text-sm text-gray-800">{{ '$' + '{:,.2f}'.format(wo.estimated_cost) if wo.estimated_cost else '—' }}</div></div>
-            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Actual Cost</div><div class="font-medium text-sm {{ 'text-emerald-700' if wo.actual_cost else 'text-gray-400' }}">{{ '$' + '{:,.2f}'.format(wo.actual_cost) if wo.actual_cost else '—' }}</div></div>
+            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Estimated Cost</div><div class="font-medium text-sm text-gray-800">{{ wo.estimated_cost | money(wo.currency, 2) if wo.estimated_cost else '—' }}</div></div>
+            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Actual Cost</div><div class="font-medium text-sm {{ 'text-emerald-700' if wo.actual_cost else 'text-gray-400' }}">{{ wo.actual_cost | money(wo.currency, 2) if wo.actual_cost else '—' }}</div></div>
             <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Due Date</div><div class="font-medium text-sm text-gray-800">{{ wo.due_date.strftime('%b %d, %Y') if wo.due_date else '—' }}</div></div>
             <div class="bg-gray-50 rounded-xl p-3 col-span-2"><div class="text-xs text-gray-400 mb-0.5">Linked Issue</div>
               {% if wo.issue %}

@@ -8,6 +8,7 @@ from mihomes.models.contract import Contract
 from mihomes.models.property import Property
 from mihomes.models.vendor import Vendor
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
+from mihomes.services.money import resolve_currency
 from mihomes.services.slug import get_by_id, resolve_identifier
 from mihomes.services.update_helpers import safe_update
 
@@ -24,7 +25,7 @@ def create_contract(
     notice_period_days: int = 30,
     billing_frequency: str | None = None,
     cost: float | None = None,
-    currency: str = "USD",
+    currency: str | None = None,
     notes: str | None = None,
 ) -> Contract:
     vendor = resolve_identifier(session, Vendor, vendor_id_or_slug)
@@ -33,7 +34,8 @@ def create_contract(
         vendor_id=vendor.id, property_id=prop.id, start_date=start_date,
         end_date=end_date, service_category=service_category,
         auto_renew=auto_renew, notice_period_days=notice_period_days,
-        billing_frequency=billing_frequency, cost=cost, currency=currency, notes=notes,
+        billing_frequency=billing_frequency, cost=cost,
+        currency=resolve_currency(session, currency), notes=notes,
     )
     session.add(contract)
     session.flush()

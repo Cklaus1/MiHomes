@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from mihomes.models.insurance import InsurancePolicy, InsuranceType
 from mihomes.models.property import Property
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
+from mihomes.services.money import resolve_currency
 from mihomes.services.slug import get_by_id, resolve_identifier
 from mihomes.services.update_helpers import safe_update
 
@@ -23,7 +24,7 @@ def create_policy(
     annual_premium: float | None = None,
     renewal_date: date | None = None,
     property_id_or_slug: str | None = None,
-    currency: str = "USD",
+    currency: str | None = None,
     notes: str | None = None,
 ) -> InsurancePolicy:
     property_id = None
@@ -35,7 +36,7 @@ def create_policy(
         agent_contact=agent_contact, coverage_limit=coverage_limit,
         deductible=deductible, annual_premium=annual_premium,
         renewal_date=renewal_date, property_id=property_id,
-        currency=currency, notes=notes,
+        currency=resolve_currency(session, currency), notes=notes,
     )
     session.add(policy)
     session.flush()

@@ -87,7 +87,7 @@
             <button onclick="openPriceModal('{{ item.id }}')"
                     class="flex flex-col items-start gap-0.5 group">
               <span class="flex items-center gap-1 {% if item.unit_price %}text-gray-700 group-hover:text-brand-600{% else %}text-gray-300 group-hover:text-brand-500{% endif %} transition-colors">
-                <span class="text-sm font-medium">{% if item.unit_price %}${{ '{:,.2f}'.format(item.unit_price) }}{% else %}—{% endif %}</span>
+                <span class="text-sm font-medium">{% if item.unit_price %}{{ item.unit_price | money(none, 2) }}{% else %}—{% endif %}</span>
                 {% if item.price_entries %}
                 <span class="text-xs text-gray-400 group-hover:text-brand-400">({{ item.price_entries|length }})</span>
                 {% endif %}
@@ -406,7 +406,7 @@
       <div id="entry-view-{{ entry.id }}" class="flex items-center justify-between p-2.5 bg-white border border-gray-100 rounded-xl text-sm">
         <div class="flex-1 min-w-0">
           <div class="font-medium text-gray-800">
-            ${{ '{:,.2f}'.format(entry.price) }}
+            {{ entry.price | money(none, 2) }}
             {% if entry.quantity != 1.0 %}<span class="text-gray-400 font-normal"> × {{ entry.quantity }}</span>{% endif %}
           </div>
           <div class="text-xs text-gray-400 mt-0.5 truncate">
@@ -415,7 +415,7 @@
         </div>
         <div class="flex items-center gap-1 flex-shrink-0 ml-2">
           <div class="text-right mr-1">
-            <div class="font-semibold text-gray-900">${{ '{:,.2f}'.format(entry.price * entry.quantity) }}</div>
+            <div class="font-semibold text-gray-900">{{ (entry.price * entry.quantity) | money(none, 2) }}</div>
             {% if entry.quantity != 1.0 %}<div class="text-xs text-gray-400">total</div>{% endif %}
           </div>
           <button type="button" onclick="showEntryEdit({{ entry.id }})"

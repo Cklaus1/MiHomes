@@ -34,11 +34,14 @@
      other key. AI, retention and gateway configuration are the operator's (CLI), not here. #}
   <section class="mb-10">
     <h2 class="text-lg font-medium mb-1">Preferences</h2>
-    <p class="text-sm text-gray-500 mb-3">How amounts, times and weather are shown across the
-      estate.</p>
+    <p class="text-sm text-gray-500 mb-3">How amounts and times are shown across the estate.
+      Weather on the dashboard comes from each property's own address.</p>
     <form method="post" action="/settings" class="space-y-3">
       <div>
-        <label for="pref-currency" class="block text-sm text-gray-600 mb-1">Currency</label>
+        <label for="pref-currency" class="block text-sm text-gray-600 mb-1">
+          Currency <span class="text-gray-400">— for new budgets, costs and expenses; amounts
+            already entered keep their currency</span>
+        </label>
         <select id="pref-currency" name="currency.default" class="w-full border rounded px-3 py-2">
           {% for code, name in currencies.items() %}
             <option value="{{ code }}" {% if settings['currency.default'] == code %}selected{% endif %}>
@@ -54,14 +57,6 @@
               {{ zone.replace('_', ' ') }}</option>
           {% endfor %}
         </select>
-      </div>
-      <div>
-        <label for="pref-weather" class="block text-sm text-gray-600 mb-1">
-          Weather location <span class="text-gray-400">— used for properties without an address</span>
-        </label>
-        <input id="pref-weather" name="weather.default_location" required maxlength="120"
-               value="{{ settings['weather.default_location'] }}"
-               class="w-full border rounded px-3 py-2" />
       </div>
       <button class="bg-brand-600 text-white rounded px-4 py-2">Save preferences</button>
     </form>

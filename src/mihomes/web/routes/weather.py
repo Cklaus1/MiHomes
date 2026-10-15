@@ -74,11 +74,15 @@ def weather_widget(request: Request, db: Session = Depends(get_db)):
                 forecast = None
             if forecast:
                 break
+        # A property with no address, or one that doesn't geocode, shows no weather — it gets no
+        # card rather than a "❓" placeholder (2026-10-15).
+        if forecast is None:
+            continue
         groups.append({
             "zip": group["zip"],
             "props": group["props"],
             "forecast": forecast,
-            "icon": _icon(forecast.current.weather_code) if forecast else "❓",
+            "icon": _icon(forecast.current.weather_code),
         })
     db.commit()  # persist any cached lat/lon
 
@@ -122,14 +126,16 @@ def weather_analyze(request: Request, db: Session = Depends(get_db)):
                 forecast = None
             if forecast:
                 break
+        if forecast is None:
+            continue
         groups.append({
             "zip": group["zip"],
             "props": group["props"],
             "forecast": forecast,
-            "icon": _icon(forecast.current.weather_code) if forecast else "❓",
+            "icon": _icon(forecast.current.weather_code),
         })
 
-        if forecast is None or ai_error:
+        if ai_error:
             continue
 
         # Only generate AI tasks for the primary property in each zip group

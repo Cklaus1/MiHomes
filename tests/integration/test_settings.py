@@ -70,7 +70,7 @@ class TestSecretDetection:
 
     @pytest.mark.parametrize(
         "key",
-        ["currency.default", "ai.provider", "ai.model", "weather.default_location"],
+        ["currency.default", "ai.provider", "ai.model", "locale.timezone"],
     )
     def test_ordinary_settings_are_not_masked(self, key):
         """The negative control — masking everything would make the page useless."""
@@ -213,8 +213,7 @@ class TestUserSettingsWrite:
         client = web_client_as("owner")
         response = client.post(
             "/settings",
-            data={"currency.default": "GBP", "locale.timezone": "Europe/London",
-                  "weather.default_location": "London"},
+            data={"currency.default": "GBP", "locale.timezone": "Europe/London"},
             follow_redirects=False,
         )
         assert response.status_code == 303
@@ -472,7 +471,7 @@ class TestEncryptExistingSecrets:
         assert second == [], "a second run must convert nothing — not double-wrap"
 
     def test_it_leaves_non_secrets_alone(self, web_client_as, account_a, secret_key):
-        self._plant_legacy(web_client_as, account_a, "weather.default_location", "Ibiza")
+        self._plant_legacy(web_client_as, account_a, "locale.timezone", "Europe/Madrid")
         session = web_client_as.session_for_scope()
         assert config_service.encrypt_existing_secrets(session) == []
 

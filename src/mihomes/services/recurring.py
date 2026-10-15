@@ -9,6 +9,7 @@ from mihomes.models.property import Property
 from mihomes.models.recurring_expense import ExpenseFrequency, RecurringExpense
 from mihomes.models.vendor import Vendor
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
+from mihomes.services.money import resolve_currency
 from mihomes.services.recurrence import add_months
 from mihomes.services.slug import get_by_id, resolve_identifier
 from mihomes.services.update_helpers import safe_update
@@ -24,7 +25,7 @@ def create_recurring_expense(
     start_date: date,
     *,
     vendor_id_or_slug: str | None = None,
-    currency: str = "USD",
+    currency: str | None = None,
     end_date: date | None = None,
     notes: str | None = None,
     interval_count: int | None = None,
@@ -35,7 +36,8 @@ def create_recurring_expense(
         vendor = resolve_identifier(session, Vendor, vendor_id_or_slug)
         vendor_id = vendor.id
     expense = RecurringExpense(
-        name=name, amount=amount, currency=currency, frequency=frequency,
+        name=name, amount=amount, currency=resolve_currency(session, currency),
+        frequency=frequency,
         property_id=prop.id, vendor_id=vendor_id, category=category,
         start_date=start_date, end_date=end_date, notes=notes,
         interval_count=interval_count,

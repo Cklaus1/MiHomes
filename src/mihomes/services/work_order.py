@@ -10,6 +10,7 @@ from mihomes.models.staff import Staff
 from mihomes.models.vendor import Vendor
 from mihomes.models.work_order import WorkOrder, WorkOrderStatus
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
+from mihomes.services.money import resolve_currency
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
 from mihomes.services.update_helpers import safe_update
 
@@ -95,7 +96,7 @@ def create_work_order(
     vendor_name: str | None = None,
     assignee_id_or_slug: str | None = None,
     estimated_cost: float | None = None,
-    currency: str = "USD",
+    currency: str | None = None,
     due_date: datetime | None = None,
     slug: str | None = None,
 ) -> WorkOrder:
@@ -120,7 +121,8 @@ def create_work_order(
         property_id=prop.id, source_type=source_type, source_id=source_id,
         issue_id=issue_id,
         vendor_id=vendor_id, vendor_name=vendor_name, assignee_id=assignee_id,
-        estimated_cost=estimated_cost, currency=currency, due_date=due_date,
+        estimated_cost=estimated_cost, currency=resolve_currency(session, currency),
+        due_date=due_date,
     )
     session.add(wo)
     session.flush()

@@ -20,8 +20,9 @@ def set_budget(
     period: BudgetPeriod,
     amount: float,
     period_start: date,
-    currency: str = "USD",
+    currency: str | None = None,
 ) -> Budget:
+    from mihomes.services.money import resolve_currency
     from mihomes.services.validators import validate_positive_amount
     validate_positive_amount(amount, "Budget amount")
     prop = resolve_identifier(session, Property, property_id_or_slug)
@@ -37,7 +38,10 @@ def set_budget(
         # old==new (M6). currency changes ride along in the same audit entry.
         old_amount = existing.amount
         existing.amount = amount
-        existing.currency = currency
+        # Only an explicit currency changes it — re-saving an amount must not silently
+        # re-denominate a budget into whatever the estate default is today.
+        if currency:
+            existing.currency = currency.upper()
         session.flush()
         if old_amount != amount:
             record_change(session, "budget", existing.id, "update",
@@ -45,7 +49,8 @@ def set_budget(
         return existing
     budget = Budget(
         property_id=prop.id, category=category, period=period,
-        period_start=period_start, amount=amount, currency=currency,
+        period_start=period_start, amount=amount,
+        currency=resolve_currency(session, currency),
     )
     session.add(budget)
     session.flush()
@@ -63,12 +68,13 @@ def add_transaction(
     vendor_id_or_slug: str | None = None,
     vendor_name: str | None = None,
     description: str | None = None,
-    currency: str = "USD",
+    currency: str | None = None,
     notes: str | None = None,
     source: str = "manual",
     work_order_id: int | None = None,
     appointment_id: int | None = None,
 ) -> Transaction:
+    from mihomes.services.money import resolve_currency
     from mihomes.services.validators import validate_positive_amount
     validate_positive_amount(amount, "Transaction amount")
     prop = resolve_identifier(session, Property, property_id_or_slug)
@@ -77,7 +83,7 @@ def add_transaction(
         vendor = resolve_identifier(session, Vendor, vendor_id_or_slug)
         vendor_id = vendor.id
     tx = Transaction(
-        amount=amount, currency=currency, property_id=prop.id,
+        amount=amount, currency=resolve_currency(session, currency), property_id=prop.id,
         vendor_id=vendor_id, vendor_name=vendor_name, category=category,
         description=description, date=tx_date, source=source, notes=notes,
         work_order_id=work_order_id, appointment_id=appointment_id,

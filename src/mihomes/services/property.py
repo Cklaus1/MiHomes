@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from mihomes.models.property import Property, PropertyStatus, PropertyType
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
+from mihomes.services.money import resolve_currency
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
 from mihomes.services.update_helpers import safe_update
 from mihomes.services.validators import validate_name
@@ -155,7 +156,7 @@ def create_property(
     climate_zone: str | None = None,
     sqft: int | None = None,
     features: str | None = None,
-    currency: str = "USD",
+    currency: str | None = None,
     slug: str | None = None,
 ) -> Property:
     name = validate_name(name, "property")
@@ -170,7 +171,7 @@ def create_property(
         climate_zone=climate_zone,
         sqft=sqft,
         features=features,
-        currency=currency,
+        currency=resolve_currency(session, currency),
     )
     session.add(prop)
     session.flush()

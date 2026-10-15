@@ -41,7 +41,7 @@
       {% elif e.frequency.value == 'annual' %}{% set monthly.val = monthly.val + (e.amount / 12) %}
       {% endif %}
     {% endfor %}
-    <div class="text-2xl font-bold text-gray-900">{% if monthly.val %}${{ '{:,.0f}'.format(monthly.val) }}{% else %}—{% endif %}</div>
+    <div class="text-2xl font-bold text-gray-900">{% if monthly.val %}{{ monthly.val | money }}{% else %}—{% endif %}</div>
     <div class="text-xs text-gray-500 mt-0.5">Est. Monthly</div>
   </div>
 </div>
@@ -63,7 +63,7 @@
       {% for expense in expenses %}
       <tr class="hover:bg-gray-50 cursor-pointer transition-colors" onclick="openModal('expense-modal-{{ expense.id }}')">
         <td class="px-4 py-3 font-medium text-gray-900">{{ expense.name }}</td>
-        <td class="px-4 py-3 font-medium text-gray-700">${{ '{:,.2f}'.format(expense.amount) }}</td>
+        <td class="px-4 py-3 font-medium text-gray-700">{{ expense.amount | money(expense.currency, 2) }}</td>
         <td class="px-4 py-3 hidden md:table-cell"><span class="px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">{{ expense.frequency.value.title() }}</span></td>
         <td class="px-4 py-3 text-gray-600 hidden md:table-cell">{{ expense.property.name if expense.property else '—' }}</td>
         <td class="px-4 py-3 hidden lg:table-cell">{% if expense.category %}<span class="px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-600">{{ expense.category }}</span>{% else %}—{% endif %}</td>
@@ -187,7 +187,7 @@
         <!-- View div -->
         <div id="expense-view-{{ expense.id }}">
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
-            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Amount</div><div class="font-medium text-sm text-gray-800">${{ '{:,.2f}'.format(expense.amount) }}</div></div>
+            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Amount</div><div class="font-medium text-sm text-gray-800">{{ expense.amount | money(expense.currency, 2) }}</div></div>
             <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Frequency</div><div class="font-medium text-sm text-gray-800">{{ expense.frequency.value.title() }}</div></div>
             <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Start Date</div><div class="font-medium text-sm text-gray-800">{{ expense.start_date.strftime('%b %d, %Y') if expense.start_date else '—' }}</div></div>
             <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">End Date</div><div class="font-medium text-sm text-gray-800">{{ expense.end_date.strftime('%b %d, %Y') if expense.end_date else 'Ongoing' }}</div></div>

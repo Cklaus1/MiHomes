@@ -33,7 +33,9 @@ def add_property(
     property_type: PropertyType = typer.Option(PropertyType.OTHER, "--type", "-t", help="Property type"),
     climate_zone: Optional[str] = typer.Option(None, "--climate-zone", help="Climate zone for seasonal tasks"),
     sqft: Optional[int] = typer.Option(None, "--sqft", help="Square footage"),
-    currency: str = typer.Option("USD", "--currency", help="Default currency"),
+    currency: Optional[str] = typer.Option(
+        None, "--currency", help="Currency (default: the estate's currency setting)"
+    ),
     slug: Optional[str] = typer.Option(None, "--slug", help="Custom slug (auto-generated from name if omitted)"),
 ):
     """Add a new property."""

@@ -1,3 +1,8 @@
+{# No property has a usable address → no weather card at all (2026-10-15). The empty div keeps
+   the hx-swap target so the dashboard's loading placeholder is still replaced. #}
+{% if not groups and not result %}
+<div id="weather-widget" class="hidden"></div>
+{% else %}
 <div id="weather-widget" class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-4">
 
   <!-- Header -->
@@ -162,3 +167,4 @@
   {% endif %}
 
 </div>
+{% endif %}

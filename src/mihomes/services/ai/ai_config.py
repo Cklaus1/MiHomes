@@ -14,7 +14,7 @@ from mihomes.services.config_service import get_config
 DEFAULT_MODEL = "claude-sonnet-5"
 
 
-def get_ai_api_key(session: Session, provider: str = "claude") -> str:
+def get_ai_api_key(session: Session, provider: str = "nim") -> str:
     """Resolve API key from env then config DB. Raises AIAuthError if not found."""
     env_vars = {
         "claude": "ANTHROPIC_API_KEY",
@@ -45,7 +45,7 @@ def get_ai_provider_name(session: Session) -> str:
     return get_config(session, "ai.provider", "nim")
 
 
-def get_ai_model(session: Session, provider: str = "claude") -> str:
+def get_ai_model(session: Session, provider: str = "nim") -> str:
     """Get configured model name with sensible defaults.
 
     Checks ai.<provider>_model first, then ai.model, then built-in defaults.

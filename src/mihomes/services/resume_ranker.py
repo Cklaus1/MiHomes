@@ -26,8 +26,8 @@ def extract_text(path: Path) -> str:
             if not text:
                 raise ValueError("PDF appears to be image-only (no extractable text)")
             return text
-        except ImportError:
-            raise RuntimeError("pdfplumber not installed. Run: pip install pdfplumber")
+        except ImportError as e:
+            raise RuntimeError("pdfplumber not installed. Run: pip install pdfplumber") from e
 
     elif suffix in (".txt", ".md"):
         return path.read_text(errors="ignore").strip()
@@ -132,7 +132,7 @@ def rank_resumes(
     Returns top_n candidates ranked 1–N with scores, strengths, concerns, red flags,
     and a recommended action (phone_screen / hold / decline) for each.
     """
-    provider = get_provider("claude", api_key=api_key, entry_point="ai.resume_ranker")
+    provider = get_provider("nim", api_key=api_key, entry_point="ai.resume_ranker")
 
     # Build resume block — truncate very long resumes to ~2000 chars to manage tokens
     resume_blocks = []

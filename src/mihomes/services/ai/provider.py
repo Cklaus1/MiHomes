@@ -82,7 +82,7 @@ class AIProvider(Protocol):
 
 
 def get_provider(
-    provider_name: str = "claude",
+    provider_name: str = "nim",
     api_key: str | None = None,
     model: str | None = None,
     *,

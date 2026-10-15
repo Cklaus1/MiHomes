@@ -65,6 +65,11 @@
       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
       Priority
     </button>
+    <button id="view-btn-frequency" onclick="setView('frequency')"
+            class="view-btn px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+      Frequency
+    </button>
     <button id="view-btn-list" onclick="setView('list')"
             class="view-btn px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5">
       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
@@ -142,25 +147,9 @@
   {% endif %}
 </div>
 
-<!-- ── GROUPED VIEW (by priority) ─────────────────────────────────────── -->
-<div id="view-grouped" class="hidden space-y-4">
-  {% set pg_meta = [
-    ('urgent', 'Urgent', 'bg-red-500',    'border-red-200 bg-red-50'),
-    ('high',   'High',   'bg-orange-400', 'border-orange-200 bg-orange-50'),
-    ('medium', 'Medium', 'bg-amber-400',  'border-amber-200 bg-amber-50'),
-    ('low',    'Low',    'bg-gray-300',   'border-gray-200 bg-gray-50'),
-  ] %}
-  {% for pg_key, pg_label, dot_color, header_style in pg_meta %}
-  {% set group = priority_groups[pg_key] %}
-  {% if group %}
-  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-    <div class="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2">
-      <span class="w-2 h-2 rounded-full {{ dot_color }} flex-shrink-0"></span>
-      <span class="text-xs font-semibold text-gray-600 uppercase tracking-wide">{{ pg_label }}</span>
-      <span class="text-xs text-gray-400">{{ group|length }}</span>
-    </div>
-    <div class="divide-y divide-gray-50">
-      {% for task in group %}
+{# One task row, shared by the Priority and Frequency views so the two can't drift.
+   `show_freq=False` in the Frequency view, where the section heading already says it. #}
+{% macro group_row(task, show_freq=True) %}
       <div onclick="openModal('task-modal-{{ task.id }}')"
            class="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 cursor-pointer transition-colors">
         <div class="flex-1 min-w-0">
@@ -168,7 +157,7 @@
           <div class="flex items-center gap-3 mt-0.5">
             {% if task.id in overdue_ids %}<span class="text-xs text-red-600 font-medium">⚠ Overdue</span>{% endif %}
             {% if task.property %}<span class="text-xs text-gray-400">{{ task.property.name }}</span>{% endif %}
-            {% if task.schedule and task.schedule.frequency.value != 'once' %}<span class="text-xs text-blue-500">↻ {{ task.schedule.frequency.value.replace('_',' ').title() }}</span>{% endif %}
+            {% if show_freq and task.schedule and task.schedule.frequency.value != 'once' %}<span class="text-xs text-blue-500">↻ {{ task.schedule.frequency.value.replace('_',' ').title() }}</span>{% endif %}
           </div>
         </div>
         <div class="flex items-center gap-3 flex-shrink-0">
@@ -187,7 +176,49 @@
           </span>
         </div>
       </div>
-      {% endfor %}
+{% endmacro %}
+
+<!-- ── GROUPED VIEW (by priority) ─────────────────────────────────────── -->
+<div id="view-grouped" class="hidden space-y-4">
+  {% set pg_meta = [
+    ('urgent', 'Urgent', 'bg-red-500',    'border-red-200 bg-red-50'),
+    ('high',   'High',   'bg-orange-400', 'border-orange-200 bg-orange-50'),
+    ('medium', 'Medium', 'bg-amber-400',  'border-amber-200 bg-amber-50'),
+    ('low',    'Low',    'bg-gray-300',   'border-gray-200 bg-gray-50'),
+  ] %}
+  {% for pg_key, pg_label, dot_color, header_style in pg_meta %}
+  {% set group = priority_groups[pg_key] %}
+  {% if group %}
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2">
+      <span class="w-2 h-2 rounded-full {{ dot_color }} flex-shrink-0"></span>
+      <span class="text-xs font-semibold text-gray-600 uppercase tracking-wide">{{ pg_label }}</span>
+      <span class="text-xs text-gray-400">{{ group|length }}</span>
+    </div>
+    <div class="divide-y divide-gray-50">
+      {% for task in group %}{{ group_row(task) }}{% endfor %}
+    </div>
+  </div>
+  {% endif %}
+  {% endfor %}
+  {% if not tasks %}
+  <div class="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center text-sm text-gray-400">No tasks found.</div>
+  {% endif %}
+</div>
+
+<!-- ── FREQUENCY VIEW (grouped by how often a task repeats) ───────────── -->
+<div id="view-frequency" class="hidden space-y-4">
+  {% for fg_key, fg_label in frequency_meta %}
+  {% set group = frequency_groups[fg_key] %}
+  {% if group %}
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2">
+      <span class="text-blue-500 text-xs">{% if fg_key == 'once' %}•{% else %}↻{% endif %}</span>
+      <span class="text-xs font-semibold text-gray-600 uppercase tracking-wide">{{ fg_label }}</span>
+      <span class="text-xs text-gray-400">{{ group|length }}</span>
+    </div>
+    <div class="divide-y divide-gray-50">
+      {% for task in group %}{{ group_row(task, show_freq=False) }}{% endfor %}
     </div>
   </div>
   {% endif %}
@@ -452,7 +483,7 @@
 </div>
 
 <script>
-const VIEWS = ['board', 'grouped', 'list'];
+const VIEWS = ['board', 'grouped', 'frequency', 'list'];
 
 function setView(v) {
   localStorage.setItem('tasks_view', v);

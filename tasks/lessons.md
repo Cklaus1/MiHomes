@@ -774,3 +774,13 @@ Review this at the start of each session.
   two `router = APIRouter()`); it was caught only by grepping for the constant afterwards.
   **Rule:** use Edit with exact old/new strings for moves, and after any scripted edit diff
   the file against HEAD before doing anything else.
+
+- **"Daily, weekly, monthly" was a grouping, not a calendar.** Asked to "view tasks based on
+  daily, weekly, monthly", I built a day/week/month agenda with paging and recurring previews —
+  three commits, a timezone helper, deployed — when the user wanted tasks *categorised by their
+  repeat frequency*. My clarifying question asked "agenda or grid?", i.e. it assumed the
+  calendar reading and only offered layouts of it, so the user's answer could not catch the
+  misread. **Rule:** when a request names values that already exist as a field in the data
+  (`RecurrenceFrequency` has daily/weekly/monthly), the first reading to test is "group or filter
+  by that field". If I ask a clarifying question, make sure one option is that literal reading,
+  not only variants of my interpretation.

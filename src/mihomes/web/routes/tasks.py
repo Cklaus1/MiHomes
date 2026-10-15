@@ -18,6 +18,29 @@ from mihomes.web.deps import get_db, templates
 
 router = APIRouter()
 
+#: Frequency view sections, most frequent first; one-time last. Keys are `RecurrenceFrequency`
+#: values, so a new frequency added to the enum shows up as an unknown key and is grouped under
+#: One-time by `group_by_frequency` rather than silently dropped.
+FREQUENCY_ORDER = [
+    ("daily", "Daily"),
+    ("weekly", "Weekly"),
+    ("biweekly", "Every 2 weeks"),
+    ("monthly", "Monthly"),
+    ("quarterly", "Quarterly"),
+    ("seasonal", "Seasonal"),
+    ("annual", "Annual"),
+    ("once", "One-time"),
+]
+
+
+def group_by_frequency(tasks) -> dict[str, list]:
+    """Tasks keyed by how often they repeat. No schedule, `once`, or an unlisted frequency → `once`."""
+    groups: dict[str, list] = {key: [] for key, _ in FREQUENCY_ORDER}
+    for task in tasks:
+        freq = task.schedule.frequency.value if task.schedule else "once"
+        groups.get(freq, groups["once"]).append(task)
+    return groups
+
 
 def _ctx(
     db: Session,
@@ -72,11 +95,15 @@ def _ctx(
         "low":    [t for t in tasks if t.priority == TaskPriority.LOW],
     }
 
+    frequency_groups = group_by_frequency(tasks)
+
     return {
         "page": "tasks",
         "tasks": tasks,
         "columns": columns,
         "priority_groups": priority_groups,
+        "frequency_groups": frequency_groups,
+        "frequency_meta": FREQUENCY_ORDER,
         "properties": prop_svc.list_properties(db),
         "staff": staff_svc.list_staff(db, category="Staff"),
         "overdue_ids": overdue_ids,

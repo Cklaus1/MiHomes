@@ -1,5 +1,32 @@
 # MiHomes — Project State & Next Actions
 
+## ACTIVE: Tasks — Calendar (agenda) view by day / week / month (2026-10-15)
+
+> User: a view of tasks by daily, weekly, monthly. Decisions: agenda list (not a grid), and
+> recurring tasks show their future repeats as faded "scheduled" previews.
+
+Constraint: a recurring task exists as ONE row; the next is created only when the current one is
+completed (`_advance_recurring_task`). Previews must chain `calculate_next_due` from the task's
+due date exactly as completion does (monthly clamps: Jan 31 → Feb 28 → Mar 28), or a preview
+would sit on a date the real repeat never lands on.
+
+- [ ] `services/task_agenda.py` (pure, unit-testable): `period_bounds(span, anchor)` for
+      day / week (Mon–Sun) / month; `build_agenda(tasks, span, anchor, today)` →
+      overdue (due < today, open), one bucket per date in the period (real + preview entries),
+      unscheduled (no due date). Previews only for open recurring tasks, only dates after the
+      real due date, capped per task (daily over a month = 30 previews, no runaway)
+- [ ] Route: `GET /tasks/?view=agenda&span=week&date=YYYY-MM-DD` — span/date in the query so
+      ← / Today / → are plain links (shareable, back-button works); existing filters
+      (property, assignee, status) still apply
+- [ ] Template: 4th view button "Calendar"; Day | Week | Month toggle; ← Today → with the
+      period label; date headings (today highlighted, empty days shown in week, collapsed to
+      "nothing due" lines); preview rows faded with a "repeats" badge and no complete button;
+      real rows open the existing task modal
+- [ ] Remember last view/span in localStorage like the other views; `?view=agenda` wins
+- [ ] Tests: period bounds (month edges, week starting Monday, leap Feb), overdue/unscheduled
+      split, preview dates equal chained `calculate_next_due` (incl. Jan 31 monthly), cap,
+      completed/cancelled tasks never preview; CSS rebuild on evo-dev; deploy; check live
+
 ## ACTIVE: Currency setting made real; weather default location removed (2026-10-15)
 
 > User: keep currency so budgets etc. follow the estate's preference; remove weather location —

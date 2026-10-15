@@ -70,7 +70,109 @@
       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
       List
     </button>
+    <button id="view-btn-agenda" onclick="setView('agenda')"
+            class="view-btn px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+      Calendar
+    </button>
   </div>
+</div>
+
+<!-- ── CALENDAR (AGENDA) VIEW ──────────────────────────────────────────── -->
+{# Tasks by day / week / month (services/task_agenda.py). Period and anchor live in the URL, so
+   ← / Today / → are plain links: shareable, and the back button works. Existing filters ride
+   along on every link. #}
+{% set _keep = [] %}
+{% if filter_property %}{% set _ = _keep.append('property_id=' ~ filter_property) %}{% endif %}
+{% if filter_assignee %}{% set _ = _keep.append('assignee_id=' ~ filter_assignee) %}{% endif %}
+{% if filter_status %}{% set _ = _keep.append('status=' ~ filter_status) %}{% endif %}
+{% if filter_recurrence %}{% set _ = _keep.append('recurrence=' ~ filter_recurrence) %}{% endif %}
+{% set _qs = ('&' ~ _keep | join('&')) if _keep else '' %}
+{% macro agenda_link(span, on) %}/tasks/?view=agenda&span={{ span }}&date={{ on.isoformat() }}{{ _qs }}{% endmacro %}
+
+{% macro agenda_row(task, preview=False, show_due=False) %}
+<div class="flex items-center gap-3 px-4 py-2.5 {% if preview %}opacity-50{% else %}hover:bg-gray-50 cursor-pointer{% endif %} {% if task.status.value == 'completed' and not preview %}opacity-60{% endif %}"
+     {% if not preview %}onclick="openModal('task-modal-{{ task.id }}')"{% endif %}>
+  <span class="w-2 h-2 rounded-full flex-shrink-0
+    {% if task.priority.value == 'urgent' %}bg-red-500{% elif task.priority.value == 'high' %}bg-orange-400{% elif task.priority.value == 'medium' %}bg-yellow-400{% else %}bg-gray-300{% endif %}"></span>
+  <div class="min-w-0 flex-1">
+    <div class="text-sm font-medium text-gray-900 truncate {% if task.status.value == 'completed' and not preview %}line-through{% endif %}">{{ task.title }}</div>
+    <div class="text-xs text-gray-500 truncate">
+      {% if show_due and task.due_date %}<span class="text-red-600 font-medium">Due {{ task.due_date.strftime('%b ') ~ task.due_date.day|string }}</span>{% if task.property or task.assignee %} · {% endif %}{% endif %}{% if task.property %}{{ task.property.name }}{% endif %}{% if task.assignee %} · {{ task.assignee.name.split()[0] }}{% endif %}
+    </div>
+  </div>
+  {% if preview %}
+    <span class="text-xs text-blue-500 flex-shrink-0" title="A future repeat of this recurring task — it becomes a real task once the current one is completed">↻ repeats</span>
+  {% elif task.schedule and task.schedule.frequency.value != 'once' %}
+    <span class="text-xs text-blue-500 flex-shrink-0 hidden sm:inline">↻ {{ task.schedule.frequency.value.title() }}</span>
+  {% endif %}
+  {% if not preview %}
+  <span class="text-xs capitalize flex-shrink-0 {% if task.status.value == 'completed' %}text-emerald-600{% elif task.status.value == 'in-progress' %}text-blue-600{% else %}text-gray-400{% endif %}">{{ task.status.value.replace('-', ' ') }}</span>
+  {% endif %}
+</div>
+{% endmacro %}
+
+<div id="view-agenda" class="hidden">
+  <div class="flex flex-wrap items-center gap-2 mb-4">
+    <div class="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+      {% for s, label in [('day', 'Day'), ('week', 'Week'), ('month', 'Month')] %}
+      <a href="{{ agenda_link(s, agenda.anchor) }}"
+         class="px-3 py-1.5 rounded-md text-xs font-medium {% if agenda.span == s %}bg-white text-gray-900 shadow-sm{% else %}text-gray-500 hover:text-gray-700{% endif %}">{{ label }}</a>
+      {% endfor %}
+    </div>
+    <div class="flex items-center gap-1">
+      <a href="{{ agenda_link(agenda.span, agenda.prev_anchor) }}" aria-label="Previous"
+         class="px-2 py-1.5 rounded-md border border-gray-200 text-gray-600 hover:bg-gray-50 text-sm">←</a>
+      <a href="{{ agenda_link(agenda.span, agenda.today) }}"
+         class="px-3 py-1.5 rounded-md border border-gray-200 text-gray-600 hover:bg-gray-50 text-xs font-medium">Today</a>
+      <a href="{{ agenda_link(agenda.span, agenda.next_anchor) }}" aria-label="Next"
+         class="px-2 py-1.5 rounded-md border border-gray-200 text-gray-600 hover:bg-gray-50 text-sm">→</a>
+    </div>
+    <h2 class="text-sm font-semibold text-gray-800">{{ agenda.label }}</h2>
+  </div>
+
+  {% if agenda.overdue %}
+  <div class="bg-white rounded-xl border border-red-200 overflow-hidden mb-4">
+    <div class="px-4 py-2 bg-red-50 text-xs font-semibold text-red-700 uppercase tracking-wide">Overdue ({{ agenda.overdue | length }})</div>
+    <div class="divide-y divide-gray-50">
+      {% for task in agenda.overdue %}{{ agenda_row(task, show_due=True) }}{% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-4">
+    {% for day in agenda.days %}
+      {# Month view hides empty days so a month stays scannable; day/week show every day. #}
+      {% if day.entries or agenda.span != 'month' %}
+      <div class="{% if not loop.first %}border-t border-gray-100{% endif %}">
+        <div class="px-4 py-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide
+                    {% if day.on == agenda.today %}bg-brand-50 text-brand-700{% else %}bg-gray-50 text-gray-500{% endif %}">
+          <span>{{ day.on.strftime('%a %b ') ~ day.on.day|string }}</span>
+          {% if day.on == agenda.today %}<span class="normal-case font-medium">· Today</span>{% endif %}
+        </div>
+        {% if day.entries %}
+          <div class="divide-y divide-gray-50">
+            {% for e in day.entries %}{{ agenda_row(e.task, e.preview) }}{% endfor %}
+          </div>
+        {% else %}
+          <div class="px-4 py-2.5 text-xs text-gray-400">Nothing due</div>
+        {% endif %}
+      </div>
+      {% endif %}
+    {% endfor %}
+    {% if agenda.span == 'month' and agenda.count == 0 %}
+      <div class="px-4 py-8 text-center text-sm text-gray-400">Nothing due in {{ agenda.label }}.</div>
+    {% endif %}
+  </div>
+
+  {% if agenda.unscheduled %}
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="px-4 py-2 bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wide">No due date ({{ agenda.unscheduled | length }})</div>
+    <div class="divide-y divide-gray-50">
+      {% for task in agenda.unscheduled %}{{ agenda_row(task) }}{% endfor %}
+    </div>
+  </div>
+  {% endif %}
 </div>
 
 <!-- ── BOARD VIEW ──────────────────────────────────────────────────────── -->
@@ -263,8 +365,9 @@
   </div>
 </div>
 
-<!-- Task detail modals -->
-{% for task in tasks %}
+<!-- Task detail modals — for every task any view can open (the agenda can show tasks the
+     overdue / due-this-week shortcuts filtered out of `tasks`). -->
+{% for task in modal_tasks %}
 <div id="task-modal-{{ task.id }}"
      class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
      onclick="if(event.target===this)closeModal('task-modal-{{ task.id }}')">
@@ -452,7 +555,7 @@
 </div>
 
 <script>
-const VIEWS = ['board', 'grouped', 'list'];
+const VIEWS = ['board', 'grouped', 'list', 'agenda'];
 
 function setView(v) {
   localStorage.setItem('tasks_view', v);
@@ -467,7 +570,9 @@ function setView(v) {
 }
 
 function initTasks() {
-  setView(localStorage.getItem('tasks_view') || 'board');
+  // `?view=agenda` (from the Day/Week/Month and ←/→ links) wins over the remembered view, so
+  // paging the calendar never lands back on the board.
+  setView({{ forced_view | tojson }} || localStorage.getItem('tasks_view') || 'board');
   document.querySelectorAll('textarea[data-autoresize]').forEach(t => t.addEventListener('input', () => autoResize(t)));
 }
 initTasks();

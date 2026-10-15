@@ -58,33 +58,31 @@ def test_docs_section_has_no_inline_previewdoc_onclick():
 
 
 def test_hostile_doc_title_does_not_break_out(client):
-    """A document title with quotes must not escape into an inline onclick JS string."""
-    from datetime import date
+    """A document title with quotes must not escape into an inline onclick JS string.
 
+    Rendered through the work-orders page, which uses the same `partials/docs_section.html`.
+    (It ran through the contracts page until that page was removed, 2026-10-15.)
+    """
     from mihomes.models.document import DocumentType
-    from mihomes.services import contract as contract_svc
     from mihomes.services import document as doc_svc
-    from mihomes.services import vendor as vendor_svc
+    from mihomes.services import work_order as wo_svc
 
     with client._SessionLocal() as s:
         prop = prop_svc.create_property(s, "Doc Manor")
-        vendor = vendor_svc.create_vendor(s, "Doc Vendor", service_categories=["Plumbing"])
-        contract = contract_svc.create_contract(
-            s, vendor.slug, prop.slug, start_date=date.today()
-        )
+        wo = wo_svc.create_work_order(s, "Leaky tap", prop.slug)
         s.flush()
         doc_svc.create_document(
             s,
             title="Evil');alert(1);//",
             file_path="/static/uploads/x.png",
             document_type=DocumentType.PHOTO,
-            entity_type="contract",
-            entity_id=contract.id,
+            entity_type="work_order",
+            entity_id=wo.id,
         )
         s.commit()
 
-    # Docs render on the contracts list page.
-    resp = client.get("/contracts/")
+    # Docs render on the work orders list page.
+    resp = client.get("/work-orders/")
     assert resp.status_code == 200
     # The raw JS-breakout sequence must not appear inside an onclick handler.
     assert "onclick=\"previewDoc('Evil');alert(1);//" not in resp.text

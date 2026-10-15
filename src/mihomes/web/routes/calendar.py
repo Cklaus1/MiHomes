@@ -12,7 +12,6 @@ from mihomes.authz.actions import Access
 from mihomes.authz.declare import declares
 from mihomes.models.appointment import AppointmentType
 from mihomes.services import appointment as appt_svc
-from mihomes.services import contract as contract_svc
 from mihomes.services import event as event_svc
 from mihomes.services import property as prop_svc
 from mihomes.services import vendor as vendor_svc
@@ -177,7 +176,6 @@ def _ctx(db: Session, month_date: date, property_id: str | None = None) -> dict:
         "appointments": appointments,
         "properties": prop_svc.list_properties(db),
         "vendors": vendor_svc.list_vendors(db),
-        "contracts": contract_svc.list_contracts(db),
         "appointment_types": [(t.value, t.value.replace("_", " ").title()) for t in AppointmentType],
         "type_colors": _TYPE_COLORS,
         "event_color": _EVENT_COLOR,
@@ -267,11 +265,15 @@ def edit_appointment(
         title=title,
         date=date.fromisoformat(appt_date),
         vendor_id=vendor_id or None,
-        contract_id=contract_id or None,
         start_time=parsed_time,
         appointment_type=appointment_type,
         notes=notes or None,
     )
+    # The edit form has no contract field (and contracts are no longer created in the UI —
+    # they live in Documents since 2026-10-15). Writing `contract_id or None` here cleared an
+    # existing appointment's contract link on every edit; only change it when one is sent.
+    if contract_id:
+        kwargs["contract_id"] = contract_id
     appt_svc.update_appointment(db, appointment_id, **kwargs)
     try:
         month_date = date.fromisoformat(month + "-01") if month else date.today().replace(day=1)

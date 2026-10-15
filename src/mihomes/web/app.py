@@ -19,7 +19,6 @@ from mihomes.web.routes import (
     assets,
     books,
     budget,
-    contracts,
     dashboard,
     documents,
     documents_download,  # noqa: E402
@@ -146,7 +145,6 @@ def create_app() -> FastAPI:
     app.include_router(alerts.router, prefix="/alerts")
     app.include_router(assets.router, prefix="/assets")
     app.include_router(work_orders.router, prefix="/work-orders")
-    app.include_router(contracts.router, prefix="/contracts")
     app.include_router(recurring.router, prefix="/recurring")
     app.include_router(search.router, prefix="/search")
     app.include_router(templates_route.router, prefix="/templates")

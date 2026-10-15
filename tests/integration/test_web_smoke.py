@@ -36,7 +36,6 @@ PAGES = [
     "/alerts/",
     "/assets/",
     "/work-orders/",
-    "/contracts/",
     "/recurring/",
     "/templates/",
     "/documents/",

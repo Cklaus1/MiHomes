@@ -64,7 +64,6 @@ static tests do cover them directly.
 | `billing_cancel.html` | /billing/cancel | 57 | ☐ | ☐ | ☐ |
 | `budget.html` | /budget/ | 700 | ☐ | ☐ | ☐ |
 | `calendar.html` | /calendar/ | 423 | ☐ | ☐ | ☐ |
-| `contracts.html` | /contracts/ | 311 | ☐ | ☐ | ☐ |
 | `dashboard.html` | / | 346 | ☐ | ☐ | ☐ |
 | `documents.html` | /documents/ | 415 | ☐ | ☐ | ☐ |
 | `error.html` | — | 65 | ☐ | ☐ | ☐ |

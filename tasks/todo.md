@@ -11,22 +11,35 @@ fallback appends "Atlanta, GA" to every address before geocoding and, on a miss,
 weather for that property.
 
 **Currency**
-- [ ] Jinja `money(amount, currency=None, decimals=0)` filter: symbol for USD/EUR/GBP/CAD/AUD/
+- [x] Jinja `money(amount, currency=None, decimals=0)` filter: symbol for USD/EUR/GBP/CAD/AUD/
       CHF/JPY/MXN, code suffix otherwise; falls back to the estate's `currency.default`
-- [ ] Replace the 23 hard-coded `$` in assets, budget, contracts, inventory, recurring,
-      work_orders, partials/budget_report, partials/transaction_list
-- [ ] New records take the estate's currency: services' `currency` param defaults to `None` →
+- [x] Replace the 23 hard-coded `$` in assets, budget, contracts, inventory, recurring,
+      work_orders, partials/budget_report, partials/transaction_list (27 found in the end,
+      incl. 4 `'$' + …` forms and the budget chart axis)
+- [x] New records take the estate's currency: services' `currency` param defaults to `None` →
       `get_config(session, "currency.default")`. Existing rows keep their stored currency
       (no data migration — changing the setting doesn't convert old amounts)
-- [ ] Settings page note: "applies to new budgets and costs; existing amounts keep their currency"
+- [x] Settings page note: "applies to new budgets and costs; existing amounts keep their currency"
 
 **Weather**
-- [ ] Drop `weather.default_location` from DEFAULTS, USER_SETTING_KEYS and the Preferences form
-- [ ] `get_forecast_for_property`: geocode the property's address only; no address or no match →
+- [x] Drop `weather.default_location` from DEFAULTS, USER_SETTING_KEYS and the Preferences form
+- [x] `get_forecast_for_property`: geocode the property's address only; no address or no match →
       None. No appended city hint, no Atlanta fallback
-- [ ] Dashboard widget: omit properties with no forecast (no "❓" card); widget hidden when none
-- [ ] Tests: weather (no fallback, no city suffix), money filter, service currency default,
+- [x] Dashboard widget: omit properties with no forecast (no "❓" card); widget hidden when none
+- [x] Widget grouping: ZIP-less properties no longer pooled into one "—" group (found live)
+- [x] Tests: weather (no fallback, no city suffix), money filter, service currency default,
       user settings; CSS rebuild on evo-dev; deploy; check dashboard + settings live
+
+**Review (2026-10-15):** commits 9d2f395, 99694a8, e056265; deployed to evo-dev. Live as
+free-tester: /budget/ shows `$0` under USD and `£0` under GBP (setting restored to USD after);
+no hard-coded `$` on any money page; Settings has no weather field; junk-address test properties
+show no weather. Unit suite: 1312 passed, 71 failed — the same pre-existing 69 + 2.
+
+**OPEN — stale cached coordinates (user: leave data alone, 2026-10-15).** The old fallback wrote
+wrong lat/lon that the new code still reuses: Oak Street House (Portland OR) and Harbour View
+(Newport RI) are cached at Atlanta; Builders/Founders at downtown Atlanta; Creators near its
+spot. Fix when wanted: `UPDATE properties SET latitude=NULL, longitude=NULL WHERE …` for those
+rows — Founders and Creators then show no weather until their addresses geocode.
 
 ## ACTIVE: Settings page — user preferences, no backend config (2026-10-15)
 

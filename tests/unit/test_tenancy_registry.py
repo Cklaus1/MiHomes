@@ -258,7 +258,11 @@ def test_registry_size_is_asserted_explicitly():
     # before-we-know-whose-it-is problem at *issue* time — an owner mints the code from inside
     # their own account. Redemption reads it unscoped (§4.2's carve-out), which is a property of
     # that one lookup, not of the table.
-    assert len(TENANT_TABLES) == 50, (
-        f"expected 50 tenant-owned tables, registry has {len(TENANT_TABLES)} — "
+    #
+    # `task_completions` (0020, 2026-10-16) -> 51: one row per time a task was done. Repeating
+    # tasks now reset in place instead of spawning a COMPLETED copy, so this log is what reports
+    # and staff stats count. Tenant-scoped — a completion belongs to the account whose task it was.
+    assert len(TENANT_TABLES) == 51, (
+        f"expected 51 tenant-owned tables, registry has {len(TENANT_TABLES)} — "
         "if a table was legitimately added or removed, update this number and say why"
     )

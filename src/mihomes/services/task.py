@@ -372,6 +372,23 @@ def complete_task(
     return task, next_task
 
 
+def is_done_for_now(task: Task, today: date) -> bool:
+    """A repeating task whose current occurrence is finished and isn't due again yet.
+
+    Completing a repeating task rolls it to its next date and stores it as pending (so scheduling,
+    overdue checks and alerts all keep working), but the board shows it under **Done** until that
+    next date arrives — then it moves back to To Do on its own, with no background job (user,
+    2026-10-16). "Finished" means the latest completion is the one that rolled the task to its
+    current due date: if the date is later moved by hand, the task is due again, not done.
+    """
+    if task.status != TaskStatus.PENDING or not task.due_date or task.due_date <= today:
+        return False
+    if not task.schedule or task.schedule.frequency == RecurrenceFrequency.ONCE:
+        return False
+    latest = task.completions[0] if task.completions else None
+    return latest is not None and latest.rolled_to == task.due_date
+
+
 def archive_task(session: Session, id_or_slug: str) -> Task:
     """Clear a completed one-time task off the list. Kept, not deleted — history is unaffected."""
     task = resolve_identifier(session, Task, id_or_slug)

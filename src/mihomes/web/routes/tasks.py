@@ -54,6 +54,8 @@ def _ctx(
     form_error: str | None = None,
     form_notice: str | None = None,
 ) -> dict:
+    from mihomes.services.config_service import estate_today
+    today = estate_today(db)
     if overdue:
         tasks = task_svc.get_overdue_tasks(db)
     elif due_week:
@@ -62,9 +64,14 @@ def _ctx(
         tasks = task_svc.list_tasks(
             db,
             property_id_or_slug=str(property_id) if property_id else None,
-            status=TaskStatus(status) if status else None,
             assignee_id_or_slug=str(assignee_id) if assignee_id else None,
         )
+        # Filter on the status the user SEES: a repeating task done for this period shows as
+        # Completed (task_svc.is_done_for_now), though it is stored as pending until it's due.
+        if status:
+            def _shown(t):
+                return "completed" if task_svc.is_done_for_now(t, today) else t.status.value
+            tasks = [t for t in tasks if _shown(t) == status]
 
     # Recurrence filter
     if recurrence == "recurring":
@@ -83,10 +90,15 @@ def _ctx(
 
     # Kanban columns — exclude cancelled from board
     board_tasks = [t for t in tasks if t.status != TaskStatus.CANCELLED]
+    # A finished repeating task sits under Done until its next due date, then returns to To Do
+    # by itself (task_svc.is_done_for_now) — no job flips it; the date does.
+    done_now_ids = {t.id for t in board_tasks if task_svc.is_done_for_now(t, today)}
     columns = {
-        "pending":     [t for t in board_tasks if t.status == TaskStatus.PENDING],
+        "pending":     [t for t in board_tasks
+                        if t.status == TaskStatus.PENDING and t.id not in done_now_ids],
         "in_progress": [t for t in board_tasks if t.status == TaskStatus.IN_PROGRESS],
-        "completed":   [t for t in board_tasks if t.status == TaskStatus.COMPLETED],
+        "completed":   [t for t in board_tasks
+                        if t.status == TaskStatus.COMPLETED or t.id in done_now_ids],
     }
 
     # Priority groups for grouped view
@@ -113,6 +125,8 @@ def _ctx(
         "properties": prop_svc.list_properties(db),
         "staff": staff_svc.list_staff(db, category="Staff"),
         "overdue_ids": overdue_ids,
+        # Repeating tasks finished for this period: shown as done everywhere until due again.
+        "done_now_ids": done_now_ids,
         "priorities": [p.value for p in TaskPriority],
         "statuses": [s.value for s in TaskStatus],
         "notes_map": {t.id: note_svc.list_notes(db, f"task:{t.id}") for t in tasks},

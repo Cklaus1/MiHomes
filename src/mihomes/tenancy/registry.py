@@ -147,6 +147,7 @@ TENANT_TABLES = frozenset({
     "staff_pto_requests",
     "tag_assignments",
     "tags",
+    "task_completions",
     "task_schedules",
     "tasks",
     "template_items",

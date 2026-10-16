@@ -1,16 +1,14 @@
 """Report CLI commands — financial reporting and analytics."""
 
 import enum
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
 import typer
 from rich import box
-from rich.console import Console
 from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
-from rich.text import Text
 
 from mihomes.cli.formatters import cli_date, console, format_error
 from mihomes.db import get_session
@@ -27,26 +25,27 @@ def property_report(
 ):
     """Single property health report — tasks, issues, budget, staff, assets, and contracts."""
     from datetime import timedelta
+
     from rich.panel import Panel
-    from rich.columns import Columns
-    from mihomes.models.property import Property
-    from mihomes.models.task import Task, TaskStatus, TaskPriority
-    from mihomes.models.issue import Issue, IssueStatus, IssueSeverity
-    from mihomes.models.staff import Staff
+
+    from mihomes.cli.formatters import severity_color
     from mihomes.models.asset import Asset
-    from mihomes.models.work_order import WorkOrder, WorkOrderStatus
     from mihomes.models.contract import Contract
     from mihomes.models.insurance import InsurancePolicy
-    from mihomes.services.slug import resolve_identifier
+    from mihomes.models.issue import Issue, IssueStatus
+    from mihomes.models.property import Property
+    from mihomes.models.staff import Staff
+    from mihomes.models.task import Task, TaskStatus
+    from mihomes.models.work_order import WorkOrder, WorkOrderStatus
     from mihomes.services.budget import get_budget_report
-    from mihomes.cli.formatters import severity_color
+    from mihomes.services.slug import resolve_identifier
 
     with get_session() as session:
         try:
             prop = resolve_identifier(session, Property, id_or_slug)
         except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
         today = date.today()
         year_start = date(today.year, 1, 1)
@@ -58,7 +57,12 @@ def property_report(
         open_tasks = [t for t in all_tasks if t.status == TaskStatus.PENDING]
         overdue = [t for t in open_tasks if t.due_date and t.due_date < today]
         due_soon = [t for t in open_tasks if t.due_date and today <= t.due_date <= today + timedelta(days=14)]
-        completed_ytd = [t for t in all_tasks if t.status == TaskStatus.COMPLETED and t.updated_at and t.updated_at.date() >= year_start]
+        # Completion log — counts every time a repeating task was done, not just one-off rows.
+        from mihomes.models.task import TaskCompletion
+        completed_ytd = session.query(TaskCompletion).filter(
+            TaskCompletion.property_id == prop.id,
+            TaskCompletion.completed_at >= datetime.combine(year_start, datetime.min.time()),
+        ).all()
 
         # --- Issues ---
         open_issues = session.query(Issue).filter(
@@ -206,10 +210,10 @@ def estate_report(
 ):
     """Full estate summary — properties, tasks, issues, and budget."""
     from rich.panel import Panel
+
+    from mihomes.models.issue import Issue, IssueSeverity, IssueStatus
     from mihomes.models.property import Property
     from mihomes.models.task import Task, TaskStatus
-    from mihomes.models.issue import Issue, IssueStatus, IssueSeverity
-    from mihomes.cli.formatters import severity_color
 
     with get_session() as session:
         properties = session.query(Property).order_by(Property.name).all()
@@ -269,12 +273,14 @@ def upcoming_report(
 ):
     """Everything due in the next N days — tasks, events, renewals."""
     from datetime import timedelta
+
     from rich.table import Table
-    from mihomes.models.task import Task, TaskStatus
-    from mihomes.models.event import Event
+
     from mihomes.models.contract import Contract
+    from mihomes.models.event import Event
     from mihomes.models.insurance import InsurancePolicy
     from mihomes.models.property import Property
+    from mihomes.models.task import Task, TaskStatus
 
     cutoff = date.today() + timedelta(days=days)
     today = date.today()
@@ -295,7 +301,7 @@ def upcoming_report(
         # Tasks
         q = session.query(Task).filter(
             Task.status == TaskStatus.PENDING,
-            Task.due_date != None,
+            Task.due_date.isnot(None),
             Task.due_date <= cutoff,
         )
         if prop_filter:
@@ -319,7 +325,7 @@ def upcoming_report(
 
         # Contract renewals
         q = session.query(Contract).filter(
-            Contract.end_date != None,
+            Contract.end_date.isnot(None),
             Contract.end_date >= today,
             Contract.end_date <= cutoff,
         )
@@ -328,7 +334,7 @@ def upcoming_report(
 
         # Insurance renewals
         q = session.query(InsurancePolicy).filter(
-            InsurancePolicy.renewal_date != None,
+            InsurancePolicy.renewal_date.isnot(None),
             InsurancePolicy.renewal_date >= today,
             InsurancePolicy.renewal_date <= cutoff,
         )
@@ -356,18 +362,17 @@ def vendor_report(
     id_or_slug: str = typer.Argument(..., help="Vendor ID or slug"),
 ):
     """Vendor performance summary — work orders, ratings, spending."""
-    from rich.panel import Panel
+    from mihomes.cli.formatters import format_panel
     from mihomes.models.vendor import Vendor
     from mihomes.models.work_order import WorkOrder, WorkOrderStatus
-    from mihomes.services.slug import resolve_identifier, EntityNotFoundError
-    from mihomes.cli.formatters import format_panel
+    from mihomes.services.slug import EntityNotFoundError, resolve_identifier
 
     with get_session() as session:
         try:
             vendor = resolve_identifier(session, Vendor, id_or_slug)
         except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
         work_orders = session.query(WorkOrder).filter(WorkOrder.vendor_id == vendor.id).all()
         completed = [w for w in work_orders if w.status == WorkOrderStatus.COMPLETED]
@@ -435,7 +440,7 @@ def spending_report(
             console.print(table)
         except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
 
 @app.command("vendors")
@@ -458,7 +463,7 @@ def vendors_report(
             rows = report_svc.vendor_spending_report(session, period_start, period_end, property_id_or_slug=property)
         except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
         if not rows:
             console.print("[dim]No vendor spending found for this period.[/dim]")
@@ -527,7 +532,7 @@ def forecast_spending(
             result = report_svc.forecast(session, property, months=months)
         except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
         console.print(f"\n[bold]Spending Forecast: {escape(result['property'])}[/bold]")
         console.print(f"Historical period: {result['historical_period']}")
@@ -569,7 +574,7 @@ def weekly_report(
             data = weekly_svc.generate(session, property_slug=property)
         except ValueError as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
     if format is WeeklyFormat.markdown:
         _print_markdown(data)
@@ -599,7 +604,7 @@ def _print_terminal(data: dict) -> None:
             console.print(f"  [red]•[/red] {escape(f)}")
 
     # ── Done this week ───────────────────────────────────────────────────────
-    console.print(f"\n[bold green]✅  Done This Week[/bold green]")
+    console.print("\n[bold green]✅  Done This Week[/bold green]")
     if data["completed_tasks"] or data["resolved_issues"] or data["completed_work_orders"]:
         if data["completed_tasks"]:
             t = Table(box=box.SIMPLE, show_header=True, header_style="dim")
@@ -616,18 +621,18 @@ def _print_terminal(data: dict) -> None:
                 )
             console.print(t)
         if data["resolved_issues"]:
-            console.print(f"  [dim]Issues resolved:[/dim]")
+            console.print("  [dim]Issues resolved:[/dim]")
             for i in data["resolved_issues"]:
                 console.print(f"    • [[{i['severity']}]] {escape(i['title'])} ({escape(i['property'])})")
         if data["completed_work_orders"]:
-            console.print(f"  [dim]Work orders completed:[/dim]")
+            console.print("  [dim]Work orders completed:[/dim]")
             for w in data["completed_work_orders"]:
                 console.print(f"    • {escape(w['title'])}")
     else:
         console.print("  [dim]No completed tasks or resolved issues.[/dim]")
 
     # ── In progress ──────────────────────────────────────────────────────────
-    console.print(f"\n[bold yellow]🔨  In Progress[/bold yellow]")
+    console.print("\n[bold yellow]🔨  In Progress[/bold yellow]")
     if data["in_progress_tasks"]:
         t = Table(box=box.SIMPLE, show_header=True, header_style="dim")
         t.add_column("Task")
@@ -682,7 +687,7 @@ def _print_terminal(data: dict) -> None:
         console.print(t)
 
     # ── Upcoming ─────────────────────────────────────────────────────────────
-    console.print(f"\n[bold]📅  Upcoming (next 7 days)[/bold]")
+    console.print("\n[bold]📅  Upcoming (next 7 days)[/bold]")
     if data["upcoming_tasks"]:
         t = Table(box=box.SIMPLE, show_header=True, header_style="dim")
         t.add_column("Task")
@@ -705,7 +710,7 @@ def _print_terminal(data: dict) -> None:
         console.print("  [dim]No tasks due in the next 7 days.[/dim]")
 
     # ── Budget MTD ───────────────────────────────────────────────────────────
-    console.print(f"\n[bold]💰  Budget MTD[/bold]")
+    console.print("\n[bold]💰  Budget MTD[/bold]")
     if any(b["budgeted_mtd"] > 0 for b in data["budget"]):
         t = Table(box=box.SIMPLE, show_header=True, header_style="dim")
         t.add_column("Property", style="bold")
@@ -732,7 +737,7 @@ def _print_terminal(data: dict) -> None:
     # ── New this week ─────────────────────────────────────────────────────────
     new_count = len(data["new_issues"]) + len(data["new_work_orders"])
     if new_count:
-        console.print(f"\n[bold dim]New This Week[/bold dim]")
+        console.print("\n[bold dim]New This Week[/bold dim]")
         if data["new_issues"]:
             console.print(f"  Issues opened: {len(data['new_issues'])}")
             for i in data["new_issues"]:
@@ -840,7 +845,7 @@ def _print_15_5(data: dict) -> None:
     lines = [
         f"📍 {prop_names}",
         f"📅 Week of {monday.strftime('%b %d')} – {friday.strftime('%b %d, %Y')}",
-        f"👤 Millena",
+        "👤 Millena",
         "",
     ]
 

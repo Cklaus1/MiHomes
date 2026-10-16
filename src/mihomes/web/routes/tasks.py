@@ -194,7 +194,35 @@ def _frequency(value: str | None) -> RecurrenceFrequency:
 @router.post("/{slug}/complete", response_class=HTMLResponse)
 @declares("task.manage", Access.ITEM)
 def complete_task(request: Request, slug: str, db: Session = Depends(get_db)):
-    task_svc.complete_task(db, slug)
+    """Done. A repeating task resets in place to its next date; a one-time task is completed."""
+    try:
+        task_svc.complete_task(db, slug)
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request, "tasks.html", _ctx(db, form_error=str(exc)), status_code=400
+        )
+    return templates.TemplateResponse(request, "tasks.html", _ctx(db))
+
+
+@router.post("/{slug}/archive", response_class=HTMLResponse)
+@declares("task.manage", Access.ITEM)
+def archive_task(request: Request, slug: str, db: Session = Depends(get_db)):
+    """Clear one completed task off the list (kept in history, not deleted)."""
+    try:
+        task_svc.archive_task(db, slug)
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request, "tasks.html", _ctx(db, form_error=str(exc)), status_code=400
+        )
+    return templates.TemplateResponse(request, "tasks.html", _ctx(db))
+
+
+@router.post("/clear-completed", response_class=HTMLResponse)
+@declares("task.manage", Access.COLLECTION)
+def clear_completed(request: Request, db: Session = Depends(get_db)):
+    """Clear every completed task off the list. COLLECTION: staff clear only tasks in their scope,
+    because the query layer already narrows `Task` to their properties."""
+    task_svc.clear_completed(db)
     return templates.TemplateResponse(request, "tasks.html", _ctx(db))
 
 
@@ -218,21 +246,27 @@ def edit_task(
         due_date=date.fromisoformat(due_date) if due_date else None,
         description=description or None,
     )
-    if status:
+    # Choosing "Completed" here must do exactly what the Done button does — reset a repeating
+    # task in place, complete a one-time one. Writing the status directly skipped all of that, so
+    # it is held back and applied last, after any frequency change below takes effect.
+    complete_now = status == TaskStatus.COMPLETED.value
+    if status and not complete_now:
         kwargs["status"] = TaskStatus(status)
-    task = task_svc.update_task(db, slug, **kwargs)
-    # Only when the form sends it — a caller posting to /edit without a frequency field must not
-    # wipe the task's schedule (the slug may have changed with the title, so use the task's).
-    if recurrence is not None:
-        try:
+    try:
+        task = task_svc.update_task(db, slug, **kwargs)
+        # Only when the form sends it — a caller posting to /edit without a frequency field must
+        # not wipe the schedule (the slug may change with the title, so use the task's own).
+        if recurrence is not None:
             task_svc.set_task_frequency(
                 db, task.slug, _frequency(recurrence), season_spec.strip() or None
             )
-        except ValueError as exc:
-            db.rollback()
-            return templates.TemplateResponse(
-                request, "tasks.html", _ctx(db, form_error=str(exc)), status_code=400
-            )
+        if complete_now and task.status != TaskStatus.COMPLETED:
+            task_svc.complete_task(db, task.slug)
+    except ValueError as exc:
+        db.rollback()
+        return templates.TemplateResponse(
+            request, "tasks.html", _ctx(db, form_error=str(exc)), status_code=400
+        )
     return templates.TemplateResponse(request, "tasks.html", _ctx(db))
 
 

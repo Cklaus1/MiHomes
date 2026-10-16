@@ -99,7 +99,16 @@
     <div class="bg-gray-50 rounded-xl border border-gray-200 overflow-hidden">
       <div class="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
         <span class="text-sm font-semibold text-gray-700">{{ col_label }}</span>
-        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium {{ col_badge }}">{{ col_tasks|length }}</span>
+        <div class="flex items-center gap-2">
+          {# Only one-time tasks ever reach Done — a repeating task resets in place — so this
+             clears finished one-offs. Archived, not deleted: history and reports keep them. #}
+          {% if col_key == 'completed' and col_tasks %}
+          <button hx-post="/tasks/clear-completed" hx-target="body" hx-swap="innerHTML"
+                  hx-confirm="Clear all done tasks from the list? They stay in history."
+                  class="text-xs text-gray-500 hover:text-gray-700 underline">Clear</button>
+          {% endif %}
+          <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium {{ col_badge }}">{{ col_tasks|length }}</span>
+        </div>
       </div>
       <div class="p-3 space-y-2 min-h-[120px]">
         {% for task in col_tasks %}
@@ -312,6 +321,11 @@
           {% if task.property %}{{ task.property.name }}{% endif %}
           {% if task.due_date %} · Due {{ task.due_date.strftime('%b %d, %Y') }}{% endif %}
         </p>
+        {# A repeating task resets in place when done, so its history lives in the completion log;
+           the latest one is shown here rather than as a pile of completed copies. #}
+        {% if task.schedule and task.schedule.frequency.value != 'once' and task.completions %}
+        <p class="text-xs text-emerald-700 mt-0.5">↻ Last done {{ task.completions[0].completed_at.strftime('%b %d, %Y') }}{% if task.completions[0].completed_by %} by {{ task.completions[0].completed_by.name.split()[0] }}{% endif %}</p>
+        {% endif %}
       </div>
       <div class="flex items-center gap-2 flex-shrink-0">
         {% if task.status.value not in ('completed', 'cancelled') %}
@@ -320,6 +334,14 @@
                 class="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
           Done
+        </button>
+        {% endif %}
+        {% if task.status.value == 'completed' %}
+        <button hx-post="/tasks/{{ task.slug }}/archive"
+                hx-target="body" hx-swap="innerHTML"
+                title="Take this off the task list — it stays in history"
+                class="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-gray-600 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors">
+          Clear from list
         </button>
         {% endif %}
         <button hx-post="/tasks/{{ task.slug }}/delete"

@@ -1,6 +1,39 @@
 # MiHomes — Project State & Next Actions
 
-## ACTIVE: Tasks — group by frequency (2026-10-15)
+## ACTIVE: Tasks — repeating tasks reset in place; one-time tasks archive (2026-10-16)
+
+> User: completing a repeating task must reset it per its frequency without the list growing;
+> only one-time tasks stay under Completed until the user removes them. Decisions: late tasks
+> keep their rhythm (skip missed dates); a completion log keeps reports/staff stats counting;
+> one-time tasks are archived (hidden, kept) with a bulk "Clear completed".
+
+Found while checking: Done counted the next date from the old due date (late task → born
+overdue); the Edit form's status=completed never advanced the schedule; every completion of a
+repeating task created a new row + schedule. Consumers of COMPLETED tasks: AI estate report
+(services/ai/reports.py:238), CLI staff stats (cli/staff.py:369), CLI recent (cli/task.py:159),
+CLI report YTD (cli/report.py:61).
+
+- [ ] Migration 0020: `task_completions` (id, account_id, task_id → tasks CASCADE, property_id
+      copied from the task so it is PROPERTY_SCOPED and filterable for staff, completed_at,
+      completed_by_staff_id SET NULL, due_date, notes) + RLS + drift guard; `tasks.archived_at`.
+      TENANT_TABLES, model, ENTITY_CLASSES (scoped), models/__init__
+- [ ] `complete_task`: one-time → COMPLETED as today. Recurring → log a completion, roll the
+      SAME task's due_date forward on its rhythm until it is after the estate's today, status back
+      to pending, schedule.next_due/last_generated updated, alerts resolved, audit "completed".
+      Idempotent: a recurring task already advanced past today, or completed this period, is a
+      no-op (Telegram redelivery). Return shape stays `(task, next_or_None)` → (task, task).
+- [ ] `estate_today()` back in config_service (server is UTC)
+- [ ] Edit route: status=completed → `complete_task`, not a raw status write
+- [ ] Archive: `archive_task`, `clear_completed` (one-time COMPLETED only), list views hide
+      archived; "Clear completed" button on the board's Completed column + per-task Archive
+- [ ] Consumers count completions from `task_completions` (+ one-time COMPLETED): AI report,
+      CLI staff stats, CLI recent, CLI report YTD
+- [ ] Data: the 1 existing completed recurring copy — back up, then fold it into a completion
+      row and delete the copy (ask first)
+- [ ] Tests (unit for rolling date + idempotency; integration written); CSS on evo-dev; deploy;
+      live check on a throwaway free-tester task: Done twice = one advance; list length constant
+
+## Tasks — group by frequency (2026-10-15)
 
 > User: "I just want to see the tasks categorized by frequency." A Calendar (agenda) view was
 > built first from a misread of "daily, weekly, monthly" and has been reverted (8d64106,

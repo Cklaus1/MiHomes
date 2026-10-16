@@ -99,8 +99,12 @@ def list_tasks(
     assignee_id_or_slug: str | None = None,
     overdue: bool = False,
     category: TaskCategory | None = None,
+    include_archived: bool = False,
 ) -> list[Task]:
     query = session.query(Task)
+    if not include_archived:
+        # Completed one-time tasks the user cleared off the list (archive_task) stay in history.
+        query = query.filter(Task.archived_at.is_(None))
     if property_id_or_slug:
         prop = resolve_identifier(session, Property, property_id_or_slug)
         query = query.filter(Task.property_id == prop.id)
@@ -205,27 +209,151 @@ def update_task(session: Session, id_or_slug: str, **kwargs) -> Task:
     return task
 
 
-def complete_task(session: Session, id_or_slug: str, notes: str | None = None) -> tuple[Task, Task | None]:
-    """Complete a task and create the next occurrence if recurring.
+#: Safety bound on rolling a due date forward. A daily task overdue by years needs ~1,000 steps;
+#: this only stops a pathological schedule (one that never advances) from looping.
+_MAX_ROLL_STEPS = 5000
 
-    Returns (completed_task, next_task) where next_task is None for
-    non-recurring tasks or when no future occurrence could be calculated.
+
+def roll_forward(
+    frequency: str,
+    due: date | None,
+    today: date,
+    *,
+    climate_zone: str | None = None,
+    season_spec: str | None = None,
+) -> date | None:
+    """The next due date after `today`, keeping the task's rhythm (user decision, 2026-10-16).
+
+    Steps `calculate_next_due` from the current due date until it passes today, so a late task
+    skips the dates it missed instead of coming back already overdue: a weekly Monday task done
+    on Wednesday returns next Monday. A task with no due date starts from today. Returns None for
+    a frequency that yields no next date.
     """
+    current = due or today
+    for _ in range(_MAX_ROLL_STEPS):
+        nxt = calculate_next_due(frequency, current, climate_zone=climate_zone,
+                                 season_spec=season_spec)
+        if nxt is None or nxt <= current:
+            return None
+        if nxt > today:
+            return nxt
+        current = nxt
+    return None
+
+
+#: How recent a completion must be for a repeat "done" to count as the same click. Long enough to
+#: absorb a redelivered gateway message; short enough that finishing the next occurrence early,
+#: on a later visit, is never mistaken for a duplicate.
+_DUPLICATE_WINDOW = timedelta(minutes=10)
+
+
+def _is_duplicate_done(session: Session, task: Task, now: datetime) -> bool:
+    """True when a completion moments ago already rolled the task to its current due date.
+
+    Each completion stores the due date it rolled the task TO (`rolled_to`). A second "done" for
+    that same occurrence — a double-click, or a redelivered Telegram message — finds the task's
+    due date still equal to `rolled_to` and the completion only seconds old. Finishing the next
+    occurrence early on a later visit falls outside the window and is allowed.
+    """
+    from mihomes.models.task import TaskCompletion
+
+    last = (
+        session.query(TaskCompletion)
+        .filter(TaskCompletion.task_id == task.id)
+        .order_by(TaskCompletion.completed_at.desc())
+        .first()
+    )
+    return (
+        last is not None
+        and last.rolled_to is not None
+        and last.rolled_to == task.due_date
+        and now - last.completed_at < _DUPLICATE_WINDOW
+    )
+
+
+def complete_task(
+    session: Session,
+    id_or_slug: str,
+    notes: str | None = None,
+    completed_by_staff_id=None,
+) -> tuple[Task, Task | None]:
+    """Mark a task done.
+
+    - **One-time** task: status COMPLETED, as before. It stays on the list until archived.
+    - **Repeating** task: the SAME row resets in place — due date rolls forward on its rhythm to
+      the next date after the estate's today, status back to pending. No new row, so the list
+      never grows. Each completion is recorded in `task_completions` (reports, staff stats).
+
+    Returns `(task, next_task)`; for a repeating task both are the same, reset row — callers that
+    read `next_task.due_date` keep working. **Idempotent for repeating tasks**: a task already
+    rolled past today (e.g. a redelivered Telegram "done") is returned unchanged, not advanced a
+    second time.
+    """
+    from mihomes.models.task import TaskCompletion
+    from mihomes.services.config_service import estate_today
+
     task = resolve_identifier(session, Task, id_or_slug)
     if task.status in (TaskStatus.COMPLETED, TaskStatus.CANCELLED):
         raise ValueError(f"Task is already {task.status.value}. Cannot complete again.")
-    old_snap = snapshot_instance(task)
 
-    task.status = TaskStatus.COMPLETED
-    task.completed_at = datetime.now(timezone.utc)
-    task.completion_notes = notes
+    recurring = bool(task.schedule) and task.schedule.frequency != RecurrenceFrequency.ONCE
+    today = estate_today(session)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    if recurring and _is_duplicate_done(session, task, now):
+        # A completion moments ago already advanced this occurrence (double-click, or a
+        # redelivered Telegram "done"). Advancing again would skip one ahead.
+        return task, task
+
+    old_snap = snapshot_instance(task)
+    completed_due = task.due_date
+
+    completion = TaskCompletion(
+        task_id=task.id,
+        property_id=task.property_id,
+        completed_by_staff_id=completed_by_staff_id or task.assignee_id,
+        completed_at=now,
+        due_date=completed_due,
+        notes=notes,
+    )
+    session.add(completion)
+
+    next_task = None
+    if recurring:
+        schedule = task.schedule
+        next_due = roll_forward(
+            schedule.frequency.value, task.due_date, today,
+            climate_zone=task.property.climate_zone, season_spec=schedule.season_spec,
+        )
+        if next_due is None:
+            # A schedule that yields no next date (e.g. seasonal with an unknown season) ends
+            # like a one-time task rather than silently staying open.
+            task.status = TaskStatus.COMPLETED
+            task.completed_at = now
+            task.completion_notes = notes
+        else:
+            task.due_date = next_due
+            completion.rolled_to = next_due
+            task.status = TaskStatus.PENDING
+            task.completed_at = None
+            task.completion_notes = notes
+            schedule.next_due = roll_forward(
+                schedule.frequency.value, next_due, next_due,
+                climate_zone=task.property.climate_zone, season_spec=schedule.season_spec,
+            )
+            schedule.last_generated = today
+            next_task = task
+    else:
+        task.status = TaskStatus.COMPLETED
+        task.completed_at = now
+        task.completion_notes = notes
     session.flush()
 
-    new_snap = snapshot_instance(task)
-    changes = diff_instance(old_snap, new_snap)
+    changes = diff_instance(old_snap, snapshot_instance(task))
+    changes["completed"] = {"old": None, "new": str(completed_due) if completed_due else "done"}
     record_change(session, "task", task.id, "update", changes)
 
-    # Auto-resolve any alerts for this task
+    # Auto-resolve any alerts for this task — the occurrence they were about is done.
     from mihomes.models.alert import Alert, AlertStatus
     stale_alerts = session.query(Alert).filter(
         Alert.source_entity_type == "task",
@@ -237,63 +365,33 @@ def complete_task(session: Session, id_or_slug: str, notes: str | None = None) -
     if stale_alerts:
         session.flush()
 
-    # Advance recurring task
-    next_task = None
-    if task.schedule and task.schedule.frequency != RecurrenceFrequency.ONCE:
-        next_task = _advance_recurring_task(session, task)
-
     return task, next_task
 
 
-def _advance_recurring_task(session: Session, completed_task: Task) -> Task | None:
-    """Create the next occurrence of a recurring task."""
-    schedule = completed_task.schedule
-    current_due = completed_task.due_date or date.today()
+def archive_task(session: Session, id_or_slug: str) -> Task:
+    """Clear a completed one-time task off the list. Kept, not deleted — history is unaffected."""
+    task = resolve_identifier(session, Task, id_or_slug)
+    if task.status != TaskStatus.COMPLETED:
+        raise ValueError("Only completed tasks can be cleared from the list.")
+    if task.archived_at is None:
+        task.archived_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        session.flush()
+        record_change(session, "task", task.id, "update", {"archived": {"old": False, "new": True}})
+    return task
 
-    prop = completed_task.property
-    next_due = calculate_next_due(
-        schedule.frequency.value,
-        current_due,
-        climate_zone=prop.climate_zone,
-        season_spec=schedule.season_spec,
+
+def clear_completed(session: Session, property_id_or_slug: str | None = None) -> int:
+    """Archive every completed, not-yet-archived task. Returns how many were cleared."""
+    q = session.query(Task).filter(
+        Task.status == TaskStatus.COMPLETED, Task.archived_at.is_(None)
     )
-
-    if next_due is None:
-        return None
-
-    # Create new task for next occurrence
-    new_slug = ensure_unique_slug(session, Task, generate_slug(completed_task.title))
-    new_task = Task(
-        title=completed_task.title,
-        slug=new_slug,
-        description=completed_task.description,
-        property_id=completed_task.property_id,
-        assignee_id=completed_task.assignee_id,
-        priority=completed_task.priority,
-        due_date=next_due,
-        category=completed_task.category,
-        zone_id=completed_task.zone_id,
-    )
-    session.add(new_task)
-    session.flush()
-
-    # Create new schedule
-    new_schedule = TaskSchedule(
-        task_id=new_task.id,
-        frequency=schedule.frequency,
-        season_spec=schedule.season_spec,
-        next_due=calculate_next_due(
-            schedule.frequency.value, next_due,
-            climate_zone=prop.climate_zone,
-            season_spec=schedule.season_spec,
-        ),
-        last_generated=date.today(),
-    )
-    session.add(new_schedule)
-    session.flush()
-
-    record_change(session, "task", new_task.id, "create", snapshot_instance(new_task))
-    return new_task
+    if property_id_or_slug:
+        prop = resolve_identifier(session, Property, property_id_or_slug)
+        q = q.filter(Task.property_id == prop.id)
+    tasks = q.all()
+    for task in tasks:
+        archive_task(session, task.slug)
+    return len(tasks)
 
 
 def get_upcoming_tasks(

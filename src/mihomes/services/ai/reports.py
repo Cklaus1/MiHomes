@@ -233,15 +233,16 @@ def generate_estate_digest(
 
     # Tasks
     try:
-        from mihomes.models.task import Task, TaskStatus
-        q_done = session.query(Task).filter(
-            Task.status == TaskStatus.COMPLETED,
-            Task.updated_at >= start_dt,
-            Task.updated_at <= end_dt,
+        from mihomes.models.task import Task, TaskCompletion, TaskStatus
+        # From the completion log, not COMPLETED rows: a repeating task resets in place when done
+        # (0020), so it is never COMPLETED and would otherwise vanish from "completed this week".
+        q_done = session.query(TaskCompletion).filter(
+            TaskCompletion.completed_at >= start_dt.replace(tzinfo=None),
+            TaskCompletion.completed_at <= end_dt.replace(tzinfo=None),
         )
         if prop_filter:
-            q_done = q_done.filter(Task.property_id == prop_filter.id)
-        tasks_done = q_done.all()
+            q_done = q_done.filter(TaskCompletion.property_id == prop_filter.id)
+        tasks_done = q_done.order_by(TaskCompletion.completed_at.desc()).all()
 
         q_overdue = session.query(Task).filter(
             Task.status.notin_([TaskStatus.COMPLETED, TaskStatus.CANCELLED]),
@@ -254,9 +255,10 @@ def generate_estate_digest(
         lines.append("\n### Tasks")
         if tasks_done:
             lines.append(f"Completed this period ({len(tasks_done)}):")
-            for t in tasks_done[:20]:
-                assignee = t.assignee.name if t.assignee else "unassigned"
-                lines.append(f"  - {t.title} @ {t.property.name} — {assignee}")
+            for c in tasks_done[:20]:
+                who = c.completed_by.name if c.completed_by else "unassigned"
+                lines.append(f"  - {c.task.title} @ {c.task.property.name} — {who}"
+                             f" ({c.completed_at.strftime('%b %d')})")
         else:
             lines.append("  No tasks completed this period.")
         if tasks_overdue:

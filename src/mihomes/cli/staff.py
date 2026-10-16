@@ -34,7 +34,7 @@ def add_staff(
             format_success(f"Staff '{member.name}' added (slug: {member.slug})")
         except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
 
 @app.command("list")
@@ -64,14 +64,15 @@ def list_staff(
 def show_staff(id_or_slug: str = typer.Argument(..., help="Staff ID or slug")):
     """Show staff member details and assigned tasks."""
     import datetime
-    from mihomes.models.task import Task, TaskStatus
+
     from mihomes.cli.formatters import severity_color as priority_color
+    from mihomes.models.task import Task, TaskStatus
     with get_session() as session:
         try:
             member = staff_svc.get_staff(session, id_or_slug)
         except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
         content = {
             "ID": str(member.id),
             "Slug": member.slug,
@@ -138,7 +139,7 @@ def edit_staff(
             format_success(f"Staff '{member.name}' updated")
         except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
 
 @app.command("delete")
@@ -152,7 +153,7 @@ def delete_staff(
             member = staff_svc.get_staff(session, id_or_slug)
         except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
         if not force:
             typer.confirm(f"Delete staff member '{member.name}'?", abort=True)
         name = staff_svc.delete_staff(session, id_or_slug)
@@ -171,7 +172,7 @@ def assign_staff(
             format_success(f"'{member.name}' assigned to property")
         except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
 
 @app.command("schedule")
@@ -180,9 +181,9 @@ def staff_schedule(
     property: Optional[str] = typer.Option(None, "--property", "-p", help="Filter by property"),
 ):
     """Show assigned tasks for staff, grouped by person."""
-    from mihomes.models.task import Task, TaskStatus
-    from mihomes.models.property import Property
     from mihomes.cli.formatters import severity_color as priority_color
+    from mihomes.models.property import Property
+    from mihomes.models.task import Task, TaskStatus
     with get_session() as session:
         members = staff_svc.list_staff(session)
         if id_or_slug:
@@ -190,7 +191,7 @@ def staff_schedule(
                 members = [staff_svc.get_staff(session, id_or_slug)]
             except Exception as e:
                 format_error(str(e))
-                raise typer.Exit(1)
+                raise typer.Exit(1) from None
 
         if property:
             prop_obj = session.query(Property).filter(
@@ -248,13 +249,12 @@ def pto_balance(
 ):
     """Show PTO history and days used for a staff member."""
     from mihomes.services.staff_pto import get_pto_balance
-    from mihomes.models.staff_pto import PTOStatus
     with get_session() as session:
         try:
             data = get_pto_balance(session, id_or_slug)
         except Exception as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
         staff = data["staff"]
         console.print(f"\n[bold]{esc(staff.name)}[/bold] — PTO {data['year']}")
@@ -288,8 +288,8 @@ def pto_requests(
     status: Optional[str] = typer.Option(None, "--status", "-s", help="Filter: pending, approved, denied"),
 ):
     """List all PTO requests across all staff."""
-    from mihomes.services.staff_pto import list_pto_requests
     from mihomes.models.staff_pto import PTOStatus
+    from mihomes.services.staff_pto import list_pto_requests
     with get_session() as session:
         status_filter = PTOStatus(status) if status else None
         requests = list_pto_requests(session, status=status_filter)
@@ -327,7 +327,7 @@ def pto_approve(
             format_success(f"PTO approved for {req.staff.name} — {', '.join(req.dates)}")
         except Exception as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
 
 @app.command("pto-deny")
@@ -344,7 +344,7 @@ def pto_deny(
             format_success(f"PTO denied for {req.staff.name} — {', '.join(req.dates)}")
         except Exception as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
 
 @app.command("workload")
@@ -366,7 +366,10 @@ def staff_workload():
         for m in members:
             pending = session.query(Task).filter(Task.assignee_id == m.id, Task.status == TaskStatus.PENDING).count()
             in_prog = session.query(Task).filter(Task.assignee_id == m.id, Task.status == TaskStatus.IN_PROGRESS).count()
-            done = session.query(Task).filter(Task.assignee_id == m.id, Task.status == TaskStatus.COMPLETED).count()
+            # Completion log, not COMPLETED rows — repeating tasks reset in place when done.
+            from mihomes.models.task import TaskCompletion
+            done = session.query(TaskCompletion).filter(
+                TaskCompletion.completed_by_staff_id == m.id).count()
             props = ", ".join(p.name for p in m.properties) or "-"
             table.add_row(esc(m.name), format_enum(m.role), str(pending), str(in_prog), str(done), esc(props))
         console.print(table)

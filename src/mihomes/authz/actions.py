@@ -299,7 +299,7 @@ def _entity_classes() -> dict[type, EntityClass]:
     from mihomes.models.staff import Staff
     from mihomes.models.staff_pto import StaffPTORequest
     from mihomes.models.tag import Tag, TagAssignment
-    from mihomes.models.task import Task, TaskSchedule
+    from mihomes.models.task import Task, TaskCompletion, TaskSchedule
     from mihomes.models.telegram_link import TelegramLink
     from mihomes.models.template import Template, TemplateItem
     from mihomes.models.user import User
@@ -316,6 +316,8 @@ def _entity_classes() -> dict[type, EntityClass]:
         # Property-scoped — §4.1's own list, plus the child and event-adjacent tables it omits.
         Task: scoped,
         TaskSchedule: scoped,
+        # Carries its own property_id (0020), so the query-scope filter reaches it directly.
+        TaskCompletion: scoped,
         Issue: scoped,
         WorkOrder: scoped,
         Asset: scoped,

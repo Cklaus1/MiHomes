@@ -111,12 +111,15 @@ class TestTaskRecurrence:
                         recurrence=RecurrenceFrequency.SEASONAL, season_spec="spring,fall")
         assert t.schedule.season_spec == "spring,fall"
 
-        completed, _ = complete_task(session, str(t.id))
-        next_task = session.query(Task).filter(
-            Task.property_id == p.id, Task.status == TaskStatus.PENDING
-        ).first()
-        assert next_task is not None
-        assert next_task.due_date == date(2026, 9, 1)  # Fall for northeast
+        completed, next_task = complete_task(session, str(t.id))
+        # Resets in place (2026-10-16) and keeps its rhythm: a spring task completed after the
+        # fall date has passed skips to the next season after today, not a missed one.
+        from mihomes.services.config_service import estate_today
+        from mihomes.services.task import roll_forward
+        assert next_task is t and t.status == TaskStatus.PENDING
+        assert t.due_date == roll_forward("seasonal", date(2026, 3, 1), estate_today(session),
+                                          season_spec="spring,fall")
+        assert t.due_date > estate_today(session)
 
     def test_double_complete_rejected(self, session):
         from mihomes.services.task import complete_task, create_task

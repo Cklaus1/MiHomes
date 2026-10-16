@@ -13,25 +13,40 @@ repeating task created a new row + schedule. Consumers of COMPLETED tasks: AI es
 (services/ai/reports.py:238), CLI staff stats (cli/staff.py:369), CLI recent (cli/task.py:159),
 CLI report YTD (cli/report.py:61).
 
-- [ ] Migration 0020: `task_completions` (id, account_id, task_id → tasks CASCADE, property_id
+- [x] Migration 0020: `task_completions` (id, account_id, task_id → tasks CASCADE, property_id
       copied from the task so it is PROPERTY_SCOPED and filterable for staff, completed_at,
       completed_by_staff_id SET NULL, due_date, notes) + RLS + drift guard; `tasks.archived_at`.
       TENANT_TABLES, model, ENTITY_CLASSES (scoped), models/__init__
-- [ ] `complete_task`: one-time → COMPLETED as today. Recurring → log a completion, roll the
+- [x] `complete_task`: one-time → COMPLETED as today. Recurring → log a completion, roll the
       SAME task's due_date forward on its rhythm until it is after the estate's today, status back
       to pending, schedule.next_due/last_generated updated, alerts resolved, audit "completed".
       Idempotent: a recurring task already advanced past today, or completed this period, is a
       no-op (Telegram redelivery). Return shape stays `(task, next_or_None)` → (task, task).
-- [ ] `estate_today()` back in config_service (server is UTC)
-- [ ] Edit route: status=completed → `complete_task`, not a raw status write
-- [ ] Archive: `archive_task`, `clear_completed` (one-time COMPLETED only), list views hide
+- [x] `estate_today()` back in config_service (server is UTC)
+- [x] Edit route: status=completed → `complete_task`, not a raw status write
+- [x] Archive: `archive_task`, `clear_completed` (one-time COMPLETED only), list views hide
       archived; "Clear completed" button on the board's Completed column + per-task Archive
-- [ ] Consumers count completions from `task_completions` (+ one-time COMPLETED): AI report,
+- [x] Consumers count completions from `task_completions` (+ one-time COMPLETED): AI report,
       CLI staff stats, CLI recent, CLI report YTD
-- [ ] Data: the 1 existing completed recurring copy — back up, then fold it into a completion
-      row and delete the copy (ask first)
-- [ ] Tests (unit for rolling date + idempotency; integration written); CSS on evo-dev; deploy;
+- [x] Data: the 1 existing completed recurring copy — back up, then fold it into a completion
+      row and delete the copy (ask first) — user chose this; done 2026-10-16
+- [x] Tests (unit for rolling date + idempotency; integration written); CSS on evo-dev; deploy;
       live check on a throwaway free-tester task: Done twice = one advance; list length constant
+- [x] (advisor) 0020 index for `TenantOwned.account_id`; deploy order pull→backup→migrate→restart;
+      "Done — next due" confirmation; clear gcal_event_id on reset
+
+**Review (2026-10-16):** eb473af, f78fd69, 6c399ce, a9dca3b. evo-dev: pg_dump backup, then
+0019→0020; task_completions has RLS+FORCE, 1 policy, 3 drift-guard triggers, 4 indexes;
+`alembic check` = no drift. Live (free-tester, throwaway tasks, read by task id): a late daily task
+Done → due tomorrow, 1 completion; Done again → unchanged, still 1; task count constant; "Last
+done" renders; one-time Done → COMPLETED, Clear → archived, off the list, row kept; Edit
+"Completed" + weekly→daily → due tomorrow on DAILY with the confirmation. Default /tasks/ renders.
+Unit suite 1341 passed / 70 failed, all pre-existing. The old "Property check" copy folded into
+task_completions and deleted (backup pre-fold-copy-20261016-192354.sql).
+
+Known limits: "Last done by" shows the assignee, not who clicked (no clicker identity is passed);
+the duplicate guard is 10 minutes, so a gateway redelivery hours later would advance again;
+integration tests written but not run (no TEST_DATABASE_URL).
 
 ## Tasks — group by frequency (2026-10-15)
 

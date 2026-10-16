@@ -334,6 +334,10 @@ def complete_task(
         else:
             task.due_date = next_due
             completion.rolled_to = next_due
+            # The calendar event (if any) was for the occurrence just done. Each occurrence used
+            # to be a new row with no event id, so calendar sync pushed every one; clearing it
+            # keeps that, now that the row is reused.
+            task.gcal_event_id = None
             task.status = TaskStatus.PENDING
             task.completed_at = None
             task.completion_notes = notes

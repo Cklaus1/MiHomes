@@ -51,6 +51,11 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["completed_by_staff_id"], ["staff.id"], ondelete="SET NULL"),
         sa.PrimaryKeyConstraint("id"),
     )
+    # `TenantOwned.account_id` is declared `index=True`, so the model expects this single-column
+    # index too (0009 creates its counterpart the same way).
+    op.create_index(
+        op.f("ix_task_completions_account_id"), "task_completions", ["account_id"], unique=False
+    )
     op.create_index(
         "ix_task_completions_account_task", "task_completions", ["account_id", "task_id"]
     )
@@ -74,5 +79,6 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index("ix_task_completions_account_completed", table_name="task_completions")
     op.drop_index("ix_task_completions_account_task", table_name="task_completions")
+    op.drop_index(op.f("ix_task_completions_account_id"), table_name="task_completions")
     op.drop_table("task_completions")
     op.drop_column("tasks", "archived_at")

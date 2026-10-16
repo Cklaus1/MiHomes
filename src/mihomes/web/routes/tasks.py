@@ -52,6 +52,7 @@ def _ctx(
     sort: str | None = None,
     recurrence: str | None = None,
     form_error: str | None = None,
+    form_notice: str | None = None,
 ) -> dict:
     if overdue:
         tasks = task_svc.get_overdue_tasks(db)
@@ -108,6 +109,7 @@ def _ctx(
         # Form options in the same order as the Frequency view, one-time first for the default.
         "frequency_options": [FREQUENCY_ORDER[-1]] + FREQUENCY_ORDER[:-1],
         "form_error": form_error,
+        "form_notice": form_notice,
         "properties": prop_svc.list_properties(db),
         "staff": staff_svc.list_staff(db, category="Staff"),
         "overdue_ids": overdue_ids,
@@ -196,12 +198,22 @@ def _frequency(value: str | None) -> RecurrenceFrequency:
 def complete_task(request: Request, slug: str, db: Session = Depends(get_db)):
     """Done. A repeating task resets in place to its next date; a one-time task is completed."""
     try:
-        task_svc.complete_task(db, slug)
+        task, next_task = task_svc.complete_task(db, slug)
     except ValueError as exc:
         return templates.TemplateResponse(
             request, "tasks.html", _ctx(db, form_error=str(exc)), status_code=400
         )
-    return templates.TemplateResponse(request, "tasks.html", _ctx(db))
+    return templates.TemplateResponse(
+        request, "tasks.html", _ctx(db, form_notice=_done_notice(task, next_task))
+    )
+
+
+def _done_notice(task, next_task) -> str:
+    """Confirmation after Done. A repeating task stays on the board with a new date, so without
+    this it looks as if nothing happened — and the natural reaction is to click again."""
+    if next_task is not None and next_task.due_date:
+        return f"“{task.title}” done — next due {next_task.due_date.strftime('%b %d')}."
+    return f"“{task.title}” done."
 
 
 @router.post("/{slug}/archive", response_class=HTMLResponse)
@@ -252,6 +264,7 @@ def edit_task(
     complete_now = status == TaskStatus.COMPLETED.value
     if status and not complete_now:
         kwargs["status"] = TaskStatus(status)
+    notice = None
     try:
         task = task_svc.update_task(db, slug, **kwargs)
         # Only when the form sends it — a caller posting to /edit without a frequency field must
@@ -261,13 +274,14 @@ def edit_task(
                 db, task.slug, _frequency(recurrence), season_spec.strip() or None
             )
         if complete_now and task.status != TaskStatus.COMPLETED:
-            task_svc.complete_task(db, task.slug)
+            done, nxt = task_svc.complete_task(db, task.slug)
+            notice = _done_notice(done, nxt)
     except ValueError as exc:
         db.rollback()
         return templates.TemplateResponse(
             request, "tasks.html", _ctx(db, form_error=str(exc)), status_code=400
         )
-    return templates.TemplateResponse(request, "tasks.html", _ctx(db))
+    return templates.TemplateResponse(request, "tasks.html", _ctx(db, form_notice=notice))
 
 
 @router.post("/{slug}/delete", response_class=HTMLResponse)

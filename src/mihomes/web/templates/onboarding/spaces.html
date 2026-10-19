@@ -8,7 +8,11 @@
   {# A18: skipping is a FIRST-CLASS PATH, so Skip is a real button of equal weight, not a
      greyed-out escape hatch tucked under the primary action. #}
   <div class="flex gap-3">
-    <a href="/assets" class="bg-brand-600 text-white rounded px-4 py-2">Add rooms</a>
+    {# A form, not a link: leaving to add rooms records the step, or the wizard is stranded. #}
+    <form method="post" action="/onboarding/leave">
+      <input type="hidden" name="step" value="{{ step }}" />
+      <button class="bg-brand-600 text-white rounded px-4 py-2">Add rooms</button>
+    </form>
     <form method="post" action="/onboarding/skip">
       <input type="hidden" name="step" value="{{ step }}" />
       <button class="border rounded px-4 py-2">Skip for now</button>

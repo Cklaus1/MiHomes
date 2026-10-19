@@ -1,5 +1,57 @@
 # MiHomes — Project State & Next Actions
 
+## ACTIVE: Onboarding — "Getting started" checklist on the dashboard (2026-10-19)
+
+> User: after signup the wizard showed steps, but after creating a room no further suggested
+> steps ever appeared. Wants a better first-run experience (option 2 of 3 offered).
+
+Root cause: the wizard (`/onboarding/`) is one-way. "Add rooms" / "Invite someone" are plain
+links out of it that record nothing, creating a room never marks step 4, and nothing ever routes
+a member back to `/onboarding/` — so the account sits at `completed_steps=[2,3]` forever, and the
+dashboard has no follow-up surface at all.
+
+Branch: `worktree-onboarding-checklist` off `worktree-spec-build-harness` (the live evo-dev code).
+
+- [x] `onboarding_service.checklist(session, account_id)` — read-only, items derived from real
+      rows (ground truth, like the mandatory steps): Add your first home (Property) · Add rooms
+      (Space) · Create a task (Task) · Add a vendor or staff member (Vendor|Staff) · Upload a
+      document (Document) · Invite your team (Invite or >1 membership). Each item: key, title,
+      one-line why, href, done.
+- [x] `current_step`: step 4 counts as done when a Space exists, step 5 when an Invite exists
+      (a row is unambiguous completion; absence stays ambiguous, so `completed_steps` still
+      rules there). Un-sticks existing mid-wizard accounts.
+- [x] Wizard exits record progress: `POST /onboarding/leave` — "Add rooms" marks step 4 then
+      goes to /assets; "Invite someone" finishes the wizard then goes to /team. Destination is
+      fixed per step (no `next` param → no open redirect).
+- [x] Dismiss: `STEP_CHECKLIST_DISMISSED = 7` sentinel in `completed_steps` + `POST
+      /getting-started/dismiss` (no migration; `current_step` ignores 7). Declared
+      `property.add`/ACCOUNT, not `Access.SESSION` — the session exemption is pinned small.
+- [x] Dashboard: card above the stat row, "Getting started · N of 6", progress bar, each item
+      ticks itself; shown only to owner/admin, only when an onboarding_state row exists (i.e.
+      accounts that came through signup — existing estates like Belle never see it), not
+      dismissed, and not all done. GET never writes (`db.get`, not `get_state`).
+- [x] Tests: `tests/integration/test_onboarding_checklist.py` (15) — derivation, step-4/5
+      inference, exits, dismiss (owner ok / staff 403), visibility (owner / staff / no-row).
+- [x] `build:css` + `stamp`; full suite — see review.
+- [x] Live check (laptop `mihomes_dev` as non-superuser `mihomes_dev_app`, so RLS is real):
+      signup → account → home → "Add rooms" → /assets; dashboard 1 of 6 → add room → 2 of 6,
+      rooms struck through; `/onboarding/` resumes at invite; `/getting-started/dismiss` hides
+      it. Second signup: skip rooms → "Invite someone" → /team, `/onboarding/` → `/`, card
+      still shows invite open. No tracebacks/500s in either server log.
+- Note: on Free, "Invite your team" is completable (3 seats, admin invites allowed) but a
+  *staff* invite is refused (`staff_invites_allowed: False`) — the copy mentions staff.
+- [ ] Merge into `worktree-spec-build-harness` (--no-ff), push, clean up worktree.
+
+### Review
+- Pre-existing failures on the base branch (verified by running them there, unchanged by this
+  work): 4 × test_billing_routes, test_full_workflow quarterly recurrence, test_isolation
+  registry, test_migration_waitlist, test_oauth_stub, test_pg_baseline up/down,
+  test_settings staff member routes, 2 × test_waitlist_service.
+- Laptop `mihomes_dev` was 3 migrations behind (0017); upgraded to 0020 as `postgres` so
+  `mihomes-dev` could start.
+- Not done: AI Advisor checklist item (user chose the 6 core items); seeded demo account
+  (option 1) remains a separate follow-up — `services/demo.py` is SQLite-era and untenanted.
+
 ## ACTIVE: Tasks — repeating tasks reset in place; one-time tasks archive (2026-10-16)
 
 > User: completing a repeating task must reset it per its frequency without the list growing;

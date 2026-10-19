@@ -19,6 +19,47 @@
 
 {% block content %}
 
+{% if getting_started %}
+{% set gs_done = getting_started|selectattr('done')|list|length %}
+<!-- Getting started — the follow-up to the signup wizard; each item ticks itself off from real data -->
+<div id="getting-started" class="bg-white rounded-xl border border-brand-400 p-5 mb-6">
+  <div class="flex items-start justify-between gap-4">
+    <div>
+      <h2 class="text-sm font-semibold text-gray-900">Getting started</h2>
+      <p class="text-xs text-gray-500 mt-0.5">{{ gs_done }} of {{ getting_started|length }} done · set up your estate in a few minutes</p>
+    </div>
+    <form method="post" action="/getting-started/dismiss">
+      <button class="text-xs text-gray-400 hover:text-gray-600">Dismiss</button>
+    </form>
+  </div>
+  <div class="w-full bg-gray-100 rounded-full h-1.5 mt-3">
+    <div class="bg-brand-600 h-1.5 rounded-full" style="width: {{ (gs_done * 100 / getting_started|length)|round|int }}%"></div>
+  </div>
+  <ul class="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+    {% for item in getting_started %}
+    <li>
+      {% if item.done %}
+      <div class="flex items-start gap-3 rounded-lg px-3 py-2">
+        <span class="mt-0.5 inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-500 text-white text-xs shrink-0">✓</span>
+        <div class="min-w-0">
+          <div class="text-sm text-gray-400 line-through">{{ item.title }}</div>
+        </div>
+      </div>
+      {% else %}
+      <a href="{{ item.href }}" class="flex items-start gap-3 rounded-lg px-3 py-2 hover:bg-gray-50 transition-all">
+        <span class="mt-0.5 inline-block w-5 h-5 rounded-full border-2 border-gray-300 shrink-0"></span>
+        <div class="min-w-0">
+          <div class="text-sm font-medium text-gray-900">{{ item.title }} <span class="text-brand-600">→</span></div>
+          <div class="text-xs text-gray-500 mt-0.5">{{ item.why }}</div>
+        </div>
+      </a>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
 <!-- Stat row -->
 <div class="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-6">
   <a href="/properties" class="bg-white rounded-xl border border-gray-200 p-4 hover:border-brand-400 hover:shadow-sm transition-all block">

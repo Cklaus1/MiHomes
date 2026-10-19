@@ -111,9 +111,39 @@ def _page_context(db: Session, principal, **extra):
         "membership_id": principal.membership_id,
         # Owner and admin see their own Messenger connections here too (settings/_personal.html).
         "telegram_links": _own_telegram_links(db, principal),
+        "sign_in": _sign_in_context(db, user),
     }
     context.update(extra)
     return context
+
+
+def _sign_in_context(db: Session, user, request: Request | None = None, *,
+                     notice: str | None = None, error: str | None = None) -> dict:
+    """What `settings/_personal.html`'s "Sign-in methods" section needs.
+
+    `recent` decides whether a Google-only user sees the add-password form or the "Confirm with
+    Google" button. Without the request (a refusal re-render elsewhere) it is False, which only
+    ever costs an extra confirmation, never skips one.
+    """
+    from mihomes.auth.password_identity import MIN_PASSWORD_LENGTH
+    from mihomes.auth.sessions import SESSION_COOKIE
+    from mihomes.auth.sign_in_methods import NOTICES, message_for, signed_in_recently
+
+    email = user.email if user is not None else ""
+    raw = request.cookies.get(SESSION_COOKIE) if request is not None else None
+    if request is not None and error is None:
+        error = message_for(request.query_params.get("signin_error"), email)
+    if request is not None and notice is None:
+        notice = NOTICES.get(request.query_params.get("signin", ""))
+    return {
+        "has_password": user is not None and user.password_hash is not None,
+        "has_google": user is not None and user.google_sub is not None,
+        "password_set_at": getattr(user, "password_set_at", None),
+        "recent": signed_in_recently(db, raw),
+        "min_length": MIN_PASSWORD_LENGTH,
+        "notice": notice,
+        "error": error,
+    }
 
 
 def _own_telegram_links(db: Session, principal):
@@ -144,7 +174,11 @@ def index(request: Request, principal=require_authenticated(),
     return templates.TemplateResponse(
         request,
         "settings/index.html",
-        _page_context(db, principal, saved=request.query_params.get("saved") == "1"),
+        _page_context(
+            db, principal,
+            saved=request.query_params.get("saved") == "1",
+            sign_in=_sign_in_context(db, db.get(_user_model(), principal.user_id), request),
+        ),
     )
 
 
@@ -223,6 +257,7 @@ def _connections_context(db: Session, principal, **extra):
         "role": principal.role,
         "telegram_links": _own_telegram_links(db, principal),
         "can_change_email": user is not None and user.password_hash is not None,
+        "sign_in": _sign_in_context(db, user),
     }
     context.update(extra)
     return context
@@ -239,7 +274,11 @@ def connections(request: Request, principal=require_authenticated(),
     if principal.role in ("owner", "admin"):
         return RedirectResponse("/settings#connections", status_code=303)
     return templates.TemplateResponse(
-        request, "settings/connections.html", _connections_context(db, principal)
+        request, "settings/connections.html",
+        _connections_context(
+            db, principal,
+            sign_in=_sign_in_context(db, db.get(_user_model(), principal.user_id), request),
+        ),
     )
 
 
@@ -610,3 +649,143 @@ def revoke_pending_invite(
         db.commit()
 
     return RedirectResponse("/settings", status_code=303)
+
+
+# ── Sign-in methods — every role, own user only (2026-10-19, SPEC-010 U2) ──────
+#
+# Same narrowing as `/settings/profile`: the user changed is `principal.user_id`, and nothing in
+# the request names another. These are credential changes, so unlike the rest of this file they
+# also verify the CSRF token. Connecting Google and confirming with Google go through the OAuth
+# routes in `routes/auth.py`; the rules for all three live in `auth/sign_in_methods.py`.
+
+
+def _user_model():
+    from mihomes.models.user import User
+
+    return User
+
+
+def _render_sign_in_refusal(request: Request, db: Session, principal, user, exc):
+    sign_in = _sign_in_context(db, user, request, error=exc.message(user.email))
+    if principal.role in ("owner", "admin"):
+        return templates.TemplateResponse(
+            request, "settings/index.html",
+            _page_context(db, principal, sign_in=sign_in), status_code=400,
+        )
+    return templates.TemplateResponse(
+        request, "settings/connections.html",
+        _connections_context(db, principal, sign_in=sign_in), status_code=400,
+    )
+
+
+def _require_csrf(request: Request, csrf_token: str) -> None:
+    from mihomes.auth.csrf import CSRF_COOKIE, tokens_match
+
+    if not tokens_match(request.cookies.get(CSRF_COOKIE), csrf_token):
+        raise HTTPException(status_code=403, detail="Invalid CSRF token.")
+
+
+def _settings_url(request: Request, principal) -> str:
+    return f"{str(request.base_url).rstrip('/')}{_home_for(principal)}"
+
+
+@router.post("/settings/sign-in/password")
+@declares(_PROFILE_ACTION, Access.ACCOUNT)
+def add_password_route(
+    request: Request,
+    password: str = Form(...),
+    confirm: str = Form(...),
+    csrf_token: str = Form(""),
+    principal=require_authenticated(),
+    db: Session = Depends(get_db),
+):
+    """A Google-only user adds a password, only within `RECENT_SIGNIN` of signing in."""
+    from mihomes.auth.sessions import SESSION_COOKIE
+    from mihomes.auth.sign_in_methods import (
+        SignInMethodError,
+        add_password,
+        notify_sign_in_change,
+        signed_in_recently,
+    )
+
+    _require_csrf(request, csrf_token)
+    user = db.get(_user_model(), principal.user_id)
+    try:
+        if not signed_in_recently(db, request.cookies.get(SESSION_COOKIE)):
+            raise SignInMethodError("reauth_needed")
+        add_password(db, user, password, confirm)
+    except SignInMethodError as exc:
+        db.rollback()
+        return _render_sign_in_refusal(request, db, principal, user, exc)
+
+    db.commit()
+    notify_sign_in_change(
+        db, to=user.email, account_id=principal.account_id,
+        change="A password was added", settings_url=_settings_url(request, principal),
+    )
+    db.commit()
+    return RedirectResponse(f"{_home_for(principal)}?signin=password_added#sign-in",
+                            status_code=303)
+
+
+@router.post("/settings/sign-in/password/change")
+@declares(_PROFILE_ACTION, Access.ACCOUNT)
+def change_password_route(
+    request: Request,
+    current_password: str = Form(...),
+    password: str = Form(...),
+    confirm: str = Form(...),
+    csrf_token: str = Form(""),
+    principal=require_authenticated(),
+    db: Session = Depends(get_db),
+):
+    """Change a password. Needs the current one, throttled like login; signs out other devices.
+
+    Every session is revoked and this one re-minted, as a reset does: a password change is
+    usually prompted by worry that someone else has it, and leaving their sessions alive would
+    make the change cosmetic.
+    """
+    from mihomes.auth.ratelimit import (
+        TooManyAttempts,
+        check_login_attempt,
+        clear_attempts,
+        record_failure,
+    )
+    from mihomes.auth.session_flow import establish_session
+    from mihomes.auth.sessions import revoke_all_sessions
+    from mihomes.auth.sign_in_methods import (
+        SignInMethodError,
+        change_password,
+        notify_sign_in_change,
+    )
+
+    _require_csrf(request, csrf_token)
+    user = db.get(_user_model(), principal.user_id)
+    ip = request.client.host if request.client else "unknown"
+    try:
+        try:
+            check_login_attempt(db, email=user.email, ip=ip)
+        except TooManyAttempts:
+            raise SignInMethodError("too_many") from None
+        change_password(db, user, current_password, password, confirm)
+    except SignInMethodError as exc:
+        db.rollback()
+        if exc.code == "wrong_current":
+            record_failure(db, email=user.email, ip=ip)
+            db.commit()
+        return _render_sign_in_refusal(request, db, principal, user, exc)
+
+    clear_attempts(db, email=user.email)
+    revoke_all_sessions(db, user.id)
+    response = establish_session(
+        db, request, user.id,
+        destination=f"{_home_for(principal)}?signin=password_changed#sign-in",
+        keep_account=principal.account_id,
+    )
+    db.commit()
+    notify_sign_in_change(
+        db, to=user.email, account_id=principal.account_id,
+        change="Your password was changed", settings_url=_settings_url(request, principal),
+    )
+    db.commit()
+    return response

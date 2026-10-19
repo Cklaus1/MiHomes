@@ -42,6 +42,8 @@ from mihomes.auth.sessions import (
     revoke_all_sessions,
     revoke_session,
 )
+from mihomes.auth.sign_in_methods import SignInMethodError, link_google, notify_sign_in_change
+from mihomes.models.user import User
 
 # `templates` from `deps`, not `app`: it is the `RedactingTemplates` instance every other route
 # renders through, and importing from `web.app` here would create a cycle (app imports routes).
@@ -51,6 +53,8 @@ router = APIRouter()
 
 _STATE_COOKIE = "mihomes_oauth_state"
 _VERIFIER_COOKIE = "mihomes_oauth_verifier"
+#: Present only for a Settings flow — see `_begin`.
+_INTENT_COOKIE = "mihomes_oauth_intent"
 # The OAuth round trip is a browser redirect to Google and back. Ten minutes is generous for that
 # and short enough that a captured state cookie is useless by the time anyone finds it.
 _FLOW_MAX_AGE = 600
@@ -111,11 +115,20 @@ def login(
 
 @router.get("/auth/google/start")
 def start(request: Request):
-    """Begin the flow: PKCE challenge + anti-forgery state, both parked in signed-free cookies.
+    """Begin a plain sign-in (or sign-up — a first Google sign-in creates the account)."""
+    return _begin(request, intent=None)
+
+
+def _begin(request: Request, *, intent: str | None) -> RedirectResponse:
+    """PKCE challenge + anti-forgery state, both parked in `httpOnly` cookies.
 
     The verifier is kept in an `httpOnly` cookie rather than server state so the flow needs no
     storage for an unauthenticated visitor — and `httpOnly` matters here: a verifier readable by
     script would let an XSS bug complete someone else's sign-in.
+
+    `intent` marks a Settings flow (`link:<user id>` or `reauth:<user id>`). A plain sign-in
+    **deletes** any leftover one, or an abandoned "Connect Google" would turn the next ordinary
+    sign-in on this browser into a link attempt.
     """
     state = secrets.token_urlsafe(32)
     verifier = secrets.token_urlsafe(64)
@@ -127,11 +140,38 @@ def start(request: Request):
 
     response = RedirectResponse(
         _provider().authorization_url(state=state, code_challenge=challenge),
-        status_code=307,
+        # 303 from a POST (Settings), 307 from the GET — a 307 would re-POST to Google.
+        status_code=303 if intent else 307,
     )
     _set_cookie(response, request, _STATE_COOKIE, state, max_age=_FLOW_MAX_AGE)
     _set_cookie(response, request, _VERIFIER_COOKIE, verifier, max_age=_FLOW_MAX_AGE)
+    if intent:
+        _set_cookie(response, request, _INTENT_COOKIE, intent, max_age=_FLOW_MAX_AGE)
+    else:
+        response.delete_cookie(_INTENT_COOKIE, path="/")
     return response
+
+
+def _settings_flow(request: Request, db: DbSession, mode: str, csrf_token: str):
+    """Start a Settings flow for the signed-in user. POST + CSRF: these change credentials."""
+    if not tokens_match(request.cookies.get(CSRF_COOKIE), csrf_token):
+        raise HTTPException(status_code=403, detail="Invalid CSRF token.")
+    session = lookup_session(db, request.cookies.get(SESSION_COOKIE))
+    if session is None:
+        return RedirectResponse("/login", status_code=303)
+    return _begin(request, intent=f"{mode}:{session.user_id}")
+
+
+@router.post("/settings/sign-in/google/connect")
+def google_connect(request: Request, csrf_token: str = Form(""), db: DbSession = Depends(get_db)):
+    """Connect Google to a password account — verified in the callback (`link_google`)."""
+    return _settings_flow(request, db, "link", csrf_token)
+
+
+@router.post("/settings/sign-in/google/confirm")
+def google_confirm(request: Request, csrf_token: str = Form(""), db: DbSession = Depends(get_db)):
+    """Re-authenticate a Google user so they may add a password (`RECENT_SIGNIN`)."""
+    return _settings_flow(request, db, "reauth", csrf_token)
 
 
 @router.get("/auth/google/callback")
@@ -155,6 +195,12 @@ def callback(request: Request, code: str = "", state: str = "", db: DbSession = 
         # Deliberately not echoing the provider's message: it can contain token fragments, and the
         # user cannot act on "aud mismatch" anyway. The detail is logged, not returned.
         raise HTTPException(status_code=401, detail="Sign-in failed.") from None
+
+    # Branch **before** `upsert_user`: in link mode the signed-in user is exactly the
+    # password-only row `upsert_user` refuses with `PasswordAccountExists`.
+    intent = request.cookies.get(_INTENT_COOKIE)
+    if intent:
+        return _clear_flow(_finish_settings_flow(db, request, intent, claims))
 
     try:
         user = upsert_user(db, claims)
@@ -180,6 +226,58 @@ def callback(request: Request, code: str = "", state: str = "", db: DbSession = 
     response.delete_cookie(_STATE_COOKIE, path="/")
     response.delete_cookie(_VERIFIER_COOKIE, path="/")
     return response
+
+
+def _clear_flow(response):
+    for name in (_STATE_COOKIE, _VERIFIER_COOKIE, _INTENT_COOKIE):
+        response.delete_cookie(name, path="/")
+    return response
+
+
+def _finish_settings_flow(db: DbSession, request: Request, intent: str, claims):
+    """Complete "Connect Google" or "Confirm with Google" for the user who started it.
+
+    **Bound to the session that started it.** The intent names a user id, and the callback must
+    arrive on a live session for that same user — so a flow begun in one account cannot finish
+    in another, and a signed-out browser finishes nothing.
+    """
+    mode, _, intent_user = intent.partition(":")
+    session = lookup_session(db, request.cookies.get(SESSION_COOKIE))
+    if session is None or str(session.user_id) != intent_user or mode not in ("link", "reauth"):
+        return RedirectResponse("/login", status_code=303)
+
+    user = db.get(User, session.user_id)
+    home = "/settings" if session.role in ("owner", "admin") else "/settings/connections"
+
+    def back(param: str, code: str) -> RedirectResponse:
+        return RedirectResponse(f"{home}?{urlencode({param: code})}#sign-in", status_code=303)
+
+    if mode == "reauth":
+        # `prompt=select_account` lets them pick *any* Google account; only their own counts,
+        # or "confirm it's you" becomes "sign in as someone else".
+        if user.google_sub is None or user.google_sub != claims.subject:
+            return back("signin_error", "reauth_mismatch")
+        # A fresh session row is the freshness proof `signed_in_recently` reads.
+        response = establish_session(
+            db, request, user.id,
+            destination=f"{home}?signin=confirmed#sign-in",
+            keep_account=session.account_id,
+        )
+        db.commit()
+        return response
+
+    try:
+        link_google(db, user, claims)
+    except SignInMethodError as exc:
+        return back("signin_error", exc.code)
+    db.commit()
+    notify_sign_in_change(
+        db, to=user.email, account_id=session.account_id,
+        change="Google sign-in was connected",
+        settings_url=f"{str(request.base_url).rstrip('/')}{home}",
+    )
+    db.commit()
+    return back("signin", "google_connected")
 
 
 @router.post("/signout")

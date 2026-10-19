@@ -134,6 +134,7 @@ def establish_session(
     user_id: uuid.UUID,
     *,
     destination: str | None = None,
+    keep_account: uuid.UUID | None = None,
 ) -> RedirectResponse:
     """Rotate, mint, set cookies, redirect. **Does not commit** — the caller owns the transaction.
 
@@ -165,7 +166,10 @@ def establish_session(
 
     raw_session, row = create_session(db, user_id)
 
-    account_id = sole_account_for(db, user_id)
+    # `keep_account`: a re-authentication inside a signed-in session (Settings → sign-in
+    # methods) rotates the session but must not drop someone with several estates back at the
+    # picker. Still re-verified by `set_current_account`, so a stale id binds nothing.
+    account_id = keep_account or sole_account_for(db, user_id)
     if account_id is not None:
         # `set_current_account` re-verifies the membership server-side and returns False if it
         # is gone — the check is not duplicated here deliberately (`account_switcher.py:74`).

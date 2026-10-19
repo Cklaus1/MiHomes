@@ -117,3 +117,113 @@
     <button class="bg-brand-600 text-white rounded px-4 py-2">Save profile</button>
   </form>
 </section>
+
+{# ── Sign-in methods (2026-10-19, SPEC-010 U2) ──────────────────────────── #}
+{# Rules live in `auth/sign_in_methods.py`; every form here is a credential change, so each
+   carries the CSRF token (`base.html` uses the same field for sign-out). #}
+{% if sign_in %}
+{% set csrf = request.cookies.get('mihomes_csrf', '') %}
+<section class="mb-10" id="sign-in">
+  <h2 class="text-lg font-medium mb-1">Sign-in methods</h2>
+  <p class="text-sm text-gray-500 mb-3">The ways you can sign in to MiHomes as
+    {{ user.email if user else '' }}.</p>
+
+  {% if sign_in.notice %}
+    <p class="mb-3 rounded border border-green-300 bg-green-50 px-3 py-2 text-green-800"
+       data-testid="signin-notice">{{ sign_in.notice }}</p>
+  {% endif %}
+  {% if sign_in.error %}
+    <p class="mb-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-red-800"
+       data-testid="signin-error">{{ sign_in.error }}</p>
+  {% endif %}
+
+  {# Google #}
+  <div class="border rounded p-3 mb-3">
+    <div class="flex flex-wrap items-baseline justify-between gap-2">
+      <span class="font-medium">Google</span>
+      {% if sign_in.has_google %}
+        <span class="text-sm text-green-700">Connected</span>
+      {% else %}
+        <span class="text-sm text-gray-500">Not connected</span>
+      {% endif %}
+    </div>
+    {% if not sign_in.has_google %}
+      <p class="mt-1 text-sm text-gray-500">Use the Google account for
+        {{ user.email if user else '' }} — a different address won't connect.</p>
+      <form method="post" action="/settings/sign-in/google/connect" class="mt-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}" />
+        <button class="border rounded px-3 py-1 text-sm">Connect Google</button>
+      </form>
+    {% endif %}
+  </div>
+
+  {# Password #}
+  <div class="border rounded p-3">
+    <div class="flex flex-wrap items-baseline justify-between gap-2">
+      <span class="font-medium">Email and password</span>
+      {% if sign_in.has_password %}
+        <span class="text-sm text-green-700">Set{% if sign_in.password_set_at %}
+          <span class="text-gray-400">— {{ sign_in.password_set_at.strftime("%b %d, %Y") }}</span>{% endif %}</span>
+      {% else %}
+        <span class="text-sm text-gray-500">Not set</span>
+      {% endif %}
+    </div>
+
+    {% if sign_in.has_password %}
+      <form method="post" action="/settings/sign-in/password/change" class="mt-3 space-y-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}" />
+        <div>
+          <label for="pw-current" class="block text-sm text-gray-600 mb-1">Current password</label>
+          <input id="pw-current" name="current_password" type="password" required
+                 autocomplete="current-password" class="w-full border rounded px-3 py-2" />
+        </div>
+        <div>
+          <label for="pw-new" class="block text-sm text-gray-600 mb-1">New password</label>
+          <input id="pw-new" name="password" type="password" required
+                 minlength="{{ sign_in.min_length }}" autocomplete="new-password"
+                 class="w-full border rounded px-3 py-2" />
+        </div>
+        <div>
+          <label for="pw-confirm" class="block text-sm text-gray-600 mb-1">Confirm new password</label>
+          <input id="pw-confirm" name="confirm" type="password" required
+                 minlength="{{ sign_in.min_length }}" autocomplete="new-password"
+                 class="w-full border rounded px-3 py-2" />
+        </div>
+        <p class="text-xs text-gray-500">At least {{ sign_in.min_length }} characters. Changing
+          it signs you out on your other devices.</p>
+        <button class="bg-brand-600 text-white rounded px-4 py-2">Change password</button>
+      </form>
+    {% elif sign_in.recent %}
+      <p class="mt-1 text-sm text-gray-500">Add a password to sign in with
+        {{ user.email if user else '' }} without Google.</p>
+      <form method="post" action="/settings/sign-in/password" class="mt-3 space-y-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}" />
+        <div>
+          <label for="pw-add" class="block text-sm text-gray-600 mb-1">Password</label>
+          <input id="pw-add" name="password" type="password" required
+                 minlength="{{ sign_in.min_length }}" autocomplete="new-password"
+                 class="w-full border rounded px-3 py-2" />
+        </div>
+        <div>
+          <label for="pw-add-confirm" class="block text-sm text-gray-600 mb-1">Confirm password</label>
+          <input id="pw-add-confirm" name="confirm" type="password" required
+                 minlength="{{ sign_in.min_length }}" autocomplete="new-password"
+                 class="w-full border rounded px-3 py-2" />
+        </div>
+        <p class="text-xs text-gray-500">At least {{ sign_in.min_length }} characters. A
+          memorable phrase works well.</p>
+        <button class="bg-brand-600 text-white rounded px-4 py-2">Add password</button>
+      </form>
+    {% else %}
+      {# A Google-only user has no password to re-enter, so the proof is a fresh Google
+         sign-in (`RECENT_SIGNIN`). Saying why up front beats a form that refuses on submit. #}
+      <p class="mt-1 text-sm text-gray-500">Add a password to sign in without Google. For your
+        security, confirm it's you with Google first.</p>
+      <form method="post" action="/settings/sign-in/google/confirm" class="mt-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}" />
+        <button class="border rounded px-3 py-1 text-sm">Confirm with Google</button>
+      </form>
+    {% endif %}
+  </div>
+</section>
+{% endif %}

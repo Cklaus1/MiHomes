@@ -46,10 +46,18 @@ land on the dashboard (an existing user) or `/onboarding/` (a new one).
 | `/login?error=That email has a MiHomes password…` | Expected: see below |
 | 400 "Invalid or expired sign-in request" | State cookie lost — took >10 min, or switched host mid-flow |
 
-## Accounts with a password
+## Accounts with both methods
 
-Google sign-in **refuses** an address that already has a password-only account rather than
-attaching Google to it: linking from an unauthenticated flow is the account pre-hijacking
-pattern (someone registers your address with a password first, and your later Google sign-in
-merges into their row). The person is sent back to `/login` to use their password. Linking the
-two from Settings, behind a signed-in session, is SPEC-010 U2 — still open.
+**Settings → Sign-in methods** (every role) lets a signed-in person add the other method:
+
+| Starting from | Option | Rule |
+|---|---|---|
+| Google account | Add a password | Signed in within 10 minutes, else "Confirm with Google" with the *same* Google account |
+| Password account | Connect Google | The Google account's email must match the MiHomes email |
+| Password account | Change password | Needs the current password (throttled like login); signs out other devices |
+
+Each change emails the account a security notice. Signing in with Google **without** being
+signed in still refuses an address that has a password-only account, and says to sign in with
+the password and connect Google from Settings. Linking there, rather than in the sign-in flow,
+is what stops pre-hijacking: someone who registered your address with a password first cannot
+have your later Google sign-in merge into their account.

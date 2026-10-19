@@ -553,3 +553,33 @@ Flow code already existed (SPEC-002 G12); this is configuration plus two gaps.
 - [x] evo-dev: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `LANDING_BASE_URL` in web.env; deploy + restart
 - [x] Live proof (2026-10-19): new account created via Google sign-up on the Tailscale URL. Existing-user path not testable — mlim@fusen.world is not a Google account
 - Open: SPEC-010 U2 — link Google to an existing password account from signed-in Settings
+
+## Sign-in methods in Settings (2026-10-19) — approved: + change password, + email alerts, email must match
+
+User decision 2026-10-19 overrides SPEC-010 N7 / resolves U2: one person may hold both a
+password and a Google identity. A new "Sign-in methods" section on the personal settings
+(reachable by every role, not only owners).
+
+**Security defaults (not optional)**
+- Every new form is POST + CSRF-verified (`tokens_match`) — settings forms skip CSRF today
+- Fix first: `upsert_user` stops overwriting `email` on rows with a password (it is the login
+  handle; rewriting it can 500 on `uq_users_email_password` and undoes a profile email change)
+
+**A. Connect Google** (password user)
+- [x] POST `/settings/sign-in/google/connect` → OAuth in "link" mode, intent cookie bound to session user
+- [x] Callback branches before `upsert_user`; keeps the current session
+- [x] Refuse: sub on another account · already connected · Google email ≠ account email
+      (the match proves mailbox control and stops a stolen session linking a backdoor)
+
+**B. Add a password** (Google-only user)
+- [x] Requires sign-in within ~10 min (`sessions.created_at`), else "Confirm with Google" re-auth
+      that must return the SAME Google sub
+- [x] `set_password`; refuse cleanly if an old duplicate password row holds the email
+
+- [x] Change password (current password, throttled, revokes other sessions)
+- [x] Security notice email (`sign_in_method_changed`)
+- Out of scope (user): disconnect Google, remove password
+
+**Housekeeping:** `PasswordAccountExists` message → "…then connect Google in Settings";
+SPEC-010 U2/N7 note; `GOOGLE-OAUTH.md`; tests for every refusal; build:css + stamp; full
+suite vs the 8 known failures; deploy only with user go-ahead

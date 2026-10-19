@@ -58,7 +58,8 @@ class PasswordAccountExists(Exception):
 
     def __init__(self) -> None:
         super().__init__(
-            "That email has a MiHomes password. Sign in with your email and password instead."
+            "That email has a MiHomes password. Sign in with your email and password, then "
+            "connect Google from Settings."
         )
 
 
@@ -202,7 +203,13 @@ def upsert_user(db: DbSession, claims: IdentityClaims) -> User:
     else:
         # Refreshed on every sign-in: display fields drift, and `sub` is what identity is keyed on,
         # so updating them cannot move the account to a different person.
-        user.email = claims.email
+        #
+        # **Except the email of a row that also has a password.** There it is the password login
+        # handle, changed only from Settings; overwriting it from Google would silently move the
+        # handle, undo a profile email change, and 500 on `uq_users_email_password` if another
+        # password row holds the new address.
+        if user.password_hash is None:
+            user.email = claims.email
         if claims.name:
             user.name = claims.name
         if claims.picture:

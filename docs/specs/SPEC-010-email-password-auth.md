@@ -384,6 +384,12 @@ difference between a password login and a password oracle.
 **N7 — Do not build account linking.** O1/U2. It needs a verification flow of its own, and
 `ONBOARDING:314` already defers it.
 
+> **Superseded 2026-10-19 — the user decided U2: yes, one person may hold both.** Linking is
+> built only from a signed-in session (Settings → Sign-in methods, `auth/sign_in_methods.py`),
+> never from the unauthenticated sign-in flow, which still refuses the collision. Connecting
+> Google requires the Google address to match the account's; adding a password to a Google
+> account requires a sign-in within 10 minutes (else re-auth with the same Google account).
+
 **N8 — Do not send reset mail as `lifecycle`.** D8 — a suppressed recipient would be locked out
 permanently, and the symptom looks like a broken feature rather than a policy decision.
 

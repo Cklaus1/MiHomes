@@ -287,6 +287,21 @@ class EmailService:
             klass="transactional",
         )
 
+    def send_sign_in_method_changed(self, to: str, *, change: str, settings_url: str) -> None:
+        """"A password was added", "Google was connected" — the security notice (2026-10-19).
+
+        The point is the case where it was **not** them: a stolen session that adds a way back
+        in is otherwise invisible until it is used. `transactional`, because suppressing a
+        security notice for someone who unsubscribed from digests defeats it.
+        """
+        self._send(
+            to,
+            "sign_in_method_changed",
+            {"change": change, "settings_url": settings_url},
+            # D13: A security notice about the recipient's own account; never suppressible.
+            klass="transactional",
+        )
+
     def send_invite_accepted(
         self, to: str, *, account_name: str, member_email: str, role: str,
         invited_email: str | None = None,

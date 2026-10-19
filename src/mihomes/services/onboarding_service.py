@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -28,14 +29,18 @@ from mihomes.models.property import Property
 
 __all__ = [
     "STEP_ADD_HOME",
+    "STEP_CHECKLIST_DISMISSED",
     "STEP_CREATE_ACCOUNT",
     "STEP_DASHBOARD",
     "STEP_INVITE",
     "STEP_SPACES",
     "STEP_WELCOME",
+    "ChecklistItem",
+    "checklist",
     "complete_step",
     "create_account_step",
     "current_step",
+    "dismiss_checklist",
     "finish",
     "suggested_account_name",
 ]
@@ -46,6 +51,11 @@ STEP_ADD_HOME = 3
 STEP_SPACES = 4
 STEP_INVITE = 5
 STEP_DASHBOARD = 6
+
+#: Not a wizard step — a marker in `completed_steps` that the dashboard's "Getting started"
+#: checklist was dismissed. Kept in the same list so dismissal needs no schema change;
+#: `current_step` only ever looks at 4 and 5, so this value is inert there.
+STEP_CHECKLIST_DISMISSED = 7
 
 #: Steps a user cannot skip. Everything else is optional by design, so "not completed" is not the
 #: same as "not finished" — see `current_step`.
@@ -157,11 +167,113 @@ def current_step(session: Session, account_id: uuid.UUID) -> int:
     if state.finished_at is not None:
         return STEP_DASHBOARD
 
+    # **A row is unambiguous; its absence is not.** The model's argument against inferring the
+    # optional steps is about *absence* — "no rooms" could mean not-yet-asked or declined. But a
+    # room that exists means the step was done, however the user got there. The wizard's "Add
+    # rooms" used to be a plain link out, so a user who added rooms that way was stuck at step 4
+    # forever. Inferring from presence un-sticks them without re-prompting anyone who skipped.
+    from mihomes.models.invite import Invite
+    from mihomes.models.space import Space
+
+    done_in_world = {
+        STEP_SPACES: _exists(session, account_id, Space),
+        STEP_INVITE: _exists(session, account_id, Invite),
+    }
     for step in (STEP_SPACES, STEP_INVITE):
-        if step not in state.completed_steps:
+        if step not in state.completed_steps and not done_in_world[step]:
             return step
 
     return STEP_DASHBOARD
+
+
+def _exists(session: Session, account_id: uuid.UUID, model) -> bool:
+    """Whether the account has any row of `model` — bound explicitly, as in `current_step`."""
+    from mihomes.tenancy import account_context
+
+    with account_context(account_id):
+        return (
+            session.execute(
+                select(model.id).where(model.account_id == account_id).limit(1)
+            ).first()
+            is not None
+        )
+
+
+@dataclass(frozen=True)
+class ChecklistItem:
+    key: str
+    title: str
+    why: str
+    href: str
+    done: bool
+
+
+def checklist(session: Session, account_id: uuid.UUID) -> list[ChecklistItem] | None:
+    """The dashboard's "Getting started" checklist, or None when it should not be shown.
+
+    **The follow-up the wizard never had.** The wizard ends at "finish" (or is abandoned by
+    following one of its links), and nothing after that pointed a new owner at the rest of the
+    product. This is that surface: each item ticks itself off from real rows, so it stays right
+    no matter which page the user did the thing on.
+
+    **Read-only — never calls `get_state`.** This runs on every dashboard load; `get_state`
+    inserts. And no row is meaningful: an account that never came through the signup wizard (a
+    CLI bootstrap, an imported estate) has no onboarding row, and an established estate must not
+    suddenly sprout a beginner's checklist. Returns None for that, for a dismissed checklist,
+    and once every item is done.
+    """
+    from mihomes.models.document import Document
+    from mihomes.models.invite import Invite
+    from mihomes.models.membership import Membership
+    from mihomes.models.space import Space
+    from mihomes.models.staff import Staff
+    from mihomes.models.task import Task
+    from mihomes.models.vendor import Vendor
+    from mihomes.tenancy import account_context
+
+    with account_context(account_id):
+        state = session.get(OnboardingState, account_id)
+    if state is None or STEP_CHECKLIST_DISMISSED in state.completed_steps:
+        return None
+
+    def has(model) -> bool:
+        return _exists(session, account_id, model)
+
+    with account_context(account_id):
+        members = session.execute(
+            select(Membership.id).where(
+                Membership.account_id == account_id, Membership.status == "active"
+            ).limit(2)
+        ).all()
+
+    items = [
+        ChecklistItem("home", "Add your first home",
+                      "Everything in MiHomes hangs off a property.",
+                      "/properties/new", has(Property)),
+        ChecklistItem("rooms", "Add rooms",
+                      "Rooms give assets, issues and tasks a place to live.",
+                      "/assets", has(Space)),
+        ChecklistItem("task", "Create a task",
+                      "Recurring upkeep — filters, pool, gutters — on a schedule.",
+                      "/tasks", has(Task)),
+        ChecklistItem("people", "Add a vendor or staff member",
+                      "Who you call when something breaks, and who works the house.",
+                      "/vendors", has(Vendor) or has(Staff)),
+        ChecklistItem("document", "Upload a document",
+                      "Warranties, insurance and contracts, with expiry reminders.",
+                      "/documents", has(Document)),
+        ChecklistItem("invite", "Invite your team",
+                      "Bring in a partner, estate manager or staff.",
+                      "/team", has(Invite) or len(members) > 1),
+    ]
+    if all(item.done for item in items):
+        return None
+    return items
+
+
+def dismiss_checklist(session: Session, account_id: uuid.UUID) -> OnboardingState:
+    """Hide the dashboard checklist for good. Idempotent, like every step write."""
+    return complete_step(session, account_id, STEP_CHECKLIST_DISMISSED)
 
 
 def finish(session: Session, account_id: uuid.UUID) -> OnboardingState:

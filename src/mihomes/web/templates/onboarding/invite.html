@@ -9,7 +9,11 @@
      `finish()` sets finished_at, which is what lets a user who skipped 4 and 5 ever leave.
      Completion alone could never end it for them. #}
   <div class="flex gap-3">
-    <a href="/team" class="bg-brand-600 text-white rounded px-4 py-2">Invite someone</a>
+    {# A form, not a link: leaving to invite finishes the wizard, or it is never finished. #}
+    <form method="post" action="/onboarding/leave">
+      <input type="hidden" name="step" value="{{ step }}" />
+      <button class="bg-brand-600 text-white rounded px-4 py-2">Invite someone</button>
+    </form>
     <form method="post" action="/onboarding/finish">
       <button class="border rounded px-4 py-2">Finish setup</button>
     </form>

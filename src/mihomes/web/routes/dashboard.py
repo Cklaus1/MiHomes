@@ -1,16 +1,20 @@
 """Dashboard — portfolio overview."""
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from mihomes.authz.actions import Access
 from mihomes.authz.declare import declares
+from mihomes.authz.scope import current_role
 from mihomes.models.alert import AlertStatus
 from mihomes.models.work_order import WorkOrder, WorkOrderStatus
 from mihomes.services import alerts as alert_svc
+from mihomes.services import onboarding_service as onboarding
 from mihomes.services import property as prop_svc
 from mihomes.services import task as task_svc
 from mihomes.services.health_score import compute_all_health_scores
+from mihomes.tenancy import current_account
 from mihomes.web.deps import get_db, templates
 
 router = APIRouter()
@@ -46,11 +50,18 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         .count()
     )
 
+    # The "Getting started" card is for whoever sets the estate up. Staff see a property-scoped
+    # slice of the account, so its counts would be wrong for them — and it is not their job.
+    getting_started = None
+    if current_role.get() in ("owner", "admin"):
+        getting_started = onboarding.checklist(db, current_account.get())
+
     return templates.TemplateResponse(
         request,
         "dashboard.html",
         {
             "page": "dashboard",
+            "getting_started": getting_started,
             "properties": properties,
             "health_scores": health_scores,
             "overdue_tasks": overdue,
@@ -61,3 +72,14 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             "open_wo_count": open_wo_count,
         },
     )
+
+
+# Dismissing the "Getting started" card is estate set-up, so it is authorised as the people who
+# set the estate up: `property.add` is owner/admin, staff denied — exactly who is shown the card.
+# Deliberately *not* an onboarding (`Access.SESSION`) route: it acts on the session's bound
+# account, which the matrix can authorise, and that exemption is pinned small for a reason.
+@router.post("/getting-started/dismiss")
+@declares("property.add", Access.ACCOUNT)
+def dismiss_getting_started(request: Request, db: Session = Depends(get_db)):
+    onboarding.dismiss_checklist(db, current_account.get())
+    return RedirectResponse("/", status_code=303)

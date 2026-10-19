@@ -201,6 +201,35 @@ def skip_step(request: Request, step: int = Form(...), db: Session = Depends(get
     return RedirectResponse("/onboarding/", status_code=303)
 
 
+#: Where each optional step's primary button leads. Fixed per step rather than taken from the
+#: form, so this route cannot be turned into an open redirector.
+_LEAVE_TO = {onboarding.STEP_SPACES: "/assets", onboarding.STEP_INVITE: "/team"}
+
+
+@router.post("/leave")
+@declares_session(_SESSION_REASON)
+def leave(request: Request, step: int = Form(...), db: Session = Depends(get_db)):
+    """An optional step's primary action — go do the thing, **and record that the step was taken**.
+
+    These buttons used to be plain links out of the wizard. Nothing was recorded, and nothing
+    ever routes a member back to `/onboarding/`, so a user who clicked "Add rooms" was left
+    mid-wizard for good and never saw the invite step. Now the rooms step is marked done and
+    the invite step — the last one — finishes the wizard. The dashboard's "Getting started"
+    checklist picks up whatever is left.
+    """
+    user = _current_user(db)
+    account = _account_for(db, user)
+    if account is None or step not in _LEAVE_TO:
+        return RedirectResponse("/onboarding/", status_code=303)
+
+    if step == onboarding.STEP_INVITE:
+        onboarding.finish(db, account.id)
+        _select_account(db, request, account.id, user.id)
+    else:
+        onboarding.complete_step(db, account.id, step)
+    return RedirectResponse(_LEAVE_TO[step], status_code=303)
+
+
 @router.post("/finish")
 @declares_session(_SESSION_REASON)
 def finish(request: Request, db: Session = Depends(get_db)):

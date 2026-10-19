@@ -101,6 +101,7 @@ class TestTheExemptionStaysSmall:
             "/onboarding/account",
             "/onboarding/property",
             "/onboarding/skip",
+            "/onboarding/leave",
             "/onboarding/finish",
             "/invite/{token}",
             "/invite/{token}/accept",

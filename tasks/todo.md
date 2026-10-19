@@ -579,6 +579,7 @@ password and a Google identity. A new "Sign-in methods" section on the personal 
 - [x] Change password (current password, throttled, revokes other sessions)
 - [x] Security notice email (`sign_in_method_changed`)
 - Out of scope (user): disconnect Google, remove password
+- [x] Deployed 2ea44ea to evo-dev; live (2026-10-19): Google account added a password and signed in with it. Not yet live-tested: change password, connect Google
 
 **Housekeeping:** `PasswordAccountExists` message → "…then connect Google in Settings";
 SPEC-010 U2/N7 note; `GOOGLE-OAUTH.md`; tests for every refusal; build:css + stamp; full

@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from sqlalchemy.orm import Session
 
 from mihomes.authz.actions import Access
@@ -12,6 +12,7 @@ from mihomes.models.document import DocumentType
 from mihomes.services import document as doc_svc
 from mihomes.services import property as prop_svc
 from mihomes.web.deps import get_db, templates
+from mihomes.web.forms import read_document_upload
 
 router = APIRouter()
 
@@ -74,6 +75,7 @@ def _ctx(db: Session, type_filter: str = "", **kwargs) -> dict:
         "grantable_staff": grantable,
         "grant_map": grant_map,
         "access_error": None,
+        "upload_error": None,
         **kwargs,
     }
 
@@ -84,9 +86,21 @@ def list_documents(request: Request, type: str = "", db: Session = Depends(get_d
     return templates.TemplateResponse(request, "documents.html", _ctx(db, type_filter=type))
 
 
+async def _resolve_file_path(file: UploadFile | None, typed: str) -> str:
+    """An uploaded file wins over the typed link/path; neither leaves the "—" placeholder.
+
+    An empty file input still arrives as an `UploadFile` with no filename, so that is "no upload",
+    not an error. Raises `ValueError` (from `read_document_upload`) for a disallowed or oversized
+    file — the route renders it rather than 500ing.
+    """
+    if file is not None and file.filename:
+        return await read_document_upload(file)
+    return typed.strip() or "—"
+
+
 @router.post("/")
 @declares("inventory.manage", Access.ITEM)
-def create_document(
+async def create_document(
     request: Request,
     title: str = Form(...),
     document_type: str = Form(...),
@@ -94,12 +108,17 @@ def create_document(
     notes: str | None = Form(None),
     expires_at: str | None = Form(None),
     property_id: str | None = Form(None),
+    file: UploadFile | None = File(None),
     db: Session = Depends(get_db),
 ):
+    try:
+        stored_path = await _resolve_file_path(file, file_path)
+    except ValueError as exc:
+        return templates.TemplateResponse(request, "documents.html", _ctx(db, upload_error=str(exc)))
     doc_svc.create_document(
         db,
         title=title,
-        file_path=file_path.strip() or "—",
+        file_path=stored_path,
         document_type=DocumentType(document_type),
         notes=notes or None,
         expires_at=date.fromisoformat(expires_at) if expires_at else None,
@@ -111,7 +130,7 @@ def create_document(
 
 @router.post("/{slug}/edit")
 @declares("inventory.manage", Access.ITEM)
-def edit_document(
+async def edit_document(
     request: Request,
     slug: str,
     title: str = Form(...),
@@ -120,13 +139,18 @@ def edit_document(
     notes: str | None = Form(None),
     expires_at: str | None = Form(None),
     property_id: str | None = Form(None),
+    file: UploadFile | None = File(None),
     db: Session = Depends(get_db),
 ):
+    try:
+        stored_path = await _resolve_file_path(file, file_path)
+    except ValueError as exc:
+        return templates.TemplateResponse(request, "documents.html", _ctx(db, upload_error=str(exc)))
     doc_svc.update_document(
         db, slug,
         title=title,
         document_type=DocumentType(document_type),
-        file_path=file_path.strip() or "—",
+        file_path=stored_path,
         notes=notes or None,
         expires_at=date.fromisoformat(expires_at) if expires_at else None,
         entity_type="property" if property_id else None,

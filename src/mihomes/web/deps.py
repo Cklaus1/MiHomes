@@ -119,6 +119,46 @@ def _money_filter(amount, currency=None, decimals=0):
 templates.env.filters["money"] = _money_filter
 
 
+def _doc_url(file_path: str | None) -> str:
+    """`{{ doc.file_path | doc_url }}` — the URL a browser can actually fetch for a document.
+
+    Uploads are stored as bare storage keys (`{account}/documents/{opaque}.pdf`), which are not
+    URLs: used as an `src` they resolve relative to the current page and 404. They are served by
+    `documents_download`, which authorises the key against the caller's account. Links the user
+    typed (`https://…`, absolute paths) pass through unchanged.
+    """
+    from mihomes.storage import key_account
+
+    fp = file_path or ""
+    if key_account(fp) is not None and not fp.startswith(("/", "http://", "https://")):
+        return f"/documents/file/{fp}"
+    return fp
+
+
+templates.env.filters["doc_url"] = _doc_url
+
+
+def _doc_kind(file_path: str | None) -> str:
+    """`{{ doc.file_path | doc_kind }}` — "image", "pdf", or "" for what the preview overlay can show.
+
+    **Uploads only.** `previewDoc()` concatenates the URL into `innerHTML` and an `href`, so a typed
+    link such as `javascript:alert(1)//x.pdf` or one carrying a `"` would run script in this origin.
+    A storage key is built by `build_key` and cannot carry either; typed links stay "Open Link".
+    """
+    fp = file_path or ""
+    if _doc_url(fp) == fp:
+        return ""
+    fp = fp.lower()
+    if fp.endswith((".jpg", ".jpeg", ".png", ".gif", ".webp")):
+        return "image"
+    if fp.endswith(".pdf"):
+        return "pdf"
+    return ""
+
+
+templates.env.filters["doc_kind"] = _doc_kind
+
+
 def _currency_symbol():
     from mihomes.services.money import currency_symbol
 

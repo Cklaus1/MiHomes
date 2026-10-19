@@ -7,7 +7,7 @@
 <div class="space-y-2 max-h-64 overflow-y-auto mb-3">
   {% if docs %}
     {% for doc in docs %}
-    {% set fp = doc.file_path or '' %}
+    {% set fp = (doc.file_path or '') | doc_url %}
     {% set is_image = fp.endswith('.jpg') or fp.endswith('.jpeg') or fp.endswith('.png') or fp.endswith('.webp') or fp.endswith('.gif') or doc.document_type.value == 'photo' %}
     {% set is_pdf = fp.endswith('.pdf') %}
     {% set filename = fp.split('/')[-1] %}
@@ -46,7 +46,7 @@
           {% elif is_pdf %}
           <button type="button" data-preview-fp="{{ fp }}" data-preview-title="{{ doc.title }}" data-preview-type="pdf"
                   class="text-brand-600 hover:underline truncate max-w-[160px] text-left">{{ filename }}</button>
-          {% elif fp.startswith('/static/') or fp.startswith('http') %}
+          {% elif fp.startswith(('/static/', '/documents/file/', 'http')) %}
           <a href="{{ fp }}" target="_blank" rel="noopener"
              class="text-brand-600 hover:underline truncate max-w-[160px]">{{ filename }} ↗</a>
           {% else %}

@@ -549,7 +549,7 @@ Flow code already existed (SPEC-002 G12); this is configuration plus two gaps.
 - [x] "Sign up with Google" on `/signup`, shown only when credentials are set
 - [x] Tests: unit refusal, dual-credential user still signs in, callback → `/login?error=`, button gating
 - [x] `docs/deploy/GOOGLE-OAUTH.md` — console steps, env vars, troubleshooting
-- [ ] User: create Web OAuth client, redirect `https://evo-dev.tail6765ef.ts.net/auth/google/callback`, add test users
-- [ ] evo-dev: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `LANDING_BASE_URL` in web.env; deploy + restart
-- [ ] Live proof: real Google sign-in on the Tailscale URL lands on Belle Estate
+- [x] User: create Web OAuth client, redirect `https://evo-dev.tail6765ef.ts.net/auth/google/callback`, add test users
+- [x] evo-dev: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `LANDING_BASE_URL` in web.env; deploy + restart
+- [x] Live proof (2026-10-19): new account created via Google sign-up on the Tailscale URL. Existing-user path not testable — mlim@fusen.world is not a Google account
 - Open: SPEC-010 U2 — link Google to an existing password account from signed-in Settings

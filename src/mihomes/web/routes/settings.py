@@ -723,7 +723,6 @@ def add_password_route(
         db, to=user.email, account_id=principal.account_id,
         change="A password was added", settings_url=_settings_url(request, principal),
     )
-    db.commit()
     return RedirectResponse(f"{_home_for(principal)}?signin=password_added#sign-in",
                             status_code=303)
 
@@ -787,5 +786,4 @@ def change_password_route(
         db, to=user.email, account_id=principal.account_id,
         change="Your password was changed", settings_url=_settings_url(request, principal),
     )
-    db.commit()
     return response

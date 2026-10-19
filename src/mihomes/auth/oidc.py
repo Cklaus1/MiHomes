@@ -58,8 +58,8 @@ class PasswordAccountExists(Exception):
 
     def __init__(self) -> None:
         super().__init__(
-            "That email has a MiHomes password. Sign in with your email and password, then "
-            "connect Google from Settings."
+            "That email has a MiHomes password. Sign in with your email and password (or use "
+            "“Forgot password” if you never set one), then connect Google from Settings."
         )
 
 

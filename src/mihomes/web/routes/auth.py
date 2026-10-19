@@ -276,7 +276,6 @@ def _finish_settings_flow(db: DbSession, request: Request, intent: str, claims):
         change="Google sign-in was connected",
         settings_url=f"{str(request.base_url).rstrip('/')}{home}",
     )
-    db.commit()
     return back("signin", "google_connected")
 
 

@@ -25,6 +25,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session as DbSession
 
 from mihomes.auth.oidc import IdentityClaims
@@ -197,7 +198,8 @@ def link_google(db: DbSession, user: User, claims: IdentityClaims) -> None:
 def notify_sign_in_change(
     db: DbSession, *, to: str, account_id, change: str, settings_url: str
 ) -> None:
-    """Best-effort security notice. **Never raises**: the change has already been made, and a
+    """Best-effort security notice; commits its own outbox row. **Never raises**: the change
+    must already be committed by the caller, and a
     mail provider that is down must not turn a successful change into an error page.
 
     Bound to the account when there is one so the message goes through the outbox (D12); with
@@ -219,5 +221,11 @@ def notify_sign_in_change(
         with account_context(account_id):
             bind_account_guc(db, account_id)
             service.send_sign_in_method_changed(to, change=change, settings_url=settings_url)
+        # Committed here, inside the guard: the outbox row is the only write, and a failure to
+        # queue it must not become a 500 after the credential change already landed.
+        db.commit()
     except EmailProviderError:
         log.exception("sign-in method notice could not be sent")
+    except SQLAlchemyError:
+        db.rollback()
+        log.exception("sign-in method notice could not be queued")

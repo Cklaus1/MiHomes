@@ -35,7 +35,11 @@ Branch: `worktree-onboarding-checklist` off `worktree-spec-build-harness` (the l
 - [x] `build:css` + `stamp`; full suite — see review.
 - [x] Live check (laptop `mihomes_dev` as non-superuser `mihomes_dev_app`, so RLS is real):
       signup → account → home → "Add rooms" → /assets; dashboard 1 of 6 → add room → 2 of 6,
-      rooms struck through; `/onboarding/` resumes at invite; dismiss hides. No 500s in log.
+      rooms struck through; `/onboarding/` resumes at invite; `/getting-started/dismiss` hides
+      it. Second signup: skip rooms → "Invite someone" → /team, `/onboarding/` → `/`, card
+      still shows invite open. No tracebacks/500s in either server log.
+- Note: on Free, "Invite your team" is completable (3 seats, admin invites allowed) but a
+  *staff* invite is refused (`staff_invites_allowed: False`) — the copy mentions staff.
 - [ ] Merge into `worktree-spec-build-harness` (--no-ff), push, clean up worktree.
 
 ### Review

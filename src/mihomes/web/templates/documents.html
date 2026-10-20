@@ -162,7 +162,7 @@
         <label class="block text-sm font-medium text-gray-700 mb-1">Title <span class="text-red-500">*</span></label>
         <input type="text" name="title" required
                class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-               placeholder="e.g. HVAC Maintenance SOP" />
+               placeholder="e.g. Boiler Warranty" />
       </div>
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-1">Type <span class="text-red-500">*</span></label>
@@ -383,6 +383,10 @@
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Type</label>
             <select name="document_type" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+              {% if doc.document_type.value not in doc_types | map('first') | list %}
+              {# A retired type: keep it selected so saving other fields doesn't silently re-type the document. #}
+              <option value="{{ doc.document_type.value }}" selected>{{ doc_type_labels.get(doc.document_type.value, doc.document_type.value.title()) }}</option>
+              {% endif %}
               {% for value, label in doc_types %}
               <option value="{{ value }}" {% if doc.document_type.value == value %}selected{% endif %}>{{ label }}</option>
               {% endfor %}

@@ -28,6 +28,11 @@ DOC_TYPE_LABELS = {
     "other": "Other",
 }
 
+# Types no longer offered on this page. Playbooks have their own page, so "sop" is not a document
+# category any more — but it stays in `DocumentType` (and the Postgres enum) so existing rows still
+# load and display; the edit form keeps a retired type selectable only on a row that already has it.
+RETIRED_DOC_TYPES = {"sop"}
+
 DOC_TYPE_COLORS = {
     "sop": "violet",
     "manual": "blue",
@@ -66,7 +71,11 @@ def _ctx(db: Session, type_filter: str = "", **kwargs) -> dict:
         "page": "documents",
         "documents": documents,
         "properties": prop_svc.list_properties(db),
-        "doc_types": [(t.value, DOC_TYPE_LABELS.get(t.value, t.value.title())) for t in DocumentType],
+        "doc_types": [
+            (t.value, DOC_TYPE_LABELS.get(t.value, t.value.title()))
+            for t in DocumentType
+            if t.value not in RETIRED_DOC_TYPES
+        ],
         "doc_type_labels": DOC_TYPE_LABELS,
         "doc_type_colors": DOC_TYPE_COLORS,
         "type_filter": type_filter,

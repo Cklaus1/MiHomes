@@ -20,7 +20,6 @@ class DocumentType(str, enum.Enum):
     INSURANCE = "insurance"
     PERMIT = "permit"
     REGULATION = "regulation"
-    SOP = "sop"
     REPORT = "report"
     PHOTO = "photo"
     OTHER = "other"

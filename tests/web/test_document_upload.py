@@ -59,7 +59,7 @@ def test_disallowed_file_is_refused_and_nothing_is_saved(client, storage):
 def test_link_only_document_still_works_without_a_file(client, storage):
     resp = client.post(
         "/documents/",
-        data={"title": "Pool SOP", "document_type": "sop", "file_path": "https://example.com/pool"},
+        data={"title": "Pool SOP", "document_type": "manual", "file_path": "https://example.com/pool"},
         files={"file": ("", b"", "application/octet-stream")},
     )
     assert resp.status_code == 200, resp.text

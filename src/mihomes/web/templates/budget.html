@@ -6,11 +6,11 @@
 
 {% block actions %}
 <div id="overview-actions" class="flex items-center gap-2">
-  <button onclick="document.getElementById('set-budget-modal').classList.remove('hidden')"
+  <button type="button" onclick="openModal('set-budget-modal')"
           class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors">
     Set Budget
   </button>
-  <button onclick="document.getElementById('add-txn-modal').classList.remove('hidden')"
+  <button type="button" onclick="openModal('add-txn-modal')"
           class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
     Add Transaction
@@ -25,7 +25,7 @@
       Generate Transactions
     </button>
   </form>
-  <button onclick="document.getElementById('add-expense-modal').classList.remove('hidden')"
+  <button type="button" onclick="openModal('add-expense-modal')"
           class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
     Add Expense
@@ -103,16 +103,14 @@
       <div class="text-xs text-gray-500 mt-0.5">Ended</div>
     </div>
     <div class="bg-white rounded-xl border border-gray-200 px-4 py-3 text-center">
-      {% set monthly = namespace(val=0) %}
-      {% for e in active_expenses %}
-        {% if e.frequency.value == 'weekly' %}{% set monthly.val = monthly.val + (e.amount * 4.33) %}
-        {% elif e.frequency.value == 'biweekly' %}{% set monthly.val = monthly.val + (e.amount * 2.17) %}
-        {% elif e.frequency.value == 'monthly' %}{% set monthly.val = monthly.val + e.amount %}
-        {% elif e.frequency.value == 'quarterly' %}{% set monthly.val = monthly.val + (e.amount / 3) %}
-        {% elif e.frequency.value == 'annual' %}{% set monthly.val = monthly.val + (e.amount / 12) %}
-        {% endif %}
-      {% endfor %}
-      <div class="text-2xl font-bold text-gray-900">{% if monthly.val %}{{ monthly.val | money }}{% else %}—{% endif %}</div>
+      {# One total per currency (routes/budget.py _monthly_by_currency) — never a cross-currency sum. #}
+      {% if monthly_by_currency %}
+        {% for cur, val in monthly_by_currency %}
+        <div class="{% if monthly_by_currency|length > 1 %}text-lg{% else %}text-2xl{% endif %} font-bold text-gray-900">{{ val | money(cur or None) }}</div>
+        {% endfor %}
+      {% else %}
+      <div class="text-2xl font-bold text-gray-900">—</div>
+      {% endif %}
       <div class="text-xs text-gray-500 mt-0.5">Est. Monthly</div>
     </div>
   </div>
@@ -157,7 +155,8 @@
   <div class="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center">
     <div class="text-3xl mb-2">🔄</div>
     <div class="text-gray-500 font-medium">No recurring expenses yet</div>
-    <button onclick="document.getElementById('add-expense-modal').classList.remove('hidden')" class="mt-3 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Add First Expense</button>
+    <p class="text-sm text-gray-500 mt-1">Add services you pay on a schedule — pool, landscaping, pest control — to see their monthly cost and generate transactions.</p>
+    <button type="button" onclick="openModal('add-expense-modal')" class="mt-3 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Add First Expense</button>
   </div>
   {% endif %}
 
@@ -171,9 +170,11 @@
       {{ analysis_year }} year to date
       {% if analysis_prop %} · Category &amp; Vendor charts show <span class="font-medium text-gray-600">{{ analysis_prop.name }}</span>{% endif %}
     </p>
-    <div class="flex items-center gap-3">
-      <select onchange="location.search = '?tab=analysis&property_id=' + this.value"
+    <div class="flex flex-wrap items-center gap-3">
+      <label for="analysis-property" class="sr-only">Property for category and vendor charts</label>
+      <select id="analysis-property" onchange="location.search = '?tab=analysis&property_id=' + encodeURIComponent(this.value)"
               class="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-brand-500 text-gray-700">
+        <option value="" {% if not analysis_prop %}selected{% endif %}>All properties</option>
         {% for p in properties %}
         <option value="{{ p.id }}" {% if analysis_prop and analysis_prop.id == p.id %}selected{% endif %}>{{ p.name }}</option>
         {% endfor %}
@@ -318,42 +319,43 @@
   <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6 max-h-[90vh] overflow-y-auto">
     <div class="flex items-center justify-between mb-5">
       <h2 class="text-lg font-semibold text-gray-900">Set Budget</h2>
-      <button onclick="document.getElementById('set-budget-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600">
+      <button type="button" onclick="closeModal('set-budget-modal')" aria-label="Close" class="p-2.5 -m-2.5 text-gray-400 hover:text-gray-600">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
       </button>
     </div>
     <form hx-post="/budget/set" hx-target="#budget-report" hx-swap="innerHTML"
-          hx-on::after-request="document.getElementById('set-budget-modal').classList.add('hidden')"
+          hx-on::after-request="if(event.detail.successful){ closeModal('set-budget-modal'); this.reset(); }"
           class="space-y-4">
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Property</label>
-        <select name="property_id" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+        <label for="sb-property" class="block text-sm font-medium text-gray-700 mb-1">Property <span class="text-red-500">*</span></label>
+        <select name="property_id" id="sb-property" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+          <option value="" disabled selected>Select property…</option>
           {% for p in properties %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
         </select>
       </div>
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Category</label>
-        <input type="text" name="category" required
+        <label for="sb-category" class="block text-sm font-medium text-gray-700 mb-1">Category <span class="text-red-500">*</span></label>
+        <input type="text" name="category" id="sb-category" required
                class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                placeholder="e.g. Maintenance, Landscaping, Utilities" />
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Period</label>
-          <select name="period" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+          <label for="sb-period" class="block text-sm font-medium text-gray-700 mb-1">Period</label>
+          <select name="period" id="sb-period" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
             {% for p in periods %}<option value="{{ p }}">{{ p.replace('_',' ').title() }}</option>{% endfor %}
           </select>
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Amount ($)</label>
-          <input type="number" name="amount" step="0.01" min="0" required
+          <label for="sb-amount" class="block text-sm font-medium text-gray-700 mb-1">Amount ({{ currency_symbol() }}) <span class="text-red-500">*</span></label>
+          <input type="number" name="amount" id="sb-amount" step="0.01" min="0" required
                  class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                  placeholder="5000" />
         </div>
       </div>
       <div class="flex gap-3 pt-1">
         <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Save</button>
-        <button type="button" onclick="document.getElementById('set-budget-modal').classList.add('hidden')"
+        <button type="button" onclick="closeModal('set-budget-modal')"
                 class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">Cancel</button>
       </div>
     </form>
@@ -365,42 +367,49 @@
   <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6 max-h-[90vh] overflow-y-auto">
     <div class="flex items-center justify-between mb-5">
       <h2 class="text-lg font-semibold text-gray-900">Add Transaction</h2>
-      <button onclick="document.getElementById('add-txn-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600">
+      <button type="button" onclick="closeModal('add-txn-modal')" aria-label="Close" class="p-2.5 -m-2.5 text-gray-400 hover:text-gray-600">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
       </button>
     </div>
     <form hx-post="/budget/transactions" hx-target="#transaction-list" hx-swap="innerHTML"
-          hx-on::after-request="document.getElementById('add-txn-modal').classList.add('hidden')"
+          hx-on::after-request="if(event.detail.successful){ closeModal('add-txn-modal'); this.reset(); }"
           class="space-y-4">
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Property</label>
-        <select name="property_id" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+        <label for="tx-property" class="block text-sm font-medium text-gray-700 mb-1">Property <span class="text-red-500">*</span></label>
+        <select name="property_id" id="tx-property" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+          <option value="" disabled selected>Select property…</option>
           {% for p in properties %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
         </select>
       </div>
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
-        <input type="text" name="description" required
+        <label for="tx-description" class="block text-sm font-medium text-gray-700 mb-1">Description <span class="text-red-500">*</span></label>
+        <input type="text" name="description" id="tx-description" required
                class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                placeholder="e.g. Pool service — May" />
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Amount ($)</label>
-          <input type="number" name="amount" step="0.01" required
+          <label for="tx-amount" class="block text-sm font-medium text-gray-700 mb-1">Amount ({{ currency_symbol() }}) <span class="text-red-500">*</span></label>
+          <input type="number" name="amount" id="tx-amount" step="0.01" required
                  class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                  placeholder="320.00" />
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Category</label>
-          <input type="text" name="category"
-                 class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-                 placeholder="e.g. Pool, HVAC" />
+          <label for="tx-date" class="block text-sm font-medium text-gray-700 mb-1">Date</label>
+          {# `value` is re-applied by form.reset(), so the default stays "today" after a save. #}
+          <input type="date" name="tx_date" id="tx-date" value="{{ today.isoformat() }}"
+                 class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
         </div>
+      </div>
+      <div>
+        <label for="tx-category" class="block text-sm font-medium text-gray-700 mb-1">Category</label>
+        <input type="text" name="category" id="tx-category"
+               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+               placeholder="e.g. Pool, HVAC" />
       </div>
       <div class="flex gap-3 pt-1">
         <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Save</button>
-        <button type="button" onclick="document.getElementById('add-txn-modal').classList.add('hidden')"
+        <button type="button" onclick="closeModal('add-txn-modal')"
                 class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">Cancel</button>
       </div>
     </form>
@@ -408,70 +417,70 @@
 </div>
 
 <!-- Add Recurring Expense modal -->
-<div id="add-expense-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onclick="if(event.target===this)this.classList.add('hidden')">
-  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+<div id="add-expense-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
     <div class="flex items-center justify-between mb-5">
       <h2 class="text-lg font-semibold text-gray-900">New Recurring Expense</h2>
-      <button onclick="document.getElementById('add-expense-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+      <button type="button" onclick="closeModal('add-expense-modal')" aria-label="Close" class="p-2.5 -m-2.5 text-gray-400 hover:text-gray-600"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
     </div>
     <form hx-post="/recurring/" hx-target="body" hx-swap="innerHTML" class="space-y-4">
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Name <span class="text-red-500">*</span></label>
-        <input type="text" name="name" required placeholder="e.g. Pool Service, Landscaping" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        <label for="re-name" class="block text-sm font-medium text-gray-700 mb-1">Name <span class="text-red-500">*</span></label>
+        <input type="text" name="name" id="re-name" required placeholder="e.g. Pool Service, Landscaping" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Amount ($) <span class="text-red-500">*</span></label>
-          <input type="number" name="amount" required min="0" step="0.01" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          <label for="re-amount" class="block text-sm font-medium text-gray-700 mb-1">Amount ({{ currency_symbol() }}) <span class="text-red-500">*</span></label>
+          <input type="number" name="amount" id="re-amount" required min="0" step="0.01" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Frequency <span class="text-red-500">*</span></label>
-          <select name="frequency" required onchange="toggleIntervalInput(this, 'create-interval-wrap', 'create-interval-unit')"
+          <label for="re-frequency" class="block text-sm font-medium text-gray-700 mb-1">Frequency <span class="text-red-500">*</span></label>
+          <select name="frequency" id="re-frequency" required onchange="toggleIntervalInput(this, 'create-interval-wrap', 'create-interval-unit')"
                   class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
             {% for f in frequencies %}<option value="{{ f }}">{{ f.replace('_',' ').title() }}</option>{% endfor %}
           </select>
         </div>
       </div>
       <div id="create-interval-wrap" class="hidden">
-        <label class="block text-sm font-medium text-gray-700 mb-1">Every how many <span id="create-interval-unit">weeks</span>? <span class="text-red-500">*</span></label>
-        <input type="number" name="interval_count" min="1" step="1" placeholder="e.g. 2"
+        <label for="re-interval" class="block text-sm font-medium text-gray-700 mb-1">Every how many <span id="create-interval-unit">weeks</span>? <span class="text-red-500">*</span></label>
+        <input type="number" name="interval_count" id="re-interval" min="1" step="1" placeholder="e.g. 2"
                class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
       </div>
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Property <span class="text-red-500">*</span></label>
-        <select name="property_slug" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
-          <option value="">Select property…</option>
+        <label for="re-property" class="block text-sm font-medium text-gray-700 mb-1">Property <span class="text-red-500">*</span></label>
+        <select name="property_slug" id="re-property" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          <option value="" disabled selected>Select property…</option>
           {% for p in properties %}<option value="{{ p.slug }}">{{ p.name }}</option>{% endfor %}
         </select>
       </div>
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Category</label>
-        <input type="text" name="category" value="general" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        <label for="re-category" class="block text-sm font-medium text-gray-700 mb-1">Category</label>
+        <input type="text" name="category" id="re-category" value="general" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
       </div>
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Vendor</label>
-        <select name="vendor_slug" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+        <label for="re-vendor" class="block text-sm font-medium text-gray-700 mb-1">Vendor</label>
+        <select name="vendor_slug" id="re-vendor" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
           <option value="">None</option>
           {% for v in vendors %}<option value="{{ v.slug }}">{{ v.company_name }}</option>{% endfor %}
         </select>
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
-          <input type="date" name="start_date" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          <label for="re-start" class="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+          <input type="date" name="start_date" id="re-start" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">End Date</label>
-          <input type="date" name="end_date" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          <label for="re-end" class="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+          <input type="date" name="end_date" id="re-end" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
         </div>
       </div>
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-        <textarea name="notes" rows="2" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"></textarea>
+        <label for="re-notes" class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+        <textarea name="notes" id="re-notes" rows="2" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"></textarea>
       </div>
       <div class="flex gap-3 pt-1">
         <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Create</button>
-        <button type="button" onclick="document.getElementById('add-expense-modal').classList.add('hidden')" class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-50">Cancel</button>
+        <button type="button" onclick="closeModal('add-expense-modal')" class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-50">Cancel</button>
       </div>
     </form>
   </div>
@@ -480,8 +489,8 @@
 <!-- Recurring expense detail modals -->
 {% for expense in expenses %}
 {% set e_notes = notes_map.get(expense.id, []) %}
-<div id="expense-modal-{{ expense.id }}" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onclick="if(event.target===this)closeModal('expense-modal-{{ expense.id }}')">
-  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] flex flex-col" onclick="event.stopPropagation()">
+<div id="expense-modal-{{ expense.id }}" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] flex flex-col">
 
     <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
       <div>
@@ -492,16 +501,16 @@
         {% if not expense.end_date %}<span class="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">Active</span>
         {% else %}<span class="px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-500">Ended</span>{% endif %}
         {% if not expense.end_date %}
-        <button hx-post="/recurring/{{ expense.id }}/delete" hx-target="body" hx-swap="innerHTML" hx-confirm="End this recurring expense?" class="text-gray-400 hover:text-amber-500 p-2.5 rounded-lg hover:bg-amber-50 transition-colors" title="End expense"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></button>
+        <button hx-post="/recurring/{{ expense.id }}/delete" hx-target="body" hx-swap="innerHTML" hx-confirm="End this recurring expense?" class="text-gray-400 hover:text-amber-500 p-2.5 rounded-lg hover:bg-amber-50 transition-colors" title="End expense" aria-label="End this recurring expense"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></button>
         {% endif %}
-        <button onclick="closeModal('expense-modal-{{ expense.id }}')" class="text-gray-400 hover:text-gray-600 p-2.5 rounded-lg hover:bg-gray-100"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+        <button type="button" onclick="closeModal('expense-modal-{{ expense.id }}')" aria-label="Close" class="text-gray-400 hover:text-gray-600 p-2.5 rounded-lg hover:bg-gray-100"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
       </div>
     </div>
 
     <div class="flex border-b border-gray-200 px-6 flex-shrink-0">
       {% for tid, tlabel in [('details','Details'),('notes','Notes')] %}
-      <button onclick="switchTab('expense','{{ expense.id }}','{{ tid }}')" id="expense-tab-{{ expense.id }}-{{ tid }}"
-              class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if tid=='details' %}border-brand-500 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
+      <button type="button" onclick="switchTab('expense-modal-{{ expense.id }}','{{ tid }}')" data-tab="{{ tid }}"
+              class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if tid=='details' %}border-brand-600 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
         {{ tlabel }}{% if tid=='notes' and e_notes %} ({{ e_notes|length }}){% endif %}
       </button>
       {% endfor %}
@@ -509,7 +518,7 @@
 
     <div class="flex-1 overflow-y-auto">
 
-      <div id="expense-panel-{{ expense.id }}-details" class="px-6 py-5">
+      <div id="expense-modal-{{ expense.id }}-tab-details" class="px-6 py-5">
         <div id="expense-view-{{ expense.id }}">
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
             <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Amount</div><div class="font-medium text-sm text-gray-800">{{ expense.amount | money(expense.currency, 2) }}</div></div>
@@ -541,7 +550,7 @@
                 <input type="text" name="name" value="{{ expense.name }}" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
               <div>
-                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Amount ($)</div>
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Amount ({{ currency_symbol() }})</div>
                 <input type="number" name="amount" step="0.01" min="0" value="{{ expense.amount }}" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
               <div>
@@ -577,7 +586,7 @@
         </div>
       </div>
 
-      <div id="expense-panel-{{ expense.id }}-notes" class="px-6 py-5 hidden">
+      <div id="expense-modal-{{ expense.id }}-tab-notes" class="px-6 py-5 hidden">
         <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Notes & Comments</div>
         <div data-notes-container>
           {% with notes=e_notes, post_url="/recurring/"+expense.id|string+"/notes", delete_url_prefix="/recurring/"+expense.id|string+"/notes" %}{% include "partials/notes_section.html" %}{% endwith %}
@@ -593,31 +602,24 @@
 
 {% block scripts %}
 <script>
-function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
-function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
-
-function switchTab(prefix, entityId, tab) {
-  ['details','notes'].forEach(t => {
-    document.getElementById(prefix+'-panel-'+entityId+'-'+t)?.classList.add('hidden');
-    const btn = document.getElementById(prefix+'-tab-'+entityId+'-'+t);
-    if (btn) { btn.classList.remove('border-brand-500','text-brand-600'); btn.classList.add('border-transparent','text-gray-500'); }
-  });
-  document.getElementById(prefix+'-panel-'+entityId+'-'+tab)?.classList.remove('hidden');
-  const active = document.getElementById(prefix+'-tab-'+entityId+'-'+tab);
-  if (active) { active.classList.add('border-brand-500','text-brand-600'); active.classList.remove('border-transparent','text-gray-500'); }
-}
-
 let chartsInitialized = false;
 
 Chart.defaults.font.family = 'inherit';
 Chart.defaults.color = '#6b7280';
 
+const CURRENCY_SYMBOL = {{ currency_symbol() | tojson }};
+// Same shape as the `money` filter: symbol + grouped whole units.
+const fmtMoney = v => CURRENCY_SYMBOL + Math.round(Number(v) || 0).toLocaleString();
+
 function initSpendingCharts() {
   const opts = {
     indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-    plugins: { legend: { display: false } },
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => ' ' + fmtMoney(ctx.parsed.x) } },
+    },
     scales: {
-      x: { grid: { color: '#f3f4f6' }, ticks: { callback: v => {{ currency_symbol() | tojson }} + v.toLocaleString() } },
+      x: { grid: { color: '#f3f4f6' }, ticks: { callback: v => fmtMoney(v) } },
       y: { grid: { display: false } },
     },
   };

@@ -15,7 +15,7 @@ from mihomes.services import appointment as appt_svc
 from mihomes.services import event as event_svc
 from mihomes.services import property as prop_svc
 from mihomes.services import vendor as vendor_svc
-from mihomes.web.deps import get_db, templates
+from mihomes.web.deps import get_db, templates, with_toast
 
 logger = logging.getLogger(__name__)
 
@@ -239,7 +239,10 @@ def create_appointment(
         month_date = date.today().replace(day=1)
     # Use the calendar's active filter, not the appointment's property
     cal_filter = filter_property_id or None
-    return templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date, cal_filter))
+    return with_toast(
+        templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date, cal_filter)),
+        "Appointment added",
+    )
 
 
 @router.post("/appointments/{appointment_id}/edit", response_class=HTMLResponse)
@@ -279,7 +282,7 @@ def edit_appointment(
         month_date = date.fromisoformat(month + "-01") if month else date.today().replace(day=1)
     except ValueError:
         month_date = date.today().replace(day=1)
-    return templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date))
+    return with_toast(templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date)), "Appointment saved")
 
 
 @router.post("/appointments/{appointment_id}/mark-serviced", response_class=HTMLResponse)
@@ -296,13 +299,16 @@ def mark_appointment_serviced(
             db, appointment_id,
             actual_cost=float(actual_cost) if actual_cost else None,
         )
-    except ValueError:
-        pass
+        toast, kind = "Marked serviced — cost added to the budget", "success"
+    except ValueError as exc:
+        # Was `pass`: the page redrew unchanged and the user could not tell why.
+        logger.info("mark serviced refused: %s", exc)
+        toast, kind = str(exc) or "Couldn't mark this appointment serviced.", "error"
     try:
         month_date = date.fromisoformat(month + "-01") if month else date.today().replace(day=1)
     except ValueError:
         month_date = date.today().replace(day=1)
-    return templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date))
+    return with_toast(templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date)), toast, kind)
 
 
 @router.post("/appointments/{appointment_id}/delete", response_class=HTMLResponse)
@@ -318,7 +324,7 @@ def delete_appointment(
         month_date = date.fromisoformat(month + "-01") if month else date.today().replace(day=1)
     except ValueError:
         month_date = date.today().replace(day=1)
-    return templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date))
+    return with_toast(templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date)), "Appointment deleted")
 
 
 @router.post("/events/{event_id}/delete", response_class=HTMLResponse)
@@ -334,4 +340,4 @@ def delete_event_from_calendar(
         month_date = date.fromisoformat(month + "-01") if month else date.today().replace(day=1)
     except ValueError:
         month_date = date.today().replace(day=1)
-    return templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date))
+    return with_toast(templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date)), "Event deleted")

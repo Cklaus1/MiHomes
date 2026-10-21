@@ -11,7 +11,7 @@ from mihomes.authz.declare import declares
 from mihomes.models.task import TaskPriority
 from mihomes.services import property as prop_svc
 from mihomes.services import template as tmpl_svc
-from mihomes.web.deps import get_db, templates
+from mihomes.web.deps import get_db, templates, with_toast
 
 router = APIRouter()
 
@@ -60,7 +60,7 @@ def create_template(
         description=description or None,
         steps=step_list or None,
     )
-    return templates.TemplateResponse(request, "templates.html", _ctx(db))
+    return with_toast(templates.TemplateResponse(request, "templates.html", _ctx(db)), "Template created")
 
 
 @router.post("/{slug}/run", response_class=HTMLResponse)
@@ -80,7 +80,7 @@ def run_template(
         priority=TaskPriority(priority),
     )
     flash = f"Created {len(tasks)} task{'s' if len(tasks) != 1 else ''} from template."
-    return templates.TemplateResponse(request, "templates.html", _ctx(db, flash=flash))
+    return with_toast(templates.TemplateResponse(request, "templates.html", _ctx(db, flash=flash)), flash)
 
 
 @router.post("/{slug}/delete", response_class=HTMLResponse)
@@ -91,4 +91,4 @@ def delete_template(
     db: Session = Depends(get_db),
 ):
     tmpl_svc.delete_template(db, slug)
-    return templates.TemplateResponse(request, "templates.html", _ctx(db))
+    return with_toast(templates.TemplateResponse(request, "templates.html", _ctx(db)), "Template deleted")

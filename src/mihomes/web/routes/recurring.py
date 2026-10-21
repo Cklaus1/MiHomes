@@ -12,7 +12,7 @@ from mihomes.authz.declare import declares
 from mihomes.models.recurring_expense import ExpenseFrequency
 from mihomes.services import note as note_svc
 from mihomes.services import recurring as recurring_svc
-from mihomes.web.deps import get_db, templates
+from mihomes.web.deps import get_db, templates, with_toast
 from mihomes.web.forms import parse_money
 from mihomes.web.routes.budget import _ctx as _budget_ctx
 
@@ -58,7 +58,7 @@ def create_recurring(
         notes=notes or None,
         interval_count=int(interval_count) if interval_count else None,
     )
-    return templates.TemplateResponse(request, "budget.html", _ctx(db))
+    return with_toast(templates.TemplateResponse(request, "budget.html", _ctx(db)), "Recurring expense added")
 
 
 @router.post("/{expense_id}/edit", response_class=HTMLResponse)
@@ -84,7 +84,8 @@ def edit_recurring(
         except ValueError as e:
             ctx = _ctx(db)
             ctx["error"] = str(e)
-            return templates.TemplateResponse(request, "budget.html", ctx)
+            # 400 + full page: app.js swaps it in, so the banner shows instead of a silent no-op.
+            return templates.TemplateResponse(request, "budget.html", ctx, status_code=400)
     if frequency:
         kwargs["frequency"] = ExpenseFrequency(frequency)
     if category:
@@ -94,7 +95,7 @@ def edit_recurring(
     kwargs["notes"] = notes or None
     kwargs["interval_count"] = int(interval_count) if interval_count else None
     recurring_svc.update_recurring_expense(db, expense_id, **kwargs)
-    return templates.TemplateResponse(request, "budget.html", _ctx(db))
+    return with_toast(templates.TemplateResponse(request, "budget.html", _ctx(db)), "Recurring expense saved")
 
 
 @router.post("/generate", response_class=HTMLResponse)
@@ -102,7 +103,7 @@ def edit_recurring(
 def generate_transactions(request: Request, db: Session = Depends(get_db)):
     recurring_svc.generate_transactions(db)
     recurring_svc.generate_upcoming_appointments(db)
-    return templates.TemplateResponse(request, "budget.html", _ctx(db))
+    return with_toast(templates.TemplateResponse(request, "budget.html", _ctx(db)), "Transactions generated")
 
 
 @router.post("/{expense_id}/notes", response_class=HTMLResponse)
@@ -133,4 +134,4 @@ def delete_note(request: Request, expense_id: str, note_id: UUID, db: Session = 
 @declares("finance.view", Access.ACCOUNT)
 def delete_recurring(request: Request, expense_id: str, db: Session = Depends(get_db)):
     recurring_svc.update_recurring_expense(db, expense_id, end_date=date.today())
-    return templates.TemplateResponse(request, "budget.html", _ctx(db))
+    return with_toast(templates.TemplateResponse(request, "budget.html", _ctx(db)), "Recurring expense ended")

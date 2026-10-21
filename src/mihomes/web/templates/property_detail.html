@@ -24,9 +24,11 @@
         class="inline-flex items-center px-3 py-1.5 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">
   Edit
 </button>
-{% set dc = delete_counts %}
-<button type="button" hx-post="/properties/{{ prop.slug }}/delete" hx-target="body" hx-swap="innerHTML"
-        hx-confirm="Delete {{ prop.name }}?{% if dc.rooms or dc.assets or dc.tasks or dc.issues %} This also permanently deletes its {{ dc.rooms }} room{{ 's' if dc.rooms != 1 }}, {{ dc.assets }} asset{{ 's' if dc.assets != 1 }}, {{ dc.tasks }} task{{ 's' if dc.tasks != 1 }} and {{ dc.issues }} issue{{ 's' if dc.issues != 1 }}.{% endif %} This cannot be undone."
+{# Opens the confirmation dialog below rather than a one-line browser confirm(): deleting a
+   property erases everything in it, unrecoverably, and the user is asked to export first. The
+   acknowledgement is reset on every open so a previous tick never carries over. #}
+<button type="button"
+        onclick="var a = document.getElementById('delete-property-ack'); if (a) { a.checked = false; a.dispatchEvent(new Event('change')); } openModal('delete-property-modal')"
         class="inline-flex items-center px-3 py-1.5 text-red-600 border border-red-200 text-sm font-medium rounded-lg hover:bg-red-50">
   Delete
 </button>
@@ -206,6 +208,73 @@
         <button type="button" onclick="closeModal('edit-property-modal')" class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-50">Cancel</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- Delete Property confirmation. Two states: blocked (records the service will not erase are
+     attached — user decision 2026-10-21: keep blocking) or confirm (export first, tick, Yes). -->
+{% set dc = delete_counts %}
+<div id="delete-property-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
+    {% if delete_blockers %}
+    <h2 class="text-lg font-semibold text-gray-900">{{ prop.name }} can't be deleted yet</h2>
+    <p class="mt-3 text-sm text-gray-700">It still has:</p>
+    <ul class="mt-2 list-disc pl-5 text-sm text-gray-800 space-y-1">
+      {% for b in delete_blockers %}<li>{{ b }}</li>{% endfor %}
+    </ul>
+    <p class="mt-3 text-sm text-gray-600">
+      Move or remove those first, or mark the property closed instead (Edit → Status) to keep its history.
+    </p>
+    <div class="mt-6 flex justify-end">
+      <button type="button" onclick="closeModal('delete-property-modal')"
+              class="px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">OK</button>
+    </div>
+    {% else %}
+    <h2 class="text-lg font-semibold text-gray-900">Delete {{ prop.name }} and all of its data?</h2>
+
+    <div class="mt-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">
+      <p class="font-semibold">This permanently deletes {{ prop.name }} and everything in it:</p>
+      <ul class="mt-2 list-disc pl-5 space-y-0.5">
+        <li>{{ dc.rooms }} room{{ 's' if dc.rooms != 1 }}</li>
+        <li>{{ dc.assets }} asset{{ 's' if dc.assets != 1 }}</li>
+        <li>{{ dc.tasks }} task{{ 's' if dc.tasks != 1 }}, with their completion history</li>
+        <li>{{ dc.issues }} issue{{ 's' if dc.issues != 1 }}</li>
+        <li>its budgets and transactions</li>
+      </ul>
+      <p class="mt-3 font-semibold">Deleted data cannot be retrieved — not by you, and not by us.</p>
+    </div>
+
+    <div class="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
+      <p class="font-medium text-gray-900">Export your data before deleting</p>
+      {% if viewer_role == 'owner' %}
+      <p class="mt-1">Download a copy of everything in this account first, so you have a record.</p>
+      <a href="/privacy/export" download
+         class="mt-3 inline-flex items-center gap-2 px-3 py-2 border border-gray-300 bg-white rounded-lg text-sm font-medium text-gray-800 hover:bg-gray-100">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+        Download an export
+      </a>
+      {% else %}
+      <p class="mt-1">Only the account owner can export data. Ask them to download an export (Settings → Danger zone) before you delete this property.</p>
+      {% endif %}
+    </div>
+
+    <form hx-post="/properties/{{ prop.slug }}/delete" hx-target="body" hx-swap="innerHTML" class="mt-5">
+      <input type="hidden" name="confirm" value="yes" />
+      <label for="delete-property-ack" class="flex items-start gap-3 text-sm text-gray-800 cursor-pointer">
+        <input type="checkbox" id="delete-property-ack" required
+               onchange="this.form.querySelector('[data-delete-yes]').disabled = !this.checked"
+               class="mt-0.5 h-5 w-5 rounded border-gray-300 text-red-600 focus:ring-red-500" />
+        <span>I have exported anything I need, and I understand {{ prop.name }} and all of its data will be permanently deleted and cannot be retrieved.</span>
+      </label>
+      <p class="mt-5 text-sm font-medium text-gray-900">Are you sure you want to delete {{ prop.name }}?</p>
+      <div class="mt-3 flex flex-col-reverse sm:flex-row gap-3">
+        <button type="button" onclick="closeModal('delete-property-modal')"
+                class="flex-1 py-2.5 border border-gray-200 text-gray-800 text-sm font-medium rounded-lg hover:bg-gray-50">No, keep it</button>
+        <button type="submit" data-delete-yes disabled
+                class="flex-1 py-2.5 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed">Yes, delete permanently</button>
+      </div>
+    </form>
+    {% endif %}
   </div>
 </div>
 

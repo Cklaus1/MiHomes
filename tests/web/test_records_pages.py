@@ -4,6 +4,7 @@ Each test pins a behaviour the pass changed, against the real Postgres schema â€
 case in particular only fails on a database that enforces foreign keys.
 """
 
+import re
 from datetime import date, timedelta
 
 from mihomes.models.asset import AssetType
@@ -72,10 +73,42 @@ def test_property_edit_stays_on_the_property_page(client):
 
 
 def test_property_delete_returns_to_list(client):
-    r = client.post("/properties/test-manor/delete")
+    r = client.post("/properties/test-manor/delete", data={"confirm": "yes"})
     assert r.status_code == 200
     assert r.headers["HX-Push-Url"] == "/properties/"
     assert "Test Manor deleted" in r.headers.get("HX-Trigger", "")
+
+
+def test_property_delete_without_confirmation_deletes_nothing(client):
+    """The dialog posts confirm=yes; a stray or scripted POST without it must not erase a home."""
+    r = client.post("/properties/test-manor/delete")
+    assert r.status_code == 400
+    assert "nothing was deleted" in r.text
+    assert client.get("/properties/test-manor").status_code == 200
+
+
+def test_property_delete_dialog_warns_and_requires_the_tick(client):
+    html = client.get("/properties/test-manor").text
+    dialog = html[html.index('id="delete-property-modal"'):]
+    assert "Delete Test Manor and all of its data?" in dialog
+    assert "cannot be retrieved" in dialog
+    assert "Export your data before deleting" in dialog
+    # Yes starts disabled and is only enabled by the acknowledgement checkbox.
+    assert 'id="delete-property-ack"' in dialog
+    assert re.search(r'<button type="submit" data-delete-yes disabled', dialog)
+    assert "No, keep it" in dialog
+    assert 'name="confirm" value="yes"' in dialog
+    # The one-line browser confirm is gone.
+    assert 'hx-confirm="Delete Test Manor?' not in html
+
+
+def test_property_delete_dialog_explains_a_block_instead_of_offering_delete(client):
+    _seed(client, lambda s: book_svc.create_book(s, "Dune", "test-manor"))
+    html = client.get("/properties/test-manor").text
+    dialog = html[html.index('id="delete-property-modal"'):]
+    assert "Test Manor can't be deleted yet" in dialog
+    assert "1 book" in dialog
+    assert "data-delete-yes" not in dialog
 
 
 # --- Assets -----------------------------------------------------------------

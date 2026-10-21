@@ -8,8 +8,10 @@ from mihomes.authz.actions import Access
 from mihomes.authz.declare import declares
 from mihomes.authz.scope import current_role
 from mihomes.models.alert import AlertStatus
+from mihomes.models.issue import IssueSeverity
 from mihomes.models.work_order import WorkOrder, WorkOrderStatus
 from mihomes.services import alerts as alert_svc
+from mihomes.services import issue as issue_svc
 from mihomes.services import onboarding_service as onboarding
 from mihomes.services import property as prop_svc
 from mihomes.services import task as task_svc
@@ -18,6 +20,10 @@ from mihomes.tenancy import current_account
 from mihomes.web.deps import get_db, templates
 
 router = APIRouter()
+
+_SEVERITY_RANK = {
+    IssueSeverity.CRITICAL: 0, IssueSeverity.HIGH: 1, IssueSeverity.MEDIUM: 2, IssueSeverity.LOW: 3,
+}
 
 
 # The portfolio overview is a collection view: it has no single target property, and for staff it
@@ -50,6 +56,11 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         .count()
     )
 
+    # Open issues, worst first. Ranked here rather than trusting the query's ORDER BY on the
+    # enum column, which sorts by however the column happens to be stored.
+    open_issues = issue_svc.list_issues(db, open_only=True)
+    open_issues.sort(key=lambda i: _SEVERITY_RANK.get(i.severity, 9))
+
     # The "Getting started" card is for whoever sets the estate up. Staff see a property-scoped
     # slice of the account, so its counts would be wrong for them — and it is not their job.
     getting_started = None
@@ -66,6 +77,10 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             "health_scores": health_scores,
             "overdue_tasks": overdue,
             "upcoming_tasks": upcoming[:10],
+            # The tile shows the true count; the list above is capped.
+            "upcoming_count": len(upcoming),
+            "open_issues": open_issues[:5],
+            "open_issue_count": len(open_issues),
             "alerts": all_alerts[:5],
             "total_alerts": len(all_alerts),
             "active_work_orders": active_work_orders,

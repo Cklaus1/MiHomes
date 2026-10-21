@@ -1,6 +1,7 @@
 """Task routes."""
 
 from datetime import date
+from urllib.parse import parse_qs, urlsplit
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -9,12 +10,14 @@ from sqlalchemy.orm import Session
 
 from mihomes.authz.actions import Access
 from mihomes.authz.declare import declares
+from mihomes.models.staff import Staff
 from mihomes.models.task import RecurrenceFrequency, TaskPriority, TaskStatus
 from mihomes.services import note as note_svc
 from mihomes.services import property as prop_svc
 from mihomes.services import staff as staff_svc
 from mihomes.services import task as task_svc
-from mihomes.web.deps import get_db, templates
+from mihomes.services.slug import resolve_identifier
+from mihomes.web.deps import get_db, templates, with_toast
 
 router = APIRouter()
 
@@ -31,6 +34,26 @@ FREQUENCY_ORDER = [
     ("annual", "Annual"),
     ("once", "One-time"),
 ]
+
+#: The sort control's options. `oldest` still works for old links but is not offered.
+SORT_OPTIONS = [
+    ("urgency", "Urgency"),
+    ("due", "Due date"),
+    ("newest", "Newest"),
+    ("priority", "Priority"),
+]
+_SORT_KEYS = {key for key, _ in SORT_OPTIONS} | {"oldest"}
+
+_PRIORITY_RANK = {
+    TaskPriority.URGENT: 0, TaskPriority.HIGH: 1, TaskPriority.MEDIUM: 2, TaskPriority.LOW: 3,
+}
+
+_TRUE = {"true", "1", "yes", "on"}
+
+
+def _due_key(task) -> tuple:
+    """Due date ascending, undated tasks last."""
+    return (task.due_date is None, task.due_date or date.max)
 
 
 def group_by_frequency(tasks) -> dict[str, list]:
@@ -53,6 +76,8 @@ def _ctx(
     recurrence: str | None = None,
     form_error: str | None = None,
     form_notice: str | None = None,
+    open_id: str | None = None,
+    open_new: bool = False,
 ) -> dict:
     from mihomes.services.config_service import estate_today
     today = estate_today(db)
@@ -79,14 +104,24 @@ def _ctx(
     elif recurrence == "once":
         tasks = [t for t in tasks if not t.schedule or t.schedule.frequency.value == "once"]
 
-    # Sort order
-    if sort == "oldest":
-        tasks = sorted(tasks, key=lambda t: t.created_at or t.id)
-    else:
-        tasks = sorted(tasks, key=lambda t: t.created_at or t.id, reverse=True)
-
     all_overdue = task_svc.get_overdue_tasks(db)
     overdue_ids = {t.id for t in all_overdue}
+
+    # Sort order. Urgency is the default — overdue first, then soonest due (undated last), then
+    # priority — because newest-first buried the work that most needed doing.
+    sort = sort if sort in _SORT_KEYS else "urgency"
+    if sort == "oldest":
+        tasks = sorted(tasks, key=lambda t: t.created_at or t.id)
+    elif sort == "newest":
+        tasks = sorted(tasks, key=lambda t: t.created_at or t.id, reverse=True)
+    elif sort == "priority":
+        tasks = sorted(tasks, key=lambda t: (_PRIORITY_RANK.get(t.priority, 9), _due_key(t)))
+    elif sort == "due":
+        tasks = sorted(tasks, key=lambda t: (_due_key(t), _PRIORITY_RANK.get(t.priority, 9)))
+    else:
+        tasks = sorted(tasks, key=lambda t: (
+            t.id not in overdue_ids, _due_key(t), _PRIORITY_RANK.get(t.priority, 9),
+        ))
 
     # Kanban columns — exclude cancelled from board
     board_tasks = [t for t in tasks if t.status != TaskStatus.CANCELLED]
@@ -130,14 +165,67 @@ def _ctx(
         "priorities": [p.value for p in TaskPriority],
         "statuses": [s.value for s in TaskStatus],
         "notes_map": {t.id: note_svc.list_notes(db, f"task:{t.id}") for t in tasks},
-        "filter_property": property_id,
+        # Filters as strings: ids compare against `{{ p.id|string }}` in the selects.
+        "filter_property": str(property_id) if property_id else None,
         "filter_status": status,
         "filter_overdue": overdue,
         "filter_due_week": due_week,
-        "filter_assignee": assignee_id,
-        "filter_sort": sort or "newest",
+        "filter_assignee": str(assignee_id) if assignee_id else None,
+        "filter_sort": sort,
         "filter_recurrence": recurrence or "",
+        "sort_options": SORT_OPTIONS,
+        # One-shot: the page opens this task's modal (?open=<id>) or the add modal (?new=1).
+        "open_id": open_id,
+        "open_new": open_new,
     }
+
+
+def _page_filters(request: Request) -> dict:
+    """The filters the user was looking at when they posted, read from `HX-Current-URL`.
+
+    Every save swaps the whole page into <body>, and re-rendering with a bare `_ctx(db)` threw
+    the property/status/assignee/overdue filters away. A body swap leaves the URL alone, so the
+    URL still says what the user was looking at. `open`/`new` are one-shot and never carried.
+    """
+    current = urlsplit(request.headers.get("hx-current-url", ""))
+    if not current.path.startswith("/tasks"):
+        return {}                            # posted from another page: its query isn't ours
+    query = parse_qs(current.query)
+
+    def one(key):
+        return (query.get(key) or [""])[0].strip() or None
+
+    return {
+        "property_id": one("property_id"),
+        "status": one("status"),
+        "overdue": (one("overdue") or "").lower() in _TRUE,
+        "due_week": (one("due_week") or "").lower() in _TRUE,
+        "assignee_id": one("assignee_id"),
+        "sort": one("sort"),
+        "recurrence": one("recurrence"),
+    }
+
+
+def _page(request: Request, db: Session, toast: str | None = None, status_code: int = 200, **kw):
+    """The task page as the user had it filtered, plus an optional success toast."""
+    resp = templates.TemplateResponse(
+        request, "tasks.html", _ctx(db, **{**_page_filters(request), **kw}),
+        status_code=status_code,
+    )
+    return with_toast(resp, toast) if toast else resp
+
+
+#: The edit form's "Unassigned" option. Not "": FastAPI turns an empty optional form value into
+#: None, which would be indistinguishable from "this form has no assignee field at all".
+UNASSIGNED = "none"
+
+
+def _assignee_id(db: Session, value: str | None):
+    """A posted assignee: blank/"none" is unassigned; anything else must be a staff member."""
+    value = (value or "").strip()
+    if not value or value == UNASSIGNED:
+        return None
+    return resolve_identifier(db, Staff, value).id
 
 
 # Row 5 (`task.manage`) is `SCOPED` for staff. The index has no single target property, so it is
@@ -156,6 +244,8 @@ def list_tasks(
     assignee_id: str | None = None,
     sort: str | None = None,
     recurrence: str | None = None,
+    open: str | None = None,
+    new: bool = False,
     db: Session = Depends(get_db),
 ):
     # Blank and whitespace-only both mean "no filter". The `int()` these used to be
@@ -165,7 +255,8 @@ def list_tasks(
     aid = (assignee_id or "").strip() or None
     return templates.TemplateResponse(
         request, "tasks.html",
-        _ctx(db, pid, status or None, overdue, due_week, aid, sort, recurrence),
+        _ctx(db, pid, status or None, overdue, due_week, aid, sort, recurrence,
+             open_id=(open or "").strip() or None, open_new=new),
     )
 
 
@@ -179,6 +270,7 @@ def create_task(
     due_date: str = Form(None),
     recurrence: str = Form("once"),
     season_spec: str = Form(""),
+    assignee_id: str = Form(""),
     db: Session = Depends(get_db),
 ):
     due = date.fromisoformat(due_date) if due_date else None
@@ -191,12 +283,11 @@ def create_task(
             due_date=due,
             recurrence=_frequency(recurrence),
             season_spec=season_spec.strip() or None,
+            assignee_id_or_slug=assignee_id.strip() or None,
         )
     except ValueError as exc:
-        return templates.TemplateResponse(
-            request, "tasks.html", _ctx(db, form_error=str(exc)), status_code=400
-        )
-    return templates.TemplateResponse(request, "tasks.html", _ctx(db))
+        return _page(request, db, form_error=str(exc), status_code=400)
+    return _page(request, db, "Task added")
 
 
 def _frequency(value: str | None) -> RecurrenceFrequency:
@@ -214,12 +305,8 @@ def complete_task(request: Request, slug: str, db: Session = Depends(get_db)):
     try:
         task, next_task = task_svc.complete_task(db, slug)
     except ValueError as exc:
-        return templates.TemplateResponse(
-            request, "tasks.html", _ctx(db, form_error=str(exc)), status_code=400
-        )
-    return templates.TemplateResponse(
-        request, "tasks.html", _ctx(db, form_notice=_done_notice(task, next_task))
-    )
+        return _page(request, db, form_error=str(exc), status_code=400)
+    return _page(request, db, "Task done", form_notice=_done_notice(task, next_task))
 
 
 def _done_notice(task, next_task) -> str:
@@ -230,6 +317,17 @@ def _done_notice(task, next_task) -> str:
     return f"“{task.title}” done."
 
 
+@router.post("/{slug}/start", response_class=HTMLResponse)
+@declares("task.manage", Access.ITEM)
+def start_task(request: Request, slug: str, db: Session = Depends(get_db)):
+    """To Do → In Progress straight from a board card, without opening the edit form."""
+    task = task_svc.get_task(db, slug)
+    if task.status != TaskStatus.PENDING:
+        return _page(request, db, form_error="Only a to-do task can be started.", status_code=400)
+    task_svc.update_task(db, slug, status=TaskStatus.IN_PROGRESS)
+    return _page(request, db, "Task started")
+
+
 @router.post("/{slug}/archive", response_class=HTMLResponse)
 @declares("task.manage", Access.ITEM)
 def archive_task(request: Request, slug: str, db: Session = Depends(get_db)):
@@ -237,10 +335,8 @@ def archive_task(request: Request, slug: str, db: Session = Depends(get_db)):
     try:
         task_svc.archive_task(db, slug)
     except ValueError as exc:
-        return templates.TemplateResponse(
-            request, "tasks.html", _ctx(db, form_error=str(exc)), status_code=400
-        )
-    return templates.TemplateResponse(request, "tasks.html", _ctx(db))
+        return _page(request, db, form_error=str(exc), status_code=400)
+    return _page(request, db, "Task cleared from the list")
 
 
 @router.post("/clear-completed", response_class=HTMLResponse)
@@ -249,7 +345,7 @@ def clear_completed(request: Request, db: Session = Depends(get_db)):
     """Clear every completed task off the list. COLLECTION: staff clear only tasks in their scope,
     because the query layer already narrows `Task` to their properties."""
     task_svc.clear_completed(db)
-    return templates.TemplateResponse(request, "tasks.html", _ctx(db))
+    return _page(request, db, "Done tasks cleared")
 
 
 @router.post("/{slug}/edit", response_class=HTMLResponse)
@@ -264,6 +360,7 @@ def edit_task(
     status: str = Form(""),
     recurrence: str | None = Form(None),
     season_spec: str = Form(""),
+    assignee_id: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     kwargs = dict(
@@ -272,6 +369,9 @@ def edit_task(
         due_date=date.fromisoformat(due_date) if due_date else None,
         description=description or None,
     )
+    # Only when the form sends the field — a caller posting without it must not unassign.
+    if assignee_id is not None:
+        kwargs["assignee_id"] = _assignee_id(db, assignee_id)
     # Choosing "Completed" here must do exactly what the Done button does — reset a repeating
     # task in place, complete a one-time one. Writing the status directly skipped all of that, so
     # it is held back and applied last, after any frequency change below takes effect.
@@ -292,17 +392,15 @@ def edit_task(
             notice = _done_notice(done, nxt)
     except ValueError as exc:
         db.rollback()
-        return templates.TemplateResponse(
-            request, "tasks.html", _ctx(db, form_error=str(exc)), status_code=400
-        )
-    return templates.TemplateResponse(request, "tasks.html", _ctx(db, form_notice=notice))
+        return _page(request, db, form_error=str(exc), status_code=400)
+    return _page(request, db, "Task saved", form_notice=notice)
 
 
 @router.post("/{slug}/delete", response_class=HTMLResponse)
 @declares("task.manage", Access.ITEM)
 def delete_task(request: Request, slug: str, db: Session = Depends(get_db)):
     task_svc.delete_task(db, slug)
-    return templates.TemplateResponse(request, "tasks.html", _ctx(db))
+    return _page(request, db, "Task deleted")
 
 
 # Notes on a task are governed by the task's own row, not by a separate action: `note` is
@@ -315,11 +413,11 @@ def add_note(request: Request, slug: str, content: str = Form(...), db: Session 
     task = task_svc.get_task(db, slug)
     note_svc.add_note(db, f"task:{task.id}", content)
     notes = note_svc.list_notes(db, f"task:{task.id}")
-    return templates.TemplateResponse(request, "partials/notes_section.html", {
+    return with_toast(templates.TemplateResponse(request, "partials/notes_section.html", {
         "notes": notes,
         "post_url": f"/tasks/{slug}/notes",
         "delete_url_prefix": f"/tasks/{slug}/notes",
-    })
+    }), "Note added")
 
 
 @router.delete("/{slug}/notes/{note_id}", response_class=HTMLResponse)
@@ -328,8 +426,8 @@ def delete_note(request: Request, slug: str, note_id: UUID, db: Session = Depend
     note_svc.delete_note(db, note_id)
     task = task_svc.get_task(db, slug)
     notes = note_svc.list_notes(db, f"task:{task.id}")
-    return templates.TemplateResponse(request, "partials/notes_section.html", {
+    return with_toast(templates.TemplateResponse(request, "partials/notes_section.html", {
         "notes": notes,
         "post_url": f"/tasks/{slug}/notes",
         "delete_url_prefix": f"/tasks/{slug}/notes",
-    })
+    }), "Note deleted")

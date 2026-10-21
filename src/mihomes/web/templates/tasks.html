@@ -1,10 +1,11 @@
 {% extends "base.html" %}
+{% from "partials/_status.html" import status_chip %}
 {% block title %}Tasks — MiHomes{% endblock %}
 {% block heading %}Tasks{% endblock %}
 {% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ tasks|length }} task{{ 's' if tasks|length != 1 else '' }} · {{ overdue_ids|length }} overdue</p>{% endblock %}
 
 {% block actions %}
-<button onclick="document.getElementById('add-task-modal').classList.remove('hidden')"
+<button type="button" onclick="openModal('add-task-modal')"
         class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
   Add Task
@@ -12,6 +13,27 @@
 {% endblock %}
 
 {% block content %}
+{% set has_filters = filter_property or filter_status or filter_assignee or filter_recurrence or filter_overdue or filter_due_week %}
+
+{# Shown by every view when there is nothing to list: say why, and offer the way out. #}
+{% macro empty_tasks(filtered) %}
+<div class="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center">
+  {% if filtered %}
+  <p class="text-sm font-medium text-gray-700">No tasks match these filters.</p>
+  <p class="text-xs text-gray-500 mt-1">Change a filter above, or clear them to see every task.</p>
+  {% else %}
+  <p class="text-sm font-medium text-gray-700">No tasks yet.</p>
+  <p class="text-xs text-gray-500 mt-1">Add the jobs that keep your homes running — one-off or repeating.</p>
+  {% endif %}
+  <div class="mt-4 flex flex-wrap justify-center gap-2">
+    {% if filtered %}
+    <a href="/tasks/" class="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50">Clear filters</a>
+    {% endif %}
+    <button type="button" onclick="openModal('add-task-modal')"
+            class="px-4 py-2 text-sm font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700">Add task</button>
+  </div>
+</div>
+{% endmacro %}
 
 {% if form_error %}
 <div class="mb-4 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">
@@ -32,33 +54,39 @@
 
 <!-- Filters + View Toggle -->
 <div class="flex flex-wrap items-center gap-2 mb-5">
-  <form class="flex flex-wrap gap-2" action="/tasks/" method="get">
-    <select name="property_id" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
+  {# Applies as soon as a select changes; the Apply button is kept only for no-JS browsers. #}
+  <form class="flex flex-wrap gap-2" action="/tasks/" method="get" onchange="this.requestSubmit()">
+    <select name="property_id" aria-label="Property" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
       <option value="">All properties</option>
       {% for p in properties %}
-      <option value="{{ p.id }}" {% if filter_property == p.id %}selected{% endif %}>{{ p.name }}</option>
+      <option value="{{ p.id }}" {% if filter_property == p.id|string %}selected{% endif %}>{{ p.name }}</option>
       {% endfor %}
     </select>
-    <select name="status" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
+    <select name="status" aria-label="Status" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
       <option value="">All statuses</option>
       {% for s in statuses %}
-      <option value="{{ s }}" {% if filter_status == s %}selected{% endif %}>{{ s.replace('-', ' ').title() }}</option>
+      <option value="{{ s }}" {% if filter_status == s %}selected{% endif %}>{{ 'To do' if s == 'pending' else s.replace('-', ' ').capitalize() }}</option>
       {% endfor %}
     </select>
-    <select name="assignee_id" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
+    <select name="assignee_id" aria-label="Assignee" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
       <option value="">All assignees</option>
       {% for s in staff %}
-      <option value="{{ s.id }}" {% if filter_assignee == s.id %}selected{% endif %}>{{ s.name }}</option>
+      <option value="{{ s.id }}" {% if filter_assignee == s.id|string %}selected{% endif %}>{{ s.name }}</option>
       {% endfor %}
     </select>
-    <select name="recurrence" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
+    <select name="recurrence" aria-label="Occurrence" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
       <option value="" {% if not filter_recurrence %}selected{% endif %}>All occurrences</option>
       <option value="recurring" {% if filter_recurrence == 'recurring' %}selected{% endif %}>Recurring only</option>
       <option value="once" {% if filter_recurrence == 'once' %}selected{% endif %}>One-time only</option>
     </select>
-    <button type="submit" class="text-sm px-3 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-700 hover:bg-gray-50 font-medium">Apply</button>
+    <select name="sort" aria-label="Sort by" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
+      {% for key, label in sort_options %}
+      <option value="{{ key }}" {% if filter_sort == key %}selected{% endif %}>Sort: {{ label }}</option>
+      {% endfor %}
+    </select>
+    <noscript><button type="submit" class="text-sm px-3 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-700 hover:bg-gray-50 font-medium">Apply</button></noscript>
     {% if filter_property or filter_status or filter_assignee or filter_recurrence %}
-    <a href="/tasks/" class="text-sm px-3 py-1.5 text-gray-400 hover:text-gray-600">Clear</a>
+    <a href="/tasks/" class="text-sm px-3 py-1.5 text-gray-500 hover:text-gray-700">Clear</a>
     {% endif %}
   </form>
 
@@ -153,12 +181,25 @@
                 <span class="text-xs text-gray-400">{{ task.assignee.name.split()[0] }}</span>
               </div>
               {% endif %}
+              {# Move a card along without opening it: Start (To Do → In Progress) and Done. #}
+              {% if st in ('pending', 'in-progress') %}
+              <div class="mt-2 flex gap-1.5">
+                {% if st == 'pending' %}
+                <button type="button" onclick="event.stopPropagation()"
+                        hx-post="/tasks/{{ task.slug }}/start" hx-target="body" hx-swap="innerHTML"
+                        class="px-2.5 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors">Start</button>
+                {% endif %}
+                <button type="button" onclick="event.stopPropagation()"
+                        hx-post="/tasks/{{ task.slug }}/complete" hx-target="body" hx-swap="innerHTML"
+                        class="px-2.5 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md hover:bg-emerald-100 transition-colors">Done</button>
+              </div>
+              {% endif %}
             </div>
           </div>
         </div>
         {% endfor %}
         {% if not col_tasks %}
-        <div class="text-center py-6 text-xs text-gray-300">Empty</div>
+        <div class="text-center py-4 text-xs text-gray-400">Nothing here</div>
         {% endif %}
       </div>
     </div>
@@ -166,7 +207,7 @@
 
   </div>
   {% else %}
-  <div class="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center text-sm text-gray-400">No tasks found.</div>
+  {{ empty_tasks(has_filters) }}
   {% endif %}
 </div>
 
@@ -191,13 +232,7 @@
           {% if task.assignee %}
           <span class="w-6 h-6 rounded-full bg-brand-100 text-brand-700 text-xs flex items-center justify-center font-semibold" title="{{ task.assignee.name }}">{{ task.assignee.name[0].upper() }}</span>
           {% endif %}
-          <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
-            {% if st == 'completed' %}bg-emerald-100 text-emerald-700
-            {% elif st in ('in_progress', 'in-progress') %}bg-blue-100 text-blue-700
-            {% elif st == 'cancelled' %}bg-gray-100 text-gray-400
-            {% else %}bg-gray-100 text-gray-600{% endif %}">
-            {{ st.replace('_', ' ').replace('-', ' ').title() }}
-          </span>
+          {{ status_chip(st) }}
         </div>
       </div>
 {% endmacro %}
@@ -226,7 +261,7 @@
   {% endif %}
   {% endfor %}
   {% if not tasks %}
-  <div class="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center text-sm text-gray-400">No tasks found.</div>
+  {{ empty_tasks(has_filters) }}
   {% endif %}
 </div>
 
@@ -248,12 +283,15 @@
   {% endif %}
   {% endfor %}
   {% if not tasks %}
-  <div class="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center text-sm text-gray-400">No tasks found.</div>
+  {{ empty_tasks(has_filters) }}
   {% endif %}
 </div>
 
 <!-- ── LIST VIEW ──────────────────────────────────────────────────────── -->
 <div id="view-list" class="hidden">
+  {% if not tasks %}
+  {{ empty_tasks(has_filters) }}
+  {% else %}
   <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
     {% if tasks %}
     <div class="overflow-x-auto">
@@ -299,33 +337,23 @@
               {{ task.priority.value.title() }}
             </span>
           </td>
-          <td class="px-4 py-3">
-            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
-              {% if st == 'completed' %}bg-emerald-100 text-emerald-700
-              {% elif st in ('in_progress', 'in-progress') %}bg-blue-100 text-blue-700
-              {% elif st == 'cancelled' %}bg-gray-100 text-gray-500
-              {% else %}bg-gray-100 text-gray-600{% endif %}">
-              {{ st.replace('_', ' ').replace('-', ' ').title() }}
-            </span>
-          </td>
+          <td class="px-4 py-3">{{ status_chip(st) }}</td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
     </div>
-    {% else %}
-    <div class="px-5 py-12 text-center text-sm text-gray-400">No tasks found.</div>
     {% endif %}
   </div>
+  {% endif %}
 </div>
 
 <!-- Task detail modals -->
 {% for task in tasks %}
 {% set st = 'completed' if task.id in done_now_ids else task.status.value %}
 <div id="task-modal-{{ task.id }}"
-     class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-     onclick="if(event.target===this)closeModal('task-modal-{{ task.id }}')">
-  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col" onclick="event.stopPropagation()">
+     class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
     <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
       <div>
         <h2 class="text-lg font-bold text-gray-900 truncate max-w-xs">{{ task.title }}</h2>
@@ -371,13 +399,13 @@
       </div>
     </div>
     <div class="flex border-b border-gray-100 px-6 flex-shrink-0">
-      <button onclick="switchTab('task','{{ task.id }}','details')" id="task-tab-{{ task.id }}-details"
+      <button type="button" onclick="switchTab('task-modal-{{ task.id }}','details')" data-tab="details"
               class="px-1 py-3 text-sm font-medium border-b-2 border-brand-600 text-brand-600 mr-5">Details</button>
-      <button onclick="switchTab('task','{{ task.id }}','notes')" id="task-tab-{{ task.id }}-notes"
+      <button type="button" onclick="switchTab('task-modal-{{ task.id }}','notes')" data-tab="notes"
               class="px-1 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 mr-5">Notes ({{ notes_map[task.id]|length }})</button>
     </div>
     <div class="flex-1 overflow-y-auto">
-      <div id="task-panel-{{ task.id }}-details" class="px-6 py-5">
+      <div id="task-modal-{{ task.id }}-tab-details" class="px-6 py-5">
         <div id="task-view-{{ task.id }}">
           <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 text-sm mb-4">
             <div>
@@ -390,11 +418,7 @@
             </div>
             <div>
               <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Status</dt>
-              <dd><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
-                {% if st == 'completed' %}bg-emerald-100 text-emerald-700
-                {% elif st in ('in_progress', 'in-progress') %}bg-blue-100 text-blue-700
-                {% elif st == 'cancelled' %}bg-gray-100 text-gray-500
-                {% else %}bg-gray-100 text-gray-600{% endif %}">{{ st.replace('_', ' ').replace('-', ' ').title() }}</span></dd>
+              <dd>{{ status_chip(st) }}</dd>
             </div>
             <div>
               <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Due Date</dt>
@@ -432,49 +456,62 @@
         <div id="task-edit-{{ task.id }}" class="hidden">
           <form hx-post="/tasks/{{ task.slug }}/edit" hx-target="body" hx-swap="innerHTML">
             <div class="space-y-4">
+              {% set fid = 'task-' ~ task.id ~ '-' %}
               <div>
-                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Title</div>
-                <input type="text" name="title" value="{{ task.title }}" required
+                <label for="{{ fid }}title" class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Title <span class="text-red-500">*</span></label>
+                <input type="text" id="{{ fid }}title" name="title" value="{{ task.title }}" required
                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Priority</div>
-                  <select name="priority" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                  <label for="{{ fid }}priority" class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Priority</label>
+                  <select id="{{ fid }}priority" name="priority" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
                     {% for p in priorities %}<option value="{{ p }}" {% if task.priority.value == p %}selected{% endif %}>{{ p.title() }}</option>{% endfor %}
                   </select>
                 </div>
                 <div>
-                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Due Date</div>
-                  <input type="date" name="due_date" value="{{ task.due_date.isoformat() if task.due_date else '' }}"
+                  <label for="{{ fid }}due" class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Due Date</label>
+                  <input type="date" id="{{ fid }}due" name="due_date" value="{{ task.due_date.isoformat() if task.due_date else '' }}"
                          class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
                 </div>
               </div>
               {% set cur_freq = task.schedule.frequency.value if task.schedule else 'once' %}
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Repeats</div>
-                  <select name="recurrence" onchange="toggleSeasons(this)"
+                  <label for="{{ fid }}recurrence" class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Repeats</label>
+                  <select id="{{ fid }}recurrence" name="recurrence" onchange="toggleSeasons(this)"
                           class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
                     {% for value, label in frequency_options %}<option value="{{ value }}" {% if cur_freq == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
                   </select>
                 </div>
                 <div data-seasons {% if cur_freq != 'seasonal' %}class="hidden"{% endif %}>
-                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Seasons</div>
-                  <input type="text" name="season_spec" value="{{ task.schedule.season_spec or '' if task.schedule else '' }}"
+                  <label for="{{ fid }}seasons" class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Seasons</label>
+                  <input type="text" id="{{ fid }}seasons" name="season_spec" value="{{ task.schedule.season_spec or '' if task.schedule else '' }}"
                          placeholder="spring, fall"
                          class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
                 </div>
               </div>
-              <div>
-                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Status</div>
-                <select name="status" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
-                  {% for s in statuses %}<option value="{{ s }}" {% if task.status.value == s %}selected{% endif %}>{{ s.replace('_',' ').replace('-',' ').title() }}</option>{% endfor %}
-                </select>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label for="{{ fid }}status" class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Status</label>
+                  <select id="{{ fid }}status" name="status" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                    {% for s in statuses %}<option value="{{ s }}" {% if task.status.value == s %}selected{% endif %}>{{ 'To do' if s == 'pending' else s.replace('_',' ').replace('-',' ').capitalize() }}</option>{% endfor %}
+                  </select>
+                </div>
+                <div>
+                  <label for="{{ fid }}assignee" class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Assigned to</label>
+                  <select id="{{ fid }}assignee" name="assignee_id" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                    {# "none", not "": routes/tasks.py UNASSIGNED explains why. #}
+                    <option value="none">Unassigned</option>
+                    {% for member in staff %}<option value="{{ member.id }}" {% if task.assignee_id == member.id %}selected{% endif %}>{{ member.name }}</option>{% endfor %}
+                    {# Someone no longer listed as staff keeps their task until it is reassigned. #}
+                    {% if task.assignee and task.assignee not in staff %}<option value="{{ task.assignee_id }}" selected>{{ task.assignee.name }}</option>{% endif %}
+                  </select>
+                </div>
               </div>
               <div>
-                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Description</div>
-                <textarea name="description" data-autoresize
+                <label for="{{ fid }}description" class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Description</label>
+                <textarea id="{{ fid }}description" name="description" data-autoresize
                           class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
                           placeholder="Add a description…">{{ task.description or '' }}</textarea>
               </div>
@@ -486,7 +523,7 @@
           </form>
         </div>
       </div>
-      <div id="task-panel-{{ task.id }}-notes" class="hidden px-6 py-5" data-notes-container>
+      <div id="task-modal-{{ task.id }}-tab-notes" class="hidden px-6 py-5" data-notes-container>
         {% with notes=notes_map[task.id], post_url="/tasks/"+task.slug+"/notes", delete_url_prefix="/tasks/"+task.slug+"/notes" %}
         {% include "partials/notes_section.html" %}
         {% endwith %}
@@ -501,46 +538,55 @@
   <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6 max-h-[90vh] overflow-y-auto">
     <div class="flex items-center justify-between mb-5">
       <h2 class="text-lg font-semibold text-gray-900">Add Task</h2>
-      <button onclick="document.getElementById('add-task-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600">
+      <button type="button" onclick="closeModal('add-task-modal')" class="p-2.5 -mr-2.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
       </button>
     </div>
     <form hx-post="/tasks/" hx-target="body" hx-swap="innerHTML" class="space-y-4">
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Title</label>
-        <input type="text" name="title" required
+        <label for="new-task-title" class="block text-sm font-medium text-gray-700 mb-1">Title <span class="text-red-500">*</span></label>
+        <input type="text" id="new-task-title" name="title" required
                class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                placeholder="e.g. Replace HVAC filter" />
       </div>
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Property</label>
-        <select name="property_id" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
-          {% for p in properties %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+        <label for="new-task-property" class="block text-sm font-medium text-gray-700 mb-1">Property <span class="text-red-500">*</span></label>
+        {# Preselected only when the page is filtered to a property; otherwise the user picks. #}
+        <select id="new-task-property" name="property_id" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          <option value="" disabled {% if not filter_property %}selected{% endif %}>Select property…</option>
+          {% for p in properties %}<option value="{{ p.id }}" {% if filter_property == p.id|string %}selected{% endif %}>{{ p.name }}</option>{% endfor %}
         </select>
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Priority</label>
-          <select name="priority" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+          <label for="new-task-priority" class="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+          <select id="new-task-priority" name="priority" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
             {% for p in priorities %}<option value="{{ p }}" {% if p == 'medium' %}selected{% endif %}>{{ p.title() }}</option>{% endfor %}
           </select>
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
-          <input type="date" name="due_date" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          <label for="new-task-due" class="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
+          <input type="date" id="new-task-due" name="due_date" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
         </div>
+      </div>
+      <div>
+        <label for="new-task-assignee" class="block text-sm font-medium text-gray-700 mb-1">Assigned to</label>
+        <select id="new-task-assignee" name="assignee_id" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          <option value="">Unassigned</option>
+          {% for member in staff %}<option value="{{ member.id }}" {% if filter_assignee == member.id|string %}selected{% endif %}>{{ member.name }}</option>{% endfor %}
+        </select>
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Repeats</label>
-          <select name="recurrence" onchange="toggleSeasons(this)"
-                  class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+          <label for="new-task-recurrence" class="block text-sm font-medium text-gray-700 mb-1">Repeats</label>
+          <select id="new-task-recurrence" name="recurrence" onchange="toggleSeasons(this)"
+                  class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
             {% for value, label in frequency_options %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
           </select>
         </div>
         <div data-seasons class="hidden">
-          <label class="block text-sm font-medium text-gray-700 mb-1">Seasons</label>
-          <input type="text" name="season_spec" placeholder="spring, fall"
+          <label for="new-task-seasons" class="block text-sm font-medium text-gray-700 mb-1">Seasons</label>
+          <input type="text" id="new-task-seasons" name="season_spec" placeholder="spring, fall"
                  class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
         </div>
       </div>
@@ -548,15 +594,23 @@
         Seasons: spring, summer, fall, winter (or dry, wet for tropical properties).</p>
       <div class="flex gap-3 pt-1">
         <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">Add Task</button>
-        <button type="button" onclick="document.getElementById('add-task-modal').classList.add('hidden')"
+        <button type="button" onclick="closeModal('add-task-modal')"
                 class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">Cancel</button>
       </div>
     </form>
   </div>
 </div>
 
+{# One-shot instructions from the server: open a task (?open=<id>) or the add form (?new=1). #}
+<div id="tasks-page" hidden
+     {% if open_id %}data-open-id="{{ open_id }}"{% endif %}
+     {% if open_new %}data-open-new="1"{% endif %}></div>
+
 <script>
-const VIEWS = ['board', 'grouped', 'frequency', 'list'];
+{# This script re-runs on every body swap, so: no top-level let/const (a redeclaration is a
+   SyntaxError that kills the rest of the script) and listeners are bound once, behind a flag.
+   openModal/closeModal/switchTab are the global ones from static/app.js. #}
+var TASK_VIEWS = ['board', 'grouped', 'frequency', 'list'];
 
 // Show the Seasons field only for seasonal repeats; it lives in the same form as the select.
 function toggleSeasons(select) {
@@ -565,10 +619,12 @@ function toggleSeasons(select) {
 }
 
 function setView(v) {
-  localStorage.setItem('tasks_view', v);
-  VIEWS.forEach(name => {
-    document.getElementById('view-' + name).classList.toggle('hidden', name !== v);
+  try { localStorage.setItem('tasks_view', v); } catch (e) { /* private mode: view not remembered */ }
+  TASK_VIEWS.forEach(name => {
+    const panel = document.getElementById('view-' + name);
+    if (panel) panel.classList.toggle('hidden', name !== v);
     const btn = document.getElementById('view-btn-' + name);
+    if (!btn) return;
     btn.classList.toggle('bg-white', name === v);
     btn.classList.toggle('text-gray-900', name === v);
     btn.classList.toggle('shadow-sm', name === v);
@@ -577,25 +633,33 @@ function setView(v) {
 }
 
 function initTasks() {
-  setView(localStorage.getItem('tasks_view') || 'board');
-  document.querySelectorAll('textarea[data-autoresize]').forEach(t => t.addEventListener('input', () => autoResize(t)));
-}
-initTasks();
-document.addEventListener('htmx:afterSettle', initTasks);
-
-function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
-function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
-
-function switchTab(prefix, id, tab) {
-  ['details','notes'].forEach(t => {
-    document.getElementById(prefix+'-panel-'+id+'-'+t).classList.toggle('hidden', t !== tab);
-    const btn = document.getElementById(prefix+'-tab-'+id+'-'+t);
-    btn.classList.toggle('border-brand-600', t === tab);
-    btn.classList.toggle('text-brand-600', t === tab);
-    btn.classList.toggle('border-transparent', t !== tab);
-    btn.classList.toggle('text-gray-500', t !== tab);
+  const marker = document.getElementById('tasks-page');
+  if (!marker) return;                       // another page is in the body now
+  let view = 'board';
+  try { view = localStorage.getItem('tasks_view') || 'board'; } catch (e) {}
+  setView(view);
+  document.querySelectorAll('textarea[data-autoresize]:not([data-ar-bound])').forEach(t => {
+    t.setAttribute('data-ar-bound', '1');
+    t.addEventListener('input', () => autoResize(t));
   });
+  // Consume the one-shot open request so later swaps (notes, polling) don't reopen it, and drop
+  // it from the URL so a save — which re-reads the URL's filters — doesn't either.
+  const openId = marker.dataset.openId, openNew = marker.dataset.openNew;
+  delete marker.dataset.openId; delete marker.dataset.openNew;
+  if (openId && document.getElementById('task-modal-' + openId)) openModal('task-modal-' + openId);
+  else if (openNew) openModal('add-task-modal');
+  if (openId || openNew) {
+    const url = new URL(location.href);
+    url.searchParams.delete('open'); url.searchParams.delete('new');
+    history.replaceState(history.state, '', url.pathname + url.search + url.hash);
+  }
 }
+if (!window.__mhTasksBound) {
+  window.__mhTasksBound = true;
+  document.addEventListener('DOMContentLoaded', () => initTasks());
+  document.addEventListener('htmx:afterSettle', () => initTasks());
+}
+initTasks();   // the markup above already exists; avoids a flash of no view until the event
 
 function autoResize(el){ el.style.height='auto'; el.style.height=el.scrollHeight+'px'; }
 function enterEdit(prefix, id) {

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "partials/_status.html" import status_chip %}
 
 {% block title %}Dashboard — MiHomes{% endblock %}
 
@@ -7,7 +8,22 @@
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.9/dist/purify.min.js"></script>
 {% endblock %}
 {% block heading %}Portfolio Overview{% endblock %}
-{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ properties|length }} propert{{ 'y' if properties|length == 1 else 'ies' }} · {{ alerts|length }} active alert{{ 's' if alerts|length != 1 else '' }}</p>{% endblock %}
+{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ properties|length }} propert{{ 'y' if properties|length == 1 else 'ies' }} · {{ total_alerts }} active alert{{ 's' if total_alerts != 1 else '' }}</p>{% endblock %}
+
+{# The two things people come to the dashboard to do. Icon-only below sm, where the header is
+   shared with search; the text stays for screen readers. #}
+{% block actions %}
+<a href="/issues/?new=1"
+   class="inline-flex items-center gap-1.5 p-2.5 sm:px-3 sm:py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+  <span class="sr-only sm:not-sr-only">Report issue</span>
+</a>
+<a href="/tasks/?new=1"
+   class="inline-flex items-center gap-1.5 p-2.5 sm:px-3 sm:py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
+  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+  <span class="sr-only sm:not-sr-only">Add task</span>
+</a>
+{% endblock %}
 
 {% macro health_color(score) %}
   {% if score >= 75 %}text-emerald-600 bg-emerald-50{% elif score >= 50 %}text-amber-600 bg-amber-50{% else %}text-red-600 bg-red-50{% endif %}
@@ -15,6 +31,14 @@
 
 {% macro health_bar_color(score) %}
   {% if score >= 75 %}bg-emerald-500{% elif score >= 50 %}bg-amber-500{% else %}bg-red-500{% endif %}
+{% endmacro %}
+
+{% macro severity_dot(sev) %}
+<span class="mt-1.5 w-2 h-2 rounded-full flex-shrink-0
+  {% if sev == 'critical' %}bg-red-500
+  {% elif sev == 'high' %}bg-orange-400
+  {% elif sev == 'medium' %}bg-amber-400
+  {% else %}bg-gray-300{% endif %}"></span>
 {% endmacro %}
 
 {% block content %}
@@ -28,8 +52,10 @@
       <h2 class="text-sm font-semibold text-gray-900">Getting started</h2>
       <p class="text-xs text-gray-500 mt-0.5">{{ gs_done }} of {{ getting_started|length }} done · set up your estate in a few minutes</p>
     </div>
-    <form method="post" action="/getting-started/dismiss">
-      <button class="text-xs text-gray-400 hover:text-gray-600">Dismiss</button>
+    {# A plain form post (not htmx), so the confirm lives in onsubmit. #}
+    <form method="post" action="/getting-started/dismiss"
+          onsubmit="return confirm('Hide the getting-started checklist? It won\'t come back.')">
+      <button type="submit" class="min-h-[40px] px-3 py-2 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-50 border border-gray-200 rounded-lg transition-colors">Dismiss</button>
     </form>
   </div>
   <div class="w-full bg-gray-100 rounded-full h-1.5 mt-3">
@@ -60,28 +86,157 @@
 </div>
 {% endif %}
 
-<!-- Stat row -->
-<div class="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-6">
-  <a href="/properties" class="bg-white rounded-xl border border-gray-200 p-4 hover:border-brand-400 hover:shadow-sm transition-all block">
-    <div class="text-xs font-medium text-gray-500 uppercase tracking-wide">Properties</div>
-    <div class="mt-1 text-3xl font-bold text-gray-900">{{ properties|length }}</div>
+<!-- Stat row: compact, so on a phone the lists below are reachable without scrolling past it. -->
+{% set tile = 'bg-white rounded-xl border border-gray-200 px-3 py-2.5 sm:p-4 hover:border-brand-400 hover:shadow-sm transition-all block min-w-0' %}
+{% set tile_label = 'text-xs font-medium text-gray-500 sm:uppercase sm:tracking-wide leading-tight' %}
+{% set tile_value = 'mt-0.5 sm:mt-1 text-xl sm:text-3xl font-bold' %}
+<div class="grid grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-4 mb-6">
+  <a href="/properties" class="{{ tile }}">
+    <div class="{{ tile_label }}">Properties</div>
+    <div class="{{ tile_value }} text-gray-900">{{ properties|length }}</div>
   </a>
-  <a href="/alerts" class="bg-white rounded-xl border border-gray-200 p-4 hover:border-brand-400 hover:shadow-sm transition-all block">
-    <div class="text-xs font-medium text-gray-500 uppercase tracking-wide">Active Alerts</div>
-    <div class="mt-1 text-3xl font-bold {% if total_alerts %}text-red-600{% else %}text-gray-900{% endif %}">{{ total_alerts }}</div>
+  <a href="/issues/" class="{{ tile }}">
+    <div class="{{ tile_label }}">Open Issues</div>
+    <div class="{{ tile_value }} {% if open_issue_count %}text-amber-600{% else %}text-gray-900{% endif %}">{{ open_issue_count }}</div>
   </a>
-  <a href="/tasks?overdue=true" class="bg-white rounded-xl border border-gray-200 p-4 hover:border-brand-400 hover:shadow-sm transition-all block">
-    <div class="text-xs font-medium text-gray-500 uppercase tracking-wide">Overdue Tasks</div>
-    <div class="mt-1 text-3xl font-bold {% if overdue_tasks %}text-amber-600{% else %}text-gray-900{% endif %}">{{ overdue_tasks|length }}</div>
+  <a href="/tasks/?overdue=true" class="{{ tile }}">
+    <div class="{{ tile_label }}">Overdue Tasks</div>
+    <div class="{{ tile_value }} {% if overdue_tasks %}text-red-600{% else %}text-gray-900{% endif %}">{{ overdue_tasks|length }}</div>
   </a>
-  <a href="/tasks?due_week=true" class="bg-white rounded-xl border border-gray-200 p-4 hover:border-brand-400 hover:shadow-sm transition-all block">
-    <div class="text-xs font-medium text-gray-500 uppercase tracking-wide">Due This Week</div>
-    <div class="mt-1 text-3xl font-bold text-gray-900">{{ upcoming_tasks|length }}</div>
+  <a href="/tasks/?due_week=true" class="{{ tile }}">
+    <div class="{{ tile_label }}">Due This Week</div>
+    <div class="{{ tile_value }} text-gray-900">{{ upcoming_count }}</div>
   </a>
-  <a href="/work-orders" class="bg-white rounded-xl border border-gray-200 p-4 hover:border-brand-400 hover:shadow-sm transition-all block">
-    <div class="text-xs font-medium text-gray-500 uppercase tracking-wide">Open Work Orders</div>
-    <div class="mt-1 text-3xl font-bold {% if open_wo_count %}text-purple-600{% else %}text-gray-900{% endif %}">{{ open_wo_count }}</div>
+  <a href="/work-orders/" class="{{ tile }}">
+    <div class="{{ tile_label }}">Open Work Orders</div>
+    <div class="{{ tile_value }} {% if open_wo_count %}text-blue-600{% else %}text-gray-900{% endif %}">{{ open_wo_count }}</div>
   </a>
+  <a href="/alerts/" class="{{ tile }}">
+    <div class="{{ tile_label }}">Active Alerts</div>
+    <div class="{{ tile_value }} {% if total_alerts %}text-red-600{% else %}text-gray-900{% endif %}">{{ total_alerts }}</div>
+  </a>
+</div>
+
+<!-- Action lists first: what needs doing. Every row opens its record. -->
+{% set row_link = 'flex items-start justify-between gap-3 px-5 py-3 hover:bg-gray-50 transition-colors' %}
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+
+  <!-- Overdue tasks -->
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+      <h2 class="text-sm font-semibold text-gray-700">Overdue Tasks</h2>
+      <a href="/tasks/?overdue=true" class="text-xs text-brand-600 hover:text-brand-700">View all →</a>
+    </div>
+    {% if overdue_tasks %}
+    <ul class="divide-y divide-gray-50">
+      {% for task in overdue_tasks[:5] %}
+      <li>
+        <a href="/tasks/?open={{ task.id }}" class="{{ row_link }} items-center">
+          <div class="min-w-0">
+            <div class="text-sm font-medium text-gray-900 truncate">{{ task.title }}</div>
+            <div class="text-xs text-gray-500 mt-0.5">
+              {% if task.property %}{{ task.property.name }}{% endif %}
+              {% if task.due_date %} · <span class="text-red-600">Due {{ task.due_date.strftime('%b %d') }}</span>{% endif %}
+            </div>
+          </div>
+          <span class="flex-shrink-0 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+            {% if task.priority.value == 'urgent' %}bg-red-100 text-red-700
+            {% elif task.priority.value == 'high' %}bg-orange-100 text-orange-700
+            {% elif task.priority.value == 'medium' %}bg-amber-100 text-amber-700
+            {% else %}bg-gray-100 text-gray-600{% endif %}">
+            {{ task.priority.value.title() }}
+          </span>
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="px-5 py-6 text-center text-sm text-gray-400">No overdue tasks 🎉</div>
+    {% endif %}
+  </div>
+
+  <!-- Open issues, worst first -->
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+      <h2 class="text-sm font-semibold text-gray-700">Open Issues{% if open_issue_count %} <span class="ml-1 text-xs font-normal text-gray-500">{{ open_issue_count }}</span>{% endif %}</h2>
+      <a href="/issues/" class="text-xs text-brand-600 hover:text-brand-700">View all →</a>
+    </div>
+    {% if open_issues %}
+    <ul class="divide-y divide-gray-50">
+      {% for issue in open_issues %}
+      <li>
+        <a href="/issues/?open={{ issue.id }}" class="{{ row_link }}">
+          <div class="flex items-start gap-3 min-w-0">
+            {{ severity_dot(issue.severity.value) }}
+            <div class="min-w-0">
+              <div class="text-sm font-medium text-gray-900 truncate">{{ issue.title }}</div>
+              <div class="text-xs text-gray-500 mt-0.5">{{ issue.severity.value.title() }}{% if issue.property %} · {{ issue.property.name }}{% endif %}</div>
+            </div>
+          </div>
+          {{ status_chip(issue.status, 'flex-shrink-0') }}
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="px-5 py-6 text-center text-sm text-gray-400">No open issues</div>
+    {% endif %}
+  </div>
+
+  <!-- Active work orders -->
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+      <h2 class="text-sm font-semibold text-gray-700">Active Work Orders</h2>
+      {# Unfiltered: "active" here is assigned + in progress, and the list page filters one status. #}
+      <a href="/work-orders/" class="text-xs text-brand-600 hover:text-brand-700">View all →</a>
+    </div>
+    {% if active_work_orders %}
+    <ul class="divide-y divide-gray-50">
+      {% for wo in active_work_orders %}
+      <li>
+        <a href="/work-orders/?open={{ wo.id }}" class="{{ row_link }}">
+          <div class="min-w-0">
+            <div class="text-sm font-medium text-gray-900 truncate">{{ wo.title }}</div>
+            <div class="text-xs text-gray-500 mt-0.5">
+              {{ wo.property.name if wo.property else '—' }}
+              {% if wo.vendor %}· {{ wo.vendor.company_name }}{% endif %}
+            </div>
+          </div>
+          {{ status_chip(wo.status, 'flex-shrink-0') }}
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="px-5 py-6 text-center text-sm text-gray-400">No active work orders</div>
+    {% endif %}
+  </div>
+
+  <!-- Active alerts -->
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+      <h2 class="text-sm font-semibold text-gray-700">Active Alerts</h2>
+      <a href="/alerts/" class="text-xs text-brand-600 hover:text-brand-700">View all{% if total_alerts > 5 %} {{ total_alerts }}{% endif %} →</a>
+    </div>
+    {% if alerts %}
+    <ul class="divide-y divide-gray-50">
+      {% for alert in alerts %}
+      <li>
+        <a href="/alerts/" class="flex items-start gap-3 px-5 py-3 hover:bg-gray-50 transition-colors">
+          {{ severity_dot(alert.severity.value) }}
+          <div class="min-w-0">
+            <div class="text-sm text-gray-800">{{ alert.message }}</div>
+            <div class="text-xs text-gray-500 mt-0.5">{{ alert.severity.value.title() }} · {{ alert.created_at.strftime('%b %d') if alert.created_at else '' }}</div>
+          </div>
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="px-5 py-6 text-center text-sm text-gray-400">No active alerts</div>
+    {% endif %}
+  </div>
+
 </div>
 
 <!-- Property health cards -->
@@ -92,17 +247,16 @@
   {% set hs = health_scores.get(prop.id) %}
   {% set score = hs.score if hs else 100 %}
   <a href="/properties/{{ prop.slug }}"
-     class="bg-white rounded-xl border border-gray-200 p-5 hover:border-brand-500 hover:shadow-sm transition-all block">
-    <div class="flex items-start justify-between mb-3">
-      <div>
-        <div class="font-semibold text-gray-900">{{ prop.name }}</div>
-        {% if prop.address %}<div class="text-xs text-gray-400 mt-0.5 truncate max-w-[160px]">{{ prop.address }}</div>{% endif %}
+     class="bg-white rounded-xl border border-gray-200 p-5 hover:border-brand-500 hover:shadow-sm transition-all block min-w-0">
+    {# Name shrinks (truncates); the score never does — label and badge share one line. #}
+    <div class="flex items-start justify-between gap-3 mb-3">
+      <div class="min-w-0 flex-1">
+        <div class="font-semibold text-gray-900 truncate">{{ prop.name }}</div>
+        {% if prop.address %}<div class="text-xs text-gray-400 mt-0.5 truncate">{{ prop.address }}</div>{% endif %}
       </div>
-      <div class="text-right">
-        <div class="text-xs text-gray-400 mb-0.5">Health</div>
-        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold {{ health_color(score) }}">
-          {{ score }}/100
-        </span>
+      <div class="flex-shrink-0 flex items-center gap-1.5 whitespace-nowrap">
+        <span class="text-xs text-gray-500">Health</span>
+        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold {{ health_color(score) }}">{{ score }}/100</span>
       </div>
     </div>
     <div class="w-full bg-gray-100 rounded-full h-1.5">
@@ -119,7 +273,7 @@
 </div>
 {% else %}
 <div class="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center mb-6">
-  <div class="text-gray-400 text-sm">No properties yet.</div>
+  <div class="text-gray-500 text-sm">No properties yet.</div>
   <a href="/properties/new" class="mt-3 inline-flex items-center text-sm font-medium text-brand-600 hover:text-brand-700">
     Add your first property →
   </a>
@@ -135,105 +289,6 @@
     </svg>
     Loading weather…
   </div>
-</div>
-
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-
-  <!-- Overdue tasks -->
-  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-    <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
-      <h2 class="text-sm font-semibold text-gray-700">Overdue Tasks</h2>
-      <a href="/tasks?overdue=true" class="text-xs text-brand-600 hover:text-brand-700">View all →</a>
-    </div>
-    {% if overdue_tasks %}
-    <ul class="divide-y divide-gray-50">
-      {% for task in overdue_tasks[:5] %}
-      <li class="px-5 py-3 flex items-center justify-between gap-3">
-        <div class="min-w-0">
-          <div class="text-sm font-medium text-gray-900 truncate">{{ task.title }}</div>
-          <div class="text-xs text-gray-400 mt-0.5">
-            {% if task.property %}{{ task.property.name }}{% endif %}
-            {% if task.due_date %} · Due {{ task.due_date.strftime('%b %d') }}{% endif %}
-          </div>
-        </div>
-        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
-          {% if task.priority.value == 'urgent' %}bg-red-100 text-red-700
-          {% elif task.priority.value == 'high' %}bg-orange-100 text-orange-700
-          {% elif task.priority.value == 'medium' %}bg-amber-100 text-amber-700
-          {% else %}bg-gray-100 text-gray-600{% endif %}">
-          {{ task.priority.value }}
-        </span>
-      </li>
-      {% endfor %}
-    </ul>
-    {% else %}
-    <div class="px-5 py-6 text-center text-sm text-gray-400">No overdue tasks 🎉</div>
-    {% endif %}
-  </div>
-
-  <!-- Active work orders -->
-  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-    <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
-      <h2 class="text-sm font-semibold text-gray-700">Active Work Orders</h2>
-      <a href="/work-orders?status=in_progress" class="text-xs text-brand-600 hover:text-brand-700">View all →</a>
-    </div>
-    {% if active_work_orders %}
-    <ul class="divide-y divide-gray-50">
-      {% for wo in active_work_orders %}
-      {% set status_colors = {'assigned': 'bg-purple-100 text-purple-700', 'in_progress': 'bg-amber-100 text-amber-700'} %}
-      {% set status_labels = {'assigned': 'Assigned', 'in_progress': 'In Progress'} %}
-      <li class="px-5 py-3">
-        <div class="flex items-start justify-between gap-3">
-          <div class="min-w-0">
-            <div class="text-sm font-medium text-gray-900 truncate">{{ wo.title }}</div>
-            <div class="text-xs text-gray-400 mt-0.5">
-              {{ wo.property.name if wo.property else '—' }}
-              {% if wo.vendor %}· {{ wo.vendor.company_name }}{% endif %}
-            </div>
-          </div>
-          <span class="flex-shrink-0 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {{ status_colors.get(wo.status.value, 'bg-gray-100 text-gray-600') }}">
-            {{ status_labels.get(wo.status.value, wo.status.value) }}
-          </span>
-        </div>
-      </li>
-      {% endfor %}
-    </ul>
-    {% else %}
-    <div class="px-5 py-6 text-center text-sm text-gray-400">No active work orders</div>
-    {% endif %}
-  </div>
-
-  <!-- Active alerts -->
-  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-    <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
-      <h2 class="text-sm font-semibold text-gray-700">Active Alerts</h2>
-      {% if total_alerts > 5 %}
-      <a href="/alerts" class="text-xs text-brand-600 hover:text-brand-700">View all {{ total_alerts }} →</a>
-      {% endif %}
-    </div>
-    {% if alerts %}
-    <ul class="divide-y divide-gray-50">
-      {% for alert in alerts %}
-      <li class="px-5 py-3">
-        <div class="flex items-start gap-3">
-          <span class="mt-0.5 w-2 h-2 rounded-full flex-shrink-0
-            {% if alert.severity.value == 'critical' %}bg-red-500
-            {% elif alert.severity.value == 'high' %}bg-orange-400
-            {% elif alert.severity.value == 'medium' %}bg-amber-400
-            {% else %}bg-gray-300{% endif %}"></span>
-          <div class="min-w-0">
-            <div class="text-sm text-gray-800">{{ alert.message }}</div>
-            <div class="text-xs text-gray-400 mt-0.5">{{ alert.severity.value.title() }} · {{ alert.created_at.strftime('%b %d') if alert.created_at else '' }}</div>
-          </div>
-        </div>
-      </li>
-      {% endfor %}
-    </ul>
-    {% else %}
-    <div class="px-5 py-6 text-center text-sm text-gray-400">No active alerts</div>
-    {% endif %}
-  </div>
-
 </div>
 
 <!-- AI Quick Ask -->
@@ -253,7 +308,7 @@
     <!-- Quick prompts -->
     <div class="flex flex-wrap gap-2 mb-3">
       {% for prompt in ['What should I prioritize this week?', 'Any overdue maintenance?', 'Summarize recent activity'] %}
-      <button onclick="dashSetQuery(this.textContent)"
+      <button type="button" onclick="dashSetQuery(this.textContent)"
               class="px-3 py-1 text-xs text-brand-600 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-full transition-colors">
         {{ prompt }}
       </button>
@@ -261,11 +316,11 @@
     </div>
     <!-- Input row -->
     <div class="flex gap-3 items-start">
-      <textarea id="dash-query" rows="2"
+      <textarea id="dash-query" rows="2" aria-label="Ask the AI advisor"
                 placeholder="Ask anything about your estate…"
                 class="flex-1 border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
                 onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();dashAskSubmit();}"></textarea>
-      <button id="dash-submit" onclick="dashAskSubmit()"
+      <button type="button" id="dash-submit" onclick="dashAskSubmit()"
               class="flex-shrink-0 inline-flex items-center gap-2 px-4 py-2.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors">
         <svg id="dash-spinner" class="w-4 h-4 animate-spin hidden" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
@@ -278,7 +333,7 @@
       </button>
     </div>
     <!-- Response area -->
-    <div id="dash-response" class="hidden mt-4"></div>
+    <div id="dash-response" class="hidden mt-4" aria-live="polite"></div>
   </div>
 </div>
 
@@ -298,7 +353,7 @@
 
 <script>
 function dashSetQuery(text) {
-  document.getElementById('dash-query').value = text;
+  document.getElementById('dash-query').value = text.trim();
   document.getElementById('dash-query').focus();
 }
 
@@ -309,6 +364,23 @@ function dashSetStreaming(on) {
   if (btn) btn.disabled = on;
   if (spinner) spinner.classList.toggle('hidden', !on);
   if (icon) icon.classList.toggle('hidden', on);
+}
+
+function dashEscape(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function dashShowError(el, message) {
+  el.innerHTML = '<div class="text-sm text-red-600">' + dashEscape(message) + '</div>';
+}
+
+// The finished answer, as sanitized markdown when the libraries loaded, else escaped text.
+function dashRenderFinal(el, rawText) {
+  if (typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined' && rawText) {
+    el.innerHTML = '<div class="dash-prose">' + DOMPurify.sanitize(marked.parse(rawText)) + '</div>';
+  } else {
+    el.innerHTML = '<div class="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">' + dashEscape(rawText) + '</div>';
+  }
 }
 
 async function dashAskSubmit() {
@@ -331,6 +403,15 @@ async function dashAskSubmit() {
   let firstToken = true;
   try {
     const resp = await fetch('/ai/ask-stream', { method: 'POST', body: formData });
+    if (!resp.ok || !resp.body) {
+      // A refusal (plan limit, expired session, server error) is not a stream; say so.
+      let detail = '';
+      try { const data = await resp.json(); detail = data.detail || data.reason || ''; } catch (_) {}
+      if (resp.status === 401) detail = 'Your session has ended. Sign in again to continue.';
+      else if (resp.status === 402 && !detail) detail = 'That needs a higher plan.';
+      dashShowError(responseEl, (typeof detail === 'string' && detail) || 'The AI advisor could not answer right now. Please try again.');
+      return;
+    }
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
@@ -348,12 +429,7 @@ async function dashAskSubmit() {
           const data = line.slice(6);
 
           if (data === '[DONE]') {
-            if (typeof marked !== 'undefined' && rawText) {
-              responseEl.innerHTML = '<div class="dash-prose">' + DOMPurify.sanitize(marked.parse(rawText)) + '</div>';
-            } else {
-              responseEl.innerHTML = '<div class="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">' + rawText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</div>';
-            }
-            dashSetStreaming(false);
+            dashRenderFinal(responseEl, rawText);
             queryEl.value = '';
             return;
           }
@@ -361,8 +437,7 @@ async function dashAskSubmit() {
           try {
             const msg = JSON.parse(data);
             if (msg.e) {
-              responseEl.innerHTML = '<div class="text-sm text-red-600">' + msg.e + '</div>';
-              dashSetStreaming(false);
+              dashShowError(responseEl, msg.e);     // escaped: the message is not markup
               return;
             }
             if (msg.t !== undefined) {
@@ -371,15 +446,19 @@ async function dashAskSubmit() {
                 firstToken = false;
                 responseEl.innerHTML = '';
               }
-              const escaped = rawText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-              responseEl.innerHTML = '<div class="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">' + escaped + '<span class="dash-cursor">▋</span></div>';
+              responseEl.innerHTML = '<div class="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">' + dashEscape(rawText) + '<span class="dash-cursor">▋</span></div>';
             }
           } catch(_) {}
         }
       }
     }
+    // The stream closed without [DONE]: show what arrived rather than a cursor blinking forever.
+    if (rawText) dashRenderFinal(responseEl, rawText);
+    else dashShowError(responseEl, 'The answer was cut off. Please try again.');
   } catch(err) {
-    responseEl.innerHTML = '<div class="text-sm text-red-600">Connection error. Please try again.</div>';
+    dashShowError(responseEl, 'Connection error. Please try again.');
+  } finally {
+    // Every exit — answer, error, refusal, dropped stream — gives the Ask button back.
     dashSetStreaming(false);
   }
 }

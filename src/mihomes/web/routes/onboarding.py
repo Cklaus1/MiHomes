@@ -75,7 +75,12 @@ def resume(request: Request, db: Session = Depends(get_db)):
         return templates.TemplateResponse(
             request,
             "onboarding/account.html",
-            {"page": "onboarding", "suggested_name": onboarding.suggested_account_name(user)},
+            {
+                "page": "onboarding",
+                "suggested_name": onboarding.suggested_account_name(user),
+                "step": onboarding.STEP_CREATE_ACCOUNT,
+                "total_steps": onboarding.STEP_INVITE,
+            },
         )
 
     step = onboarding.current_step(db, account.id)
@@ -111,7 +116,9 @@ def resume(request: Request, db: Session = Depends(get_db)):
         onboarding.STEP_INVITE: "onboarding/invite.html",
     }[step]
     return templates.TemplateResponse(
-        request, template, {"page": "onboarding", "account": account, "step": step}
+        request, template,
+        {"page": "onboarding", "account": account, "step": step,
+         "total_steps": onboarding.STEP_INVITE},
     )
 
 
@@ -203,7 +210,7 @@ def skip_step(request: Request, step: int = Form(...), db: Session = Depends(get
 
 #: Where each optional step's primary button leads. Fixed per step rather than taken from the
 #: form, so this route cannot be turned into an open redirector.
-_LEAVE_TO = {onboarding.STEP_SPACES: "/assets", onboarding.STEP_INVITE: "/team"}
+_LEAVE_TO = {onboarding.STEP_SPACES: "/assets", onboarding.STEP_INVITE: "/settings#members"}
 
 
 @router.post("/leave")

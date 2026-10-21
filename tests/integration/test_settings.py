@@ -983,3 +983,84 @@ class TestStaffPropertyAccess:
 
         assert response.status_code == 400
         assert "at least one property" in response.text
+
+
+class TestAccountFlowsUx:
+    """The 2026-10-21 UI/UX pass on Settings: /team folded in, Pro badge, danger zone."""
+
+    @staticmethod
+    def _set_plan(web_client_as, plan):
+        from sqlalchemy import text
+
+        web_client_as.connection.execute(
+            text("update accounts set plan = :p, subscription_status = null"), {"p": plan}
+        )
+
+    def test_team_redirects_to_settings_members(self, web_client_as):
+        """`/team` is retired: its invite form discarded the one-time link. Old links land on
+        Settings → Members, and the POST that dropped links is gone."""
+        client = web_client_as("owner")
+        response = client.get("/team", follow_redirects=False)
+        assert response.status_code == 303
+        assert response.headers["location"] == "/settings#members"
+
+        gone = client.post("/team/invites", data={"email": "x@example.com", "role": "admin"})
+        assert gone.status_code in (404, 405)
+
+    def test_free_shows_staff_invites_as_pro(self, web_client_as):
+        client = web_client_as("owner")
+        self._set_plan(web_client_as, "free")
+        page = client.get("/settings").text
+        assert 'data-testid="staff-invite-pro"' in page
+        assert '<option value="staff" disabled>' in page
+
+        self._set_plan(web_client_as, "estate")
+        page = client.get("/settings").text
+        assert 'data-testid="staff-invite-pro"' not in page
+        assert '<option value="staff" disabled>' not in page
+
+    def test_a_refused_invite_keeps_what_was_typed(self, web_client_as):
+        client = web_client_as("owner")
+        response = client.post(
+            "/settings/members/invite",
+            data={"email": "housekeeper@example.com", "role": "staff"},
+        )
+        assert response.status_code == 400
+        assert 'value="housekeeper@example.com"' in response.text
+        assert 'aria-invalid="true"' in response.text
+        assert 'role="alert"' in response.text
+
+    def test_danger_zone_is_owner_only_for_export_and_delete(self, web_client_as):
+        owner = web_client_as("owner").get("/settings").text
+        admin = web_client_as("admin").get("/settings").text
+        for page in (owner, admin):
+            assert 'id="danger-zone"' in page
+            assert 'action="/signout-all"' in page
+        assert 'action="/privacy/delete"' in owner and "/privacy/export" in owner
+        assert "/privacy/" not in admin
+
+    def test_delete_from_the_form_shows_the_pending_state_and_cancels(self, web_client_as):
+        """A browser form post is redirected back here; JSON callers keep the JSON contract
+        (`test_privacy_routes.py`)."""
+        client = web_client_as("owner")
+        html = {"accept": "text/html"}
+        requested = client.post("/privacy/delete", headers=html, follow_redirects=False)
+        assert requested.status_code == 303
+        assert requested.headers["location"].startswith("/settings?notice=deletion_requested")
+
+        page = client.get(requested.headers["location"]).text
+        assert 'data-testid="deletion-pending"' in page
+        assert "Account deletion scheduled" in page
+
+        cancelled = client.post("/privacy/delete/cancel", headers=html, follow_redirects=False)
+        assert cancelled.status_code == 303
+        assert 'data-testid="deletion-pending"' not in client.get("/settings").text
+
+    def test_saves_confirm_with_a_fixed_notice(self, web_client_as):
+        client = web_client_as("owner")
+        response = client.post("/settings/account", data={"name": "Renamed Estate"},
+                               follow_redirects=False)
+        assert response.headers["location"] == "/settings?notice=account_saved#account"
+        assert "Account name saved" in client.get(response.headers["location"]).text
+        # Only mapped keys render; the query text itself never reaches the page.
+        assert "INJECTED" not in client.get("/settings?notice=INJECTED").text

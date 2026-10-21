@@ -1,17 +1,25 @@
-{% extends "base.html" %}
+{% extends "onboarding/_layout.html" %}
 {% block title %}Add your first home — MiHomes{% endblock %}
-{% block content %}
-<div class="max-w-lg mx-auto py-12">
-  <h1 class="text-2xl font-semibold mb-2">Add your first home</h1>
+{% block card %}
+  <h1 class="text-xl font-semibold text-gray-900 mb-1">Add your first home</h1>
   {# Only the NAME is required. ONBOARDING §5: "require only the home name (address and type are
      editable later)" — this is the second and last mandatory step. #}
-  <p class="text-gray-600 mb-6">Just a name for now — you can fill in the rest later.</p>
+  <p class="text-sm text-gray-600 mb-6">Just a name for now — you can fill in the rest later.</p>
   <form method="post" action="/onboarding/property" class="space-y-4">
-    <input name="name" placeholder="Belle Estate" required
-           class="w-full border rounded px-3 py-2" autofocus />
-    <input name="address" placeholder="Address (optional)"
-           class="w-full border rounded px-3 py-2" />
-    <button class="bg-brand-600 text-white rounded px-4 py-2">Continue</button>
+    <div>
+      <label for="home-name" class="block text-sm font-medium text-gray-700 mb-1">
+        Home name <span class="text-red-500">*</span>
+      </label>
+      <input id="home-name" name="name" placeholder="Belle Estate" required autocomplete="off"
+             class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm" autofocus />
+    </div>
+    <div>
+      <label for="home-address" class="block text-sm font-medium text-gray-700 mb-1">
+        Address <span class="font-normal text-gray-500">(optional)</span>
+      </label>
+      <input id="home-address" name="address" autocomplete="street-address"
+             class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm" />
+    </div>
+    <button type="submit" class="w-full rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-brand-700">Continue</button>
   </form>
-</div>
 {% endblock %}

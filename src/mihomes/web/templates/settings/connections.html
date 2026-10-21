@@ -3,6 +3,9 @@
 {% block content %}
 <div class="max-w-2xl mx-auto py-6 sm:py-10">
   <h1 class="text-xl sm:text-2xl font-semibold mb-8">Settings</h1>
+  {% include "settings/_notice.html" %}
+  <div class="mb-8">{% include "settings/_account_switcher.html" %}</div>
   {% include "settings/_personal.html" %}
+  {% include "settings/_danger.html" %}
 </div>
 {% endblock %}

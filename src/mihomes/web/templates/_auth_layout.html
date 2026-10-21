@@ -1,0 +1,41 @@
+{# The standalone layout for pages a visitor sees without the app shell: sign-in, sign-up,
+   password reset, an invitation, and the onboarding wizard.
+
+   **Deliberately does not extend `base.html`.** That layout is the signed-in shell: a sidebar of
+   links to pages this visitor cannot open (or, mid-onboarding, pages with no account behind them
+   yet), a global search box, an alerts badge polling every 60 seconds that would 401 in a loop.
+   This shares only the compiled stylesheet — which is also what keeps it responsive for free
+   (SPEC-009 D5): one build, both layouts.
+
+   Blocks: `title`, `above` (between the brand and the card — the wizard's step indicator),
+   `card` (the white panel), `below` (links under it). `card_width` widens the column. #}
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-gray-50">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}MiHomes{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body class="h-full">
+  <div class="min-h-full flex flex-col items-center justify-center px-4 py-12">
+
+    <div class="w-full {{ card_width or 'max-w-sm' }}">
+      <div class="text-center mb-8">
+        <p class="text-2xl font-semibold tracking-tight text-gray-900">MiHomes</p>
+        <p class="text-sm text-gray-500 mt-1">Home Management</p>
+      </div>
+
+      {% block above %}{% endblock %}
+
+      <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 sm:p-8">
+        {% block card %}{% endblock %}
+      </div>
+
+      {% block below %}{% endblock %}
+    </div>
+
+  </div>
+  {% include "partials/_password_toggle.html" %}
+</body>
+</html>

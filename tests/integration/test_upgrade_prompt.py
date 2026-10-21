@@ -269,3 +269,39 @@ def test_pages_carry_the_lazy_banner_slot(rls_app):  # noqa: F811
     page = client.get("/", headers=_HTML)
 
     assert 'hx-get="/trial-status"' in page.text
+
+
+def test_the_paywall_speaks_plainly_and_goes_back_where_you_were(rls_app):  # noqa: F811
+    """The headline is product language; the service's reason is small print; "Go back"
+    returns to the same-origin Referer, and a foreign Referer is ignored."""
+    client, account_id = rls_app
+    _sign_in(client)
+    _set_plan(account_id)
+
+    refused = client.post("/properties/", data={"name": "Second Home"},
+                          headers={**_HTML, "Referer": "http://localhost:5000/properties/"})
+    assert refused.status_code == 402
+    assert "Your plan includes 1 home" in refused.text
+    assert 'data-testid="upgrade-reason"' in refused.text
+    assert 'href="/properties/"' in refused.text and "Go back" in refused.text
+
+    foreign = client.post("/properties/", data={"name": "Second Home"},
+                          headers={**_HTML, "Referer": "https://evil.example/x"})
+    assert "evil.example" not in foreign.text
+
+
+def test_the_trial_banner_says_tomorrow_until_the_last_day(rls_app):  # noqa: F811
+    """30 hours left rounds up to 2 days; it must not read "ends today"."""
+    import mihomes.db as db_module
+
+    client, account_id = rls_app
+    _sign_in(client)
+    with db_module._engine.begin() as conn:
+        conn.execute(
+            text("update accounts set plan = 'pro', subscription_status = 'trialing',"
+                 " trial_ends_at = now() + interval '30 hours' where id = :a"),
+            {"a": account_id},
+        )
+
+    banner = client.get("/trial-status", headers=_HTML).text
+    assert "ends tomorrow" in banner and "ends today" not in banner

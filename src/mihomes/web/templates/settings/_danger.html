@@ -1,0 +1,91 @@
+{# ── Danger zone ────────────────────────────────────────────────────────────
+   Sign out everywhere is for every role (it acts on your own sessions only). Export and delete
+   are row 16, `account.delete` — owner only — so they render for the owner alone; the routes
+   refuse anyone else regardless.
+
+   Delete posts to `/privacy/delete`, which *starts a grace period* and deletes nothing yet
+   (D15); a browser form post is redirected back here and the pending state below replaces the
+   button, with a cancel. The typed confirmation is a guard against a stray click, enforced in
+   the page: the route itself takes no confirmation field. #}
+<section id="danger-zone" class="mb-10 scroll-mt-4">
+  <h2 class="text-lg font-medium mb-1">Danger zone</h2>
+  <p class="text-sm text-gray-500 mb-3">Actions that sign you out or affect the whole account.</p>
+
+  <div class="divide-y rounded-lg border border-red-200">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4">
+      <div>
+        <p class="font-medium text-gray-900">Sign out everywhere</p>
+        <p class="text-sm text-gray-500">Ends every session on every device, including this one.</p>
+      </div>
+      <form method="post" action="/signout-all"
+            onsubmit="return confirm('Sign out on every device, including this one?')">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('mihomes_csrf', '') }}" />
+        <button class="w-full sm:w-auto rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50">
+          Sign out everywhere
+        </button>
+      </form>
+    </div>
+
+    {% if role == "owner" %}
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4">
+        <div>
+          <p class="font-medium text-gray-900">Export my data</p>
+          <p class="text-sm text-gray-500">Download everything this account holds, as one JSON file.</p>
+        </div>
+        <a href="/privacy/export" download
+           class="w-full sm:w-auto text-center rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50">
+          Export my data
+        </a>
+      </div>
+
+      <div class="p-4">
+        <p class="font-medium text-red-800">Delete account</p>
+        {% if pending_deletion %}
+          <p class="mt-1 text-sm text-gray-700" data-testid="deletion-pending">
+            Deletion is scheduled. Everything in
+            <strong>{{ account.name if account else "this account" }}</strong> will be permanently
+            deleted on <strong>{{ pending_deletion.purge_after.strftime("%d %b %Y") }}</strong>.
+            Until then you can cancel and nothing is lost.
+          </p>
+          <form method="post" action="/privacy/delete/cancel" class="mt-3">
+            <button class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700">
+              Cancel deletion
+            </button>
+          </form>
+        {% else %}
+          <p class="mt-1 text-sm text-gray-500">
+            Schedules this account and everything in it for permanent deletion, after a grace
+            period in which you can cancel. Export your data first — it cannot be recovered
+            afterwards.
+          </p>
+          <form method="post" action="/privacy/delete" class="mt-3 space-y-2" id="delete-account-form"
+                data-confirm-name="{{ account.name if account else '' }}">
+            <label for="delete-confirm" class="block text-sm text-gray-700">
+              Type <strong>{{ account.name if account else "DELETE" }}</strong>{% if account %} or <strong>DELETE</strong>{% endif %} to confirm
+            </label>
+            <input id="delete-confirm" autocomplete="off" spellcheck="false"
+                   class="w-full sm:max-w-xs border rounded-lg px-3 py-2" />
+            <button type="submit" id="delete-account-button" disabled
+                    class="block rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50">
+              Delete account
+            </button>
+          </form>
+          <script>
+            (function () {
+              var form = document.getElementById('delete-account-form');
+              if (!form) return;
+              var input = document.getElementById('delete-confirm');
+              var button = document.getElementById('delete-account-button');
+              function matches() {
+                var typed = input.value.trim();
+                return typed === 'DELETE' || (form.dataset.confirmName !== '' && typed === form.dataset.confirmName.trim());
+              }
+              input.addEventListener('input', function () { button.disabled = !matches(); });
+              form.addEventListener('submit', function (e) { if (!matches()) e.preventDefault(); });
+            })();
+          </script>
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+</section>

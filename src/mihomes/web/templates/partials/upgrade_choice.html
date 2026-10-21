@@ -22,14 +22,14 @@
     <p class="mt-1 text-sm text-gray-600">
       {% if trial_available and upgrade_target == 'pro' %}
         Start your 14-day Pro trial to continue — no card needed. After the trial you can
-        subscribe, or go back to Free and keep one home.
+        subscribe, or go back to Free; nothing you add is deleted.
       {% elif upgrade_target %}
         This is included in {{ plan_name }}.
       {% else %}
         This is not available on your plan.
       {% endif %}
     </p>
-    {% if reason %}<p class="mt-2 text-xs text-gray-400" data-testid="upgrade-reason">{{ reason }}</p>{% endif %}
+    {% if reason %}<p class="mt-2 text-xs text-gray-500" data-testid="upgrade-reason">{{ reason }}</p>{% endif %}
   </div>
 
   {% if is_owner %}

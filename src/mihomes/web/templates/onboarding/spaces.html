@@ -1,22 +1,21 @@
-{% extends "base.html" %}
+{% extends "onboarding/_layout.html" %}
 {% block title %}Add rooms — MiHomes{% endblock %}
-{% block content %}
-<div class="max-w-lg mx-auto py-12">
-  <h1 class="text-2xl font-semibold mb-2">Add a few rooms</h1>
-  <p class="text-gray-600 mb-6">Optional — you can do this any time.</p>
+{% block card %}
+  <h1 class="text-xl font-semibold text-gray-900 mb-1">Add a few rooms</h1>
+  <p class="text-sm text-gray-600 mb-6">Rooms give assets, issues and tasks a place to live.
+    Optional — you can do this any time.</p>
 
   {# A18: skipping is a FIRST-CLASS PATH, so Skip is a real button of equal weight, not a
      greyed-out escape hatch tucked under the primary action. #}
-  <div class="flex gap-3">
+  <div class="flex flex-col sm:flex-row gap-3">
     {# A form, not a link: leaving to add rooms records the step, or the wizard is stranded. #}
-    <form method="post" action="/onboarding/leave">
+    <form method="post" action="/onboarding/leave" class="flex-1">
       <input type="hidden" name="step" value="{{ step }}" />
-      <button class="bg-brand-600 text-white rounded px-4 py-2">Add rooms</button>
+      <button type="submit" class="w-full rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-brand-700">Add rooms</button>
     </form>
-    <form method="post" action="/onboarding/skip">
+    <form method="post" action="/onboarding/skip" class="flex-1">
       <input type="hidden" name="step" value="{{ step }}" />
-      <button class="border rounded px-4 py-2">Skip for now</button>
+      <button type="submit" class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50">Skip for now</button>
     </form>
   </div>
-</div>
 {% endblock %}

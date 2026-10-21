@@ -192,7 +192,7 @@ class TestWizardExits:
             "/onboarding/leave", data={"step": STEP_INVITE}, follow_redirects=False
         )
 
-        assert response.headers["location"] == "/team"
+        assert response.headers["location"] == "/settings#members"
         assert _state(client, account_a).finished_at is not None
         with client._SessionLocal() as s:
             assert onboarding.current_step(s, account_a) == STEP_DASHBOARD

@@ -6,8 +6,8 @@
   a member of anything, and the switcher targets an account other than the current one. Neither
   can be authorised by a role within the current account, because that is precisely what is
   changing.
-- *Creating* and *revoking* invitations are ordinary account actions (rows 11/12), declared
-  normally and gated by the matrix like everything else.
+- Creating and revoking invitations live in Settings → Members (`routes/settings.py`); `/team`
+  itself is now only a redirect there.
 
 Keeping both in one module makes the boundary visible rather than implied by directory layout.
 """
@@ -24,7 +24,7 @@ from mihomes.authz.actions import Access
 from mihomes.authz.declare import declares, declares_session
 from mihomes.models.user import User
 from mihomes.services import invite_service
-from mihomes.services.account_switcher import available_accounts, switch_account
+from mihomes.services.account_switcher import switch_account
 from mihomes.tenancy import require_user
 from mihomes.web.deps import get_db, require_authenticated, templates
 
@@ -52,11 +52,20 @@ def show_invite(request: Request, token: str, db: Session = Depends(get_db)):
     anyone holding the link reaches this page — there is nothing here worth more than what
     accepting would already give them.
     """
+    from mihomes.models.account import Account
+
     invite = invite_service.find_pending(db, token)
+    # `accounts` is a global table, so the invitee can read its name without being a member.
+    account = db.get(Account, invite.account_id) if invite is not None else None
     return templates.TemplateResponse(
         request,
         "team/invite.html",
-        {"page": "invite", "invite": invite, "token": token},
+        {
+            "page": "invite",
+            "invite": invite,
+            "token": token,
+            "account_name": account.name if account is not None else None,
+        },
     )
 
 
@@ -96,63 +105,20 @@ def switch(request: Request, account_id: uuid.UUID = Form(...),
     return RedirectResponse("/", status_code=303)
 
 
-# ── Ordinary account actions — rows 11/12, gated by the matrix ────────────────
-
-
-@router.post("/team/invites")
-@declares("invite.create", Access.ACCOUNT)
-def create(
-    request: Request,
-    email: str = Form(...),
-    role: str = Form("staff"),
-    property_ids: list[uuid.UUID] = Form(default=[]),
-    principal=require_authenticated(),
-    db: Session = Depends(get_db),
-):
-    """Row 11. A21's "staff needs a scope" refusal surfaces as a form error, not a 500."""
-    try:
-        invite_service.create_invite(
-            db, principal.account_id, principal.user_id, email, role, property_ids
-        )
-    except invite_service.InviteError as exc:
-        return templates.TemplateResponse(
-            request, "team/index.html",
-            {"page": "team", "error": str(exc), "accounts": []}, status_code=400,
-        )
-    return RedirectResponse("/team", status_code=303)
-
-
-@router.post("/team/invites/{invite_id}/revoke")
-@declares("invite.modify", Access.ACCOUNT)
-def revoke(
-    request: Request,
-    invite_id: uuid.UUID,
-    principal=require_authenticated(),
-    db: Session = Depends(get_db),
-):
-    """Row 12. Revoking frees the seat immediately (D6)."""
-    from mihomes.models.invite import Invite
-
-    invite = db.get(Invite, invite_id)
-    if invite is not None:
-        invite_service.revoke_invite(db, invite)
-    return RedirectResponse("/team", status_code=303)
+# ── The old team screen — now part of Settings ────────────────────────────────
 
 
 @router.get("/team")
 @declares("member.manage", Access.ACCOUNT)
-def index(request: Request, principal=require_authenticated(),
-          db: Session = Depends(get_db)):
-    """Row 10 — the team screen. Also renders the switcher when there is one to render."""
-    return templates.TemplateResponse(
-        request,
-        "team/index.html",
-        {
-            "page": "team",
-            "accounts": available_accounts(db, principal.user_id),
-            "current_account_id": principal.account_id,
-        },
-    )
+def index(principal=require_authenticated()):
+    """Row 10. Members, invitations and the account switcher all live in Settings now.
+
+    The team page's invite form discarded the one-time link `create_invite` returns, so an
+    invitation made here was a consumed seat nobody could redeem; Settings shows the link. Kept
+    as a redirect for old bookmarks, and still declared, so a staff member gets the same 403 and
+    an account-less session the same onboarding redirect as before.
+    """
+    return RedirectResponse("/settings#members", status_code=303)
 
 
 def _auth(db: Session, request: Request):

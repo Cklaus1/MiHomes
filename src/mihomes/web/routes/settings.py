@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 from mihomes.authz.actions import Access
 from mihomes.authz.declare import declares
 from mihomes.services import config_service
+from mihomes.services.account_switcher import available_accounts
 from mihomes.web.deps import get_db, require_authenticated, templates
 
 router = APIRouter()
@@ -112,9 +113,64 @@ def _page_context(db: Session, principal, **extra):
         # Owner and admin see their own Messenger connections here too (settings/_personal.html).
         "telegram_links": _own_telegram_links(db, principal),
         "sign_in": _sign_in_context(db, user),
+        # The Staff invite option is shown disabled with a Pro badge when the plan lacks it,
+        # rather than offered and then refused by the paywall after the form is filled in.
+        "staff_invites_entitled": _staff_invites_entitled(account),
+        # The account switcher, moved here from the retired /team page (A24: absent below two).
+        "accounts": available_accounts(db, principal.user_id),
+        "current_account_id": principal.account_id,
+        "pending_deletion": (
+            _pending_deletion(db, principal.account_id) if principal.role == "owner" else None
+        ),
     }
     context.update(extra)
     return context
+
+
+#: Success messages for `?notice=<key>` after a redirect. A fixed map, never the query text
+#: itself, so a crafted link cannot put words on the page.
+_NOTICES = {
+    "saved": "Settings saved",
+    "account_saved": "Account name saved",
+    "profile_saved": "Profile saved",
+    "role_changed": "Role changed",
+    "access_saved": "Property access saved",
+    "member_removed": "Access removed",
+    "invite_revoked": "Invitation revoked",
+    "telegram_unlinked": "Telegram unlinked",
+    "deletion_requested": "Account deletion scheduled",
+    "deletion_cancelled": "Account deletion cancelled",
+}
+
+
+def _notice(request: Request) -> str | None:
+    key = request.query_params.get("notice") or (
+        "saved" if request.query_params.get("saved") == "1" else ""
+    )
+    return _NOTICES.get(key)
+
+
+def _staff_invites_entitled(account) -> bool:
+    from mihomes.entitlements import Allowed, can
+
+    return account is not None and isinstance(can(account, "invite.staff"), Allowed)
+
+
+def _pending_deletion(db: Session, account_id):
+    """The account's live deletion request — not cancelled, not purged — or None."""
+    from sqlalchemy import select
+
+    from mihomes.models.account_deletion import AccountDeletionRequest
+
+    return db.execute(
+        select(AccountDeletionRequest)
+        .where(
+            AccountDeletionRequest.account_id == account_id,
+            AccountDeletionRequest.cancelled_at.is_(None),
+            AccountDeletionRequest.purged_at.is_(None),
+        )
+        .order_by(AccountDeletionRequest.requested_at)
+    ).scalars().first()
 
 
 def _sign_in_context(db: Session, user, request: Request | None = None, *,
@@ -176,7 +232,7 @@ def index(request: Request, principal=require_authenticated(),
         "settings/index.html",
         _page_context(
             db, principal,
-            saved=request.query_params.get("saved") == "1",
+            notice=_notice(request),
             sign_in=_sign_in_context(db, db.get(_user_model(), principal.user_id), request),
         ),
     )
@@ -229,7 +285,7 @@ def update_profile_route(
             status_code=400,
         )
 
-    return RedirectResponse(_home_for(principal), status_code=303)
+    return RedirectResponse(_home_for(principal) + "?notice=profile_saved", status_code=303)
 
 
 def _home_for(principal) -> str:
@@ -258,6 +314,10 @@ def _connections_context(db: Session, principal, **extra):
         "telegram_links": _own_telegram_links(db, principal),
         "can_change_email": user is not None and user.password_hash is not None,
         "sign_in": _sign_in_context(db, user),
+        # Staff with a second account switch here too; the switcher used to live on /team,
+        # which staff could not open.
+        "accounts": available_accounts(db, principal.user_id),
+        "current_account_id": principal.account_id,
     }
     context.update(extra)
     return context
@@ -277,6 +337,7 @@ def connections(request: Request, principal=require_authenticated(),
         request, "settings/connections.html",
         _connections_context(
             db, principal,
+            notice=_notice(request),
             sign_in=_sign_in_context(db, db.get(_user_model(), principal.user_id), request),
         ),
     )
@@ -324,7 +385,9 @@ def telegram_unlink(link_id: uuid.UUID, principal=require_authenticated(),
         raise HTTPException(status_code=404)
     db.delete(link)
     db.flush()
-    return RedirectResponse(_home_for(principal) + "#connections", status_code=303)
+    return RedirectResponse(
+        _home_for(principal) + "?notice=telegram_unlinked#connections", status_code=303
+    )
 
 
 @router.post("/settings/account")
@@ -357,7 +420,7 @@ def rename(
             status_code=400,
         )
 
-    return RedirectResponse("/settings", status_code=303)
+    return RedirectResponse("/settings?notice=account_saved#account", status_code=303)
 
 
 @router.post("/settings")
@@ -408,7 +471,7 @@ async def update(
 
     for key, value in cleaned.items():
         config_service.set_config(db, key, value)
-    return RedirectResponse("/settings?saved=1", status_code=303)
+    return RedirectResponse("/settings?notice=saved", status_code=303)
 
 
 # ── Members ───────────────────────────────────────────────────────────────────
@@ -424,7 +487,8 @@ async def update(
 # this layer does not reimplement it, so the rule the matrix tests assert is the rule that runs.
 
 
-def _member_error(request: Request, db: Session, principal, message: str, status: int = 400):
+def _member_error(request: Request, db: Session, principal, message: str, status: int = 400,
+                  **extra):
     """Re-render settings carrying a members-section error.
 
     A separate slot from `error` and `profile_error`, for the reason the template already gives
@@ -434,7 +498,7 @@ def _member_error(request: Request, db: Session, principal, message: str, status
     return templates.TemplateResponse(
         request,
         "settings/index.html",
-        _page_context(db, principal, members_error=message),
+        _page_context(db, principal, members_error=message, **extra),
         status_code=status,
     )
 
@@ -493,13 +557,18 @@ def invite_member(
     except invite_service.InviteError as exc:
         # Covers the seat cap and A21's "a staff invite needs a property" alike. Both are
         # decisions the user can act on, so they are page messages rather than bare statuses.
-        return _member_error(request, db, principal, str(exc))
+        # What they typed comes back with it, so fixing one field is not retyping three.
+        return _member_error(
+            request, db, principal, str(exc),
+            invite_form={"email": email, "role": role, "property_ids": property_ids},
+        )
 
     link = f"{str(request.base_url).rstrip('/')}/invite/{raw_token}"
     return templates.TemplateResponse(
         request,
         "settings/index.html",
-        _page_context(db, principal, invite_link=link, invite_email=invite.email),
+        _page_context(db, principal, invite_link=link, invite_email=invite.email,
+                      notice="Invitation created"),
     )
 
 
@@ -540,7 +609,7 @@ def change_member_role(
     except membership_service.MembershipError as exc:
         return _member_error(request, db, principal, str(exc))
 
-    return RedirectResponse("/settings", status_code=303)
+    return RedirectResponse("/settings?notice=role_changed#members", status_code=303)
 
 
 @router.post("/settings/members/{membership_id}/scope")
@@ -571,7 +640,7 @@ def set_member_scope(
     except membership_service.MembershipError as exc:
         return _member_error(request, db, principal, str(exc))
 
-    return RedirectResponse("/settings", status_code=303)
+    return RedirectResponse("/settings?notice=access_saved#members", status_code=303)
 
 
 @router.post("/settings/members/{membership_id}/revoke")
@@ -618,7 +687,7 @@ def revoke_member(
         # the service's message says so.
         return _member_error(request, db, principal, str(exc))
 
-    return RedirectResponse("/settings", status_code=303)
+    return RedirectResponse("/settings?notice=member_removed#members", status_code=303)
 
 
 @router.post("/settings/invites/{invite_id}/revoke")
@@ -648,7 +717,7 @@ def revoke_pending_invite(
         invite_service.revoke_invite(db, invite)
         db.commit()
 
-    return RedirectResponse("/settings", status_code=303)
+    return RedirectResponse("/settings?notice=invite_revoked#members", status_code=303)
 
 
 # ── Sign-in methods — every role, own user only (2026-10-19, SPEC-010 U2) ──────

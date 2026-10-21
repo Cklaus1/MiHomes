@@ -28,8 +28,10 @@ the spec on that too — it claimed no handler was registered anywhere.
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from contextvars import ContextVar
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
@@ -108,11 +110,66 @@ def check_database() -> None:
 
 
 #: Where a refused POST came from, so the paywall's "Start trial" button records the action and
-#: sends the user back to retry it. Paths not listed still get the button, returning to `/`.
-_TRIAL_ACTIONS = {"/properties": "property.add", "/team/invites": "invite.staff",
-                  "/settings/members/invite": "invite.staff"}
-_TRIAL_NEXT = {"/properties": "/properties/new", "/team/invites": "/team",
-               "/settings/members/invite": "/settings"}
+#: sends the user back to retry it. Paths not listed still get the button, returning to the page
+#: the user was on (the Referer) when that is safe, else `/`.
+_TRIAL_ACTIONS = {"/properties": "property.add", "/settings/members/invite": "invite.staff"}
+_TRIAL_NEXT = {"/properties": "/properties/new", "/settings/members/invite": "/settings#members"}
+
+#: The paywall's headline, in the product's words. `Denied` carries no action key, only the
+#: service's reason string, so these match its known shapes — `"<action> is not available on the
+#: <plan> plan"`, `"<plan> allows N (<limit_key>); M in use"` — plus the services that word their
+#: own refusal. The raw reason stays on the page as small print.
+_ACTION_HEADLINES = {
+    "invite.staff": "Staff invites are part of {plan}",
+    "vendor.rate": "Vendor ratings are part of {plan}",
+    "work_order.schedule": "Scheduling work orders is part of {plan}",
+    "maintenance.predict": "Predictive maintenance is part of {plan}",
+    "report.weekly_ai": "The weekly AI report is part of {plan}",
+    "audit.export": "Exporting the audit log is part of {plan}",
+}
+_REASON_HEADLINES = (
+    ("Vendor ratings are not included", "Vendor ratings are part of {plan}"),
+    ("Scheduling work orders is not included", "Scheduling work orders is part of {plan}"),
+    ("AI paused until", "You've used this period's AI allowance"),
+    (" is read-only:", "This home is read-only on your plan"),
+)
+_ACTION_REASON = re.compile(r"^([a-z_]+\.[a-z_]+) is not available on the ")
+_COUNTED_REASON = re.compile(r"allows (\d+) \((max_homes|max_seats)\)")
+
+
+def _plan_headline(reason: str, upgrade_target: str | None) -> str:
+    """A plain-language headline for a plan refusal — see `_ACTION_HEADLINES`."""
+    reason = reason or ""
+    plan = (upgrade_target or "a higher plan").capitalize()
+    action = _ACTION_REASON.match(reason)
+    if action and action.group(1) in _ACTION_HEADLINES:
+        return _ACTION_HEADLINES[action.group(1)].format(plan=plan)
+    counted = _COUNTED_REASON.search(reason)
+    if counted:
+        n = int(counted.group(1))
+        noun = "home" if counted.group(2) == "max_homes" else "seat"
+        return f"Your plan includes {n} {noun}{'' if n == 1 else 's'}"
+    for needle, headline in _REASON_HEADLINES:
+        if needle in reason:
+            return headline.format(plan=plan)
+    return f"This is included in {plan}" if upgrade_target else "Not available on your plan"
+
+
+def _same_origin_referer(request: Request) -> str | None:
+    """The page the user came from, as a local path — or None if it was another site.
+
+    Same host only, and through `safe_next`, so the paywall's "Go back" and its trial return can
+    never be pointed off-site by a crafted header.
+    """
+    from mihomes.auth.session_flow import safe_next
+
+    referer = request.headers.get("referer")
+    if not referer:
+        return None
+    parts = urlsplit(referer)
+    if parts.netloc and parts.netloc != request.url.netloc:
+        return None
+    return safe_next(parts.path, parts.query)
 
 
 def _wants_json(request: Request) -> bool:
@@ -196,17 +253,21 @@ def register_error_handlers(app: FastAPI, templates=None) -> None:
         if templates is not None:
             # The trial button's two facts come off the exception, captured where it was raised:
             # by now the transaction is rolled back and the request's role context is reset.
+            path = request.url.path.rstrip("/")
+            back = _same_origin_referer(request)
             try:
                 return templates.TemplateResponse(
                     request,
                     "plan_required.html",
                     {
+                        "headline": _plan_headline(reason, upgrade_target),
                         "reason": reason,
                         "upgrade_target": upgrade_target,
                         "trial_available": getattr(exc, "trial_available", False),
                         "is_owner": getattr(exc, "is_owner", False),
-                        "trial_action": _TRIAL_ACTIONS.get(request.url.path.rstrip("/")),
-                        "trial_next": _TRIAL_NEXT.get(request.url.path.rstrip("/"), "/"),
+                        "trial_action": _TRIAL_ACTIONS.get(path),
+                        "trial_next": _TRIAL_NEXT.get(path) or back or "/",
+                        "back_href": back or "/",
                     },
                     status_code=402,
                 )

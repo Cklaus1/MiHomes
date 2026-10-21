@@ -2,47 +2,60 @@
 {% block title %}Settings — MiHomes{% endblock %}
 {% block content %}
 <div class="max-w-2xl mx-auto py-6 sm:py-10">
-  <h1 class="text-xl sm:text-2xl font-semibold mb-8">Settings</h1>
+  <h1 class="text-xl sm:text-2xl font-semibold mb-4">Settings</h1>
+
+  {# In-page nav, so Members and Plan & billing are one tap away rather than a long scroll.
+     Anchors only — "Plan & billing" goes to the section below, never to /billing, which is the
+     owner's page alone (row 15). #}
+  <nav aria-label="Settings sections" class="mb-8 flex flex-wrap gap-x-1 gap-y-1 text-sm">
+    {% for anchor, label in [("account", "Account"), ("members", "Members"),
+                              ("notifications", "Notifications"), ("sign-in", "Sign-in"),
+                              ("plan", "Plan & billing"), ("danger-zone", "Danger zone")] %}
+      <a href="#{{ anchor }}" class="rounded-lg px-3 py-2 text-gray-600 hover:bg-gray-100 hover:text-gray-900">{{ label }}</a>
+    {% endfor %}
+  </nav>
+
+  {% include "settings/_notice.html" %}
 
   {# Two separate error slots, because two independent forms can fail and a shared one would
      show a password refusal above the estate-name field. #}
   {% if error %}
-    <p class="mb-4 rounded border border-red-300 bg-red-50 px-3 py-2 text-red-800">{{ error }}</p>
-  {% endif %}
-  {% if saved %}
-    <p class="mb-4 rounded border border-green-300 bg-green-50 px-3 py-2 text-green-800">Settings saved.</p>
+    <p role="alert" tabindex="-1" autofocus
+       class="mb-4 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-red-800">{{ error }}</p>
   {% endif %}
 
-  {# ── Estate ─────────────────────────────────────────────────────────────── #}
-  <section class="mb-10">
-    <h2 class="text-lg font-medium mb-1">Estate</h2>
-    <p class="text-sm text-gray-500 mb-3">The name shown throughout the app. Renaming is safe —
-      it does not affect your data, and the
+  {# ── Account ────────────────────────────────────────────────────────────── #}
+  <section id="account" class="mb-10 scroll-mt-4">
+    <h2 class="text-lg font-medium mb-1">Account</h2>
+    <p class="text-sm text-gray-500 mb-3">The estate name shown throughout the app. Renaming is
+      safe — it does not affect your data, and the
       <span class="font-mono text-xs">--account</span> name used on the command line stays the
       same.</p>
     <form method="post" action="/settings/account" class="flex flex-col sm:flex-row gap-3">
       <label for="account-name" class="sr-only">Estate name</label>
-      <input id="account-name" name="name" required maxlength="200"
+      <input id="account-name" name="name" required maxlength="200" autocomplete="organization"
              value="{{ account.name if account else '' }}"
-             class="flex-1 border rounded px-3 py-2" />
-      <button class="bg-brand-600 text-white rounded px-4 py-2 whitespace-nowrap">Save</button>
+             class="flex-1 border rounded-lg px-3 py-2" />
+      <button class="bg-brand-600 text-white rounded-lg px-4 py-2 whitespace-nowrap">Save</button>
     </form>
+
+    {% include "settings/_account_switcher.html" %}
   </section>
 
   {# ── Preferences ────────────────────────────────────────────────────────── #}
   {# Only `config_service.USER_SETTING_KEYS` reach this form, and POST /settings refuses any
      other key. AI, retention and gateway configuration are the operator's (CLI), not here. #}
-  <section class="mb-10">
+  <section id="preferences" class="mb-10 scroll-mt-4">
     <h2 class="text-lg font-medium mb-1">Preferences</h2>
     <p class="text-sm text-gray-500 mb-3">How amounts and times are shown across the estate.
       Weather on the dashboard comes from each property's own address.</p>
     <form method="post" action="/settings" class="space-y-3">
       <div>
         <label for="pref-currency" class="block text-sm text-gray-600 mb-1">
-          Currency <span class="text-gray-400">— for new budgets, costs and expenses; amounts
+          Currency <span class="text-gray-500">— for new budgets, costs and expenses; amounts
             already entered keep their currency</span>
         </label>
-        <select id="pref-currency" name="currency.default" class="w-full border rounded px-3 py-2">
+        <select id="pref-currency" name="currency.default" class="w-full border rounded-lg px-3 py-2">
           {% for code, name in currencies.items() %}
             <option value="{{ code }}" {% if settings['currency.default'] == code %}selected{% endif %}>
               {{ code }} — {{ name }}</option>
@@ -51,39 +64,39 @@
       </div>
       <div>
         <label for="pref-timezone" class="block text-sm text-gray-600 mb-1">Time zone</label>
-        <select id="pref-timezone" name="locale.timezone" class="w-full border rounded px-3 py-2">
+        <select id="pref-timezone" name="locale.timezone" class="w-full border rounded-lg px-3 py-2">
           {% for zone in timezones %}
             <option value="{{ zone }}" {% if settings['locale.timezone'] == zone %}selected{% endif %}>
               {{ zone.replace('_', ' ') }}</option>
           {% endfor %}
         </select>
       </div>
-      <button class="bg-brand-600 text-white rounded px-4 py-2">Save preferences</button>
+      <button class="bg-brand-600 text-white rounded-lg px-4 py-2">Save preferences</button>
     </form>
   </section>
 
   {# ── Notifications ──────────────────────────────────────────────────────── #}
-  <section class="mb-10">
+  <section id="notifications" class="mb-10 scroll-mt-4">
     <h2 class="text-lg font-medium mb-1">Notifications</h2>
     <p class="text-sm text-gray-500 mb-3">Where the estate's alerts go and which ones you want.</p>
     {# Stated plainly: these save, but nothing sends notifications yet. A preference that looks
        live and does nothing reads as a bug the first time an alert doesn't arrive. #}
-    <p class="mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+    <p class="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
       Your choices are saved now. Notifications themselves aren't being sent yet — they'll
       follow these settings once they are.</p>
     {% set chosen_events = (settings['notifications.events'] or '').split(',') %}
     <form method="post" action="/settings" class="space-y-3">
       <div>
         <label for="notify-channel" class="block text-sm text-gray-600 mb-1">Send notifications by</label>
-        <select id="notify-channel" name="notifications.channel" class="w-full border rounded px-3 py-2">
+        <select id="notify-channel" name="notifications.channel" class="w-full border rounded-lg px-3 py-2">
           {% for value, label in notification_channels.items() %}
             <option value="{{ value }}" {% if settings['notifications.channel'] == value %}selected{% endif %}>
               {{ label }}</option>
           {% endfor %}
         </select>
       </div>
-      <div>
-        <span class="block text-sm text-gray-600 mb-1">Notify me about</span>
+      <fieldset>
+        <legend class="block text-sm text-gray-600 mb-1">Notify me about</legend>
         <input type="hidden" name="_events_present" value="1" />
         <div class="flex flex-wrap gap-x-4 gap-y-2">
           {% for value, label in notification_events.items() %}
@@ -94,29 +107,29 @@
             </label>
           {% endfor %}
         </div>
-      </div>
-      <div>
-        <span class="block text-sm text-gray-600 mb-1">Quiet hours
-          <span class="text-gray-400">— optional; no alerts between these times</span></span>
+      </fieldset>
+      <fieldset>
+        <legend class="block text-sm text-gray-600 mb-1">Quiet hours
+          <span class="text-gray-500">— optional; no alerts between these times</span></legend>
         <div class="flex items-center gap-2">
           <label for="quiet-start" class="sr-only">Quiet hours start</label>
           <input id="quiet-start" name="notifications.quiet_start" type="time"
                  value="{{ settings['notifications.quiet_start'] }}"
-                 class="border rounded px-3 py-2" />
+                 class="border rounded-lg px-3 py-2" />
           <span class="text-sm text-gray-500">to</span>
           <label for="quiet-end" class="sr-only">Quiet hours end</label>
           <input id="quiet-end" name="notifications.quiet_end" type="time"
                  value="{{ settings['notifications.quiet_end'] }}"
-                 class="border rounded px-3 py-2" />
+                 class="border rounded-lg px-3 py-2" />
         </div>
-      </div>
-      <button class="bg-brand-600 text-white rounded px-4 py-2">Save notifications</button>
+      </fieldset>
+      <button class="bg-brand-600 text-white rounded-lg px-4 py-2">Save notifications</button>
     </form>
   </section>
 
-  {# ── Membership ─────────────────────────────────────────────────────────── #}
-  <section class="mb-10">
-    <h2 class="text-lg font-medium mb-1">Membership</h2>
+  {# ── Plan & billing ─────────────────────────────────────────────────────── #}
+  <section id="plan" class="mb-10 scroll-mt-4">
+    <h2 class="text-lg font-medium mb-1">Plan &amp; billing</h2>
     <p class="text-sm text-gray-500 mb-3">Your estate's plan and your role in it.</p>
 
     <dl class="text-sm space-y-2">
@@ -144,23 +157,26 @@
 
     {# Changing the plan is `billing.manage`, which the matrix grants to the owner only — an
        admin runs the estate, not the card. So the link is offered to the owner alone; a
-       non-owner sees the plan but no way to change it, which is the intended boundary rather
+       non-owner sees the plan and who can change it, which is the intended boundary rather
        than a missing control. #}
     {% if role == "owner" %}
-      <a href="/billing" class="mt-4 inline-block rounded border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50">
+      <a href="/billing" class="mt-4 inline-block rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50">
         Manage plan &amp; billing
       </a>
+    {% else %}
+      <p class="mt-3 text-sm text-gray-500">Only the account owner can change the plan.</p>
     {% endif %}
   </section>
 
   {# ── Members ────────────────────────────────────────────────────────────── #}
-  <section class="mb-10">
+  <section id="members" class="mb-10 scroll-mt-4">
     <h2 class="text-lg font-medium mb-1">Members</h2>
     <p class="text-sm text-gray-500 mb-3">Everyone who can reach this estate, and what each of
       them may see.</p>
 
     {% if members_error %}
-      <p class="mb-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-red-800">
+      <p id="members-error" role="alert" {% if not invite_form %}tabindex="-1" autofocus{% endif %}
+         class="mb-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-red-800">
         {{ members_error }}</p>
     {% endif %}
 
@@ -168,11 +184,12 @@
        once the page is gone — which the copy says plainly rather than implying the invitation
        was emailed, because no invite email exists yet. #}
     {% if invite_link %}
-      <div class="mb-4 rounded border border-green-300 bg-green-50 px-3 py-3">
+      <div class="mb-4 rounded-lg border border-green-300 bg-green-50 px-3 py-3">
         <p class="text-sm text-green-900 font-medium">Invitation created for {{ invite_email }}</p>
         <p class="mt-1 text-xs text-green-800">Send them this link. It is not shown again, and it
           is not emailed automatically — copy it now.</p>
-        <input readonly value="{{ invite_link }}" onclick="this.select()"
+        <label for="invite-link" class="sr-only">Invitation link</label>
+        <input id="invite-link" readonly value="{{ invite_link }}" onclick="this.select()" autofocus
                class="mt-2 w-full border border-green-300 rounded px-2 py-1 font-mono text-xs bg-white" />
       </div>
     {% endif %}
@@ -190,7 +207,7 @@
 
     <div class="space-y-3 mb-6">
       {% for member in members %}
-        <div class="border rounded p-3">
+        <div class="border rounded-lg p-3">
           <div class="flex flex-wrap items-baseline justify-between gap-2">
             <div>
               <span class="font-medium">{{ member.display_name }}</span>
@@ -216,13 +233,13 @@
                   class="mt-3 flex flex-wrap items-center gap-2">
               <label for="role-{{ member.membership_id }}" class="text-sm text-gray-600">Role</label>
               <select id="role-{{ member.membership_id }}" name="role"
-                      class="border rounded px-2 py-1 text-sm">
+                      class="border rounded-lg px-2 py-1.5 text-sm">
                 <option value="admin" {% if member.role == "admin" %}selected{% endif %}>
                   Admin — sees everything</option>
                 <option value="staff" {% if member.role == "staff" %}selected{% endif %}>
                   Staff — only chosen properties</option>
               </select>
-              <button class="border rounded px-3 py-1 text-sm">Change role</button>
+              <button class="border rounded-lg px-3 py-1.5 text-sm">Change role</button>
             </form>
           {% endif %}
 
@@ -232,27 +249,30 @@
           {% if member.role == "staff" and properties %}
             <form method="post" action="/settings/members/{{ member.membership_id }}/scope"
                   class="mt-3">
-              <span class="block text-sm text-gray-600 mb-1">Properties they can see</span>
-              <div class="flex flex-wrap gap-3 mb-2">
-                {% for property in properties %}
-                  <label class="text-sm flex items-center gap-1">
-                    <input type="checkbox" name="property_ids" value="{{ property.id }}"
-                           {% if property.id in member_scopes.get(member.membership_id, []) %}checked{% endif %} />
-                    {{ property.name }}
-                  </label>
-                {% endfor %}
-              </div>
-              <button class="border rounded px-3 py-1 text-sm">Save access</button>
+              <fieldset>
+                <legend class="block text-sm text-gray-600 mb-1">Properties they can see</legend>
+                <div class="flex flex-wrap gap-3 mb-2">
+                  {% for property in properties %}
+                    <label class="text-sm flex items-center gap-1">
+                      <input type="checkbox" name="property_ids" value="{{ property.id }}"
+                             {% if property.id in member_scopes.get(member.membership_id, []) %}checked{% endif %} />
+                      {{ property.name }}
+                    </label>
+                  {% endfor %}
+                </div>
+              </fieldset>
+              <button class="border rounded-lg px-3 py-1.5 text-sm">Save access</button>
             </form>
           {% endif %}
 
           {# Omitted on your own row: `offboard` has no self-check, so this would be a one-click
-             lockout with no way back. The route refuses it regardless. #}
+             lockout with no way back. The route refuses it regardless. The name travels in a
+             data attribute, never inside the JS string, so an apostrophe cannot break it. #}
           {% if member.membership_id != membership_id %}
             <form method="post" action="/settings/members/{{ member.membership_id }}/revoke"
-                  class="mt-3"
-                  onsubmit="return confirm('Remove {{ member.display_name }} from this estate? Their work stays.')">
-              <button class="text-sm text-red-700 underline">Remove access</button>
+                  class="mt-3" data-name="{{ member.display_name }}"
+                  onsubmit="return confirm('Remove ' + this.dataset.name + ' from this estate? Their work stays.')">
+              <button class="py-1 text-sm text-red-700 underline">Remove access</button>
             </form>
           {% endif %}
         </div>
@@ -263,7 +283,7 @@
       <h3 class="text-sm font-medium text-gray-700 mb-2">Invited, not yet joined</h3>
       <div class="space-y-2 mb-6">
         {% for invite in pending_invites %}
-          <div class="flex flex-wrap items-baseline justify-between gap-2 border rounded px-3 py-2">
+          <div class="flex flex-wrap items-baseline justify-between gap-2 border rounded-lg px-3 py-2">
             <div>
               <span class="text-sm">{{ invite.email }}</span>
               <span class="ml-2 text-xs text-gray-500 capitalize">{{ invite.role }}</span>
@@ -272,7 +292,7 @@
               <span class="text-xs text-gray-500">
                 expires {{ invite.expires_at.strftime("%b %d") }}</span>
               <form method="post" action="/settings/invites/{{ invite.id }}/revoke">
-                <button class="text-sm text-red-700 underline">Revoke</button>
+                <button class="py-1 text-sm text-red-700 underline">Revoke</button>
               </form>
             </div>
           </div>
@@ -280,41 +300,69 @@
       </div>
     {% endif %}
 
+    {# What was typed comes back after a refusal (`invite_form`), so fixing one field is not
+       retyping the email and re-ticking every property. #}
+    {% set form = invite_form or {} %}
+    {% set chosen_role = form.get("role") or "" %}
     <h3 class="text-sm font-medium text-gray-700 mb-2">Invite someone</h3>
     <form method="post" action="/settings/members/invite" class="space-y-3">
       <div>
-        <label for="invite-email" class="sr-only">Their email</label>
+        <label for="invite-email" class="block text-sm text-gray-600 mb-1">Their email <span class="text-red-500">*</span></label>
         <input id="invite-email" name="email" type="email" required placeholder="their@email.com"
-               class="w-full border rounded px-3 py-2" />
+               autocomplete="off" value="{{ form.get('email') or '' }}"
+               {% if invite_form %}aria-invalid="true" aria-describedby="members-error" autofocus{% endif %}
+               class="w-full border rounded-lg px-3 py-2" />
       </div>
       <div>
-        <label for="invite-role" class="sr-only">Role</label>
-        <select id="invite-role" name="role" class="w-full border rounded px-3 py-2">
-          <option value="admin">Admin — sees everything</option>
-          <option value="staff">Staff — only the properties you choose</option>
+        <label for="invite-role" class="block text-sm text-gray-600 mb-1">Role <span class="text-red-500">*</span></label>
+        <select id="invite-role" name="role" required class="w-full border rounded-lg px-3 py-2"
+                {% if not staff_invites_entitled %}aria-describedby="staff-invite-pro"{% endif %}>
+          <option value="" disabled {% if not chosen_role %}selected{% endif %}>Select a role…</option>
+          <option value="admin" {% if chosen_role == "admin" %}selected{% endif %}>Admin — sees everything</option>
+          {# Pro-only on Free: shown, disabled and badged, rather than offered and then refused
+             by the paywall after the form is filled in (same pattern as vendor ratings). #}
+          {% if staff_invites_entitled %}
+            <option value="staff" {% if chosen_role == "staff" %}selected{% endif %}>Staff — only the properties you choose</option>
+          {% else %}
+            <option value="staff" disabled>Staff — only the properties you choose (Pro)</option>
+          {% endif %}
         </select>
+        {% if not staff_invites_entitled %}
+          <p id="staff-invite-pro" class="mt-1.5 flex flex-wrap items-center gap-2 text-sm text-gray-600" data-testid="staff-invite-pro">
+            <span class="rounded-full bg-brand-50 px-2 py-0.5 text-xs font-semibold text-brand-700">Pro</span>
+            Staff invites are included in Pro.
+            {% if role == "owner" %}
+              <a href="/billing" class="font-medium text-brand-700 underline">See plans</a>
+            {% else %}
+              <span class="text-gray-500">Ask the account owner to upgrade.</span>
+            {% endif %}
+          </p>
+        {% endif %}
       </div>
       {# A21/D3: a staff invite with no properties is refused server-side, because a member who
          can sign in and see nothing cannot tell that from a broken account. These boxes are a
          convenience; the service is the gate. #}
-      {% if properties %}
-        <div>
-          <span class="block text-sm text-gray-600 mb-1">Properties
-            <span class="text-gray-400">— required for staff, ignored for admins</span></span>
+      {% if properties and staff_invites_entitled %}
+        {% set chosen_ids = (form.get("property_ids") or []) | map("string") | list %}
+        <fieldset>
+          <legend class="block text-sm text-gray-600 mb-1">Properties
+            <span class="text-gray-500">— required for staff, ignored for admins</span></legend>
           <div class="flex flex-wrap gap-3">
             {% for property in properties %}
               <label class="text-sm flex items-center gap-1">
-                <input type="checkbox" name="property_ids" value="{{ property.id }}" />
+                <input type="checkbox" name="property_ids" value="{{ property.id }}"
+                       {% if property.id | string in chosen_ids %}checked{% endif %} />
                 {{ property.name }}
               </label>
             {% endfor %}
           </div>
-        </div>
+        </fieldset>
       {% endif %}
-      <button class="bg-brand-600 text-white rounded px-4 py-2">Send invitation</button>
+      <button class="bg-brand-600 text-white rounded-lg px-4 py-2">Send invitation</button>
     </form>
   </section>
 
   {% include "settings/_personal.html" %}
+  {% include "settings/_danger.html" %}
 </div>
 {% endblock %}

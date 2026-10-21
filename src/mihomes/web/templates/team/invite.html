@@ -1,21 +1,34 @@
-{% extends "base.html" %}
+{# An invitation, before it is accepted. Standalone (`_auth_layout.html`) rather than the app
+   shell: the invitee is not a member of this account yet, so its navigation would be links
+   they cannot open. #}
+{% extends "_auth_layout.html" %}
 {% block title %}Invitation — MiHomes{% endblock %}
-{% block content %}
-<div class="max-w-lg mx-auto py-12">
+
+{% block card %}
   {% if invite %}
-    <h1 class="text-2xl font-semibold mb-2">You've been invited</h1>
-    <p class="text-gray-600 mb-6">
-      Join as {% if invite.role == "admin" %}an administrator{% else %}a team member{% endif %}.
+    <h1 class="text-lg font-semibold text-gray-900">
+      {% if account_name %}You've been invited to {{ account_name }}{% else %}You've been invited{% endif %}
+    </h1>
+    <p class="text-sm text-gray-600 mt-1 mb-6">
+      Join as {% if invite.role == "admin" %}an administrator — you'll see every property{% else %}a team member — you'll see the properties you're given{% endif %}.
     </p>
     <form method="post" action="/invite/{{ token }}/accept">
-      <button class="bg-brand-600 text-white rounded px-4 py-2">Accept invitation</button>
+      <button type="submit"
+              class="w-full p-3 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700">
+        Accept invitation
+      </button>
     </form>
   {% else %}
     {# One state for unknown, revoked, accepted and expired. Differing messages would let a
        caller enumerate which tokens once existed, and this page is reachable before sign-in —
        D9's reasoning where there is no membership check standing in front of it. #}
-    <h1 class="text-2xl font-semibold mb-2">This invitation is no longer valid</h1>
-    <p class="text-gray-600">{{ error or "Ask whoever invited you to send a new one." }}</p>
+    <h1 class="text-lg font-semibold text-gray-900 mb-2">This invitation is no longer valid</h1>
+    <p role="alert" class="text-sm text-gray-600">{{ error or "Ask whoever invited you to send a new one." }}</p>
   {% endif %}
-</div>
+{% endblock %}
+
+{% block below %}
+  <p class="text-center text-sm text-gray-500 mt-6">
+    <a href="/" class="font-medium text-gray-900 underline hover:no-underline">Go to MiHomes</a>
+  </p>
 {% endblock %}

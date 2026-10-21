@@ -40,3 +40,22 @@ def test_property_with_books_refuses_with_a_reason(session):
     with pytest.raises(ValueError, match="still has 2 books"):
         prop_svc.delete_property(session, prop.slug)
     assert session.get(Property, prop.id) is not None
+
+
+def test_owner_gets_an_export_download_in_the_delete_dialog(web_client_as):
+    made = {}
+
+    def _seed(s):
+        made["slug"] = prop_svc.create_property(s, "Export First Villa").slug
+
+    owner = web_client_as("owner")
+    web_client_as.seed(_seed)
+    html = owner.get(f"/properties/{made['slug']}").text
+    dialog = html[html.index('id="delete-property-modal"'):]
+    assert 'href="/privacy/export" download' in dialog
+
+    admin_html = web_client_as("admin").get(f"/properties/{made['slug']}").text
+    admin_dialog = admin_html[admin_html.index('id="delete-property-modal"'):]
+    # Export is owner-only (account.delete), so an admin is told who can do it instead.
+    assert 'href="/privacy/export"' not in admin_dialog
+    assert "Only the account owner can export data" in admin_dialog

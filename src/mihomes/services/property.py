@@ -218,32 +218,27 @@ def update_property(session: Session, id_or_slug: str, **kwargs) -> Property:
     return prop
 
 
-def delete_property(session: Session, id_or_slug: str) -> str:
+def delete_blockers(session: Session, property_id) -> list[str]:
+    """What stops this property being deleted, as phrases ("2 books", "1 contract"); [] if none.
+
+    **Records with value of their own block the delete instead of vanishing with it.** These
+    tables reference `properties` with no ON DELETE rule, so the delete used to fail with a
+    foreign-key error (a 500) for any home with history — a library, a contract, one work
+    order. Erasing a contract or a vendor's rating history as a side effect of removing a home
+    is not this function's call to make; saying what is attached is (user decision 2026-10-21:
+    keep blocking). Shared by `delete_property` and the delete confirmation, so the dialog can
+    never offer a delete the service would refuse.
+    """
     from mihomes.models.appointment import Appointment
-    from mihomes.models.asset import Asset
     from mihomes.models.book import Book
-    from mihomes.models.budget import Budget, Transaction
     from mihomes.models.consumable import Consumable
     from mihomes.models.contract import Contract
     from mihomes.models.event import Event
     from mihomes.models.insurance import InsurancePolicy
-    from mihomes.models.issue import Issue
     from mihomes.models.recurring_expense import RecurringExpense
-    from mihomes.models.staff import staff_property_association
-    from mihomes.models.task import Task, TaskCompletion
-    from mihomes.models.vendor import vendor_property_association
     from mihomes.models.vendor_rating import VendorRating
     from mihomes.models.work_order import WorkOrder
-    from mihomes.models.zone import Zone
 
-    prop = resolve_identifier(session, Property, id_or_slug)
-    name = prop.name
-
-    # **Records with value of their own block the delete instead of vanishing with it.** These
-    # tables reference `properties` with no ON DELETE rule, so the delete used to fail with a
-    # foreign-key error (a 500) for any home with history — a library, a contract, one work
-    # order. Erasing a contract or a vendor's rating history as a side effect of removing a
-    # home is not this function's call to make; saying what is attached is.
     blockers = [
         (WorkOrder, "work order"), (Contract, "contract"), (InsurancePolicy, "insurance policy"),
         (RecurringExpense, "recurring expense"), (Appointment, "appointment"), (Event, "event"),
@@ -251,10 +246,26 @@ def delete_property(session: Session, id_or_slug: str) -> str:
     ]
     attached = []
     for model, label in blockers:
-        n = session.query(model).filter(model.property_id == prop.id).count()
+        n = session.query(model).filter(model.property_id == property_id).count()
         if n:
             plural = label[:-1] + "ies" if label.endswith("y") else label + "s"
             attached.append(f"{n} {label if n == 1 else plural}")
+    return attached
+
+
+def delete_property(session: Session, id_or_slug: str) -> str:
+    from mihomes.models.asset import Asset
+    from mihomes.models.budget import Budget, Transaction
+    from mihomes.models.issue import Issue
+    from mihomes.models.staff import staff_property_association
+    from mihomes.models.task import Task, TaskCompletion
+    from mihomes.models.vendor import vendor_property_association
+    from mihomes.models.zone import Zone
+
+    prop = resolve_identifier(session, Property, id_or_slug)
+    name = prop.name
+
+    attached = delete_blockers(session, prop.id)
     if attached:
         raise ValueError(
             f"{name} can't be deleted while it still has {', '.join(attached)}. "

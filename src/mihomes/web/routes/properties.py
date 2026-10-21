@@ -122,6 +122,7 @@ def _detail_ctx(db: Session, slug: str) -> dict:
         "spaces": spaces,
         "room_contents": space_svc.content_counts(db, prop.id),
         "delete_counts": delete_counts,
+        "delete_blockers": prop_svc.delete_blockers(db, prop.id),
         "space_types": _SPACE_TYPES,
         "property_types": [t.value for t in PropertyType],
         "property_statuses": [s.value for s in PropertyStatus],
@@ -187,7 +188,17 @@ def edit_property(
 
 @router.post("/{slug}/delete", response_class=HTMLResponse)
 @declares("property.delete", Access.ITEM)
-def delete_property(request: Request, slug: str, db: Session = Depends(get_db)):
+def delete_property(
+    request: Request, slug: str, confirm: str = Form(""), db: Session = Depends(get_db)
+):
+    # Deleting a property erases every room, asset, task and issue in it, unrecoverably. The
+    # confirmation dialog posts `confirm=yes` only after the user has ticked that they exported
+    # their data and pressed Yes; anything else — a stray or scripted POST — is refused here,
+    # so the dialog is not the only thing standing between a click and the data.
+    if confirm != "yes":
+        return HTMLResponse(
+            "Confirm the deletion first — nothing was deleted.", status_code=400
+        )
     try:
         name = prop_svc.delete_property(db, slug)
     except ValueError as exc:

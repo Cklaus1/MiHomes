@@ -74,6 +74,7 @@ def _page_context(account: Account, **extra) -> dict:
     from mihomes.entitlements.limits import effective_plan
     from mihomes.services.billing.cancel import has_live_subscription
     from mihomes.services.billing.plans import plan_cards, plan_prices, yearly_saving
+    from mihomes.services.billing.trial import trial_available
 
     prices = plan_prices()
     current = effective_plan(account.plan, account.subscription_status)
@@ -104,6 +105,9 @@ def _page_context(account: Account, **extra) -> dict:
             and account.subscription_status == "active" and account.plan in saving
         ),
         "plans": plan_cards(account, prices),
+        # The Pro card offers the one-click trial when pressing it would work — the same check
+        # the upgrade prompts use, so the two never disagree.
+        "trial_available": current == "free" and trial_available(account),
         **extra,
     }
 
@@ -426,6 +430,9 @@ def trial_status(request: Request, principal=require_authenticated(),
         trial = {
             "plan": account.plan,
             "days_left": max(0, ceil(seconds_left / 86400)),
+            # Hours, not the rounded-up days, decide "today"/"tomorrow": ceil made 25 hours
+            # left read as "ends today".
+            "hours_left": max(0, seconds_left / 3600),
             "expired": seconds_left <= 0,
         }
     return templates.TemplateResponse(

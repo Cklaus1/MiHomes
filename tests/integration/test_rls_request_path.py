@@ -468,8 +468,8 @@ def test_a_plan_limit_renders_an_upgrade_prompt_not_a_500(rls_app):
 def test_a_free_account_inviting_staff_gets_the_paywall_not_a_form_error(rls_app):
     """The staff-invite gate reaches the browser as an upgrade prompt.
 
-    Both routes that create invites (`settings.py`, `team.py`) catch `InviteError` and
-    re-render the form with the message inline. That is right for "this staff invite needs a
+    The route that creates invites (`settings.py`) catches `InviteError` and re-renders the
+    form with the message inline. That is right for "this staff invite needs a
     property" and wrong for a plan limit — it would turn a paywall into a validation error with
     nothing to click. The gate raises `EntitlementError` instead, which those handlers do not
     catch, so it reaches the app-level handler added in `5502c90`.
@@ -494,8 +494,10 @@ def test_a_free_account_inviting_staff_gets_the_paywall_not_a_form_error(rls_app
             text("select id from properties where account_id = :a limit 1"), {"a": account_id}
         ).scalar_one()
 
+    # `/settings/members/invite` since 2026-10-21: the `/team/invites` form that used to be the
+    # other caller was removed (it discarded the invite link), and `/team` now redirects here.
     response = client.post(
-        "/team/invites",
+        "/settings/members/invite",
         data={"email": "helper@example.com", "role": "staff", "property_ids": str(property_id)},
         headers=_HTML,
     )

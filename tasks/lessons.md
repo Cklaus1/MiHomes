@@ -784,3 +784,24 @@ Review this at the start of each session.
   (`RecurrenceFrequency` has daily/weekly/monthly), the first reading to test is "group or filter
   by that field". If I ask a clarifying question, make sure one option is that literal reading,
   not only variants of my interpretation.
+
+## UI/UX fix-all — web shell patterns (2026-10-21)
+- **Body swaps re-run inline scripts.** ~70 forms use `hx-target="body"`; htmx re-executes every
+  `<script>` in the swapped body, so a document-level listener registered inline is added again
+  on every save (N toasts after N saves; a top-level `let` throws "already declared" and kills
+  the page's JS). Shared behaviour lives in `static/app.js`, loaded once from `<head>`; page
+  scripts guard their one-time setup with a `window.__…Bound` flag and avoid top-level `let/const`.
+- **`HX-Trigger` fires before the swap.** A toast appended inside `<body>` is deleted by the body
+  swap that follows. Mount anything that must survive a swap on `<html>` (the toast region does).
+- **htmx 2 does not swap 4xx/5xx, and `_wants_json` answers HTMX with JSON.** Any
+  `hx-on::after-request` that closes a modal or resets a form must check
+  `event.detail.successful`, or a failed save silently discards the user's input. 401/403 to an
+  HTMX request need `HX-Redirect` — htmx follows it before looking at the status.
+- **`<main>` must be `relative`.** Absolutely positioned children (`sr-only` labels, popovers)
+  with no positioned ancestor anchor to the page, escape `main`'s overflow clip and stretch the
+  document — an anchor jump then scrolls the whole shell, sidebar included.
+- **Never interpolate ids or names into inline JS** (`onclick="f({{ id }})"`): UUIDs unquoted are a
+  syntax error (Resolve and price-edit buttons were dead for months), names break on apostrophes.
+  Use `data-*` + a delegated listener (pattern: `data-preview-*` in app.js).
+- **Static template tests are not a live walk.** Every one of the above passed the static suite;
+  a 375px browser walk found the collapsed header and the shell-scroll bug in minutes.

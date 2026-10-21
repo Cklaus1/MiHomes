@@ -1,0 +1,19 @@
+{# A save's confirmation. Settings forms are plain POST → redirect, so an `HX-Trigger` toast
+   header would be lost on the redirect; the route passes `notice` instead (from a fixed
+   `?notice=` map in routes/settings.py — never text taken from the URL).
+
+   Rendered as a status line, then handed to the global toast (`static/app.js`'s `mhToast`) when
+   that is available, so it reads like every other save in the app and still shows without JS.
+   A sign-in notice already has its own banner in the Sign-in section, so it only toasts. #}
+{% set sign_in_notice = sign_in.notice if sign_in else None %}
+{% if notice or sign_in_notice %}
+  <p id="settings-notice" role="status" data-toast="{{ notice or sign_in_notice }}"
+     class="mb-4 rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-green-800"
+     {% if not notice %}hidden{% endif %}>{{ notice or '' }}</p>
+  <script>
+    (function () {
+      var el = document.getElementById('settings-notice');
+      if (el && window.mhToast) { window.mhToast(el.dataset.toast, 'success'); el.remove(); }
+    })();
+  </script>
+{% endif %}

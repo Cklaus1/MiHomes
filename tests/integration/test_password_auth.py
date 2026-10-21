@@ -389,13 +389,18 @@ def test_signin_rotates_session(client):
         s.close()
 
 
-def test_login_page_offers_both_methods_and_a_signup_link(client):
+def test_login_page_offers_both_methods_and_a_signup_link(client, monkeypatch):
     """The user-visible half of Step 3, and the fix to a copy bug the login page carried.
 
     "New here? The button above creates your account." was accurate only because `/signup` did
     not exist. Now it does, so the standard wording is restorable — and the assertion is that
     the link has a real destination, since a link with nowhere to go was the original defect.
+
+    Google is configured here: since 2026-10-21 the button is hidden when it is not (it could
+    only 500), as `signup.html` already did — see the next test.
     """
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "test-client-id")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "test-client-secret")
     r = client.get("/login")
     # 401, not 200, and deliberately so — `routes/auth.py:94` returns the login page *as* the
     # unauthenticated response, so a crawler or API client reads it as one. The browser renders
@@ -413,6 +418,30 @@ def test_login_page_offers_both_methods_and_a_signup_link(client):
     # And the destination is real, not a 404 — the whole point of the copy change. `/signup`
     # returns a plain 200: it is a form to fill in, not a refusal.
     assert client.get("/signup").status_code == 200
+
+
+def test_unconfigured_google_is_hidden_away_from_localhost(client, monkeypatch):
+    """No broken Google button, and no developer setup notice, for a real visitor.
+
+    Without credentials the button only reaches a 500. The setup notice is for whoever runs the
+    app on localhost (`is_loopback`, the codebase's dev signal). The test client *is* on
+    localhost — and the host guard refuses any other Host — so the off-localhost half is checked
+    by rendering the template with the flag the route computes there.
+    """
+    from mihomes.web.deps import templates
+
+    monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
+    monkeypatch.delenv("GOOGLE_CLIENT_SECRET", raising=False)
+    r = client.get("/login")
+
+    assert "/auth/google/start" not in r.text
+    assert "Home Management" in r.text
+
+    elsewhere = templates.get_template("login.html").render(
+        oauth_configured=False, oauth_setup_hint=False, error="", next=""
+    )
+    assert "/auth/google/start" not in elsewhere
+    assert "GOOGLE_CLIENT_ID" not in elsewhere
 
 
 # ── G4 at the route — the throttle must not become a new oracle ──────────────
@@ -643,6 +672,7 @@ def test_invitee_without_google(client):
         owner = create_password_user(s, email="owner@example.com", password=GOOD_PASSWORD)
         s.flush()
         account_id = uuid.uuid4()
+        account_name = f"acct-{uuid.uuid4().hex[:8]}"
         # **`pro`, not `free`** — this test is about how an invitee *without a Google account*
         # redeems an invitation, and the invitation it needs is a staff one (A21's scope rule is
         # exercised below). Free may not invite staff at all (`staff_invites_allowed`), so a
@@ -654,7 +684,7 @@ def test_invitee_without_google(client):
                 "INSERT INTO accounts (id, slug, name, type, plan) "
                 "VALUES (:i, :s, :s, 'household', 'pro')"
             ),
-            {"i": account_id, "s": f"acct-{uuid.uuid4().hex[:8]}"},
+            {"i": account_id, "s": account_name},
         )
         s.execute(
             Membership.__table__.insert().values(
@@ -714,6 +744,8 @@ def test_invitee_without_google(client):
     page = client.get(f"/invite/{token}")
     assert page.status_code == 200
     assert "invited" in page.text.lower(), page.text[:300]
+    # Which estate invited them — `accounts` is global, so the invitee can read its name.
+    assert f"invited to {account_name}" in page.text
 
     accepted = client.post(f"/invite/{token}/accept", follow_redirects=False)
     assert accepted.status_code == 303, accepted.text

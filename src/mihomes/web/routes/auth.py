@@ -35,7 +35,12 @@ from mihomes.auth.oidc import (
     PasswordAccountExists,
     upsert_user,
 )
-from mihomes.auth.session_flow import establish_session, safe_next, set_auth_cookie
+from mihomes.auth.session_flow import (
+    establish_session,
+    is_loopback,
+    safe_next,
+    set_auth_cookie,
+)
 from mihomes.auth.sessions import (
     SESSION_COOKIE,
     lookup_session,
@@ -104,6 +109,9 @@ def login(
         "login.html",
         {
             "oauth_configured": oauth_configured,
+            # The setup notice is for the developer running it locally; anywhere else a
+            # visitor would only learn the operator has not finished configuring the app.
+            "oauth_setup_hint": not oauth_configured and is_loopback(request),
             "error": error,
             "next": safe_next(next) or "",
         },

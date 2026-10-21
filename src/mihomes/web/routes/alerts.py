@@ -1,5 +1,6 @@
 """Alerts routes."""
 
+import json
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -13,6 +14,26 @@ from mihomes.services import alerts as alert_svc
 from mihomes.web.deps import get_db, templates
 
 router = APIRouter()
+
+
+def _list_response(request: Request, db: Session, message: str):
+    """Re-render the list after an action, with a toast and an `alerts-changed` event.
+
+    The page header's count and the sidebar badge sit outside `#alert-list`, so after resolving
+    the last alert the list said "All clear" while the header still said "1 active alert". The
+    partial refreshes the header count out-of-band; the event makes the badge re-poll now
+    instead of within 60 seconds.
+    """
+    alerts = alert_svc.list_alerts(db, include_snoozed=True)
+    response = templates.TemplateResponse(
+        request,
+        "partials/alert_list.html",
+        {"alerts": alerts, "oob_count": True},
+    )
+    response.headers["HX-Trigger"] = json.dumps(
+        {"toast": {"message": message, "kind": "success"}, "alerts-changed": True}
+    )
+    return response
 
 
 @router.get("/")
@@ -52,12 +73,7 @@ def alert_badge(request: Request, db: Session = Depends(get_db)):
 @declares("issue.manage", Access.ITEM)
 def acknowledge(request: Request, alert_id: UUID, db: Session = Depends(get_db)):
     alert_svc.acknowledge_alert(db, alert_id)
-    alerts = alert_svc.list_alerts(db, include_snoozed=True)
-    return templates.TemplateResponse(
-        request,
-        "partials/alert_list.html",
-        {"alerts": alerts},
-    )
+    return _list_response(request, db, "Alert acknowledged")
 
 
 @router.post("/{alert_id}/snooze", response_class=HTMLResponse)
@@ -69,12 +85,7 @@ def snooze(
     db: Session = Depends(get_db),
 ):
     alert_svc.snooze_alert(db, alert_id, days=days)
-    alerts = alert_svc.list_alerts(db, include_snoozed=True)
-    return templates.TemplateResponse(
-        request,
-        "partials/alert_list.html",
-        {"alerts": alerts},
-    )
+    return _list_response(request, db, f"Snoozed for {days} day{'s' if days != 1 else ''}")
 
 
 @router.post("/{alert_id}/resolve", response_class=HTMLResponse)
@@ -84,9 +95,4 @@ def resolve(request: Request, alert_id: UUID, db: Session = Depends(get_db)):
     if alert:
         alert.status = AlertStatus.RESOLVED
         db.flush()
-    alerts = alert_svc.list_alerts(db, include_snoozed=True)
-    return templates.TemplateResponse(
-        request,
-        "partials/alert_list.html",
-        {"alerts": alerts},
-    )
+    return _list_response(request, db, "Alert resolved")

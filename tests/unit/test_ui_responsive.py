@@ -144,7 +144,10 @@ def test_nav_is_accessible():
     assert 'aria-controls="sidebar"' in toggle, "the toggle does not say what it controls"
     assert "aria-label" in toggle, "an icon-only button with no label announces as 'button'"
 
-    # The behaviours, asserted against the script rather than by rendering.
+    # The behaviours, asserted against the script rather than by rendering. The script moved
+    # from an inline <script> in base.html to static/app.js (loaded once from <head>), because
+    # body swaps re-ran the inline copy and stacked its document listeners.
+    html = html + (TEMPLATES.parent / "static" / "app.js").read_text(encoding="utf-8")
     assert "aria-expanded" in html and "setAttribute('aria-expanded'" in html, (
         "`aria-expanded` is set once in markup but never updated, so it lies as soon as the "
         "drawer opens"
@@ -218,11 +221,13 @@ def test_the_table_scan_finds_the_tables():
     )
     # The audit measured 20. Two were deleted on purpose on 2026-10-15, not unwrapped: the
     # settings page's raw key/value config table (replaced by labelled forms) and the contracts
-    # list (the Contracts page was removed; contracts live in Documents).
-    assert total >= 18, (
-        f"found only {total} tables; the audit measured 20 and two (settings config, contracts) "
-        "were removed by design. If tables were deleted rather than wrapped, A5 is passing for "
-        "the wrong reason"
+    # list (the Contracts page was removed; contracts live in Documents). Three more went on
+    # 2026-10-21 with dead templates no route rendered: `recurring.html` (the live recurring
+    # list is the Budget page's tab) and `partials/issue_list.html` / `task_list.html`.
+    assert total >= 15, (
+        f"found only {total} tables; the audit measured 20 and five (settings config, "
+        "contracts, dead recurring/issue_list/task_list) were removed by design. If tables were "
+        "deleted rather than wrapped, A5 is passing for the wrong reason"
     )
 
 

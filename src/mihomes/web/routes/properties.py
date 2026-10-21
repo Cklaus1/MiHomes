@@ -15,9 +15,11 @@ from mihomes.services import space as space_svc
 from mihomes.services import staff as staff_svc
 from mihomes.services import task as task_svc
 from mihomes.services.health_score import compute_property_health
-from mihomes.web.deps import get_db, templates
+from mihomes.web.deps import get_db, templates, with_toast
 
 router = APIRouter()
+
+_SPACE_TYPES = ["bedroom", "bathroom", "kitchen", "living", "dining", "office", "entertainment", "recreation", "storage", "garage", "outdoor", "other"]
 
 
 def _list_context(db: Session) -> dict:
@@ -92,53 +94,66 @@ def create_property(
     return RedirectResponse("/properties/", status_code=303)
 
 
-@router.get("/{slug}")
-@declares("property.view", Access.ITEM)
-def property_detail(request: Request, slug: str, db: Session = Depends(get_db)):
+def _detail_ctx(db: Session, slug: str) -> dict:
+    from mihomes.models.asset import Asset
+    from mihomes.models.issue import Issue
+    from mihomes.models.task import Task
+
     prop = prop_svc.get_property(db, slug)
     health = compute_property_health(db, prop.id)
     open_tasks = task_svc.list_tasks(db, property_id_or_slug=slug, status=TaskStatus.PENDING)
     open_issues = issue_svc.list_issues(db, property_id_or_slug=slug, open_only=True)
     assigned_staff = staff_svc.list_by_property(db, slug)
     spaces = space_svc.list_spaces(db, property_id_or_slug=slug)
-    return templates.TemplateResponse(
-        request,
-        "property_detail.html",
-        {
-            "page": "properties",
-            "prop": prop,
-            "health": health,
-            "open_tasks": open_tasks,
-            "open_issues": open_issues,
-            "assigned_staff": assigned_staff,
-            "spaces": spaces,
-            "space_types": ["bedroom", "bathroom", "kitchen", "living", "dining", "office", "entertainment", "recreation", "storage", "garage", "outdoor", "other"],
-            "property_types": [t.value for t in PropertyType],
-            "property_statuses": [s.value for s in PropertyStatus],
-        },
-    )
+    # What `delete_property` removes along with the home, so the confirmation can say so.
+    delete_counts = {
+        "rooms": len(spaces),
+        "assets": db.query(Asset).filter(Asset.property_id == prop.id).count(),
+        "tasks": db.query(Task).filter(Task.property_id == prop.id).count(),
+        "issues": db.query(Issue).filter(Issue.property_id == prop.id).count(),
+    }
+    return {
+        "page": "properties",
+        "prop": prop,
+        "health": health,
+        "open_tasks": open_tasks,
+        "open_issues": open_issues,
+        "assigned_staff": assigned_staff,
+        "spaces": spaces,
+        "room_contents": space_svc.content_counts(db, prop.id),
+        "delete_counts": delete_counts,
+        "space_types": _SPACE_TYPES,
+        "property_types": [t.value for t in PropertyType],
+        "property_statuses": [s.value for s in PropertyStatus],
+    }
+
+
+@router.get("/{slug}")
+@declares("property.view", Access.ITEM)
+def property_detail(request: Request, slug: str, db: Session = Depends(get_db)):
+    return templates.TemplateResponse(request, "property_detail.html", _detail_ctx(db, slug))
 
 
 @router.post("/{slug}/occupy", response_class=HTMLResponse)
 @declares("property.edit", Access.ITEM)
 def occupy(request: Request, slug: str, db: Session = Depends(get_db)):
     prop = prop_svc.occupy_property(db, slug)
-    return templates.TemplateResponse(
+    return with_toast(templates.TemplateResponse(
         request,
         "partials/property_status_badge.html",
         {"prop": prop},
-    )
+    ), f"{prop.name} marked open")
 
 
 @router.post("/{slug}/vacate", response_class=HTMLResponse)
 @declares("property.edit", Access.ITEM)
 def vacate(request: Request, slug: str, db: Session = Depends(get_db)):
     prop = prop_svc.vacate_property(db, slug)
-    return templates.TemplateResponse(
+    return with_toast(templates.TemplateResponse(
         request,
         "partials/property_status_badge.html",
         {"prop": prop},
-    )
+    ), f"{prop.name} vacated")
 
 
 @router.post("/{slug}/edit", response_class=HTMLResponse)
@@ -161,15 +176,28 @@ def edit_property(
         kwargs["property_type"] = PropertyType(property_type)
     if status:
         kwargs["status"] = PropertyStatus(status)
-    prop_svc.update_property(db, slug, **kwargs)
-    return templates.TemplateResponse(request, "properties.html", _list_context(db))
+    prop = prop_svc.update_property(db, slug, **kwargs)
+    # Edited from the property's own page, so answer with that page — it used to swap in the
+    # list while the address bar still named the property. A rename can change the slug, so
+    # the URL follows it.
+    resp = templates.TemplateResponse(request, "property_detail.html", _detail_ctx(db, prop.slug))
+    resp.headers["HX-Push-Url"] = f"/properties/{prop.slug}"
+    return with_toast(resp, "Property saved")
 
 
 @router.post("/{slug}/delete", response_class=HTMLResponse)
 @declares("property.delete", Access.ITEM)
 def delete_property(request: Request, slug: str, db: Session = Depends(get_db)):
-    prop_svc.delete_property(db, slug)
-    return templates.TemplateResponse(request, "properties.html", _list_context(db))
+    try:
+        name = prop_svc.delete_property(db, slug)
+    except ValueError as exc:
+        # The service refuses while records it will not erase are attached; the short text
+        # becomes an error toast (static/app.js) and the page stays as it was.
+        return HTMLResponse(str(exc), status_code=400)
+    # The page this came from no longer exists; keep a refresh from landing on a 404.
+    resp = templates.TemplateResponse(request, "properties.html", _list_context(db))
+    resp.headers["HX-Push-Url"] = "/properties/"
+    return with_toast(resp, f"{name} deleted")
 
 
 def _rooms_ctx(db, slug: str) -> dict:
@@ -177,7 +205,8 @@ def _rooms_ctx(db, slug: str) -> dict:
     return {
         "spaces": spaces,
         "prop_slug": slug,
-        "space_types": ["bedroom", "bathroom", "kitchen", "living", "dining", "office", "entertainment", "recreation", "storage", "garage", "outdoor", "other"],
+        "room_contents": space_svc.content_counts(db, slug),
+        "space_types": _SPACE_TYPES,
     }
 
 
@@ -191,11 +220,13 @@ def create_space(
     db: Session = Depends(get_db),
 ):
     space_svc.create_space(db, name, slug, space_type=space_type or None)
-    return templates.TemplateResponse(request, "partials/rooms_list.html", _rooms_ctx(db, slug))
+    return with_toast(templates.TemplateResponse(request, "partials/rooms_list.html", _rooms_ctx(db, slug)),
+                      "Room added")
 
 
 @router.post("/{slug}/spaces/{space_slug}/delete", response_class=HTMLResponse)
 @declares("inventory.manage", Access.ITEM)
 def delete_space(request: Request, slug: str, space_slug: str, db: Session = Depends(get_db)):
-    space_svc.delete_space(db, space_slug)
-    return templates.TemplateResponse(request, "partials/rooms_list.html", _rooms_ctx(db, slug))
+    name = space_svc.delete_space(db, space_slug)
+    return with_toast(templates.TemplateResponse(request, "partials/rooms_list.html", _rooms_ctx(db, slug)),
+                      f"{name} deleted")

@@ -1,31 +1,9 @@
-{# The sign-in front door.
+{# The sign-in front door. Standalone (`_auth_layout.html`), not `base.html` — see that file. #}
+{% extends "_auth_layout.html" %}
+{% block title %}Sign in — MiHomes{% endblock %}
 
-   **Deliberately does not extend `base.html`.** That layout is the signed-in shell: a nav
-   sidebar of 18 links to pages this visitor cannot open, a global search box, an alerts badge
-   polling every 60 seconds. Rendering it for someone with no session would show a scaffold of
-   dead links around a login button, and the alerts poll would 401 in a loop behind the page.
-
-   So this is a standalone page with its own `<head>`, sharing only the compiled stylesheet —
-   which is also what keeps it responsive for free (SPEC-009 D5): one build, both layouts. #}
-<!DOCTYPE html>
-<html lang="en" class="h-full bg-gray-50">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Sign in — MiHomes</title>
-  <link rel="stylesheet" href="/static/app.css" />
-</head>
-<body class="h-full">
-  <div class="min-h-full flex flex-col items-center justify-center px-4 py-12">
-
-    <div class="w-full max-w-sm">
-      <div class="text-center mb-8">
-        <h1 class="text-2xl font-semibold tracking-tight text-gray-900">MiHomes</h1>
-        <p class="text-sm text-gray-500 mt-1">Estate Management</p>
-      </div>
-
-      <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 sm:p-8">
-        <h2 class="text-lg font-semibold text-gray-900">Sign in</h2>
+{% block card %}
+        <h1 class="text-lg font-semibold text-gray-900">Sign in</h1>
         <p class="text-sm text-gray-500 mt-1 mb-6">
           Welcome back.
         </p>
@@ -33,9 +11,10 @@
         {# **One message for every failure.** The route sends the same string whether the address
            is unknown, the password is wrong, or the address has only a Google identity. Naming
            which it was would let anyone with a list of emails read off which hold accounts
-           (SPEC-010 A7) — the helpful version is the defect. #}
+           (SPEC-010 A7) — the helpful version is the defect. So the message is tied to the
+           password field, never to the email. #}
         {% if error %}
-        <div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+        <div id="signin-error" role="alert" class="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
           {{ error }}
         </div>
         {% endif %}
@@ -55,6 +34,7 @@
           <div>
             <label for="password" class="block text-sm font-medium text-gray-700 mb-1">Password</label>
             <input type="password" name="password" id="password" required autocomplete="current-password"
+                   {% if error %}aria-invalid="true" aria-describedby="signin-error" autofocus{% endif %}
                    class="w-full p-3 rounded-lg border border-gray-300 text-sm
                           focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent" />
             {# Below the field, not beside the label. You reach for "Forgot?" *after* trying a
@@ -71,9 +51,15 @@
           </button>
         </form>
 
+        {# The Google button only when it can work. Without credentials `/auth/google/start`
+           raises `OAuthError` — a 500 that explains nothing — so the button is hidden, as on
+           `signup.html`. The setup notice is for the developer running it locally
+           (`oauth_setup_hint`: unconfigured *and* a loopback host, the codebase's dev signal);
+           on any other host a visitor cannot act on it. #}
+        {% if oauth_configured %}
         <div class="flex items-center gap-3 my-6">
           <div class="h-px flex-1 bg-gray-200"></div>
-          <span class="text-xs text-gray-400 uppercase tracking-wide">or</span>
+          <span class="text-xs text-gray-500 uppercase tracking-wide">or</span>
           <div class="h-px flex-1 bg-gray-200"></div>
         </div>
 
@@ -89,18 +75,13 @@
           </svg>
           Sign in with Google
         </a>
-
-        {# **The honest state, shown rather than discovered on click.** Without credentials the
-           button reaches `/auth/google/start`, which raises `OAuthError: GOOGLE_CLIENT_ID is not
-           set` — a 500 with no explanation of what to do. Saying so up front costs one box and
-           turns a dead end into a setup step. #}
-        {% if not oauth_configured %}
+        {% elif oauth_setup_hint %}
         <div class="mt-5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900">
-          <p class="font-medium mb-1">Google sign-in is not configured yet</p>
+          <p class="font-medium mb-1">Google sign-in is not configured (shown on localhost only)</p>
           <p class="leading-relaxed">
             Set <code class="font-mono">GOOGLE_CLIENT_ID</code> and
             <code class="font-mono">GOOGLE_CLIENT_SECRET</code> from the Google Cloud Console,
-            then restart the server. Until then this button will fail.
+            then restart the server to show the Google button.
           </p>
           <p class="leading-relaxed mt-1.5">
             For local development, <code class="font-mono">py scripts/dev_setup.py</code> creates
@@ -108,24 +89,13 @@
           </p>
         </div>
         {% endif %}
-      </div>
+{% endblock %}
 
-      {# **The standard wording, finally with somewhere to go.** This line has now had three
-         versions, and the history is the point:
-
-           "New here? Signing in creates your account."  — read as a link, wasn't one
-           "New here? The button above creates your account."  — accurate, and clumsy
-
-         Both were workarounds for the same missing thing: there was no `/signup` route, so
-         "Create an account" would have looked clickable and done nothing. SPEC-010 Step 3
-         builds the route, which is what lets the plain phrasing be correct rather than a
-         promise the page cannot keep. #}
+{% block below %}
+      {# The standard wording, now with somewhere to go: `/signup` exists (SPEC-010 Step 3), so
+         "Create an account" is a real link rather than a promise the page cannot keep. #}
       <p class="text-center text-sm text-gray-500 mt-6">
         New here?
         <a href="/signup{% if next %}?next={{ next | urlencode }}{% endif %}" class="font-medium text-gray-900 underline hover:no-underline">Create an account.</a>
       </p>
-    </div>
-
-  </div>
-</body>
-</html>
+{% endblock %}

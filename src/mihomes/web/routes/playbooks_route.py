@@ -106,20 +106,25 @@ def playbooks_list(request: Request, db: Session = Depends(get_db)):
     })
 
 
-@router.get("/{slug}")
-@declares("task.manage", Access.COLLECTION)
-def playbook_detail(request: Request, slug: str, db: Session = Depends(get_db)):
-    pb = get_playbook(slug)
-    if not pb:
-        return RedirectResponse("/playbooks/")
-    properties = prop_svc.list_properties(db)
+def _detail(request: Request, db: Session, pb: dict, run_result: dict | None, status_code: int = 200):
     return templates.TemplateResponse(request, "playbook_detail.html", {
         "page": "playbooks",
         "pb": pb,
         "html_content": _md_to_html(pb["content"]),
-        "properties": properties,
-        "run_result": None,
-    })
+        "properties": prop_svc.list_properties(db),
+        "run_result": run_result,
+    }, status_code=status_code)
+
+
+@router.get("/{slug}")
+@declares("task.manage", Access.COLLECTION)
+def playbook_detail(request: Request, slug: str, ran: int | None = None, db: Session = Depends(get_db)):
+    pb = get_playbook(slug)
+    if not pb:
+        return RedirectResponse("/playbooks/")
+    # `?ran=N` is the redirect after a successful run (see playbook_run).
+    run_result = {"ok": True, "count": ran} if ran is not None and ran >= 0 else None
+    return _detail(request, db, pb, run_result)
 
 
 @router.post("/{slug}/run", response_class=HTMLResponse)
@@ -134,22 +139,24 @@ def playbook_run(
     from datetime import date
     pb = get_playbook(slug)
     if not pb:
-        return RedirectResponse("/playbooks/")
-    properties = prop_svc.list_properties(db)
-    run_result = None
+        return RedirectResponse("/playbooks/", status_code=303)
     try:
         sd = date.fromisoformat(start_date) if start_date else None
-        tasks = run_playbook(db, slug, property_slug, start_date=sd)
+    except ValueError:
+        return _detail(request, db, pb, {"ok": False, "error": "That start date isn't a valid date."}, 400)
+    try:
+        # A savepoint, not a full rollback: a run that fails half-way leaves no stray tasks, and
+        # the outer transaction (with its tenant context) is still there to render the error page.
+        with db.begin_nested():
+            tasks = run_playbook(db, slug, property_slug, start_date=sd)
         db.commit()
-        run_result = {"ok": True, "count": len(tasks), "titles": [t.title for t in tasks]}
-    except Exception as e:
+    except Exception:
+        # The exception text stays in the log: it names paths and internals, not anything to act on.
         logger.exception("playbook run failed")  # N15
-        run_result = {"ok": False, "error": str(e)}
-
-    return templates.TemplateResponse(request, "playbook_detail.html", {
-        "page": "playbooks",
-        "pb": pb,
-        "html_content": _md_to_html(pb["content"]),
-        "properties": properties,
-        "run_result": run_result,
-    })
+        return _detail(request, db, pb, {
+            "ok": False,
+            "error": "The tasks couldn't be created and nothing was saved. Check the property "
+                     "and try again; if it keeps happening, contact support.",
+        })
+    # POST-redirect-GET: a refresh of the result page must not run the playbook a second time.
+    return RedirectResponse(f"/playbooks/{slug}?ran={len(tasks)}", status_code=303)

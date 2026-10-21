@@ -219,13 +219,53 @@ def update_property(session: Session, id_or_slug: str, **kwargs) -> Property:
 
 
 def delete_property(session: Session, id_or_slug: str) -> str:
+    from mihomes.models.appointment import Appointment
     from mihomes.models.asset import Asset
+    from mihomes.models.book import Book
     from mihomes.models.budget import Budget, Transaction
+    from mihomes.models.consumable import Consumable
+    from mihomes.models.contract import Contract
+    from mihomes.models.event import Event
+    from mihomes.models.insurance import InsurancePolicy
     from mihomes.models.issue import Issue
-    from mihomes.models.task import Task
+    from mihomes.models.recurring_expense import RecurringExpense
+    from mihomes.models.staff import staff_property_association
+    from mihomes.models.task import Task, TaskCompletion
+    from mihomes.models.vendor import vendor_property_association
+    from mihomes.models.vendor_rating import VendorRating
+    from mihomes.models.work_order import WorkOrder
+    from mihomes.models.zone import Zone
 
     prop = resolve_identifier(session, Property, id_or_slug)
     name = prop.name
+
+    # **Records with value of their own block the delete instead of vanishing with it.** These
+    # tables reference `properties` with no ON DELETE rule, so the delete used to fail with a
+    # foreign-key error (a 500) for any home with history — a library, a contract, one work
+    # order. Erasing a contract or a vendor's rating history as a side effect of removing a
+    # home is not this function's call to make; saying what is attached is.
+    blockers = [
+        (WorkOrder, "work order"), (Contract, "contract"), (InsurancePolicy, "insurance policy"),
+        (RecurringExpense, "recurring expense"), (Appointment, "appointment"), (Event, "event"),
+        (Book, "book"), (Consumable, "inventory item"), (VendorRating, "vendor rating"),
+    ]
+    attached = []
+    for model, label in blockers:
+        n = session.query(model).filter(model.property_id == prop.id).count()
+        if n:
+            plural = label[:-1] + "ies" if label.endswith("y") else label + "s"
+            attached.append(f"{n} {label if n == 1 else plural}")
+    if attached:
+        raise ValueError(
+            f"{name} can't be deleted while it still has {', '.join(attached)}. "
+            "Move or remove those first, or mark the property closed instead."
+        )
+
+    # Links, not records: which staff and vendors serve this home.
+    session.execute(staff_property_association.delete().where(
+        staff_property_association.c.property_id == prop.id))
+    session.execute(vendor_property_association.delete().where(
+        vendor_property_association.c.property_id == prop.id))
 
     # Check for dependent records and delete them (cascade)
     session.query(Transaction).filter(Transaction.property_id == prop.id).delete()
@@ -235,9 +275,12 @@ def delete_property(session: Session, id_or_slug: str) -> str:
     # Delete tasks and their schedules
     from mihomes.models.task import TaskSchedule
     task_ids = [t.id for t in session.query(Task.id).filter(Task.property_id == prop.id).all()]
+    # A completion is the history of a task being deleted here, so it goes with it.
+    session.query(TaskCompletion).filter(TaskCompletion.property_id == prop.id).delete()
     if task_ids:
         session.query(TaskSchedule).filter(TaskSchedule.task_id.in_(task_ids)).delete(synchronize_session="fetch")
         session.query(Task).filter(Task.property_id == prop.id).delete()
+    session.query(Zone).filter(Zone.property_id == prop.id).delete()
 
     session.query(Issue).filter(Issue.property_id == prop.id).delete()
 

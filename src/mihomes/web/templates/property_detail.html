@@ -20,17 +20,26 @@
   Vacate
 </button>
 {% endif %}
-<button onclick="document.getElementById('edit-property-modal').classList.remove('hidden')"
+<button type="button" onclick="openModal('edit-property-modal')"
         class="inline-flex items-center px-3 py-1.5 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">
   Edit
 </button>
-<button hx-post="/properties/{{ prop.slug }}/delete" hx-target="body" hx-swap="innerHTML" hx-confirm="Delete {{ prop.name }}? This cannot be undone."
+{% set dc = delete_counts %}
+<button type="button" hx-post="/properties/{{ prop.slug }}/delete" hx-target="body" hx-swap="innerHTML"
+        hx-confirm="Delete {{ prop.name }}?{% if dc.rooms or dc.assets or dc.tasks or dc.issues %} This also permanently deletes its {{ dc.rooms }} room{{ 's' if dc.rooms != 1 }}, {{ dc.assets }} asset{{ 's' if dc.assets != 1 }}, {{ dc.tasks }} task{{ 's' if dc.tasks != 1 }} and {{ dc.issues }} issue{{ 's' if dc.issues != 1 }}.{% endif %} This cannot be undone."
         class="inline-flex items-center px-3 py-1.5 text-red-600 border border-red-200 text-sm font-medium rounded-lg hover:bg-red-50">
   Delete
 </button>
 {% endblock %}
 
 {% block content %}
+
+<nav aria-label="{{ prop.name }} records" class="flex flex-wrap gap-2 mb-4">
+  <a href="/assets/{{ prop.slug }}" class="inline-flex items-center px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:border-brand-300 hover:text-brand-700">Assets &amp; rooms</a>
+  <a href="/vendors/?property={{ prop.slug }}" class="inline-flex items-center px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:border-brand-300 hover:text-brand-700">Vendors</a>
+  <a href="/inventory/?property_slug={{ prop.slug }}" class="inline-flex items-center px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:border-brand-300 hover:text-brand-700">Inventory</a>
+  <a href="/library/?property_slug={{ prop.slug }}" class="inline-flex items-center px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:border-brand-300 hover:text-brand-700">Library</a>
+</nav>
 
 <!-- Health score -->
 {% if health %}
@@ -68,12 +77,13 @@
   <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
     <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
       <h2 class="text-sm font-semibold text-gray-700">Open Tasks ({{ open_tasks|length }})</h2>
-      <a href="/tasks?property_id={{ prop.id }}" class="text-xs text-brand-600 hover:text-brand-700">View all →</a>
+      <a href="/tasks/?property_id={{ prop.id }}" class="text-xs text-brand-600 hover:text-brand-700">View all →</a>
     </div>
     {% if open_tasks %}
     <ul class="divide-y divide-gray-50">
       {% for task in open_tasks[:8] %}
-      <li class="px-5 py-3 flex items-center justify-between gap-3">
+      <li>
+        <a href="/tasks/?open={{ task.id }}" class="px-5 py-3 flex items-center justify-between gap-3 hover:bg-gray-50">
         <div class="min-w-0">
           <div class="text-sm text-gray-900 truncate">{{ task.title }}</div>
           {% if task.due_date %}<div class="text-xs text-gray-400 mt-0.5">Due {{ task.due_date.strftime('%b %d') }}</div>{% endif %}
@@ -85,11 +95,12 @@
           {% else %}bg-gray-100 text-gray-600{% endif %}">
           {{ task.priority.value }}
         </span>
+        </a>
       </li>
       {% endfor %}
     </ul>
     {% else %}
-    <div class="px-5 py-6 text-center text-sm text-gray-400">No open tasks 🎉</div>
+    <div class="px-5 py-6 text-center text-sm text-gray-400">No open tasks. <a href="/tasks/" class="text-brand-600 hover:text-brand-700">Add a task</a></div>
     {% endif %}
   </div>
 
@@ -97,12 +108,13 @@
   <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
     <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
       <h2 class="text-sm font-semibold text-gray-700">Open Issues ({{ open_issues|length }})</h2>
-      <a href="/issues?property_id={{ prop.id }}" class="text-xs text-brand-600 hover:text-brand-700">View all →</a>
+      <a href="/issues/?property_id={{ prop.id }}" class="text-xs text-brand-600 hover:text-brand-700">View all →</a>
     </div>
     {% if open_issues %}
     <ul class="divide-y divide-gray-50">
       {% for issue in open_issues[:8] %}
-      <li class="px-5 py-3 flex items-center justify-between gap-3">
+      <li>
+        <a href="/issues/?open={{ issue.id }}" class="px-5 py-3 flex items-center justify-between gap-3 hover:bg-gray-50">
         <div class="text-sm text-gray-900 truncate">{{ issue.title }}</div>
         <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium flex-shrink-0
           {% if issue.severity.value == 'critical' %}bg-red-100 text-red-700
@@ -111,11 +123,12 @@
           {% else %}bg-gray-100 text-gray-600{% endif %}">
           {{ issue.severity.value }}
         </span>
+        </a>
       </li>
       {% endfor %}
     </ul>
     {% else %}
-    <div class="px-5 py-6 text-center text-sm text-gray-400">No open issues</div>
+    <div class="px-5 py-6 text-center text-sm text-gray-400">No open issues. <a href="/issues/" class="text-brand-600 hover:text-brand-700">Report one</a></div>
     {% endif %}
   </div>
 
@@ -123,8 +136,9 @@
 
 <!-- Rooms -->
 <div class="mt-4 bg-white rounded-xl border border-gray-200 overflow-hidden">
-  <div class="px-5 py-3 border-b border-gray-100">
-    <h2 class="text-sm font-semibold text-gray-700">Rooms ({{ spaces|length }})</h2>
+  <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+    <h2 class="text-sm font-semibold text-gray-700">Rooms</h2>
+    <a href="/assets/{{ prop.slug }}" class="text-xs text-brand-600 hover:text-brand-700">Assets &amp; rooms →</a>
   </div>
   <div id="rooms-list">
     {% with prop_slug=prop.slug %}
@@ -135,18 +149,19 @@
 
 {% if assigned_staff %}
 <div class="mt-4 bg-white rounded-xl border border-gray-200 overflow-hidden">
-  <div class="px-5 py-3 border-b border-gray-100">
+  <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
     <h2 class="text-sm font-semibold text-gray-700">Assigned Staff ({{ assigned_staff|length }})</h2>
+    <a href="/staff/" class="text-xs text-brand-600 hover:text-brand-700">Directory →</a>
   </div>
   <div class="px-5 py-4 flex flex-wrap gap-3">
     {% for member in assigned_staff %}
-    <div class="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
+    <a href="/staff/?open={{ member.id }}" class="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 hover:bg-gray-100">
       <div class="w-7 h-7 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xs font-semibold">{{ member.name[0].upper() }}</div>
       <div>
         <div class="text-sm font-medium text-gray-900">{{ member.name }}</div>
         <div class="text-xs text-gray-400">{{ member.role.value.replace('-', ' ').title() }}</div>
       </div>
-    </div>
+    </a>
     {% endfor %}
   </div>
 </div>
@@ -157,29 +172,29 @@
   <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
     <div class="flex items-center justify-between mb-5">
       <h2 class="text-lg font-semibold text-gray-900">Edit {{ prop.name }}</h2>
-      <button onclick="document.getElementById('edit-property-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+      <button type="button" onclick="closeModal('edit-property-modal')" class="p-2.5 -m-2.5 text-gray-400 hover:text-gray-600"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
     </div>
     <form hx-post="/properties/{{ prop.slug }}/edit" hx-target="body" hx-swap="innerHTML" class="space-y-4">
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Name</label>
-        <input type="text" name="name" value="{{ prop.name }}" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        <label for="edit-property-name" class="block text-sm font-medium text-gray-700 mb-1">Name <span class="text-red-500">*</span></label>
+        <input type="text" id="edit-property-name" name="name" value="{{ prop.name }}" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
       </div>
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Address</label>
-        <input type="text" name="address" value="{{ prop.address or '' }}" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        <label for="edit-property-address" class="block text-sm font-medium text-gray-700 mb-1">Address</label>
+        <input type="text" id="edit-property-address" name="address" value="{{ prop.address or '' }}" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Type</label>
-          <select name="property_type" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          <label for="edit-property-type" class="block text-sm font-medium text-gray-700 mb-1">Type</label>
+          <select id="edit-property-type" name="property_type" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
             {% for t in property_types %}
             <option value="{{ t }}" {% if prop.property_type.value == t %}selected{% endif %}>{{ t.replace('-', ' ').title() }}</option>
             {% endfor %}
           </select>
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
-          <select name="status" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          <label for="edit-property-status" class="block text-sm font-medium text-gray-700 mb-1">Status</label>
+          <select id="edit-property-status" name="status" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
             {% for s in property_statuses %}
             <option value="{{ s }}" {% if prop.status.value == s %}selected{% endif %}>{{ s.replace('-', ' ').title() }}</option>
             {% endfor %}
@@ -188,7 +203,7 @@
       </div>
       <div class="flex gap-3 pt-1">
         <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Save</button>
-        <button type="button" onclick="document.getElementById('edit-property-modal').classList.add('hidden')" class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-50">Cancel</button>
+        <button type="button" onclick="closeModal('edit-property-modal')" class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-50">Cancel</button>
       </div>
     </form>
   </div>

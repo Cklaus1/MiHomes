@@ -187,6 +187,41 @@ def mark_restocked(
     return item
 
 
+def update_consumable(
+    session: Session,
+    id_or_slug: str,
+    *,
+    name: str,
+    category: str | None = None,
+    unit: str | None = None,
+) -> Consumable:
+    """Rename an item or change its category/unit. The slug is kept, so links stay valid."""
+    from mihomes.services.audit import diff_instance, record_change, snapshot_instance
+
+    item = resolve_identifier(session, Consumable, id_or_slug)
+    old = snapshot_instance(item)
+    item.name = validate_name(name, "consumable")
+    item.category = category
+    item.unit = unit
+    session.flush()
+    changes = diff_instance(old, snapshot_instance(item))
+    if changes:
+        record_change(session, "consumable", item.id, "update", changes)
+    return item
+
+
+def delete_consumable(session: Session, id_or_slug: str) -> str:
+    """Delete an item; its price history goes with it (delete-orphan cascade)."""
+    from mihomes.services.audit import record_change, snapshot_instance
+
+    item = resolve_identifier(session, Consumable, id_or_slug)
+    name = item.name
+    record_change(session, "consumable", item.id, "delete", snapshot_instance(item))
+    session.delete(item)
+    session.flush()
+    return name
+
+
 def update_consumable_settings(
     session: Session,
     id_or_slug: str,

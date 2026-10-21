@@ -43,8 +43,8 @@ def _require_scheduling_entitlement(session: Session, due_date) -> None:
     named a feature that did not exist (F5), so enforcing it required defining it first, and the
     scope matters more than the gate:
 
-    - `assignee_id` is not coherently gateable — the web UI exposes no assignee field at all, so
-      a gate would fire only on the CLI, which SPEC-002 D1 makes an operator tool.
+    - `assignee_id` is not gated: D13 sells scheduling, not assignment, and assigning a work
+      order to staff is part of the everyday flow on every plan.
     - `Appointment`/`/calendar` is a **different product wearing the same word**. Gating it would
       paywall the whole calendar, the Telegram bot's appointment creation, and
       `services/recurring.py`'s nightly automation — far more than `PRICING:27` sells, and it
@@ -82,6 +82,26 @@ def _require_scheduling_entitlement(session: Session, due_date) -> None:
                 limit=False,
             )
         )
+
+
+def scheduling_is_entitled(session: Session) -> bool:
+    """May the bound account set a work order's due date? — the read side of the gate above.
+
+    The work-orders page uses it to render the date field disabled with a Pro badge, instead of
+    letting a Free user fill it in and be refused on save. Unbound account (CLI operator,
+    background job) → entitled, matching `_require_scheduling_entitlement`.
+    """
+    from mihomes.entitlements.service import Denied, can
+    from mihomes.models.account import Account
+    from mihomes.tenancy import current_account
+
+    account_id = current_account.get(None)
+    if account_id is None:
+        return True
+    account = session.get(Account, account_id)
+    if account is None:  # pragma: no cover - a bound account always exists
+        return True
+    return not isinstance(can(account, "work_order.schedule"), Denied)
 
 
 def create_work_order(

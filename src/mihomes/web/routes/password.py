@@ -41,7 +41,7 @@ from mihomes.auth.ratelimit import (
     clear_attempts,
     record_failure,
 )
-from mihomes.auth.session_flow import establish_session, safe_next
+from mihomes.auth.session_flow import establish_session, is_loopback, safe_next
 from mihomes.auth.sessions import SESSION_COOKIE, lookup_session
 from mihomes.services.email import EmailService, get_email_provider
 from mihomes.services.email.provider import EmailProviderError
@@ -109,8 +109,11 @@ def signup(
             "signup.html",
             {
                 "error": str(exc),
+                # Which field the message is about, so the page can mark and focus it.
+                "error_field": "password" if isinstance(exc, PasswordTooShort) else "email",
                 "min_length": MIN_PASSWORD_LENGTH,
                 "email": email,
+                "name": name,
                 "next": safe_next(next) or "",
                 "oauth_configured": _oauth_configured(),
             },
@@ -199,6 +202,7 @@ def _signin_failed(request: Request, email: str, next: str = ""):
             "error": _SIGNIN_FAILED,
             "email": email,
             "oauth_configured": _oauth_configured(),
+            "oauth_setup_hint": not _oauth_configured() and is_loopback(request),
             "next": safe_next(next) or "",
         },
         status_code=401,

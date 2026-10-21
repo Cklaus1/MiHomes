@@ -21,7 +21,7 @@ import json
 import logging
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
 from mihomes.authz.declare import Access, declares
@@ -34,6 +34,21 @@ router = APIRouter()
 
 #: Row 16. Owner-only — see the module docstring on why this is not a new key.
 PRIVACY_ACTION = "account.delete"
+
+
+def _from_settings_form(request: Request) -> bool:
+    """A browser form post (Settings → Danger zone) rather than an API or HTMX caller.
+
+    Such a caller gets a redirect back to Settings, which then shows the pending state; anyone
+    else keeps the JSON contract. Decided by `Accept`, the same negotiation `errors._wants_json`
+    uses, so a client asking for JSON (or sending `*/*`) sees no change.
+    """
+    accept = request.headers.get("accept", "")
+    return (
+        "text/html" in accept
+        and "application/json" not in accept
+        and request.headers.get("HX-Request") != "true"
+    )
 
 
 @router.get("/privacy/export")
@@ -95,6 +110,8 @@ def request_account_deletion(
     """
     record = request_deletion(db, principal.account_id, principal.user_id)
 
+    if _from_settings_form(request):
+        return RedirectResponse("/settings?notice=deletion_requested#danger-zone", status_code=303)
     return JSONResponse(
         {
             "state": "requested",
@@ -197,6 +214,8 @@ def cancel_account_deletion(
     """Stop a pending deletion (A9). Idempotent; refuses once the purge has run."""
     cancelled = cancel_deletion(db, principal.account_id)
 
+    if _from_settings_form(request):
+        return RedirectResponse("/settings?notice=deletion_cancelled#danger-zone", status_code=303)
     return JSONResponse(
         {
             "state": "cancelled" if cancelled else "nothing_to_cancel",

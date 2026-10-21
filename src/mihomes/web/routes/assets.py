@@ -2,6 +2,7 @@
 
 import logging
 import uuid
+from datetime import date
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
@@ -20,7 +21,7 @@ from mihomes.services import note as note_svc
 from mihomes.services import property as prop_svc
 from mihomes.services import space as space_svc
 from mihomes.services.ai.assessors import parse_room_scan
-from mihomes.web.deps import get_db, templates
+from mihomes.web.deps import get_db, templates, with_toast
 from mihomes.web.forms import parse_money, read_document_upload, read_image_uploads
 
 logger = logging.getLogger(__name__)
@@ -88,6 +89,8 @@ def _spaces_ctx(db: Session, property_slug: str) -> dict:
         "prop": prop,
         "spaces": spaces,
         "space_counts": space_counts,
+        # Assets + books per room, for the delete confirmation's "will be kept" copy.
+        "room_contents": space_svc.content_counts(db, prop.id),
         "unassigned_count": unassigned,
         "total": len(assets),
         "space_types": _SPACE_TYPES,
@@ -103,6 +106,12 @@ def _list_ctx(db: Session, property_slug: str, space_slug: str, asset_type: str 
     else:
         space = space_svc.get_space(db, space_slug)
         assets = [a for a in all_prop_assets if a.space_id == space.id]
+    # The type summary cards count the whole room, not the filtered list — otherwise picking
+    # "Vehicles" turned every other card to 0 and the filter could only be undone by URL.
+    type_counts: dict[str, int] = {}
+    for a in assets:
+        type_counts[a.asset_type.value] = type_counts.get(a.asset_type.value, 0) + 1
+    room_asset_count = len(assets)
     if asset_type:
         assets = [a for a in assets if a.asset_type.value == asset_type]
     spaces = space_svc.list_spaces(db, property_slug)
@@ -115,6 +124,10 @@ def _list_ctx(db: Session, property_slug: str, space_slug: str, asset_type: str 
         "space_slug": space_slug,
         "assets": assets,
         "all_assets": all_prop_assets,
+        "type_counts": type_counts,
+        "room_asset_count": room_asset_count,
+        # Warranty highlighting compares against today, not a hardcoded year.
+        "today": date.today(),
         "properties": prop_svc.list_properties(db),
         "spaces": spaces,
         "asset_types": [t.value for t in AssetType],
@@ -128,6 +141,17 @@ def _list_ctx(db: Session, property_slug: str, space_slug: str, asset_type: str 
         "space_issues": [i for i in issue_svc.list_issues(db, property_id_or_slug=property_slug) if space and i.space_id == space.id] if space else [],
         "space_notes": note_svc.list_notes(db, f"space:{space.id}") if space else [],
     }
+
+
+def _back(request: Request, db: Session, from_property: str, from_space: str, message: str):
+    """Re-render whichever level the form was submitted from, with a success toast."""
+    if from_property and from_space:
+        resp = templates.TemplateResponse(request, "assets.html", _list_ctx(db, from_property, from_space))
+    elif from_property:
+        resp = templates.TemplateResponse(request, "assets_spaces.html", _spaces_ctx(db, from_property))
+    else:
+        resp = templates.TemplateResponse(request, "assets_properties.html", _properties_ctx(db))
+    return with_toast(resp, message)
 
 
 # ── Level 1: property selector ────────────────────────────────────────────────
@@ -149,7 +173,8 @@ def edit_room(
     db: Session = Depends(get_db),
 ):
     space_svc.update_space(db, space_slug, name=name, space_type=space_type or None)
-    return templates.TemplateResponse(request, "assets_spaces.html", _spaces_ctx(db, property_slug))
+    return with_toast(templates.TemplateResponse(request, "assets_spaces.html", _spaces_ctx(db, property_slug)),
+                      "Room saved")
 
 
 @router.post("/{property_slug}/{space_slug}/delete-room", response_class=HTMLResponse)
@@ -160,8 +185,9 @@ def delete_room(
     space_slug: str,
     db: Session = Depends(get_db),
 ):
-    space_svc.delete_space(db, space_slug)
-    return templates.TemplateResponse(request, "assets_spaces.html", _spaces_ctx(db, property_slug))
+    name = space_svc.delete_space(db, space_slug)
+    return with_toast(templates.TemplateResponse(request, "assets_spaces.html", _spaces_ctx(db, property_slug)),
+                      f"{name} deleted")
 
 
 @router.post("/create-room", response_class=HTMLResponse)
@@ -174,7 +200,11 @@ def create_room(
     db: Session = Depends(get_db),
 ):
     space_svc.create_space(db, name, property_slug, space_type=space_type or None)
-    return templates.TemplateResponse(request, "assets_spaces.html", _spaces_ctx(db, property_slug))
+    # Answered with the property's rooms page; when added from the all-properties page the URL
+    # must follow, or a refresh would show the selector again.
+    resp = templates.TemplateResponse(request, "assets_spaces.html", _spaces_ctx(db, property_slug))
+    resp.headers["HX-Push-Url"] = f"/assets/{property_slug}"
+    return with_toast(resp, "Room added")
 
 
 # ── Level 2: space selector ───────────────────────────────────────────────────
@@ -225,11 +255,7 @@ def create_asset(
         purchase_price=float(purchase_price) if purchase_price else None,
         notes=notes or None,
     )
-    if from_property and from_space:
-        return templates.TemplateResponse(request, "assets.html", _list_ctx(db, from_property, from_space))
-    if from_property:
-        return templates.TemplateResponse(request, "assets_spaces.html", _spaces_ctx(db, from_property))
-    return templates.TemplateResponse(request, "assets_properties.html", _properties_ctx(db))
+    return _back(request, db, from_property, from_space, "Asset added")
 
 
 # ── Scan Room: camera → AI vision → bulk add ──────────────────────────────────
@@ -343,7 +369,10 @@ def scan_confirm(
             entity_id=ent_id,
         )
 
-    return templates.TemplateResponse(request, "assets.html", _list_ctx(db, property_slug, space_slug or "unassigned"))
+    return with_toast(
+        templates.TemplateResponse(request, "assets.html", _list_ctx(db, property_slug, space_slug or "unassigned")),
+        f"{created} asset{'s' if created != 1 else ''} added",
+    )
 
 
 @router.post("/{slug}/notes", response_class=HTMLResponse)
@@ -352,11 +381,11 @@ def add_note(request: Request, slug: str, content: str = Form(...), db: Session 
     note_svc.add_note(db, f"asset:{slug}", content)
     asset = asset_svc.get_asset(db, slug)
     notes = note_svc.list_notes(db, f"asset:{asset.id}")
-    return templates.TemplateResponse(request, "partials/notes_section.html", {
+    return with_toast(templates.TemplateResponse(request, "partials/notes_section.html", {
         "notes": notes,
         "post_url": f"/assets/{slug}/notes",
         "delete_url_prefix": f"/assets/{slug}/notes",
-    })
+    }), "Note added")
 
 
 @router.delete("/{slug}/notes/{note_id}", response_class=HTMLResponse)
@@ -365,11 +394,11 @@ def delete_note(request: Request, slug: str, note_id: uuid.UUID, db: Session = D
     note_svc.delete_note(db, note_id)
     asset = asset_svc.get_asset(db, slug)
     notes = note_svc.list_notes(db, f"asset:{asset.id}")
-    return templates.TemplateResponse(request, "partials/notes_section.html", {
+    return with_toast(templates.TemplateResponse(request, "partials/notes_section.html", {
         "notes": notes,
         "post_url": f"/assets/{slug}/notes",
         "delete_url_prefix": f"/assets/{slug}/notes",
-    })
+    }), "Note deleted")
 
 
 @router.post("/{slug}/edit", response_class=HTMLResponse)
@@ -406,11 +435,7 @@ def edit_asset(
     if replacement_cost_estimate: kwargs["replacement_cost_estimate"] = float(replacement_cost_estimate)
     if condition: kwargs["condition"] = condition
     asset_svc.update_asset(db, slug, **kwargs)
-    if from_property and from_space:
-        return templates.TemplateResponse(request, "assets.html", _list_ctx(db, from_property, from_space))
-    if from_property:
-        return templates.TemplateResponse(request, "assets_spaces.html", _spaces_ctx(db, from_property))
-    return templates.TemplateResponse(request, "assets_properties.html", _properties_ctx(db))
+    return _back(request, db, from_property, from_space, "Asset saved")
 
 
 @router.post("/{slug}/price-entries", response_class=HTMLResponse)
@@ -437,11 +462,7 @@ def add_price_entry(
         entry_type=entry_type,
         note=note or None,
     )
-    if from_property and from_space:
-        return templates.TemplateResponse(request, "assets.html", _list_ctx(db, from_property, from_space))
-    if from_property:
-        return templates.TemplateResponse(request, "assets_spaces.html", _spaces_ctx(db, from_property))
-    return templates.TemplateResponse(request, "assets_properties.html", _properties_ctx(db))
+    return _back(request, db, from_property, from_space, "Price entry added")
 
 
 @router.post("/{slug}/documents", response_class=HTMLResponse)
@@ -473,7 +494,7 @@ async def add_asset_document(
         entity_type="asset", entity_id=asset.id,
     )
     ctx["docs"] = doc_svc.list_documents(db, entity_type="asset", entity_id=asset.id)
-    return templates.TemplateResponse(request, "partials/docs_section.html", ctx)
+    return with_toast(templates.TemplateResponse(request, "partials/docs_section.html", ctx), "Document added")
 
 
 @router.delete("/{slug}/documents/{doc_id}", response_class=HTMLResponse)
@@ -487,11 +508,11 @@ def delete_asset_document(
     doc_svc.delete_document(db, doc_id)
     asset = asset_svc.get_asset(db, slug)
     docs = doc_svc.list_documents(db, entity_type="asset", entity_id=asset.id)
-    return templates.TemplateResponse(request, "partials/docs_section.html", {
+    return with_toast(templates.TemplateResponse(request, "partials/docs_section.html", {
         "docs": docs,
         "post_url": f"/assets/{slug}/documents",
         "delete_url_prefix": f"/assets/{slug}/documents",
-    })
+    }), "Document deleted")
 
 
 @router.post("/{property_slug}/{space_slug}/notes", response_class=HTMLResponse)
@@ -506,11 +527,11 @@ def add_space_note(
     space = space_svc.get_space(db, space_slug)
     note_svc.add_note(db, f"space:{space.id}", content)
     notes = note_svc.list_notes(db, f"space:{space.id}")
-    return templates.TemplateResponse(request, "partials/notes_section.html", {
+    return with_toast(templates.TemplateResponse(request, "partials/notes_section.html", {
         "notes": notes,
         "post_url": f"/assets/{property_slug}/{space_slug}/notes",
         "delete_url_prefix": f"/assets/{property_slug}/{space_slug}/notes",
-    })
+    }), "Note added")
 
 
 @router.delete("/{property_slug}/{space_slug}/notes/{note_id}", response_class=HTMLResponse)
@@ -525,11 +546,11 @@ def delete_space_note(
     note_svc.delete_note(db, note_id)
     space = space_svc.get_space(db, space_slug)
     notes = note_svc.list_notes(db, f"space:{space.id}")
-    return templates.TemplateResponse(request, "partials/notes_section.html", {
+    return with_toast(templates.TemplateResponse(request, "partials/notes_section.html", {
         "notes": notes,
         "post_url": f"/assets/{property_slug}/{space_slug}/notes",
         "delete_url_prefix": f"/assets/{property_slug}/{space_slug}/notes",
-    })
+    }), "Note deleted")
 
 
 @router.post("/{slug}/delete", response_class=HTMLResponse)
@@ -542,8 +563,4 @@ def delete_asset(
     db: Session = Depends(get_db),
 ):
     asset_svc.delete_asset(db, slug)
-    if from_property and from_space:
-        return templates.TemplateResponse(request, "assets.html", _list_ctx(db, from_property, from_space))
-    if from_property:
-        return templates.TemplateResponse(request, "assets_spaces.html", _spaces_ctx(db, from_property))
-    return templates.TemplateResponse(request, "assets_properties.html", _properties_ctx(db))
+    return _back(request, db, from_property, from_space, "Asset deleted")

@@ -30,23 +30,13 @@
     {% if run_result %}
     <div class="rounded-xl border p-4 {% if run_result.ok %}bg-emerald-50 border-emerald-200{% else %}bg-red-50 border-red-200{% endif %}">
       {% if run_result.ok %}
-      <div class="font-semibold text-emerald-800 mb-2">{{ run_result.count }} task{{ 's' if run_result.count != 1 else '' }} created</div>
-      <ul class="space-y-1">
-        {% for title in run_result.titles %}
-        <li class="text-xs text-emerald-700 flex items-center gap-1.5">
-          <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-          </svg>
-          {{ title }}
-        </li>
-        {% endfor %}
-      </ul>
-      <a href="/tasks/" class="mt-3 inline-flex items-center text-xs font-medium text-emerald-700 hover:text-emerald-800">
+      <div class="font-semibold text-emerald-800 mb-1" role="status">{{ run_result.count }} task{{ 's' if run_result.count != 1 else '' }} created</div>
+      <a href="/tasks/" class="inline-flex items-center text-sm font-medium text-emerald-700 hover:text-emerald-800">
         View in Tasks →
       </a>
       {% else %}
-      <div class="font-semibold text-red-800 mb-1">Failed to run</div>
-      <div class="text-xs text-red-700">{{ run_result.error }}</div>
+      <div class="font-semibold text-red-800 mb-1" role="alert">Couldn't run this playbook</div>
+      <div class="text-sm text-red-700">{{ run_result.error }}</div>
       {% endif %}
     </div>
     {% endif %}
@@ -54,28 +44,36 @@
     <!-- Run form -->
     <div class="bg-white rounded-xl border border-gray-200 p-5">
       <h3 class="text-sm font-semibold text-gray-800 mb-4">Run This Playbook</h3>
-      <form method="post" action="/playbooks/{{ pb.slug }}/run" class="space-y-4">
+      {% if pb.checklist %}
+      {# Confirm (it creates every step as a task at once), then lock the button: a plain form
+         post has no htmx pending state, and a double click ran the playbook twice. #}
+      <form method="post" action="/playbooks/{{ pb.slug }}/run" class="space-y-4"
+            data-step-count="{{ pb.checklist|length }}"
+            onsubmit="if(!confirm('This will create ' + this.dataset.stepCount + ' tasks. Continue?')) return false; const b=this.querySelector('[type=submit]'); b.disabled=true; b.textContent='Creating tasks…'; return true;">
         <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">Property</label>
-          <select name="property_slug" required
+          <label for="pb-property" class="block text-xs font-medium text-gray-600 mb-1">Property <span class="text-red-500">*</span></label>
+          <select name="property_slug" id="pb-property" required
                   class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
-            <option value="">Select property…</option>
+            <option value="" disabled selected>Select property…</option>
             {% for prop in properties %}
             <option value="{{ prop.slug }}">{{ prop.name }}</option>
             {% endfor %}
           </select>
         </div>
         <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">Start Date <span class="text-gray-400">(optional)</span></label>
-          <input type="date" name="start_date"
+          <label for="pb-start" class="block text-xs font-medium text-gray-600 mb-1">Start Date <span class="text-gray-500">(optional)</span></label>
+          <input type="date" name="start_date" id="pb-start"
                  class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
-          <p class="text-xs text-gray-400 mt-1">Defaults to today. Tasks are staggered by section.</p>
+          <p class="text-xs text-gray-500 mt-1">Defaults to today. Tasks are staggered by section.</p>
         </div>
         <button type="submit"
-                class="w-full bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors">
-          Create Tasks from Playbook
+                class="w-full bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-wait">
+          Create {{ pb.checklist|length }} Tasks from Playbook
         </button>
       </form>
+      {% else %}
+      <p class="text-sm text-gray-500">This playbook is for reference only — it has no checklist steps to turn into tasks.</p>
+      {% endif %}
     </div>
 
     <!-- Checklist summary -->

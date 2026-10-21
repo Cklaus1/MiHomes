@@ -264,7 +264,7 @@ def checklist(session: Session, account_id: uuid.UUID) -> list[ChecklistItem] | 
                       "/documents", has(Document)),
         ChecklistItem("invite", "Invite your team",
                       "Bring in a partner, estate manager or staff.",
-                      "/team", has(Invite) or len(members) > 1),
+                      "/settings#members", has(Invite) or len(members) > 1),
     ]
     if all(item.done for item in items):
         return None

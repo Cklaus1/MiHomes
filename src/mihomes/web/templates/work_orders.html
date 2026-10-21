@@ -1,10 +1,11 @@
 {% extends "base.html" %}
+{% from "partials/_status.html" import status_chip %}
 {% block title %}Work Orders — MiHomes{% endblock %}
 {% block heading %}Work Orders{% endblock %}
 {% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ work_orders|length }} work order{{ 's' if work_orders|length != 1 else '' }}</p>{% endblock %}
 
 {% block actions %}
-<button onclick="document.getElementById('add-wo-modal').classList.remove('hidden')"
+<button type="button" onclick="openModal('add-wo-modal')"
         class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
   Add Work Order
@@ -12,8 +13,19 @@
 {% endblock %}
 
 {% block content %}
-{% set status_styles = {'draft':'bg-gray-100 text-gray-600','estimated':'bg-blue-100 text-blue-700','approved':'bg-indigo-100 text-indigo-700','assigned':'bg-purple-100 text-purple-700','in_progress':'bg-amber-100 text-amber-700','completed':'bg-emerald-100 text-emerald-700','verified':'bg-teal-100 text-teal-700','cancelled':'bg-red-100 text-red-600'} %}
 {% set status_labels = {'draft':'Draft','estimated':'Estimated','approved':'Approved','assigned':'Assigned','in_progress':'In Progress','completed':'Completed','verified':'Verified','cancelled':'Cancelled'} %}
+
+{# Due date is the one Pro-only field here (`work_order.schedule`). A Free plan sees it disabled
+   with the reason, instead of filling it in and being refused on save. A disabled input is not
+   submitted, so the save goes through without a date. #}
+{% macro due_date_field(field_id, value, entitled, label_class) %}
+<label for="{{ field_id }}" class="{{ label_class }}">Due Date{% if not entitled %} <span class="ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-brand-100 text-brand-700 normal-case tracking-normal">Pro</span>{% endif %}</label>
+<input type="date" id="{{ field_id }}" name="due_date" value="{{ value }}" {% if not entitled %}disabled aria-describedby="{{ field_id }}-pro"{% endif %}
+       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed" />
+{% if not entitled %}
+<p id="{{ field_id }}-pro" class="mt-1 text-xs text-gray-500">Scheduling is included in Pro — <a href="/billing" class="font-medium text-brand-600 hover:text-brand-700 underline">See plans</a></p>
+{% endif %}
+{% endmacro %}
 
 {% if all_work_orders %}
 <div class="flex flex-wrap gap-2 mb-6">
@@ -29,19 +41,19 @@
      class="block rounded-xl border px-3 py-2.5 text-center transition-all hover:shadow-sm min-w-[60px]
             {% if filter_status == s %}bg-brand-50 border-brand-400{% else %}bg-white border-gray-200 hover:border-brand-300{% endif %}">
     <div class="text-lg font-bold {% if filter_status == s %}text-brand-700{% else %}text-gray-900{% endif %}">{{ count }}</div>
-    <span class="inline-block px-1.5 py-0.5 rounded text-xs font-medium {{ status_styles.get(s,'bg-gray-100 text-gray-600') }}">{{ status_labels.get(s,s) }}</span>
+    {{ status_chip(s) }}
   </a>
   {% endfor %}
 </div>
 
 <div class="flex items-center gap-2 mb-3 flex-wrap">
-  <input type="text" oninput="filterWOBySearch(this.value)"
+  <input type="search" id="wo-search" oninput="filterWOBySearch(this.value)" aria-label="Search work orders"
          placeholder="Search title, vendor, property…"
-         class="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500 w-64" />
+         class="border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500 w-full sm:w-64" />
   {% if properties|length > 1 %}
-  <label class="text-xs text-gray-400 font-medium whitespace-nowrap">Property:</label>
-  <select onchange="filterWOByProperty(this.value)"
-          class="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-brand-500 text-gray-700">
+  <label for="wo-property-filter" class="text-xs text-gray-500 font-medium whitespace-nowrap">Property:</label>
+  <select id="wo-property-filter" onchange="filterWOByProperty(this.value)"
+          class="border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-brand-500 text-gray-700">
     <option value="">All properties</option>
     {% for p in properties %}
     <option value="{{ p.slug }}">{{ p.name }}</option>
@@ -51,6 +63,7 @@
 </div>
 
 <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  {% if work_orders %}
   <div class="overflow-x-auto">
   <table class="w-full text-sm">
     <thead>
@@ -70,7 +83,7 @@
           data-search="{{ (wo.title ~ ' ' ~ (wo.vendor.company_name if wo.vendor else (wo.vendor_name or '')) ~ ' ' ~ (wo.property.name if wo.property else '')) | lower }}"
           onclick="openModal('wo-modal-{{ wo.id }}')">
         <td class="px-4 py-3"><div class="font-medium text-gray-900">{{ wo.title }}</div>{% if wo.description %}<div class="text-xs text-gray-400 truncate max-w-xs">{{ wo.description[:80] }}{% if wo.description|length > 80 %}…{% endif %}</div>{% endif %}</td>
-        <td class="px-4 py-3"><span class="px-2 py-0.5 rounded-full text-xs font-medium {{ status_styles.get(wo.status.value,'bg-gray-100 text-gray-600') }}">{{ status_labels.get(wo.status.value, wo.status.value) }}</span></td>
+        <td class="px-4 py-3">{{ status_chip(wo.status) }}</td>
         <td class="px-4 py-3 text-gray-600 hidden md:table-cell">{{ wo.property.name if wo.property else '—' }}</td>
         <td class="px-4 py-3 text-gray-600 hidden md:table-cell">{{ wo.vendor.company_name if wo.vendor else (wo.vendor_name or '—') }}</td>
         <td class="px-4 py-3 hidden lg:table-cell">{% if wo.actual_cost %}<div class="font-medium text-gray-800">{{ wo.actual_cost | money(wo.currency, 2) }}</div>{% if wo.estimated_cost %}<div class="text-xs text-gray-400">Est: {{ wo.estimated_cost | money(wo.currency, 2) }}</div>{% endif %}{% elif wo.estimated_cost %}<span class="text-gray-500">~{{ wo.estimated_cost | money(wo.currency, 2) }}</span>{% else %}<span class="text-gray-400">—</span>{% endif %}</td>
@@ -80,100 +93,118 @@
     </tbody>
   </table>
   </div>
+  <p id="wo-no-match" class="hidden px-5 py-8 text-center text-sm text-gray-500">No work orders match your search.</p>
+  {% else %}
+  <div class="px-5 py-10 text-center">
+    <p class="text-sm text-gray-600">No {{ status_labels.get(filter_status, filter_status)|lower }} work orders.</p>
+    <a href="/work-orders" class="mt-3 inline-block px-4 py-2 text-sm font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50">Show all work orders</a>
+  </div>
+  {% endif %}
 </div>
 {% else %}
 <div class="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center">
   <div class="text-3xl mb-2">🔨</div>
-  <div class="text-gray-500 font-medium">No work orders yet</div>
-  <button onclick="document.getElementById('add-wo-modal').classList.remove('hidden')" class="mt-3 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Create First Work Order</button>
+  <div class="text-gray-600 font-medium">No work orders yet</div>
+  <p class="text-xs text-gray-500 mt-1">Track a repair from quote to verified — or create one straight from an issue.</p>
+  <button type="button" onclick="openModal('add-wo-modal')" class="mt-3 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Create First Work Order</button>
 </div>
 {% endif %}
 
 <!-- Add Work Order modal -->
-<div id="add-wo-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onclick="if(event.target===this)this.classList.add('hidden')">
-  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+{% set pi = prefill_issue %}
+<div id="add-wo-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
     <div class="flex items-center justify-between mb-5">
       <h2 class="text-lg font-semibold text-gray-900">New Work Order</h2>
-      <button onclick="document.getElementById('add-wo-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+      <button type="button" onclick="closeModal('add-wo-modal')" class="p-2.5 -mr-2.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
     </div>
+    {% if pi %}<p class="-mt-3 mb-4 text-xs text-gray-500">From issue “{{ pi.title }}”</p>{% endif %}
     <form hx-post="/work-orders/" hx-target="body" hx-swap="innerHTML" class="space-y-4">
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Title <span class="text-red-500">*</span></label>
-        <input type="text" name="title" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        <label for="new-wo-title" class="block text-sm font-medium text-gray-700 mb-1">Title <span class="text-red-500">*</span></label>
+        <input type="text" id="new-wo-title" name="title" required value="{{ pi.title if pi else '' }}" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
       </div>
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Property <span class="text-red-500">*</span></label>
-        <select name="property_slug" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
-          <option value="">Select property…</option>
-          {% for p in properties %}<option value="{{ p.slug }}">{{ p.name }}</option>{% endfor %}
+        <label for="new-wo-property" class="block text-sm font-medium text-gray-700 mb-1">Property <span class="text-red-500">*</span></label>
+        <select id="new-wo-property" name="property_slug" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          <option value="" disabled {% if not (pi and pi.property) %}selected{% endif %}>Select property…</option>
+          {% for p in properties %}<option value="{{ p.slug }}" {% if pi and pi.property_id == p.id %}selected{% endif %}>{{ p.name }}</option>{% endfor %}
         </select>
       </div>
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Vendor</label>
-        <select name="vendor_slug" onchange="toggleOtherVendor(this,'add')" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+        <label for="new-wo-vendor" class="block text-sm font-medium text-gray-700 mb-1">Vendor</label>
+        <select id="new-wo-vendor" name="vendor_slug" onchange="toggleOtherVendor(this,'add')" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
           <option value="">None</option>
           {% for v in vendors %}<option value="{{ v.slug }}">{{ v.company_name }}</option>{% endfor %}
           <option value="other">Other — add new vendor</option>
         </select>
         <div id="vendor-other-add" class="hidden mt-2">
-          <input type="text" name="vendor_name_other" placeholder="Vendor name (will be added to Vendors list)…"
+          <input type="text" name="vendor_name_other" aria-label="New vendor name" placeholder="Vendor name (will be added to Vendors list)…"
                  class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
         </div>
       </div>
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Linked Issue <span class="text-gray-400 font-normal">(optional)</span></label>
-        <select name="issue_id" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+        <label for="new-wo-assignee" class="block text-sm font-medium text-gray-700 mb-1">Assigned to</label>
+        <select id="new-wo-assignee" name="assignee_id" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          <option value="">Unassigned</option>
+          {% for member in staff %}<option value="{{ member.id }}">{{ member.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="new-wo-issue" class="block text-sm font-medium text-gray-700 mb-1">Linked Issue <span class="text-gray-400 font-normal">(optional)</span></label>
+        <select id="new-wo-issue" name="issue_id" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
           <option value="">— No linked issue —</option>
           {% for issue in issues %}
-          <option value="{{ issue.id }}">[{{ issue.severity.value.title() }}] {{ issue.title }}{% if issue.property %} · {{ issue.property.name }}{% endif %}</option>
+          <option value="{{ issue.id }}" {% if pi and pi.id == issue.id %}selected{% endif %}>[{{ issue.severity.value.title() }}] {{ issue.title }}{% if issue.property %} · {{ issue.property.name }}{% endif %}</option>
           {% endfor %}
         </select>
       </div>
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
-        <textarea name="description" rows="2" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"></textarea>
+        <label for="new-wo-description" class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+        <textarea id="new-wo-description" name="description" rows="2" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">{{ pi.description or '' if pi else '' }}</textarea>
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Estimated Cost ($)</label>
-          <input type="number" name="estimated_cost" min="0" step="0.01" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          <label for="new-wo-estimate" class="block text-sm font-medium text-gray-700 mb-1">Estimated Cost ({{ currency_symbol() }})</label>
+          <input type="number" id="new-wo-estimate" name="estimated_cost" min="0" step="0.01" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
-          <input type="date" name="due_date" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          {{ due_date_field('new-wo-due', '', wo_scheduling_entitled, 'block text-sm font-medium text-gray-700 mb-1') }}
         </div>
       </div>
       <div class="flex gap-3 pt-1">
         <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Create</button>
-        <button type="button" onclick="document.getElementById('add-wo-modal').classList.add('hidden')" class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-50">Cancel</button>
+        <button type="button" onclick="closeModal('add-wo-modal')" class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-50">Cancel</button>
       </div>
     </form>
   </div>
 </div>
 
 <!-- Detail modals -->
-{% for wo in work_orders %}
+{% set edit_label = 'block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1' %}
+{% for wo in modal_work_orders %}
 {% set wo_notes = notes_map.get(wo.id, []) %}
-<div id="wo-modal-{{ wo.id }}" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onclick="if(event.target===this)closeModal('wo-modal-{{ wo.id }}')">
-  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] flex flex-col" onclick="event.stopPropagation()">
+{% set mid = 'wo-modal-' ~ wo.id %}
+<div id="{{ mid }}" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] flex flex-col">
 
     <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
-      <div>
+      <div class="min-w-0">
         <h2 class="text-lg font-bold text-gray-900">{{ wo.title }}</h2>
         <p class="text-xs text-gray-500 mt-0.5">{{ wo.property.name if wo.property else '' }}</p>
       </div>
-      <div class="flex items-center gap-2">
-        <span class="px-2.5 py-1 rounded-full text-xs font-medium {{ status_styles.get(wo.status.value,'bg-gray-100 text-gray-600') }}">{{ status_labels.get(wo.status.value, wo.status.value) }}</span>
+      <div class="flex items-center gap-2 flex-shrink-0">
+        {{ status_chip(wo.status) }}
         <button hx-post="/work-orders/{{ wo.slug }}/delete" hx-target="body" hx-swap="innerHTML" hx-confirm="Delete this work order?" class="text-gray-400 hover:text-red-500 p-2.5 rounded-lg hover:bg-red-50 transition-colors" title="Delete"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
-        <button onclick="closeModal('wo-modal-{{ wo.id }}')" class="text-gray-400 hover:text-gray-600 p-2.5 rounded-lg hover:bg-gray-100"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+        <button type="button" onclick="closeModal('{{ mid }}')" class="text-gray-400 hover:text-gray-600 p-2.5 rounded-lg hover:bg-gray-100"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
       </div>
     </div>
 
     {% set wo_docs = docs_map.get(wo.id, []) %}
     <div class="flex border-b border-gray-200 px-6 flex-shrink-0">
       {% for tid, tlabel in [('details','Details'),('attachments','Attachments'),('notes','Notes')] %}
-      <button onclick="switchTab('wo','{{ wo.id }}','{{ tid }}')" id="wo-tab-{{ wo.id }}-{{ tid }}"
-              class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if tid=='details' %}border-brand-500 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
+      <button type="button" onclick="switchTab('{{ mid }}','{{ tid }}')" data-tab="{{ tid }}"
+              class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if tid=='details' %}border-brand-600 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
         {{ tlabel }}{% if tid == 'notes' %}<span id="badge-wo-notes-{{ wo.id }}"> {{ wo_notes|length }}</span>{% endif %}{% if tid == 'attachments' and wo_docs %}<span class="ml-1 text-xs text-gray-400">({{ wo_docs|length }})</span>{% endif %}
       </button>
       {% endfor %}
@@ -182,7 +213,7 @@
     <div class="flex-1 overflow-y-auto">
 
       <!-- Details tab -->
-      <div id="wo-panel-{{ wo.id }}-details" class="px-6 py-5">
+      <div id="{{ mid }}-tab-details" class="px-6 py-5">
 
         <!-- View div -->
         <div id="wo-view-{{ wo.id }}">
@@ -195,13 +226,13 @@
           <!-- Read-only metadata grid -->
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
             <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Vendor</div><div class="font-medium text-sm text-gray-800">{{ wo.vendor.company_name if wo.vendor else (wo.vendor_name or '—') }}</div></div>
-            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Assignee</div><div class="font-medium text-sm text-gray-800">{{ wo.assignee.full_name if wo.assignee else '—' }}</div></div>
+            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Assigned to</div><div class="font-medium text-sm {{ 'text-gray-800' if wo.assignee else 'text-gray-400' }}">{{ wo.assignee.name if wo.assignee else 'Unassigned' }}</div></div>
             <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Estimated Cost</div><div class="font-medium text-sm text-gray-800">{{ wo.estimated_cost | money(wo.currency, 2) if wo.estimated_cost else '—' }}</div></div>
             <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Actual Cost</div><div class="font-medium text-sm {{ 'text-emerald-700' if wo.actual_cost else 'text-gray-400' }}">{{ wo.actual_cost | money(wo.currency, 2) if wo.actual_cost else '—' }}</div></div>
             <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Due Date</div><div class="font-medium text-sm text-gray-800">{{ wo.due_date.strftime('%b %d, %Y') if wo.due_date else '—' }}</div></div>
-            <div class="bg-gray-50 rounded-xl p-3 col-span-2"><div class="text-xs text-gray-400 mb-0.5">Linked Issue</div>
+            <div class="bg-gray-50 rounded-xl p-3 sm:col-span-2"><div class="text-xs text-gray-400 mb-0.5">Linked Issue</div>
               {% if wo.issue %}
-              <a href="/issues" class="font-medium text-sm text-brand-600 hover:text-brand-700">{{ wo.issue.title }}</a>
+              <a href="/issues/?open={{ wo.issue.id }}" class="font-medium text-sm text-brand-600 hover:text-brand-700">{{ wo.issue.title }}</a>
               <span class="ml-1.5 px-1.5 py-0.5 rounded text-xs font-medium
                 {% if wo.issue.severity.value == 'critical' %}bg-red-100 text-red-700
                 {% elif wo.issue.severity.value == 'high' %}bg-orange-100 text-orange-700
@@ -218,18 +249,21 @@
             <div class="text-sm text-gray-700">{{ wo.completion_notes }}</div>
           </div>
           {% endif %}
-          <div class="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
-            <!-- Lifecycle actions -->
-            <div class="flex items-center gap-2">
-              {% set s = wo.status.value %}
+          {% set s = wo.status.value %}
+          {% if s == 'approved' and not wo.assignee %}
+          <p class="text-xs text-gray-500 mt-3">Assign someone (Edit) to move this to Assigned, or start it now.</p>
+          {% endif %}
+          <div class="flex flex-wrap items-center justify-between gap-2 mt-4 pt-4 border-t border-gray-100">
+            <!-- Lifecycle actions: the page re-renders with this modal open on the same record. -->
+            <div class="flex flex-wrap items-center gap-2">
               {% if s in ['draft','estimated'] %}
-              <form hx-post="/work-orders/{{ wo.slug }}/approve" hx-target="body" hx-swap="innerHTML" style="display:inline">
+              <form hx-post="/work-orders/{{ wo.slug }}/approve" hx-target="body" hx-swap="innerHTML" class="inline">
                 <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors">Approve</button>
               </form>
               {% endif %}
               {% if s in ['approved','assigned'] %}
-              <form hx-post="/work-orders/{{ wo.slug }}/start" hx-target="body" hx-swap="innerHTML" style="display:inline">
-                <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition-colors">Start</button>
+              <form hx-post="/work-orders/{{ wo.slug }}/start" hx-target="body" hx-swap="innerHTML" class="inline">
+                <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors">Start</button>
               </form>
               {% endif %}
               {% if s == 'in_progress' %}
@@ -237,7 +271,7 @@
                       class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors">Complete</button>
               {% endif %}
               {% if s == 'completed' %}
-              <form hx-post="/work-orders/{{ wo.slug }}/verify" hx-target="body" hx-swap="innerHTML" style="display:inline">
+              <form hx-post="/work-orders/{{ wo.slug }}/verify" hx-target="body" hx-swap="innerHTML" class="inline">
                 <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-lg transition-colors">Verify</button>
               </form>
               {% endif %}
@@ -257,13 +291,13 @@
             <form hx-post="/work-orders/{{ wo.slug }}/complete" hx-target="body" hx-swap="innerHTML" class="space-y-3">
               <div class="text-xs font-semibold text-emerald-800 mb-2">Mark as Completed</div>
               <div>
-                <label class="block text-xs font-medium text-gray-700 mb-1">Actual Cost ($)</label>
-                <input type="number" name="actual_cost" step="0.01" min="0" placeholder="{{ wo.estimated_cost or '0.00' }}"
+                <label for="wo-{{ wo.id }}-actual" class="block text-xs font-medium text-gray-700 mb-1">Actual Cost ({{ currency_symbol() }})</label>
+                <input type="number" id="wo-{{ wo.id }}-actual" name="actual_cost" step="0.01" min="0" placeholder="{{ wo.estimated_cost or '0.00' }}"
                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
               </div>
               <div>
-                <label class="block text-xs font-medium text-gray-700 mb-1">Completion Notes</label>
-                <textarea name="notes" rows="2" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"></textarea>
+                <label for="wo-{{ wo.id }}-completion" class="block text-xs font-medium text-gray-700 mb-1">Completion Notes</label>
+                <textarea id="wo-{{ wo.id }}-completion" name="notes" rows="2" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"></textarea>
               </div>
               <div class="flex gap-2">
                 <button type="submit" class="flex-1 py-1.5 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg">Confirm Complete</button>
@@ -276,8 +310,8 @@
             <form hx-post="/work-orders/{{ wo.slug }}/cancel" hx-target="body" hx-swap="innerHTML" class="space-y-3">
               <div class="text-xs font-semibold text-red-800 mb-2">Cancel Work Order</div>
               <div>
-                <label class="block text-xs font-medium text-gray-700 mb-1">Reason (optional)</label>
-                <textarea name="notes" rows="2" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"></textarea>
+                <label for="wo-{{ wo.id }}-cancel-reason" class="block text-xs font-medium text-gray-700 mb-1">Reason (optional)</label>
+                <textarea id="wo-{{ wo.id }}-cancel-reason" name="notes" rows="2" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"></textarea>
               </div>
               <div class="flex gap-2">
                 <button type="submit" class="flex-1 py-1.5 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg">Confirm Cancel</button>
@@ -288,82 +322,92 @@
         </div>
 
         <!-- Edit div -->
+        {% set fid = 'wo-' ~ wo.id ~ '-' %}
         <div id="wo-edit-{{ wo.id }}" class="hidden">
           <form hx-post="/work-orders/{{ wo.slug }}/edit" hx-target="body" hx-swap="innerHTML">
             <div class="space-y-4">
               <div>
-                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Linked Issue</div>
-                <select name="issue_id" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                <label for="{{ fid }}issue" class="{{ edit_label }}">Linked Issue</label>
+                <select id="{{ fid }}issue" name="issue_id" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
                   <option value="">— No linked issue —</option>
                   {% for issue in issues %}
                   <option value="{{ issue.id }}" {% if wo.issue_id == issue.id %}selected{% endif %}>
                     [{{ issue.severity.value.title() }}] {{ issue.title }}{% if issue.property %} · {{ issue.property.name }}{% endif %}
                   </option>
                   {% endfor %}
+                  {# Resolved issues are not offered — except the one already linked, so saving keeps it. #}
+                  {% if wo.issue and wo.issue not in issues %}
+                  <option value="{{ wo.issue_id }}" selected>[Resolved] {{ wo.issue.title }}</option>
+                  {% endif %}
                 </select>
               </div>
               <div>
-                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Title</div>
-                <input type="text" name="title" value="{{ wo.title }}" required
+                <label for="{{ fid }}title" class="{{ edit_label }}">Title <span class="text-red-500">*</span></label>
+                <input type="text" id="{{ fid }}title" name="title" value="{{ wo.title }}" required
                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
               <div>
-                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Description</div>
-                <textarea name="description" data-autoresize
+                <label for="{{ fid }}description" class="{{ edit_label }}">Description</label>
+                <textarea id="{{ fid }}description" name="description" data-autoresize
                           class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
                           placeholder="No description…">{{ wo.description or '' }}</textarea>
               </div>
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 my-4">
               <div>
-                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Estimated Cost ($)</div>
-                <input type="number" name="estimated_cost" step="0.01" min="0"
+                <label for="{{ fid }}estimate" class="{{ edit_label }}">Estimated Cost ({{ currency_symbol() }})</label>
+                <input type="number" id="{{ fid }}estimate" name="estimated_cost" step="0.01" min="0"
                        value="{{ wo.estimated_cost or '' }}"
                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
               <div>
-                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Actual Cost ($)</div>
-                <input type="number" name="actual_cost" step="0.01" min="0"
+                <label for="{{ fid }}actual" class="{{ edit_label }}">Actual Cost ({{ currency_symbol() }})</label>
+                <input type="number" id="{{ fid }}actual" name="actual_cost" step="0.01" min="0"
                        value="{{ wo.actual_cost or '' }}"
                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
               <div>
-                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Due Date</div>
-                <input type="date" name="due_date"
-                       value="{{ wo.due_date.isoformat() if wo.due_date else '' }}"
-                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                {{ due_date_field(fid ~ 'due', wo.due_date.isoformat() if wo.due_date else '', wo_scheduling_entitled, edit_label) }}
               </div>
               <div>
-                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Status</div>
-                <select name="status" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
-                  {% for s, label in [('draft','Draft'),('estimated','Estimated'),('approved','Approved'),('assigned','Assigned'),('in_progress','In Progress'),('completed','Completed'),('verified','Verified'),('cancelled','Cancelled')] %}
-                  <option value="{{ s }}" {% if wo.status.value == s %}selected{% endif %}>{{ label }}</option>
+                <label for="{{ fid }}status" class="{{ edit_label }}">Status</label>
+                <select id="{{ fid }}status" name="status" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                  {% for st, label in status_labels.items() %}
+                  <option value="{{ st }}" {% if wo.status.value == st %}selected{% endif %}>{{ label }}</option>
                   {% endfor %}
                 </select>
               </div>
             </div>
-            <!-- Vendor (editable) + assignee (read-only tile) -->
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
               <div>
-                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Vendor</div>
-                <select name="vendor_slug" onchange="toggleOtherVendor(this,'{{ wo.id }}')"
+                <label for="{{ fid }}vendor" class="{{ edit_label }}">Vendor</label>
+                <select id="{{ fid }}vendor" name="vendor_slug" onchange="toggleOtherVendor(this,'{{ wo.id }}')"
                         class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
                   <option value="">None</option>
                   {% for v in vendors %}<option value="{{ v.slug }}" {% if wo.vendor and wo.vendor.slug == v.slug %}selected{% endif %}>{{ v.company_name }}</option>{% endfor %}
                   <option value="other" {% if not wo.vendor and wo.vendor_name %}selected{% endif %}>Other — add new vendor</option>
                 </select>
                 <div id="vendor-other-{{ wo.id }}" class="{% if not wo.vendor and wo.vendor_name %}{% else %}hidden {% endif %}mt-2">
-                  <input type="text" name="vendor_name_other"
+                  <input type="text" name="vendor_name_other" aria-label="New vendor name"
                          placeholder="Vendor name (will be added to Vendors list)…"
                          value="{{ wo.vendor_name or '' }}"
                          class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
                 </div>
               </div>
-              <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Assignee</div><div class="font-medium text-sm text-gray-800">{{ wo.assignee.full_name if wo.assignee else '—' }}</div></div>
+              <div>
+                <label for="{{ fid }}assignee" class="{{ edit_label }}">Assigned to</label>
+                <select id="{{ fid }}assignee" name="assignee_id" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                  {# "none", not "": routes/work_orders.py UNASSIGNED explains why. #}
+                  <option value="none">Unassigned</option>
+                  {% for member in staff %}<option value="{{ member.id }}" {% if wo.assignee_id == member.id %}selected{% endif %}>{{ member.name }}</option>{% endfor %}
+                  {% if wo.assignee and wo.assignee not in staff %}<option value="{{ wo.assignee_id }}" selected>{{ wo.assignee.name }}</option>{% endif %}
+                </select>
+                {% if wo.status.value == 'approved' %}<p class="mt-1 text-xs text-gray-500">Assigning someone moves it to Assigned.</p>{% endif %}
+              </div>
             </div>
             <div>
-              <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Completion Notes</div>
-              <textarea name="completion_notes" data-autoresize
+              <label for="{{ fid }}completion-notes" class="{{ edit_label }}">Completion Notes</label>
+              <textarea id="{{ fid }}completion-notes" name="completion_notes" data-autoresize
                         class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
                         placeholder="No completion notes yet…">{{ wo.completion_notes or '' }}</textarea>
             </div>
@@ -379,7 +423,7 @@
       </div>
 
       <!-- Attachments tab -->
-      <div id="wo-panel-{{ wo.id }}-attachments" class="px-6 py-5 hidden">
+      <div id="{{ mid }}-tab-attachments" class="px-6 py-5 hidden">
         <div data-docs-container>
           {% with docs=wo_docs, post_url="/work-orders/"+wo.slug+"/documents", delete_url_prefix="/work-orders/"+wo.slug+"/documents" %}
           {% include "partials/docs_section.html" %}
@@ -388,7 +432,7 @@
       </div>
 
       <!-- Notes tab -->
-      <div id="wo-panel-{{ wo.id }}-notes" class="px-6 py-5 hidden">
+      <div id="{{ mid }}-tab-notes" class="px-6 py-5 hidden">
         <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Notes & Comments</div>
         <div data-notes-container data-notes-badge="badge-wo-notes-{{ wo.id }}">
           {% with notes=wo_notes, post_url="/work-orders/"+wo.slug+"/notes", delete_url_prefix="/work-orders/"+wo.slug+"/notes" %}{% include "partials/notes_section.html" %}{% endwith %}
@@ -399,22 +443,19 @@
   </div>
 </div>
 {% endfor %}
+
+{# One-shot instructions from the server: open a record (?open=<id>, or after a lifecycle
+   action) or the add form (?new=1, prefilled from ?issue=<id>). #}
+<div id="wo-page" hidden
+     {% if open_id %}data-open-id="{{ open_id }}"{% endif %}
+     {% if open_new %}data-open-new="1"{% endif %}></div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
-function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
-function switchTab(prefix, entityId, tab) {
-  ['details','attachments','notes'].forEach(t => {
-    document.getElementById(prefix+'-panel-'+entityId+'-'+t)?.classList.add('hidden');
-    const btn = document.getElementById(prefix+'-tab-'+entityId+'-'+t);
-    if (btn) { btn.classList.remove('border-brand-500','text-brand-600'); btn.classList.add('border-transparent','text-gray-500'); }
-  });
-  document.getElementById(prefix+'-panel-'+entityId+'-'+tab)?.classList.remove('hidden');
-  const active = document.getElementById(prefix+'-tab-'+entityId+'-'+tab);
-  if (active) { active.classList.add('border-brand-500','text-brand-600'); active.classList.remove('border-transparent','text-gray-500'); }
-}
+{# This script re-runs on every body swap: no top-level let/const (redeclaring one is a
+   SyntaxError that stops the whole script), state lives on `window`, and the init listeners
+   are bound once behind a flag. openModal/closeModal/switchTab come from static/app.js. #}
 function autoResize(el){el.style.height='auto';el.style.height=el.scrollHeight+'px';}
 function toggleOtherVendor(select, suffix) {
   const wrapper = document.getElementById('vendor-other-' + suffix);
@@ -437,26 +478,73 @@ function exitEdit(prefix, id) {
   document.getElementById(prefix+'-edit-'+id).classList.add('hidden');
   document.getElementById(prefix+'-view-'+id).classList.remove('hidden');
 }
-document.addEventListener('DOMContentLoaded',()=>document.querySelectorAll('textarea[data-autoresize]').forEach(t=>t.addEventListener('input',()=>autoResize(t))));
-let woActivePropertyFilter = '';
-let woActiveSearchFilter = '';
 
-function filterWOByProperty(slug) {
-  woActivePropertyFilter = slug;
+// Client-side filters live on `window` (which a body swap keeps) and are mirrored into
+// sessionStorage so they also survive a full navigation, e.g. clicking a status tile.
+window.__woFilters = window.__woFilters || (function () {
+  const f = { property: '', search: '' };
+  try {
+    f.property = sessionStorage.getItem('wo_filter_property') || '';
+    f.search = sessionStorage.getItem('wo_filter_search') || '';
+  } catch (e) { /* storage blocked: filters just don't persist across navigations */ }
+  return f;
+})();
+function woSetFilter(key, value) {
+  window.__woFilters[key] = value || '';
+  try { sessionStorage.setItem('wo_filter_' + key, value || ''); } catch (e) {}
   applyWOFilters();
 }
-
-function filterWOBySearch(text) {
-  woActiveSearchFilter = (text || '').trim().toLowerCase();
-  applyWOFilters();
-}
-
+function filterWOByProperty(slug) { woSetFilter('property', slug); }
+function filterWOBySearch(text) { woSetFilter('search', text); }
 function applyWOFilters() {
-  document.querySelectorAll('.wo-row').forEach(row => {
-    const matchesProperty = woActivePropertyFilter === '' || row.dataset.property === woActivePropertyFilter;
-    const matchesSearch = woActiveSearchFilter === '' || (row.dataset.search || '').includes(woActiveSearchFilter);
-    row.classList.toggle('hidden', !(matchesProperty && matchesSearch));
+  const prop = window.__woFilters.property;
+  const search = window.__woFilters.search.trim().toLowerCase();
+  let shown = 0;
+  const rows = document.querySelectorAll('.wo-row');
+  rows.forEach(row => {
+    const ok = (prop === '' || row.dataset.property === prop)
+            && (search === '' || (row.dataset.search || '').includes(search));
+    row.classList.toggle('hidden', !ok);
+    if (ok) shown++;
   });
+  const none = document.getElementById('wo-no-match');
+  if (none) none.classList.toggle('hidden', shown > 0 || rows.length === 0);
 }
+
+function initWorkOrders() {
+  const marker = document.getElementById('wo-page');
+  if (!marker) return;                       // another page is in the body now
+  const searchEl = document.getElementById('wo-search');
+  if (searchEl && document.activeElement !== searchEl) searchEl.value = window.__woFilters.search;
+  const propEl = document.getElementById('wo-property-filter');
+  if (propEl) {
+    propEl.value = window.__woFilters.property;
+    if (propEl.value !== window.__woFilters.property) window.__woFilters.property = '';  // property gone
+  } else {
+    window.__woFilters.property = '';        // single-property estate: no property filter shown
+  }
+  applyWOFilters();
+  document.querySelectorAll('textarea[data-autoresize]:not([data-ar-bound])').forEach(t => {
+    t.setAttribute('data-ar-bound', '1');
+    t.addEventListener('input', () => autoResize(t));
+  });
+  // Consume the one-shot open request so later swaps (notes, polling) don't reopen it, and drop
+  // ?open/?new/?issue from the URL so a save — which re-reads the URL — doesn't either.
+  const openId = marker.dataset.openId, openNew = marker.dataset.openNew;
+  delete marker.dataset.openId; delete marker.dataset.openNew;
+  if (openId && document.getElementById('wo-modal-' + openId)) openModal('wo-modal-' + openId);
+  else if (openNew) openModal('add-wo-modal');
+  const url = new URL(location.href);
+  if (['open', 'new', 'issue'].some(k => url.searchParams.has(k))) {
+    ['open', 'new', 'issue'].forEach(k => url.searchParams.delete(k));
+    history.replaceState(history.state, '', url.pathname + url.search + url.hash);
+  }
+}
+if (!window.__mhWorkOrdersBound) {
+  window.__mhWorkOrdersBound = true;
+  document.addEventListener('DOMContentLoaded', () => initWorkOrders());
+  document.addEventListener('htmx:afterSettle', () => initWorkOrders());
+}
+initWorkOrders();
 </script>
 {% endblock %}

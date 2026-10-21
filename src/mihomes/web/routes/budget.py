@@ -18,7 +18,7 @@ from mihomes.services import property as prop_svc
 from mihomes.services import recurring as recurring_svc
 from mihomes.services import vendor as vendor_svc
 from mihomes.services.parsing import parse_money
-from mihomes.web.deps import get_db, templates
+from mihomes.web.deps import get_db, templates, with_toast
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +44,52 @@ def _make_chart(labels: list, values: list, label: str = "Spending") -> dict:
             "borderRadius": 4,
         }],
     }
+
+
+# Average occurrences per month for each recurring frequency — the one place the "Est. Monthly"
+# figure is derived from. The custom frequencies divide by their interval ("every 3 weeks").
+_WEEKS_PER_MONTH = 52 / 12
+_MONTHLY_FACTOR = {
+    ExpenseFrequency.WEEKLY: _WEEKS_PER_MONTH,
+    ExpenseFrequency.BIWEEKLY: _WEEKS_PER_MONTH / 2,
+    ExpenseFrequency.MONTHLY: 1.0,
+    ExpenseFrequency.QUARTERLY: 1 / 3,
+    ExpenseFrequency.ANNUAL: 1 / 12,
+    ExpenseFrequency.CUSTOM_WEEKS: _WEEKS_PER_MONTH,
+    ExpenseFrequency.CUSTOM_MONTHS: 1.0,
+}
+
+
+def _monthly_equivalent(expense) -> float:
+    factor = _MONTHLY_FACTOR.get(expense.frequency, 0.0)
+    if expense.frequency in (ExpenseFrequency.CUSTOM_WEEKS, ExpenseFrequency.CUSTOM_MONTHS):
+        factor /= max(expense.interval_count or 1, 1)
+    return float(expense.amount or 0) * factor
+
+
+def _monthly_by_currency(expenses) -> list[tuple[str, float]]:
+    """Est. monthly cost of the active recurring expenses, one total per currency.
+
+    Summing a EUR and a USD expense into one number is wrong whichever symbol it is shown with,
+    so a mixed estate gets one line per currency instead.
+    """
+    totals: dict[str, float] = {}
+    for e in expenses:
+        if e.end_date:
+            continue
+        cur = e.currency or ""
+        totals[cur] = totals.get(cur, 0.0) + _monthly_equivalent(e)
+    return [(cur, val) for cur, val in sorted(totals.items()) if val]
+
+
+def _merge_rows(rows: list[dict], key: str) -> list[dict]:
+    """Combine per-property spending rows into one all-properties breakdown."""
+    merged: dict[str, dict] = {}
+    for r in rows:
+        m = merged.setdefault(r[key], {key: r[key], "total": 0.0, "transaction_count": 0})
+        m["total"] = round(m["total"] + float(r["total"] or 0), 2)
+        m["transaction_count"] += r["transaction_count"]
+    return sorted(merged.values(), key=lambda r: r["total"], reverse=True)
 
 
 def _ctx(
@@ -91,33 +137,37 @@ def _ctx(
         # Compare as strings: the id arrives from a query param, and `p.id` is a
         # uuid.UUID after G6.1 — a str/UUID comparison is silently always False, so
         # the filter would quietly fall back to "no property selected" rather than
-        # erroring. The template's "all properties" option submits an empty value,
-        # which the truthiness check above already treats as unset.
+        # erroring. The template's "All properties" option submits an empty value.
         analysis_prop = next(
             (p for p in properties if str(p.id) == analysis_property_id), None
         )
-    if analysis_prop is None:
-        analysis_prop = properties[0] if properties else None
+    # No property chosen → the category/vendor breakdowns cover every property (summed here;
+    # the report service is per-property), so the "All properties" option means what it says.
+    scope = [analysis_prop] if analysis_prop else properties
     category_data: list = []
     category_chart = None
     vendor_data: list = []
     vendor_chart = None
-    if analysis_prop:
-        try:
-            category_data = report_svc.spending_by_category(db, str(analysis_prop.id), year_start, today)
-            if category_data:
-                category_chart = _make_chart(
-                    [d["category"].replace("-", " ").title() for d in category_data],
-                    [d["total"] for d in category_data],
-                )
-            vendor_data = report_svc.spending_by_vendor(db, str(analysis_prop.id), year_start, today)
-            if vendor_data:
-                vendor_chart = _make_chart(
-                    [d["vendor"] for d in vendor_data],
-                    [d["total"] for d in vendor_data],
-                )
-        except Exception:
-            logger.exception("_ctx: suppressed exception")
+    try:
+        cat_rows: list = []
+        vend_rows: list = []
+        for prop in scope:
+            cat_rows += report_svc.spending_by_category(db, str(prop.id), year_start, today)
+            vend_rows += report_svc.spending_by_vendor(db, str(prop.id), year_start, today)
+        category_data = _merge_rows(cat_rows, "category") if len(scope) > 1 else cat_rows
+        vendor_data = _merge_rows(vend_rows, "vendor") if len(scope) > 1 else vend_rows
+        if category_data:
+            category_chart = _make_chart(
+                [d["category"].replace("-", " ").title() for d in category_data],
+                [d["total"] for d in category_data],
+            )
+        if vendor_data:
+            vendor_chart = _make_chart(
+                [d["vendor"] for d in vendor_data],
+                [d["total"] for d in vendor_data],
+            )
+    except Exception:
+        logger.exception("_ctx: suppressed exception")
 
     return {
         "page": "budget",
@@ -130,6 +180,7 @@ def _ctx(
         "txn_date_to": txn_date_to or "",
         "periods": [p.value for p in BudgetPeriod],
         "expenses": expenses,
+        "monthly_by_currency": _monthly_by_currency(expenses),
         "vendors": vendor_svc.list_vendors(db),
         "frequencies": [f.value for f in ExpenseFrequency],
         "notes_map": {e.id: note_svc.list_notes(db, f"recurring:{e.id}") for e in expenses},
@@ -141,6 +192,7 @@ def _ctx(
         "vendor_chart": vendor_chart,
         "analysis_prop": analysis_prop,
         "analysis_year": today.year,
+        "today": today,
     }
 
 
@@ -172,6 +224,7 @@ def add_transaction(
     description: str = Form(...),
     amount: str = Form(...),
     category: str = Form("general"),
+    tx_date: str = Form(""),
     db: Session = Depends(get_db),
 ):
     # M16: parse currency-formatted input tolerantly and surface a friendly
@@ -182,16 +235,23 @@ def add_transaction(
         return HTMLResponse(str(e), status_code=400)
     if amount_val is None:
         return HTMLResponse("Amount is required.", status_code=400)
+    try:
+        when = date.fromisoformat(tx_date) if tx_date else date.today()
+    except ValueError:
+        return HTMLResponse("Date must be a valid date.", status_code=400)
     budget_svc.add_transaction(
         db,
         amount=amount_val,
         property_id_or_slug=property_id,
         category=category or "general",
-        tx_date=date.today(),
+        tx_date=when,
         description=description,
     )
     transactions = budget_svc.list_transactions(db)
-    return templates.TemplateResponse(request, "partials/transaction_list.html", {"transactions": transactions[:20]})
+    return with_toast(
+        templates.TemplateResponse(request, "partials/transaction_list.html", {"transactions": transactions[:20]}),
+        "Transaction added",
+    )
 
 
 @router.post("/set", response_class=HTMLResponse)
@@ -240,4 +300,7 @@ def set_budget(
         except Exception:
             logger.exception("set_budget: suppressed exception")
 
-    return templates.TemplateResponse(request, "partials/budget_report.html", {"reports": reports})
+    return with_toast(
+        templates.TemplateResponse(request, "partials/budget_report.html", {"reports": reports}),
+        "Budget saved",
+    )

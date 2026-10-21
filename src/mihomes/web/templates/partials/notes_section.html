@@ -11,8 +11,11 @@
               hx-target="closest [data-notes-container]"
               hx-swap="innerHTML"
               hx-confirm="Delete this note?"
-              class="flex-shrink-0 text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity mt-0.5">
-        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              aria-label="Delete note"
+              {# Hover-only reveal is desktop-only: on touch there is no hover, so the button was
+                 unreachable. Visible below md, revealed on hover or keyboard focus above it. #}
+              class="flex-shrink-0 -m-1.5 p-2.5 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 focus:opacity-100 transition-opacity">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
         </svg>
       </button>
@@ -25,9 +28,9 @@
 <form hx-post="{{ post_url }}"
       hx-target="closest [data-notes-container]"
       hx-swap="innerHTML"
-      hx-on::after-request="this.reset()"
+      hx-on::after-request="if (event.detail.successful) this.reset()"
       class="flex gap-2">
-  <input type="text" name="content" placeholder="Add a note…" required
+  <input type="text" name="content" placeholder="Add a note…" required aria-label="New note"
          class="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white" />
   <button type="submit"
           class="px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors flex-shrink-0">

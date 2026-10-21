@@ -1,0 +1,30 @@
+{# The onboarding wizard's layout: logo, "Step N of M", the step's card, and a way out.
+
+   Minimal on purpose (`_auth_layout.html`), not the app shell: steps 1-2 run before an account
+   exists, so the sidebar's links would lead nowhere, and every link off the page is a way to
+   abandon a wizard nothing routes you back to. Sign-out stays, so nobody is trapped in it.
+
+   `step`/`total_steps` come from `onboarding_service`'s step constants (account = 2, invite = 5;
+   step 1 was creating the sign-in). #}
+{% extends "_auth_layout.html" %}
+{% set card_width = "max-w-md" %}
+
+{% block above %}
+  {% if step and total_steps %}
+    <div class="mb-4 flex items-center justify-between gap-3">
+      <p class="text-sm font-medium text-gray-600">Step {{ step }} of {{ total_steps }}</p>
+      <div class="flex gap-1" aria-hidden="true">
+        {% for n in range(1, total_steps + 1) %}
+          <span class="h-1.5 w-6 rounded-full {% if n <= step %}bg-brand-600{% else %}bg-gray-200{% endif %}"></span>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+{% endblock %}
+
+{% block below %}
+  <form method="post" action="/signout" class="mt-6 text-center">
+    <input type="hidden" name="csrf_token" value="{{ request.cookies.get('mihomes_csrf', '') }}" />
+    <button type="submit" class="py-2 text-sm text-gray-500 underline hover:text-gray-900">Sign out</button>
+  </form>
+{% endblock %}

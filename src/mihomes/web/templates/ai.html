@@ -62,27 +62,43 @@
 
 {% block content %}
 
-<!-- Tab bar -->
-<div class="flex gap-1 mb-5 bg-gray-100 p-1 rounded-xl w-fit">
-  <button onclick="switchAITab('chat')" id="aitab-chat"
-          class="px-4 py-1.5 text-sm font-medium rounded-lg bg-white text-gray-900 shadow-sm transition-colors">
-    Chat
-  </button>
-  <button onclick="switchAITab('report')" id="aitab-report"
-          class="px-4 py-1.5 text-sm font-medium rounded-lg text-gray-500 hover:text-gray-700 transition-colors">
-    Generate Report
+<!-- Tab bar (+ History toggle below md, where the sidebar becomes a drawer) -->
+<div class="flex flex-wrap items-center gap-2 mb-5">
+  <div class="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit">
+    <button type="button" onclick="switchAITab('chat')" id="aitab-chat"
+            class="px-4 py-1.5 text-sm font-medium rounded-lg bg-white text-gray-900 shadow-sm transition-colors">
+      Chat
+    </button>
+    <button type="button" onclick="switchAITab('report')" id="aitab-report"
+            class="px-4 py-1.5 text-sm font-medium rounded-lg text-gray-500 hover:text-gray-700 transition-colors">
+      Generate Report
+    </button>
+  </div>
+  <button type="button" id="ai-history-toggle" onclick="toggleHistoryDrawer()"
+          aria-controls="ai-history-panel" aria-expanded="false"
+          class="md:hidden inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>
+    History
   </button>
 </div>
 
-<div class="flex overflow-hidden rounded-xl border border-gray-200" style="height:calc(100vh - 210px)">
+{# Height: dynamic-viewport units so the input row stays above the mobile browser chrome; the
+   floor keeps the conversation usable on a short landscape phone (the page scrolls instead). #}
+<div id="ai-shell" class="relative flex overflow-hidden rounded-xl border border-gray-200 h-[calc(100dvh-13rem)] min-h-[26rem]">
 
-  <!-- Left: conversation history sidebar -->
-  <div id="ai-history-panel" class="w-52 flex-shrink-0 bg-gray-50 border-r border-gray-200 flex flex-col overflow-hidden">
+  <!-- Drawer backdrop (below md only) -->
+  <div id="ai-history-backdrop" class="hidden absolute inset-0 bg-black/30 z-10 md:hidden" onclick="toggleHistoryDrawer(false)"></div>
+
+  <!-- Left: conversation history — a sidebar from md up, a drawer below -->
+  <div id="ai-history-panel"
+       class="hidden md:flex absolute md:static inset-y-0 left-0 z-20 md:z-auto w-64 md:w-52 flex-shrink-0 bg-gray-50 border-r border-gray-200 flex-col overflow-hidden shadow-xl md:shadow-none">
     <!-- New Chat button -->
     <div class="p-3 border-b border-gray-200 flex-shrink-0">
-      <button onclick="newChat()"
+      <button type="button" onclick="newChat()"
               class="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-lg transition-colors">
-        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
         </svg>
         New Chat
@@ -99,16 +115,16 @@
   </div>
 
   <!-- Main area -->
-  <div class="flex-1 flex flex-col overflow-hidden min-w-0">
+  <div class="flex-1 flex flex-col overflow-hidden min-w-0 min-h-0">
 
     <!-- ── Chat panel ── -->
-    <div id="aipanel-chat" class="flex flex-col h-full overflow-hidden">
+    <div id="aipanel-chat" class="flex flex-col flex-1 min-h-0 overflow-hidden">
 
       <!-- Welcome card -->
-      <div id="welcome-card" class="p-5 border-b border-gray-200 flex-shrink-0">
+      <div id="welcome-card" class="p-5 border-b border-gray-200 flex-shrink-0 overflow-y-auto max-h-[45%]">
         <div class="flex items-start gap-3">
           <div class="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-            <svg class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
             </svg>
           </div>
@@ -124,7 +140,7 @@
                 'Which vendors have I spent the most on?',
                 'Are there any overdue maintenance items?'
               ] %}
-              <button onclick="setQuery(this.textContent)"
+              <button type="button" onclick="setQuery(this.textContent.trim())"
                       class="px-3 py-1 text-xs text-brand-600 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-full transition-colors">
                 {{ prompt }}
               </button>
@@ -135,57 +151,65 @@
       </div>
 
       <!-- Messages -->
-      <div id="conversation" class="flex-1 overflow-y-auto p-5 space-y-4"></div>
+      <div id="conversation" role="log" aria-live="polite" aria-label="Conversation"
+           class="flex-1 min-h-0 overflow-y-auto p-4 sm:p-5 space-y-4"></div>
 
       <!-- Chat input -->
-      <div class="border-t border-gray-200 p-4 bg-white flex-shrink-0">
+      <div class="border-t border-gray-200 p-3 sm:p-4 bg-white flex-shrink-0">
         <form id="ask-form">
           <!-- Row 1: role + property selects + hint -->
-          <div class="flex items-center gap-2 mb-2.5">
+          <div class="flex flex-wrap items-center gap-2 mb-2.5">
+            <label for="role-select" class="sr-only">Advisor role</label>
             <select id="role-select" onchange="setRole(this.value)"
                     class="border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-brand-500">
               {% for value, label in roles %}
               <option value="{{ value }}">{{ label }}</option>
               {% endfor %}
             </select>
+            <label for="property-select" class="sr-only">Property</label>
             <select id="property-select" onchange="setProperty(this.value)"
-                    class="border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-brand-500">
+                    class="border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-brand-500 max-w-full">
               <option value="">All properties</option>
               {% for p in properties %}
               <option value="{{ p.slug }}">{{ p.name }}</option>
               {% endfor %}
             </select>
-            <span class="ml-auto text-[11px] text-gray-400 flex-shrink-0">↵ send · ⇧↵ newline</span>
+            <span class="hidden sm:inline ml-auto text-[11px] text-gray-500 flex-shrink-0">↵ send · ⇧↵ newline</span>
           </div>
-          <!-- Row 2: textarea + send button -->
-          <div class="flex gap-3 items-end">
+          <!-- Row 2: textarea + send/stop -->
+          <div class="flex gap-2 sm:gap-3 items-end">
+            <label for="query-input" class="sr-only">Your question</label>
             <textarea id="query-input" name="query" rows="2" required
                       placeholder="Ask anything about your estate…"
-                      class="flex-1 border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
-                      onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();document.getElementById('ask-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));}"></textarea>
+                      class="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
+                      onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();document.getElementById('ask-form').requestSubmit();}"></textarea>
             <button type="submit" id="ask-submit-btn"
                     class="flex-shrink-0 inline-flex items-center gap-2 px-4 py-2.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors">
-              <svg id="ai-spinner" class="w-4 h-4 animate-spin hidden" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
-              </svg>
-              <svg id="ask-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg id="ask-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
               </svg>
               Ask
             </button>
+            <button type="button" id="ask-stop-btn" onclick="stopStreaming()"
+                    class="hidden flex-shrink-0 items-center gap-2 px-4 py-2.5 bg-white text-gray-700 text-sm font-medium border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+              <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+              </svg>
+              Stop
+            </button>
           </div>
           <!-- Row 3: file attach -->
           <div class="mt-2 flex items-center gap-2 flex-wrap">
-            <label for="files-chat" class="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 cursor-pointer transition-colors">
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <label for="files-chat" class="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 cursor-pointer transition-colors">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
               </svg>
-              Attach files
+              Attach files <span class="text-gray-400">(up to {{ max_attach_files }}, {{ max_attach_mb }} MB total)</span>
             </label>
             <input type="file" id="files-chat" name="files" multiple
                    accept=".txt,.md,.csv,.json,.jpg,.jpeg,.png,.gif,.webp,.pdf"
-                   class="hidden" onchange="updateFileChips(this,'chips-chat')" />
+                   class="sr-only" onchange="updateFileChips(this,'chips-chat')" />
             <div id="chips-chat" class="flex flex-wrap gap-1.5"></div>
           </div>
           <input type="hidden" name="role" id="role-input" value="" />
@@ -197,15 +221,15 @@
 
 
     <!-- ── Generate Report panel ── -->
-    <div id="aipanel-report" class="hidden overflow-y-auto p-5 space-y-5">
+    <div id="aipanel-report" class="hidden flex-1 min-h-0 overflow-y-auto p-4 sm:p-5 space-y-5">
 
       <!-- Report mode selector -->
       <div class="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit">
-        <button onclick="switchReportMode('situation')" id="rmode-situation"
+        <button type="button" onclick="switchReportMode('situation')" id="rmode-situation"
                 class="px-4 py-1.5 text-sm font-medium rounded-lg bg-white text-gray-900 shadow-sm transition-colors">
           Situation Report
         </button>
-        <button onclick="switchReportMode('digest')" id="rmode-digest"
+        <button type="button" onclick="switchReportMode('digest')" id="rmode-digest"
                 class="px-4 py-1.5 text-sm font-medium rounded-lg text-gray-500 hover:text-gray-700 transition-colors">
           Estate Digest
         </button>
@@ -223,18 +247,18 @@
                 hx-swap="innerHTML"
                 hx-indicator="#sr-spinner"
                 hx-encoding="multipart/form-data"
-                hx-on::after-request="scrollToReport(); renderMarkdown()"
+                hx-on::after-request="if(event.detail.successful){ scrollToReport(); renderMarkdown(); }"
                 class="space-y-4">
             <div>
-              <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Subject / Title</label>
-              <input type="text" name="subject"
+              <label for="sr-subject" class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Subject / Title</label>
+              <input type="text" name="subject" id="sr-subject"
                      class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                      placeholder="e.g. HVAC Replacement — May 14 Contractor Discussion" />
             </div>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
-                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Property</label>
-                <select name="property_slug" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                <label for="sr-property" class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Property</label>
+                <select name="property_slug" id="sr-property" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
                   <option value="">All / General</option>
                   {% for p in properties %}
                   <option value="{{ p.slug }}">{{ p.name }}</option>
@@ -242,8 +266,8 @@
                 </select>
               </div>
               <div>
-                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Linked Work Order</label>
-                <select name="work_order_slug" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                <label for="sr-work-order" class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Linked Work Order</label>
+                <select name="work_order_slug" id="sr-work-order" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
                   <option value="">None</option>
                   {% for wo in work_orders %}
                   <option value="{{ wo.slug }}">{{ wo.title }} — {{ wo.property.name }}</option>
@@ -252,42 +276,42 @@
               </div>
             </div>
             <div>
-              <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+              <label for="sr-content" class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
                 Input Content <span class="text-red-500">*</span>
               </label>
-              <textarea name="content" rows="10" required
+              <textarea name="content" id="sr-content" rows="10" required
                         class="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none font-mono"
                         placeholder="Paste your transcript, contractor notes, estimates, or describe the situation here…&#10;&#10;The more detail you provide, the more specific and useful the report will be."></textarea>
             </div>
             <!-- File attachments -->
             <div>
-              <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Attachments <span class="font-normal text-gray-400 normal-case">(optional — images, PDFs, text files)</span></label>
+              <div class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Attachments <span class="font-normal text-gray-500 normal-case">(optional — images, PDFs, text files; up to {{ max_attach_files }}, {{ max_attach_mb }} MB total)</span></div>
               <label for="files-sr" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
                 </svg>
                 Choose files
               </label>
               <input type="file" id="files-sr" name="files" multiple
                      accept=".txt,.md,.csv,.json,.jpg,.jpeg,.png,.gif,.webp,.pdf"
-                     class="hidden" onchange="updateFileChips(this,'chips-sr')" />
+                     class="sr-only" onchange="updateFileChips(this,'chips-sr')" />
               <div id="chips-sr" class="flex flex-wrap gap-1.5 mt-2"></div>
             </div>
-            <div class="flex items-center gap-3">
+            <div class="flex flex-wrap items-center gap-3">
               <button type="submit"
-                      class="inline-flex items-center gap-2 px-5 py-2.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
+                      class="inline-flex items-center gap-2 px-5 py-2.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 disabled:opacity-60 transition-colors">
                 <span id="sr-spinner" class="htmx-indicator">
-                  <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
                   </svg>
                 </span>
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                 </svg>
                 Generate Report
               </button>
-              <span class="text-xs text-gray-400">Typically 20–40 seconds for a full report</span>
+              <span class="text-xs text-gray-500">Typically 20–40 seconds for a full report</span>
             </div>
           </form>
         </div>
@@ -305,12 +329,12 @@
                 hx-swap="innerHTML"
                 hx-indicator="#ed-spinner"
                 hx-encoding="multipart/form-data"
-                hx-on::after-request="scrollToReport(); renderMarkdown()"
+                hx-on::after-request="if(event.detail.successful){ scrollToReport(); renderMarkdown(); }"
                 class="space-y-4">
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Period</label>
-                <select name="period" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                <label for="ed-period" class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Period</label>
+                <select name="period" id="ed-period" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
                   <option value="this_week">This Week</option>
                   <option value="last_7">Last 7 Days</option>
                   <option value="last_week">Last Week</option>
@@ -320,8 +344,8 @@
                 </select>
               </div>
               <div>
-                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Scope</label>
-                <select name="property_slug" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                <label for="ed-scope" class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Scope</label>
+                <select name="property_slug" id="ed-scope" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
                   <option value="">All Properties</option>
                   {% for p in properties %}
                   <option value="{{ p.slug }}">{{ p.name }}</option>
@@ -345,40 +369,40 @@
 
             <!-- Optional file attachments -->
             <div>
-              <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Additional Context <span class="font-normal text-gray-400 normal-case">(optional — attach notes, photos, or documents)</span></label>
+              <div class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Additional Context <span class="font-normal text-gray-500 normal-case">(optional — notes, photos, or documents; up to {{ max_attach_files }}, {{ max_attach_mb }} MB total)</span></div>
               <label for="files-ed" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
                 </svg>
                 Choose files
               </label>
               <input type="file" id="files-ed" name="files" multiple
                      accept=".txt,.md,.csv,.json,.jpg,.jpeg,.png,.gif,.webp,.pdf"
-                     class="hidden" onchange="updateFileChips(this,'chips-ed')" />
+                     class="sr-only" onchange="updateFileChips(this,'chips-ed')" />
               <div id="chips-ed" class="flex flex-wrap gap-1.5 mt-2"></div>
             </div>
-            <div class="flex items-center gap-3">
+            <div class="flex flex-wrap items-center gap-3">
               <button type="submit"
-                      class="inline-flex items-center gap-2 px-5 py-2.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
+                      class="inline-flex items-center gap-2 px-5 py-2.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 disabled:opacity-60 transition-colors">
                 <span id="ed-spinner" class="htmx-indicator">
-                  <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
                   </svg>
                 </span>
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/>
                 </svg>
                 Generate Digest
               </button>
-              <span class="text-xs text-gray-400">Pulls live data from your estate records</span>
+              <span class="text-xs text-gray-500">Pulls live data from your estate records</span>
             </div>
           </form>
         </div>
       </div>
 
       <!-- Report output area (populated by HTMX) -->
-      <div id="report-output"></div>
+      <div id="report-output" aria-live="polite"></div>
 
     </div><!-- /aipanel-report -->
 
@@ -387,8 +411,90 @@
 </div><!-- /outer flex container -->
 
 <script>
+// Mirrors routes/ai.py _MAX_ATTACH_FILES / _MAX_ATTACH_TOTAL_BYTES (20 MiB, binary).
+const MAX_ATTACH_FILES = {{ max_attach_files }};
+const MAX_ATTACH_BYTES = {{ max_attach_bytes }};
+
 let activeRole = '';
 let currentSessionId = null;
+let currentAITab = 'chat';
+let historyDrawerOpen = false;
+let abortCtl = null;
+
+const AI_BUBBLE_CLASS = 'chat-prose bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-3 max-w-2xl text-sm break-words';
+const THINKING = '<span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span>';
+
+// ── Small helpers ─────────────────────────────────────────────────────────
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function mdToHtml(text) {
+  if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') return escHtml(text).replace(/\n/g, '<br>');
+  return DOMPurify.sanitize(marked.parse(text));
+}
+
+function toastError(msg) {
+  if (window.mhToast) window.mhToast(msg, 'error'); else alert(msg);
+}
+
+/** Copy `text`, then flip the button's label to "Copied" for a moment. */
+async function copyText(text, btn) {
+  let ok = false;
+  try {
+    await navigator.clipboard.writeText(text);
+    ok = true;
+  } catch (_) {
+    // Older browsers / non-secure contexts: the textarea + execCommand fallback.
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
+    ta.remove();
+  }
+  if (!ok) { toastError("Couldn't copy — select the text and copy it manually."); return; }
+  const label = btn && (btn.querySelector('[data-copy-label]') || btn);
+  if (label) {
+    const was = label.textContent;
+    label.textContent = 'Copied';
+    setTimeout(() => { label.textContent = was; }, 1500);
+  }
+}
+
+/** Is the conversation scrolled to (or within a line or two of) the bottom? Only then do new
+    tokens pull the view down — otherwise a reader scrolling back up gets yanked away. */
+function nearBottom(conv) { return conv.scrollHeight - conv.scrollTop - conv.clientHeight < 80; }
+
+// ── History drawer (below md) ─────────────────────────────────────────────
+
+function syncHistoryPanel() {
+  const p = document.getElementById('ai-history-panel');
+  const bd = document.getElementById('ai-history-backdrop');
+  const tg = document.getElementById('ai-history-toggle');
+  const onChat = currentAITab === 'chat';
+  const open = onChat && historyDrawerOpen;
+  if (p) {
+    // Sidebar at md+ only on the chat tab; below md only while the drawer is open.
+    p.classList.toggle('md:flex', onChat);
+    p.classList.toggle('hidden', !open);
+    p.classList.toggle('flex', open);
+  }
+  if (bd) bd.classList.toggle('hidden', !open);
+  if (tg) {
+    tg.classList.toggle('hidden', !onChat);
+    tg.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+}
+
+function toggleHistoryDrawer(force) {
+  historyDrawerOpen = typeof force === 'boolean' ? force : !historyDrawerOpen;
+  syncHistoryPanel();
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && historyDrawerOpen) toggleHistoryDrawer(false);
+});
 
 // ── Session management ────────────────────────────────────────────────────
 
@@ -397,45 +503,42 @@ function hideWelcome() { document.getElementById('welcome-card').classList.add('
 
 function highlightActiveSession(sessionId) {
   document.querySelectorAll('.session-item').forEach(item => {
-    const active = item.dataset.sessionId === sessionId;
-    item.classList.toggle('active', active);
+    item.classList.toggle('active', item.dataset.sessionId === sessionId);
   });
 }
 
 async function loadSession(sessionId) {
+  if (abortCtl) stopStreaming();
+  toggleHistoryDrawer(false);
   currentSessionId = sessionId;
-  localStorage.setItem('mihomes_ai_session', sessionId);
+  try { localStorage.setItem('mihomes_ai_session', sessionId); } catch (_) {}
   document.getElementById('session-id-input').value = sessionId;
   highlightActiveSession(sessionId);
   hideWelcome();
   const conv = document.getElementById('conversation');
-  conv.innerHTML = '<div class="flex items-center gap-2 text-sm text-gray-400 py-4 px-2"><svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg> Loading…</div>';
+  conv.innerHTML = '<div class="flex items-center gap-2 text-sm text-gray-500 py-4 px-2"><svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg> Loading…</div>';
   try {
-    const resp = await fetch('/ai/sessions/' + sessionId);
+    const resp = await fetch('/ai/sessions/' + encodeURIComponent(sessionId));
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const messages = await resp.json();
     conv.innerHTML = '';
-    if (messages.length === 0) {
-      showWelcome();
-    }
+    if (messages.length === 0) showWelcome();
     for (const msg of messages) {
       appendUserBubble(msg.user);
-      const bubbleId = appendAiBubble();
-      const el = document.getElementById(bubbleId);
-      if (el) {
-        el.className = 'chat-prose bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-3 max-w-2xl text-sm';
-        el.style.minHeight = '';
-        el.innerHTML = typeof marked !== 'undefined' ? DOMPurify.sanitize(marked.parse(msg.ai)) : escHtml(msg.ai);
-      }
+      const el = document.getElementById(appendAiBubble());
+      if (el) finishAiBubble(el, msg.ai);
     }
     conv.scrollTop = conv.scrollHeight;
-  } catch(e) {
-    conv.innerHTML = '<div class="text-sm text-red-500 px-2 py-4">Failed to load session.</div>';
+  } catch (e) {
+    conv.innerHTML = '<div class="text-sm text-red-600 px-2 py-4">Couldn\'t load this conversation. Refresh and try again.</div>';
   }
 }
 
 function newChat() {
+  if (abortCtl) stopStreaming();
+  toggleHistoryDrawer(false);
   currentSessionId = crypto.randomUUID();
-  localStorage.setItem('mihomes_ai_session', currentSessionId);
+  try { localStorage.setItem('mihomes_ai_session', currentSessionId); } catch (_) {}
   document.getElementById('session-id-input').value = currentSessionId;
   document.getElementById('conversation').innerHTML = '';
   showWelcome();
@@ -449,52 +552,77 @@ document.addEventListener('htmx:afterSettle', (e) => {
 
 async function confirmDeleteSession(sessionId) {
   if (!confirm('Delete this conversation? This cannot be undone.')) return;
-  await fetch('/ai/sessions/' + sessionId, { method: 'DELETE' });
+  let resp;
+  try {
+    resp = await fetch('/ai/sessions/' + encodeURIComponent(sessionId), { method: 'DELETE' });
+  } catch (_) {
+    toastError("Couldn't reach MiHomes. The conversation was not deleted.");
+    return;
+  }
+  if (!resp.ok) { toastError("Couldn't delete this conversation. Please try again."); return; }
+  if (window.mhToast) window.mhToast('Conversation deleted', 'success');
   if (sessionId === currentSessionId) newChat();
   htmx.trigger(document.body, 'sessionUpdated');
 }
 
 function startRename(sessionId) {
-  const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
+  const item = Array.from(document.querySelectorAll('.session-item')).find(i => i.dataset.sessionId === sessionId);
   if (!item) return;
-  const titleEl = item.querySelector('.session-btn div');
+  const btn = item.querySelector('.session-btn');
+  const titleEl = btn.querySelector('div');
   const current = titleEl ? titleEl.textContent.trim() : '';
 
-  // Replace the session-btn content with an inline input
-  const btn = item.querySelector('.session-btn');
-  const originalHTML = btn.innerHTML;
-  btn.innerHTML = `
-    <input id="rename-input-${sessionId}"
-           class="w-full text-xs border border-brand-400 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-brand-500 bg-white"
-           value="${escHtml(current)}" maxlength="120" />
-    <div class="flex gap-1.5 mt-1">
-      <button type="button" id="rename-save-${sessionId}"
-              class="text-[10px] px-2 py-0.5 bg-brand-600 text-white rounded hover:bg-brand-700 transition-colors">Save</button>
-      <button type="button" id="rename-cancel-${sessionId}"
-              class="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition-colors">Cancel</button>
-    </div>`;
+  // Built with DOM calls, not an HTML string: the session id and title are user data.
+  const wrap = document.createElement('div');
+  wrap.className = 'px-3 py-2';
+  const input = document.createElement('input');
+  input.className = 'w-full text-xs border border-brand-400 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-brand-500 bg-white';
+  input.value = current;
+  input.maxLength = 120;
+  input.setAttribute('aria-label', 'Conversation name');
+  const row = document.createElement('div');
+  row.className = 'flex gap-1.5 mt-1';
+  const save = document.createElement('button');
+  save.type = 'button';
+  save.className = 'text-xs px-2 py-1 bg-brand-600 text-white rounded hover:bg-brand-700 transition-colors';
+  save.textContent = 'Save';
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.className = 'text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition-colors';
+  cancel.textContent = 'Cancel';
+  row.append(save, cancel);
+  wrap.append(input, row);
 
-  const input = document.getElementById('rename-input-' + sessionId);
+  btn.classList.add('hidden');
+  item.insertBefore(wrap, btn);
   input.focus();
   input.select();
 
+  const restore = () => { wrap.remove(); btn.classList.remove('hidden'); btn.focus(); };
+
   async function saveRename() {
-    const name = input.value.trim();
-    await fetch('/ai/sessions/' + sessionId + '/name', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
-    });
+    save.disabled = true;
+    let resp;
+    try {
+      resp = await fetch('/ai/sessions/' + encodeURIComponent(sessionId) + '/name', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: input.value.trim() }),
+      });
+    } catch (_) { resp = null; }
+    if (!resp || !resp.ok) {
+      save.disabled = false;
+      toastError("Couldn't rename this conversation. Please try again.");
+      return;
+    }
     htmx.trigger(document.body, 'sessionUpdated');
   }
 
-  document.getElementById('rename-save-' + sessionId).addEventListener('click', saveRename);
-  document.getElementById('rename-cancel-' + sessionId).addEventListener('click', () => {
-    btn.innerHTML = originalHTML;
-  });
+  save.addEventListener('click', saveRename);
+  cancel.addEventListener('click', restore);
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); saveRename(); }
-    if (e.key === 'Escape') { btn.innerHTML = originalHTML; }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); restore(); }
   });
 }
 
@@ -512,8 +640,19 @@ function clearInput() {
   if (chips) chips.innerHTML = '';
 }
 
-function escHtml(s) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+/** Put a failed question (and its attachments) back so the user can resend it. */
+function restoreInput(query, files) {
+  const q = document.getElementById('query-input');
+  if (q && !q.value.trim()) q.value = query;
+  const input = document.getElementById('files-chat');
+  if (input && files && files.length && !input.files.length) {
+    try {
+      const dt = new DataTransfer();
+      files.forEach(f => dt.items.add(f));
+      input.files = dt.files;
+      updateFileChips(input, 'chips-chat');
+    } catch (_) { /* DataTransfer unsupported: the text is still restored */ }
+  }
 }
 
 function appendUserBubble(text) {
@@ -521,8 +660,8 @@ function appendUserBubble(text) {
   const div = document.createElement('div');
   div.className = 'flex items-start gap-3 justify-end';
   div.innerHTML = `
-    <div class="bg-brand-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 max-w-lg text-sm whitespace-pre-wrap">${escHtml(text)}</div>
-    <div class="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0 mt-0.5">
+    <div class="bg-brand-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 max-w-lg text-sm whitespace-pre-wrap break-words">${escHtml(text)}</div>
+    <div class="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0 mt-0.5" aria-hidden="true">
       <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
       </svg>
@@ -531,51 +670,124 @@ function appendUserBubble(text) {
   conv.scrollTop = conv.scrollHeight;
 }
 
+let bubbleSeq = 0;
 function appendAiBubble() {
   const conv = document.getElementById('conversation');
-  const id = 'ai-bubble-' + Date.now();
+  const id = 'ai-bubble-' + Date.now() + '-' + (bubbleSeq++);
   const div = document.createElement('div');
   div.className = 'flex items-start gap-3';
   div.innerHTML = `
-    <div class="w-7 h-7 rounded-full bg-brand-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+    <div class="w-7 h-7 rounded-full bg-brand-100 flex items-center justify-center flex-shrink-0 mt-0.5" aria-hidden="true">
       <svg class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
       </svg>
     </div>
-    <div class="flex-1 min-w-0">
-      <div id="${id}" class="bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-3 max-w-2xl max-h-[90vh] overflow-y-auto" style="min-height:2.5rem">
-        <span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span>
-      </div>
+    <div class="flex-1 min-w-0" data-bubble-col>
+      <div id="${id}" class="bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-3 max-w-2xl min-h-[2.5rem]">${THINKING}</div>
     </div>`;
   conv.appendChild(div);
   conv.scrollTop = conv.scrollHeight;
   return id;
 }
 
+/** Final render of an answer, plus its Copy button. */
+function finishAiBubble(el, text) {
+  el.className = AI_BUBBLE_CLASS;
+  el.innerHTML = text ? mdToHtml(text) : '<span class="text-gray-500">(No response)</span>';
+  const col = el.closest('[data-bubble-col]');
+  if (!text || !col || col.querySelector('[data-copy-answer]')) return;
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.setAttribute('data-copy-answer', '');
+  b.className = 'mt-1 ml-1 inline-flex items-center gap-1 px-2 py-1 text-xs text-gray-500 hover:text-gray-700 rounded transition-colors';
+  b.innerHTML = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg><span data-copy-label>Copy</span>';
+  b.setAttribute('aria-label', 'Copy answer');
+  b.addEventListener('click', () => copyText(text, b));
+  col.appendChild(b);
+}
+
+/** Show a failure. With no answer yet it takes the bubble's place; mid-answer it goes below the
+    partial answer instead of replacing it. `link` is {href, text} or null. `kind` 'error'|'plan'. */
+function showBubbleNotice(el, partialText, title, message, link, kind) {
+  const box = document.createElement('div');
+  box.setAttribute('role', kind === 'plan' ? 'status' : 'alert');
+  box.className = (kind === 'plan'
+    ? 'bg-amber-50 border border-amber-200 text-amber-800'
+    : 'bg-red-50 border border-red-200 text-red-700') + ' rounded-2xl rounded-tl-sm px-4 py-3 text-sm max-w-2xl';
+  const t = document.createElement('div');
+  t.className = 'font-medium mb-0.5';
+  t.textContent = title;
+  const m = document.createElement('div');
+  m.textContent = message;
+  box.append(t, m);
+  if (link) {
+    const a = document.createElement('a');
+    a.href = link.href;
+    a.textContent = link.text;
+    a.className = 'inline-block mt-1.5 font-medium underline hover:no-underline';
+    box.appendChild(a);
+  }
+  if (!el) return;
+  if (partialText) {
+    finishAiBubble(el, partialText);
+    box.classList.add('mt-2');
+    el.closest('[data-bubble-col]').appendChild(box);
+  } else {
+    el.replaceWith(box);
+  }
+}
+
 function setStreaming(on) {
   const btn = document.getElementById('ask-submit-btn');
-  const spinner = document.getElementById('ai-spinner');
-  const icon = document.getElementById('ask-icon');
-  if (btn) btn.disabled = on;
-  if (spinner) spinner.classList.toggle('hidden', !on);
-  if (icon) icon.classList.toggle('hidden', on);
+  const stop = document.getElementById('ask-stop-btn');
+  if (btn) { btn.disabled = on; btn.classList.toggle('hidden', on); btn.classList.toggle('inline-flex', !on); }
+  if (stop) { stop.classList.toggle('hidden', !on); stop.classList.toggle('inline-flex', on); }
+}
+
+function stopStreaming() {
+  if (abortCtl) abortCtl.abort();
+}
+
+/** Turn a non-stream response into {title, message, link, kind, login}. */
+async function describeFailure(resp) {
+  let data = null;
+  const type = (resp.headers.get('content-type') || '').toLowerCase();
+  if (type.includes('json')) { try { data = await resp.json(); } catch (_) { data = null; } }
+  // A logged-out POST can come back as the login page (redirect followed) rather than a 401.
+  if (resp.status === 401 || (resp.redirected && /\/login/.test(resp.url))) return { login: true };
+  if (resp.status === 402) {
+    return { kind: 'plan', title: 'AI allowance reached',
+             message: (data && data.reason) || 'This needs a higher plan.',
+             link: { href: '/billing', text: 'See plans' } };
+  }
+  if (resp.status === 403) return { kind: 'error', title: 'Not allowed', message: "You don't have permission to use the AI Advisor." };
+  const d = data && (data.detail || data.message);
+  if (typeof d === 'string' && d && resp.status < 500) return { kind: 'error', title: 'Unable to get a response', message: d };
+  return { kind: 'error', title: 'Unable to get a response',
+           message: resp.status >= 500 ? 'Something went wrong on our side. Please try again.' : 'That didn\'t work. Please try again.' };
 }
 
 document.addEventListener('DOMContentLoaded', () => {
   // Restore or create session
-  const saved = localStorage.getItem('mihomes_ai_session');
+  let saved = null;
+  try { saved = localStorage.getItem('mihomes_ai_session'); } catch (_) {}
   if (saved) {
     loadSession(saved);
   } else {
     currentSessionId = crypto.randomUUID();
-    localStorage.setItem('mihomes_ai_session', currentSessionId);
+    try { localStorage.setItem('mihomes_ai_session', currentSessionId); } catch (_) {}
     document.getElementById('session-id-input').value = currentSessionId;
   }
+  syncHistoryPanel();
 
   document.getElementById('ask-form').addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (abortCtl) return;                       // one answer at a time
     const query = document.getElementById('query-input').value.trim();
     if (!query) return;
+
+    const filesEl = document.getElementById('files-chat');
+    const files = filesEl ? Array.from(filesEl.files) : [];
 
     hideWelcome();
     appendUserBubble(query);
@@ -591,19 +803,62 @@ document.addEventListener('DOMContentLoaded', () => {
     formData.append('role', document.getElementById('role-input').value);
     formData.append('property_id', document.getElementById('property-input').value);
     formData.append('session_id', currentSessionId || '');
-    const filesEl = document.getElementById('files-chat');
-    if (filesEl && filesEl.files.length) {
-      Array.from(filesEl.files).forEach(f => formData.append('files', f));
-    }
+    files.forEach(f => formData.append('files', f));
 
     let rawText = '';
     let firstToken = true;
+    let finished = false;      // [DONE] seen
+    let failed = false;        // an error/plan notice was shown
+    let lastRender = 0;
+    let renderTimer = null;
+
+    // Progressive markdown, throttled: re-parsing the whole answer on every token is wasteful,
+    // and rendering only at the end showed raw "**bold**" for the whole stream.
+    const render = () => {
+      renderTimer = null;
+      lastRender = Date.now();
+      const el = bubble();
+      if (!el) return;
+      const follow = nearBottom(conv);
+      el.className = AI_BUBBLE_CLASS;
+      el.innerHTML = mdToHtml(rawText) + '<span class="streaming-cursor" aria-hidden="true">▋</span>';
+      if (follow) conv.scrollTop = conv.scrollHeight;
+    };
+    const scheduleRender = () => {
+      if (renderTimer) return;
+      const wait = Math.max(0, 150 - (Date.now() - lastRender));
+      renderTimer = setTimeout(render, wait);
+    };
+
+    const fail = (title, message, link, kind) => {
+      failed = true;
+      if (renderTimer) { clearTimeout(renderTimer); renderTimer = null; }
+      const follow = nearBottom(conv);
+      showBubbleNotice(bubble(), rawText, title, message, link, kind);
+      if (!rawText) restoreInput(query, files);
+      if (follow) conv.scrollTop = conv.scrollHeight;
+    };
+
+    abortCtl = new AbortController();
     try {
-      const resp = await fetch('/ai/ask-stream', { method: 'POST', body: formData });
+      const resp = await fetch('/ai/ask-stream', { method: 'POST', body: formData, signal: abortCtl.signal });
+      const type = (resp.headers.get('content-type') || '').toLowerCase();
+      if (!resp.ok || !type.includes('text/event-stream')) {
+        const f = await describeFailure(resp);
+        if (f.login) {
+          restoreInput(query, files);
+          window.location.href = '/login';
+          return;
+        }
+        fail(f.title, f.message, f.link || null, f.kind);
+        return;
+      }
+
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
 
+      readLoop:
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -618,65 +873,62 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!line.startsWith('data: ')) continue;
             const data = line.slice(6);
 
-            if (data === '[DONE]') {
-              const el = bubble();
-              if (el) {
-                el.style.minHeight = '';
-                if (typeof marked !== 'undefined' && rawText) {
-                  el.className = 'chat-prose bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-3 text-sm max-w-2xl';
-                  el.innerHTML = DOMPurify.sanitize(marked.parse(rawText));
-                } else if (rawText) {
-                  el.innerHTML = escHtml(rawText);
-                } else {
-                  el.innerHTML = '';
-                }
-              }
-              conv.scrollTop = conv.scrollHeight;
-              setStreaming(false);
-              htmx.trigger(document.body, 'sessionUpdated');
-              return;
-            }
+            if (data === '[DONE]') { finished = true; break readLoop; }
 
-            try {
-              const msg = JSON.parse(data);
-              if (msg.e) {
-                const el = bubble();
-                if (el) {
-                  el.className = 'bg-red-50 border border-red-200 rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-red-700 max-w-2xl';
-                  el.style.minHeight = '';
-                  el.innerHTML = `<div class="font-medium mb-0.5">Unable to get a response</div>${escHtml(msg.e)}`;
-                }
-                setStreaming(false);
-                return;
+            let msg;
+            try { msg = JSON.parse(data); } catch (_) { continue; /* malformed event, skip */ }
+            if (msg.plan !== undefined) {
+              fail('AI allowance reached', msg.plan, { href: '/billing', text: 'See plans' }, 'plan');
+            } else if (msg.e) {
+              fail('Unable to get a response', msg.e, null, 'error');
+            } else if (msg.status !== undefined) {
+              const el = bubble();
+              if (el && firstToken) {
+                el.innerHTML = THINKING + `<span class="text-xs text-gray-500 ml-2">${escHtml(msg.status)}</span>`;
               }
-              if (msg.status !== undefined) {
-                const el = bubble();
-                if (el && firstToken) {
-                  el.innerHTML = `<span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span><span class="text-xs text-gray-400 ml-2">${escHtml(msg.status)}</span>`;
-                }
-              } else if (msg.t !== undefined) {
-                rawText += msg.t;
-                const el = bubble();
-                if (el) {
-                  if (firstToken) {
-                    firstToken = false;
-                    el.className = 'bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-gray-700 max-w-2xl whitespace-pre-wrap leading-relaxed';
-                  }
-                  el.innerHTML = escHtml(rawText) + '<span class="streaming-cursor">▋</span>';
-                }
-                conv.scrollTop = conv.scrollHeight;
-              }
-            } catch (_) { /* malformed event, skip */ }
+            } else if (msg.t !== undefined) {
+              firstToken = false;
+              rawText += msg.t;
+              scheduleRender();
+            }
           }
         }
       }
-    } catch (err) {
-      const el = bubble();
-      if (el) {
-        el.className = 'bg-red-50 border border-red-200 rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-red-700 max-w-2xl';
-        el.textContent = 'Connection error. Please try again.';
+
+      if (!failed) {
+        if (renderTimer) { clearTimeout(renderTimer); renderTimer = null; }
+        const el = bubble();
+        if (finished || rawText) {
+          const follow = nearBottom(conv);
+          if (el) finishAiBubble(el, rawText);
+          if (!finished) fail('Response cut off', 'The connection closed before the answer finished. Ask again to get the rest.', null, 'error');
+          if (follow) conv.scrollTop = conv.scrollHeight;
+        } else {
+          fail('Unable to get a response', 'The connection closed before any answer arrived. Please try again.', null, 'error');
+        }
       }
+    } catch (err) {
+      if (err && err.name === 'AbortError') {
+        // Stopped by the user: keep whatever arrived.
+        if (renderTimer) { clearTimeout(renderTimer); renderTimer = null; }
+        const el = bubble();
+        if (rawText && el) {
+          finishAiBubble(el, rawText);
+          const note = document.createElement('div');
+          note.className = 'mt-1 ml-1 text-xs text-gray-500';
+          note.textContent = 'Stopped';
+          el.closest('[data-bubble-col]').appendChild(note);
+        } else if (el) {
+          el.closest('.flex.items-start').remove();
+          restoreInput(query, files);
+        }
+      } else {
+        fail('Connection error', "Couldn't reach MiHomes. Check your connection and try again.", null, 'error');
+      }
+    } finally {
+      abortCtl = null;
       setStreaming(false);
+      htmx.trigger(document.body, 'sessionUpdated');
     }
   });
 });
@@ -686,15 +938,6 @@ function setRole(value) {
   document.getElementById('role-input').value = value;
   const sel = document.getElementById('role-select');
   if (sel) sel.value = value;
-  document.querySelectorAll('[id^="role-btn-"]').forEach(btn => {
-    btn.classList.remove('bg-brand-50', 'text-brand-700', 'font-medium');
-    btn.classList.add('text-gray-600', 'hover:bg-gray-50');
-  });
-  const btn = document.getElementById('role-btn-' + (value || 'auto'));
-  if (btn) {
-    btn.classList.add('bg-brand-50', 'text-brand-700', 'font-medium');
-    btn.classList.remove('text-gray-600', 'hover:bg-gray-50');
-  }
 }
 
 function setProperty(value) {
@@ -703,6 +946,7 @@ function setProperty(value) {
 
 // ── Tab switching ──────────────────────────────────────────────────────────
 function switchAITab(tab) {
+  currentAITab = tab;
   ['chat', 'report'].forEach(t => {
     document.getElementById('aipanel-' + t)?.classList.add('hidden');
     const btn = document.getElementById('aitab-' + t);
@@ -718,8 +962,8 @@ function switchAITab(tab) {
     active.classList.remove('text-gray-500', 'hover:text-gray-700');
   }
   // History sidebar only relevant for chat
-  const historyPanel = document.getElementById('ai-history-panel');
-  if (historyPanel) historyPanel.classList.toggle('hidden', tab !== 'chat');
+  if (tab !== 'chat') historyDrawerOpen = false;
+  syncHistoryPanel();
 }
 
 // ── Report mode switching ─────────────────────────────────────────────────
@@ -750,25 +994,50 @@ function scrollToReport() {
 }
 
 function renderMarkdown() {
-  if (typeof marked === 'undefined') return;
   document.querySelectorAll('[data-markdown]').forEach(el => {
-    el.innerHTML = DOMPurify.sanitize(marked.parse(el.textContent || ''));
+    el.innerHTML = mdToHtml(el.textContent || '');
     el.removeAttribute('data-markdown');
   });
 }
 
 // ── File attachment chip management ──────────────────────────────────────────
+/** Enforce the server's caps at pick time, so an over-limit set is never sent. */
+function attachmentsProblem(files) {
+  if (files.length > MAX_ATTACH_FILES) {
+    return `You can attach up to ${MAX_ATTACH_FILES} files — you picked ${files.length}.`;
+  }
+  const total = files.reduce((n, f) => n + f.size, 0);
+  if (total > MAX_ATTACH_BYTES) {
+    const mb = Math.round(MAX_ATTACH_BYTES / (1024 * 1024));
+    return `Attachments can total up to ${mb} MB — these come to ${(total / (1024 * 1024)).toFixed(1)} MB.`;
+  }
+  return null;
+}
+
 function updateFileChips(input, chipsId) {
   const container = document.getElementById(chipsId);
   if (!container) return;
+  const problem = attachmentsProblem(Array.from(input.files));
+  if (problem) {
+    input.value = '';
+    toastError(problem);
+  }
   container.innerHTML = '';
   Array.from(input.files).forEach((file, i) => {
     const chip = document.createElement('span');
-    chip.className = 'inline-flex items-center gap-1 pl-2 pr-1 py-0.5 text-xs bg-brand-50 text-brand-700 border border-brand-200 rounded-full';
+    chip.className = 'inline-flex items-center gap-1 pl-2 pr-1 py-0.5 text-xs bg-brand-50 text-brand-700 border border-brand-200 rounded-full max-w-full';
     const isImage = file.type.startsWith('image/');
     const isPdf = file.type === 'application/pdf';
-    const icon = isImage ? '🖼' : isPdf ? '📄' : '📎';
-    chip.innerHTML = `<span>${icon} ${file.name}</span><button type="button" onclick="removeFile('${input.id}',${i},'${chipsId}')" class="ml-0.5 text-brand-400 hover:text-red-500 font-bold leading-none">×</button>`;
+    const name = document.createElement('span');
+    name.className = 'truncate';
+    name.textContent = (isImage ? '🖼 ' : isPdf ? '📄 ' : '📎 ') + file.name;   // textContent: file names are user data
+    const x = document.createElement('button');
+    x.type = 'button';
+    x.className = 'ml-0.5 px-1 text-brand-500 hover:text-red-600 font-bold leading-none';
+    x.textContent = '×';
+    x.setAttribute('aria-label', 'Remove ' + file.name);
+    x.addEventListener('click', () => removeFile(input.id, i, chipsId));
+    chip.append(name, x);
     container.appendChild(chip);
   });
 }

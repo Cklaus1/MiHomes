@@ -66,9 +66,50 @@ def update_space(session: Session, id_or_slug: str, **kwargs) -> Space:
     return space
 
 
+def content_counts(session: Session, property_id_or_slug: str) -> dict:
+    """{space_id: {"assets": n, "books": n}} for one property's rooms.
+
+    Feeds the room-delete confirmation ("its 23 assets and 70 books will be kept"), which is
+    rendered from three pages; one grouped query each rather than a count per room.
+    """
+    from sqlalchemy import func
+
+    from mihomes.models.asset import Asset
+    from mihomes.models.book import Book
+
+    prop = resolve_identifier(session, Property, property_id_or_slug)
+    counts: dict = {}
+    for model, key in ((Asset, "assets"), (Book, "books")):
+        rows = (
+            session.query(model.space_id, func.count(model.id))
+            .filter(model.property_id == prop.id, model.space_id.isnot(None))
+            .group_by(model.space_id)
+            .all()
+        )
+        for space_id, n in rows:
+            counts.setdefault(space_id, {"assets": 0, "books": 0})[key] = n
+    return counts
+
+
 def delete_space(session: Session, id_or_slug: str) -> str:
+    """Delete a room, keeping everything in it.
+
+    Assets, books and issues reference `spaces.id` with no ON DELETE rule, so deleting a room
+    that still holds anything used to fail with a foreign-key error. Nothing in a room is lost
+    when the room goes: each row is unassigned (space_id → NULL) and audit-logged first.
+    """
+    from mihomes.models.asset import Asset
+    from mihomes.models.book import Book
+    from mihomes.models.issue import Issue
+
     space = resolve_identifier(session, Space, id_or_slug)
     name = space.name
+    for model, entity in ((Asset, "asset"), (Book, "book"), (Issue, "issue")):
+        for row in session.query(model).filter(model.space_id == space.id).all():
+            row.space_id = None
+            record_change(session, entity, row.id, "update",
+                          {"space_id": {"old": str(space.id), "new": None}})
+    session.flush()
     record_change(session, "space", space.id, "delete", snapshot_instance(space))
     session.delete(space)
     session.flush()

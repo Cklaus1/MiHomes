@@ -1,38 +1,20 @@
-{# Create an account — SPEC-010 §6 Step 3 (A6).
-
-   **Deliberately does not extend `base.html`**, for the reason `login.html` gives: that layout
-   is the signed-in shell, and rendering 18 nav links to pages this visitor cannot open would
-   frame a registration form with dead scaffolding. Standalone page, shared stylesheet — which
-   is also what keeps it responsive for free (SPEC-009 D5).
+{# Create an account — SPEC-010 §6 Step 3 (A6). Standalone (`_auth_layout.html`), not
+   `base.html` — see that file.
 
    **Unlike the login form, this one names its failures.** "That email is already registered" is
    information the person filling in the form needs, and they can obtain it anyway by pressing
    the button. The login page must not confirm an address; a signup page cannot avoid it. #}
-<!DOCTYPE html>
-<html lang="en" class="h-full bg-gray-50">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Create an account — MiHomes</title>
-  <link rel="stylesheet" href="/static/app.css" />
-</head>
-<body class="h-full">
-  <div class="min-h-full flex flex-col items-center justify-center px-4 py-12">
+{% extends "_auth_layout.html" %}
+{% block title %}Create an account — MiHomes{% endblock %}
 
-    <div class="w-full max-w-sm">
-      <div class="text-center mb-8">
-        <h1 class="text-2xl font-semibold tracking-tight text-gray-900">MiHomes</h1>
-        <p class="text-sm text-gray-500 mt-1">Estate Management</p>
-      </div>
-
-      <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 sm:p-8">
-        <h2 class="text-lg font-semibold text-gray-900">Create an account</h2>
+{% block card %}
+        <h1 class="text-lg font-semibold text-gray-900">Create an account</h1>
         <p class="text-sm text-gray-500 mt-1 mb-6">
           You'll set up your first property next.
         </p>
 
         {% if error %}
-        <div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+        <div id="signup-error" role="alert" class="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
           {{ error }}
         </div>
         {% endif %}
@@ -44,9 +26,10 @@
           {% if next %}<input type="hidden" name="next" value="{{ next }}" />{% endif %}
           <div>
             <label for="name" class="block text-sm font-medium text-gray-700 mb-1">
-              Name <span class="font-normal text-gray-400">(optional)</span>
+              Name <span class="font-normal text-gray-500">(optional)</span>
             </label>
             <input type="text" name="name" id="name" autocomplete="name"
+                   value="{{ name or '' }}"
                    class="w-full p-3 rounded-lg border border-gray-300 text-sm
                           focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent" />
           </div>
@@ -54,6 +37,7 @@
             <label for="email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
             <input type="email" name="email" id="email" required autocomplete="email"
                    value="{{ email or '' }}"
+                   {% if error and error_field == 'email' %}aria-invalid="true" aria-describedby="signup-error" autofocus{% endif %}
                    class="w-full p-3 rounded-lg border border-gray-300 text-sm
                           focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent" />
           </div>
@@ -63,12 +47,14 @@
                trivially removed, so `create_password_user` checks it again server-side. #}
             <input type="password" name="password" id="password" required
                    autocomplete="new-password" minlength="{{ min_length }}"
+                   aria-describedby="{% if error and error_field == 'password' %}signup-error {% endif %}password-hint"
+                   {% if error and error_field == 'password' %}aria-invalid="true" autofocus{% endif %}
                    class="w-full p-3 rounded-lg border border-gray-300 text-sm
                           focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent" />
             {# **Length, and no composition rules** (SPEC-010 O2). Mandatory symbols push people
                towards `Password1!` and a sticky note; a long passphrase is both stronger and
                easier to remember. #}
-            <p class="text-xs text-gray-400 mt-1.5">
+            <p id="password-hint" class="text-xs text-gray-500 mt-1.5">
               At least {{ min_length }} characters. A memorable phrase works well.
             </p>
           </div>
@@ -80,12 +66,12 @@
         </form>
 
         {# Google sign-up is the same `/auth/google/start` as sign-in: a first Google sign-in
-           creates the account (`oidc.upsert_user`). Hidden, unlike on `login.html`, when
-           credentials are missing — the setup notice belongs on one page, not two. #}
+           creates the account (`oidc.upsert_user`). Hidden when credentials are missing, as on
+           `login.html` — which alone carries the localhost-only setup notice. #}
         {% if oauth_configured %}
         <div class="flex items-center gap-3 my-5">
           <div class="h-px flex-1 bg-gray-200"></div>
-          <span class="text-xs text-gray-400 uppercase tracking-wide">or</span>
+          <span class="text-xs text-gray-500 uppercase tracking-wide">or</span>
           <div class="h-px flex-1 bg-gray-200"></div>
         </div>
 
@@ -101,14 +87,11 @@
           Sign up with Google
         </a>
         {% endif %}
-      </div>
+{% endblock %}
 
+{% block below %}
       <p class="text-center text-sm text-gray-500 mt-6">
         Already have an account?
         <a href="/login{% if next %}?next={{ next | urlencode }}{% endif %}" class="font-medium text-gray-900 underline hover:no-underline">Sign in.</a>
       </p>
-    </div>
-
-  </div>
-</body>
-</html>
+{% endblock %}

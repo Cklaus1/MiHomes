@@ -206,6 +206,20 @@ async def _read_attachments(files: list[UploadFile]) -> list[Attachment]:
     return result
 
 
+async def _attachments_or_error(files: list[UploadFile]) -> tuple[list[Attachment], str | None]:
+    """`_read_attachments`, with a cap breach returned as the message to show.
+
+    Kept apart from the AI call's own try: a too-large upload is the user's to fix and reads as
+    such ("Please attach at most 6 files"), not as "AI request failed: …", which is the wording
+    for a provider fault.
+    """
+    try:
+        return await _read_attachments(files), None
+    except ValueError as e:
+        logger.info("ai attachments rejected: %s", e)
+        return [], str(e)
+
+
 def _ai_error(msg: str) -> str:
     lower = msg.lower()
     if any(k in lower for k in ("not found", "not configured", "no provider", "run: mihomes")):
@@ -234,12 +248,42 @@ def _plan_message(exc) -> str:
     a full page into a chat bubble is worse than the wrong words. The message goes where the
     error text already goes; only its wording and its source change.
     """
-    decision = getattr(exc, "decision", None)
-    reason = getattr(decision, "reason", None) or str(exc)
-    target = getattr(decision, "upgrade_target", None)
+    reason, target = _plan_parts(exc)
     if target:
         return f"{reason} See plans at /billing to move to {target.capitalize()}."
     return reason
+
+
+def _plan_parts(exc) -> tuple[str, str | None]:
+    """(reason, upgrade_target) off a plan denial — the structured form of `_plan_message`.
+
+    The chat stream and the report panel render the denial as a notice with a real "See plans"
+    link, so they need the pieces rather than a sentence with "/billing" spelled out in it.
+    """
+    decision = getattr(exc, "decision", None)
+    reason = getattr(decision, "reason", None) or str(exc)
+    return reason, getattr(decision, "upgrade_target", None)
+
+
+def _plan_event(exc) -> dict:
+    """The SSE payload for a plan denial: `{"plan": reason, "upgrade": target}`.
+
+    A distinct key, not `e`: the client shows it as a plan notice with a link to /billing, not as
+    "Unable to get a response" — the AI is not broken, the allowance is used up.
+    """
+    reason, target = _plan_parts(exc)
+    return {"plan": reason, "upgrade": target or ""}
+
+
+def _sse_once(payload: dict) -> StreamingResponse:
+    """A complete one-event stream — for failures known before any token is generated."""
+
+    def _gen():
+        yield f"data: {json.dumps(payload)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(_gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @router.get("/")
@@ -264,6 +308,10 @@ def ai_page(request: Request, db: Session = Depends(get_db)):
         "roles": ROLES,
         "work_orders": work_orders,
         "session_groups": session_groups,
+        # The client checks a picked set against the same caps before it uploads anything.
+        "max_attach_files": _MAX_ATTACH_FILES,
+        "max_attach_bytes": _MAX_ATTACH_TOTAL_BYTES,
+        "max_attach_mb": _MAX_ATTACH_TOTAL_BYTES // (1024 * 1024),
     })
 
 
@@ -358,25 +406,25 @@ async def ai_ask(
 ):
     from mihomes.services.ai.orchestrator import ask
 
-    error = None
     response_text = ""
     active_role = ""
 
-    try:
-        attachments = await _read_attachments(files)
-        resp = ask(db, query, role=role or None, property_slug=property_id or None, attachments=attachments or None)
-        response_text = resp.text
-        active_role = resp.role
-    except EntitlementError as e:
-        # `info`, not `exception`: a plan ceiling refusing is the product working, and a stack
-        # trace would file it alongside the provider outages an operator is watching for.
-        logger.info("ai ask denied by plan: %s", getattr(e, "decision", e))
-        error = _plan_message(e)
-    except Exception as e:
-        # N15: degraded deliberately (the user sees the error) but never silently — an AI
-        # provider that is down must be visible to an operator, not only to whoever asked.
-        logger.exception("ai ask failed")
-        error = _ai_error(str(e))
+    attachments, error = await _attachments_or_error(files)
+    if error is None:
+        try:
+            resp = ask(db, query, role=role or None, property_slug=property_id or None, attachments=attachments or None)
+            response_text = resp.text
+            active_role = resp.role
+        except EntitlementError as e:
+            # `info`, not `exception`: a plan ceiling refusing is the product working, and a stack
+            # trace would file it alongside the provider outages an operator is watching for.
+            logger.info("ai ask denied by plan: %s", getattr(e, "decision", e))
+            error = _plan_message(e)
+        except Exception as e:
+            # N15: degraded deliberately (the user sees the error) but never silently — an AI
+            # provider that is down must be visible to an operator, not only to whoever asked.
+            logger.exception("ai ask failed")
+            error = _ai_error(str(e))
 
     return templates.TemplateResponse(request, "partials/ai_message.html", {
         "query": query,
@@ -399,24 +447,25 @@ async def situation_report(
 ):
     from mihomes.services.ai.reports import generate_situation_report
 
-    error = None
+    plan_denied = False
     report_text = ""
-    try:
-        attachments = await _read_attachments(files)
-        resp = generate_situation_report(
-            db, content,
-            subject=subject,
-            work_order_slug=work_order_slug or None,
-            property_slug=property_slug or None,
-            attachments=attachments or None,
-        )
-        report_text = resp.text
-    except EntitlementError as e:
-        logger.info("ai report denied by plan: %s", getattr(e, "decision", e))
-        error = _plan_message(e)
-    except Exception as e:
-        logger.exception("ai report failed")  # N15
-        error = _ai_error(str(e))
+    attachments, error = await _attachments_or_error(files)
+    if error is None:
+        try:
+            resp = generate_situation_report(
+                db, content,
+                subject=subject,
+                work_order_slug=work_order_slug or None,
+                property_slug=property_slug or None,
+                attachments=attachments or None,
+            )
+            report_text = resp.text
+        except EntitlementError as e:
+            logger.info("ai report denied by plan: %s", getattr(e, "decision", e))
+            error, plan_denied = _plan_parts(e)[0], True
+        except Exception as e:
+            logger.exception("ai report failed")  # N15
+            error = _ai_error(str(e))
 
     return templates.TemplateResponse(request, "partials/report_output.html", {
         "report_type": "Situation Report",
@@ -425,6 +474,7 @@ async def situation_report(
         "generated_at": datetime.now().strftime("%B %d, %Y at %I:%M %p"),
         "property_slug": property_slug or "",
         "error": error,
+        "plan_denied": plan_denied,
     })
 
 
@@ -456,22 +506,23 @@ async def estate_digest(
     }
     start, end, period_label = period_map.get(period, (today - timedelta(days=7), today, "Last 7 Days"))
 
-    error = None
+    plan_denied = False
     report_text = ""
-    try:
-        attachments = await _read_attachments(files)
-        resp = generate_estate_digest(
-            db, start, end,
-            property_slug=property_slug or None,
-            attachments=attachments or None,
-        )
-        report_text = resp.text
-    except EntitlementError as e:
-        logger.info("ai digest denied by plan: %s", getattr(e, "decision", e))
-        error = _plan_message(e)
-    except Exception as e:
-        logger.exception("ai report failed")  # N15
-        error = _ai_error(str(e))
+    attachments, error = await _attachments_or_error(files)
+    if error is None:
+        try:
+            resp = generate_estate_digest(
+                db, start, end,
+                property_slug=property_slug or None,
+                attachments=attachments or None,
+            )
+            report_text = resp.text
+        except EntitlementError as e:
+            logger.info("ai digest denied by plan: %s", getattr(e, "decision", e))
+            error, plan_denied = _plan_parts(e)[0], True
+        except Exception as e:
+            logger.exception("ai report failed")  # N15
+            error = _ai_error(str(e))
 
     return templates.TemplateResponse(request, "partials/report_output.html", {
         "report_type": "Estate Digest",
@@ -480,6 +531,7 @@ async def estate_digest(
         "generated_at": datetime.now().strftime("%B %d, %Y at %I:%M %p"),
         "property_slug": property_slug or "",
         "error": error,
+        "plan_denied": plan_denied,
     })
 
 
@@ -501,8 +553,11 @@ async def ai_ask_stream(
 
     session_id = session_id or str(uuid.uuid4())
 
+    attachments, attach_error = await _attachments_or_error(files)
+    if attach_error:
+        return _sse_once({"e": attach_error})
+
     try:
-        attachments = await _read_attachments(files)
         provider_name = get_ai_provider_name(db)
         api_key = get_ai_api_key(db, provider_name)
         model = get_ai_model(db, provider_name)
@@ -516,18 +571,13 @@ async def ai_ask_stream(
         else:
             system_prompt = primary_role.system_prompt
     except EntitlementError as e:
+        # Returns here too: this branch used to fall through to `_generate()` with
+        # `system_prompt`/`roles` unbound, so the denial surfaced as a NameError mid-stream.
         logger.info("ai stream denied by plan: %s", getattr(e, "decision", e))
-        error_msg = _plan_message(e)
+        return _sse_once(_plan_event(e))
     except Exception as e:
         logger.exception("ai stream setup failed")  # N15
-        error_msg = _ai_error(str(e))
-
-        def _err_gen():
-            yield f"data: {json.dumps({'e': error_msg})}\n\n"
-            yield "data: [DONE]\n\n"
-
-        return StreamingResponse(_err_gen(), media_type="text/event-stream",
-                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+        return _sse_once({"e": _ai_error(str(e))})
 
     import asyncio
     import contextvars
@@ -597,7 +647,7 @@ async def ai_ask_stream(
                 # thread. Travels as the same SSE "error" event the stream already knows how to
                 # render — a 402 has nowhere to go once the stream is open.
                 logger.info("ai stream worker denied by plan: %s", getattr(exc, "decision", exc))
-                loop.call_soon_threadsafe(queue.put_nowait, ("error", _plan_message(exc)))
+                loop.call_soon_threadsafe(queue.put_nowait, ("plan", _plan_event(exc)))
             except Exception as exc:
                 logger.exception("ai_ask_stream worker failed")
                 loop.call_soon_threadsafe(queue.put_nowait, ("error", _ai_error(str(exc))))
@@ -614,8 +664,11 @@ async def ai_ask_stream(
                 yield f"data: {json.dumps({'t': msg_data})}\n\n"
             elif msg_type == "status":
                 yield f"data: {json.dumps({'status': msg_data})}\n\n"
+            elif msg_type == "plan":
+                yield f"data: {json.dumps(msg_data)}\n\n"
             elif msg_type == "error":
-                yield f"data: {json.dumps({'e': _ai_error(msg_data)})}\n\n"
+                # Already worded by `_ai_error` in the worker — wrapping again doubled the prefix.
+                yield f"data: {json.dumps({'e': msg_data})}\n\n"
 
         yield "data: [DONE]\n\n"
         await future

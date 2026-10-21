@@ -1,5 +1,110 @@
 # MiHomes — Project State & Next Actions
 
+## DONE (merge pending): UI/UX fix-all from the 2026-10-21 audit
+
+> User: "go through mihomes app and see what improvements can be made to make the ui/ux better",
+> then "Let's fix all of them". Decisions (user, 2026-10-21): `/team` → redirect to Settings →
+> Members · Pro-only controls on Free → shown disabled with a Pro badge + upgrade choice ·
+> Settings gets a Danger zone (export, sign out everywhere, delete with typed confirm).
+
+Branch: `worktree-uiux-fixes` off `worktree-spec-build-harness`. One commit per area (built in parallel). Rule: any
+fix that would need a migration or new model field stops and goes back to the user.
+
+### P0 — infrastructure (main agent only; everything else builds on it)
+- [x] Global HTMX error toast in a static JS file loaded once (body swaps re-run inline scripts)
+- [x] 401/403 to HTMX requests → `HX-Redirect` (login / onboarding); JSON contract kept for API
+- [x] HTMX 402 → toast with the plan reason + link to plans
+- [x] Guard `after-request` modal closes / `this.reset()` on `event.detail.successful`
+- [x] Global request indicator + `hx-disabled-elt` default (no double submit)
+- [x] One shared modal helper (role=dialog, aria-modal, Escape, focus in/out, labelled close);
+      delete the ~10 per-page copies of openModal/closeModal/switchTab
+- [x] Success toast for full-body swaps (HX-Trigger from routes, or a flash in context)
+
+### P1 — broken today
+- [x] `/team` → 303 to `/settings#members`; onboarding + checklist links updated
+- [x] Mobile header: title keeps room at 375px (search collapses to an icon below sm)
+- [x] Warranty highlight compares to today (+ "expiring soon" window), not `year < 2027`
+- [x] Inline-JS interpolation → `data-*` (templates Run, vendor category filter)
+- [x] AI chat: `resp.ok` check, always reset on stream end, keep question on error, Stop button,
+      don't clobber partial answer — AI page and dashboard box; dashboard `msg.e` escaped
+- [x] AI quota / attachment-limit errors: plain wording (not "AI request failed"), linkable
+- [x] Budget modals: stay open + show error on failure
+
+### P2 — daily loop
+- [x] Assignee field on task add/edit and work-order edit (columns already exist)
+- [x] Filters/view survive actions (tasks, issues, work orders)
+- [x] "Create work order" from an issue (prefilled); issue ↔ work-order links go to the record
+- [x] Dashboard: rows link to records, open issues shown, quick-add Issue/Task, action lists
+      above property cards, "Due this week" not capped at 10, WO "View all" includes assigned
+- [x] Work-order lifecycle keeps the modal open between steps
+- [x] Task list sorted by urgency (overdue → due date → priority) with a sort control
+- [x] Issue/task forms: "Select property…" placeholder, required markers
+- [x] Board quick-status control; consistent status chip colours via one macro
+
+### P3 — quick wins
+- [x] Favicon · Ctrl+K vs ⌘K by platform · nav labels (Rooms→Assets, Directory→Staff) ·
+      distinct nav icons · `aria-current` · 44px nav targets
+- [x] Login: Google dev-setup text only in debug; hide broken button
+- [x] 402 page: plain headline per action, back to Referer, include upgrade_choice
+- [x] "Ack" → "Acknowledge"; alerts empty-state action; hover-only controls visible on touch
+      / focus (rooms, notes, alert snooze, AI sessions, calendar day "+")
+- [x] Password show/hide toggle; errors with role=alert; input kept after server errors
+- [x] "Getting started" dismiss: confirm + bigger target; trial "ends today" wording
+- [x] Labels tied to inputs (`for`/`id`) on the main forms; search results as real links,
+      query urlencoded
+- [x] Wrong asset-type counts under a filter; library/property-detail links to records
+
+### P4 — structural
+- [x] Sidebar grouped into sections; Billing + Team reachable
+- [x] Onboarding wizard: minimal layout + step indicator + labels
+- [x] Settings Danger zone (export · sign out everywhere · delete with typed confirm)
+- [x] Pro-only controls on Free: disabled + Pro badge (WO due date, Staff invite role)
+- [x] Unified filter bar look; text search on vendors/staff; sortable tables
+- [x] Inventory: POST-redirect-GET; edit/delete item
+- [x] Documents: search, keep modal + input on upload error
+- [x] Calendar: Today button, keyboard-reachable arrows, clickable day, "+N more", mobile list
+- [x] Vendor detail: tel:/mailto: links, related work orders/contracts
+- [x] `vendors.html` dedupe (own commit, last)
+
+### P5 — known-open + cleanup
+- [x] Currency symbol in all "$" form labels
+- [x] Delete dead `recurring.html` + orphan partials; regenerate UI_MANUAL_CHECKLIST.md
+- [x] Full suite diffed by test ID vs baseline; live walk 375/1440 as Pro and Free
+- [ ] Merge `--no-ff` into `worktree-spec-build-harness`, push, clean up (NOT deployed to evo-dev)
+
+### Review
+- Built by the main agent (P0 shell: `static/app.js`, `base.html`, alerts, search, notes/docs
+  partials, property delete) plus four area agents on disjoint files (A daily workflow, B records,
+  C documents/calendar/budget/AI, D account/onboarding/billing). 7+26+17+9+2+1 new tests.
+- **Withdrawn audit items:** sidebar "Directory" and "Rooms" are deliberate renames (`c81ea4e`,
+  test_web_smoke pins Directory) — kept; search now labels staff results "People".
+- **Live bugs found while fixing** (all pre-existing): issue Resolve button and inventory
+  price-entry edit were JS syntax errors (unquoted UUIDs in onclick); WO page JS died after any
+  save (top-level `let` re-declared on body swap); saving a vendor wiped its properties (digit-only
+  id filter vs UUIDs); room delete and property delete 500'd on foreign keys. Room delete now
+  unassigns contents; property delete removes its task history/zones/links and **refuses** (plain
+  message) while books, inventory, work orders, contracts, insurance, recurring expenses,
+  appointments, events or vendor ratings are attached — erasing those is a product call, not made.
+- **Gotchas recorded for later work:** htmx fires `HX-Trigger` *before* a body swap, so the toast
+  region lives on `<html>`; body swaps re-run inline `<script>`s, so shared behaviour lives in
+  `static/app.js` (loaded once from `<head>`); `<main>` must be `relative` or absolutely placed
+  `sr-only` labels escape its scroll clip and an anchor jump scrolls the whole shell.
+- Suite (Postgres `mihomes_test`): before 86 failed / 3088 passed; after 87 / 3162. Diffed by
+  test id: **no test that passed before fails now.** All remaining failures are the baseline set
+  — 71 × `test_content_globs_cover_every_template` (uses `PurePath.full_match`, Python 3.13+; this
+  venv is 3.12, so every template fails identically — the count moves only with template count),
+  billing/Stripe-key, waitlist, oauth stub, pg_baseline, quarterly recurrence, route-declaration
+  harness, staff-member-route.
+- Live walk (laptop `mihomes_dev`, Pro + Free testers, 375 and 1440): header intact at 375,
+  Issues/Tasks/Calendar/Vendors usable at 375, deep link → modal → Escape, inline resolve →
+  toast survives body swap, invalid HTMX save → readable error toast, Free WO due date disabled
+  with Pro badge, Settings Danger zone, 21 pages 200 with zero JS errors. Applied migration 0021
+  to laptop `mihomes_dev` earlier in the session (as postgres) so the dev server would start.
+- Not done / follow-ups: U3 full manual 375 walk is still a human task; inventory/books on a
+  property block its deletion (decide: cascade or archive?); calendar filter still uses a Filter
+  button; failed task-create does not reopen the modal with input; all-properties budget analysis
+  is 2 queries per property (belongs in services/financial_report).
+
 ## ACTIVE: Onboarding — "Getting started" checklist on the dashboard (2026-10-19)
 
 > User: after signup the wizard showed steps, but after creating a room no further suggested

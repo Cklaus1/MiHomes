@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Documents — MiHomes{% endblock %}
 {% block heading %}Documents{% endblock %}
-{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ documents|length }} document{{ 's' if documents|length != 1 else '' }}{% if type_filter %} · {{ doc_type_labels.get(type_filter, type_filter.title()) }}{% endif %}</p>{% endblock %}
+{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ documents|length }} document{{ 's' if documents|length != 1 else '' }}{% if type_filter %} · {{ doc_type_labels.get(type_filter, type_filter.title()) }}{% endif %}{% if q %} · matching “{{ q }}”{% endif %}</p>{% endblock %}
 
 {% block actions %}
-<button onclick="document.getElementById('add-doc-modal').classList.remove('hidden')"
+<button type="button" onclick="openModal('add-doc-modal')"
         class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
-  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
   Add Document
 </button>
 {% endblock %}
@@ -22,17 +22,20 @@
   'other':      ('bg-gray-50 text-gray-600 border-gray-200',       'bg-gray-100 text-gray-600'),
 } %}
 
+{# Search/sort carried on the type chips, so filtering by type keeps the current search. #}
+{% set keep = ('&q=' ~ (q | urlencode) if q else '') ~ ('&sort=' ~ sort if sort != 'newest' else '') %}
+
 {% block content %}
 
 <!-- Type filter chips -->
-<div class="flex flex-wrap gap-2 mb-5">
-  <a href="/documents/"
+<div class="flex flex-wrap gap-2 mb-4">
+  <a href="/documents/{% if keep %}?{{ keep[1:] }}{% endif %}"
      class="px-3 py-1.5 text-xs font-medium rounded-full border transition-colors
             {% if not type_filter %}bg-brand-600 border-brand-600 text-white{% else %}bg-white border-gray-200 text-gray-600 hover:border-brand-400 hover:text-brand-600{% endif %}">
     All
   </a>
   {% for value, label in doc_types %}
-  <a href="/documents/?type={{ value }}"
+  <a href="/documents/?type={{ value }}{{ keep }}"
      class="px-3 py-1.5 text-xs font-medium rounded-full border transition-colors
             {% if type_filter == value %}bg-brand-600 border-brand-600 text-white{% else %}bg-white border-gray-200 text-gray-600 hover:border-brand-400 hover:text-brand-600{% endif %}">
     {{ label }}
@@ -40,8 +43,27 @@
   {% endfor %}
 </div>
 
-{% if upload_error %}
-<div class="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+<!-- Search + sort -->
+<form method="get" action="/documents/" class="flex flex-wrap items-center gap-2 mb-5" role="search">
+  {% if type_filter %}<input type="hidden" name="type" value="{{ type_filter }}" />{% endif %}
+  <label for="doc-search" class="sr-only">Search documents</label>
+  <input type="search" id="doc-search" name="q" value="{{ q }}" placeholder="Search title, notes, property…"
+         class="flex-1 min-w-0 sm:flex-none sm:w-72 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+  <label for="doc-sort" class="sr-only">Sort by</label>
+  <select id="doc-sort" name="sort" onchange="this.form.submit()"
+          class="border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500">
+    {% for value, label in sorts.items() %}
+    <option value="{{ value }}" {% if sort == value %}selected{% endif %}>Sort: {{ label }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit" class="px-3 py-1.5 text-sm font-medium text-gray-700 border border-gray-200 rounded-lg bg-white hover:bg-gray-50">Search</button>
+  {% if q %}
+  <a href="/documents/{% if type_filter %}?type={{ type_filter }}{% endif %}" class="text-sm text-gray-500 hover:text-gray-700 px-1">Clear</a>
+  {% endif %}
+</form>
+
+{% if upload_error and not open_add_doc and not open_doc %}
+<div class="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700" role="alert">
   {{ upload_error }} The document was not saved.
 </div>
 {% endif %}
@@ -57,13 +79,13 @@
         <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Property</th>
         <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Expires</th>
         <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Link / Path</th>
-        <th class="px-4 py-3"></th>
+        <th class="px-4 py-3"><span class="sr-only">Open</span></th>
       </tr>
     </thead>
     <tbody class="divide-y divide-gray-50">
       {% for doc in documents %}
       {% set chip_class = type_color_map.get(doc.document_type.value, ('bg-gray-100 text-gray-600 border-gray-200', 'bg-gray-100 text-gray-600'))[1] %}
-      <tr class="hover:bg-gray-50 cursor-pointer transition-colors" onclick="openModal('doc-modal-{{ doc.slug }}')">
+      <tr class="hover:bg-gray-50 cursor-pointer transition-colors" data-modal="doc-modal-{{ doc.slug }}" onclick="openModal(this.dataset.modal)">
         <td class="px-5 py-3">
           <div class="font-medium text-gray-900 flex items-center gap-2">
             {{ doc.title }}
@@ -72,7 +94,7 @@
             {% endif %}
           </div>
           {% if doc.notes %}
-          <div class="text-xs text-gray-400 mt-0.5 truncate max-w-xs">{{ doc.notes }}</div>
+          <div class="text-xs text-gray-500 mt-0.5 truncate max-w-xs">{{ doc.notes }}</div>
           {% endif %}
         </td>
         <td class="px-4 py-3">
@@ -105,7 +127,7 @@
             <button type="button" data-preview-fp="{{ doc.file_path | doc_url }}" data-preview-title="{{ doc.title }}" data-preview-type="{{ kind }}"
                     onclick="event.stopPropagation(); previewDoc(this.dataset.previewFp, this.dataset.previewTitle, this.dataset.previewType)"
                     class="inline-flex items-center gap-1 text-brand-600 hover:underline text-xs">
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
               Preview {{ 'PDF' if kind == 'pdf' else 'image' }}
             </button>
           {% elif doc.file_path and doc.file_path != '—' %}
@@ -113,18 +135,18 @@
             <a href="{{ doc.file_path }}" target="_blank" rel="noopener"
                onclick="event.stopPropagation()"
                class="inline-flex items-center gap-1 text-brand-600 hover:underline text-xs">
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
               Open
             </a>
             {% else %}
-            <span class="text-xs text-gray-400 font-mono truncate max-w-[160px] block">{{ doc.file_path }}</span>
+            <span class="text-xs text-gray-500 font-mono truncate max-w-[160px] block">{{ doc.file_path }}</span>
             {% endif %}
           {% else %}
           <span class="text-gray-300">—</span>
           {% endif %}
         </td>
         <td class="px-4 py-3 text-right">
-          <svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
           </svg>
         </td>
@@ -135,75 +157,93 @@
   </div>
 </div>
 
+{% elif q or type_filter %}
+<div class="bg-white rounded-xl border border-gray-200 px-6 py-16 text-center">
+  <p class="text-sm font-medium text-gray-600">No documents match{% if q %} “{{ q }}”{% endif %}{% if type_filter %} in {{ doc_type_labels.get(type_filter, type_filter.title()) }}{% endif %}</p>
+  <p class="text-sm text-gray-500 mt-1">Try a different search, or <a href="/documents/" class="text-brand-600 hover:underline">show all documents</a>.</p>
+</div>
 {% else %}
 <div class="bg-white rounded-xl border border-gray-200 px-6 py-16 text-center">
-  <svg class="w-12 h-12 text-gray-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <svg class="w-12 h-12 text-gray-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
   </svg>
-  <p class="text-sm font-medium text-gray-500">No documents yet</p>
-  <p class="text-xs text-gray-400 mt-1">Store playbooks, manuals, warranties, permits, and other reference materials</p>
+  <p class="text-sm font-medium text-gray-600">No documents yet</p>
+  <p class="text-sm text-gray-500 mt-1">Upload manuals, warranties, permits and contracts, or link to where they live.</p>
+  <button type="button" onclick="openModal('add-doc-modal')"
+          class="mt-4 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Add your first document</button>
 </div>
 {% endif %}
 
 
 <!-- ══ Add Document Modal ══ -->
-<div id="add-doc-modal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
-     onclick="if(event.target===this)this.classList.add('hidden')">
-  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+{% set af = add_form or {} %}
+<div id="add-doc-modal" class="{% if not open_add_doc %}hidden {% endif %}fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
     <div class="flex items-center justify-between mb-5">
       <h2 class="text-lg font-semibold text-gray-900">Add Document</h2>
-      <button onclick="document.getElementById('add-doc-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      <button type="button" onclick="closeModal('add-doc-modal')" aria-label="Close" class="p-2.5 -m-2.5 text-gray-400 hover:text-gray-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
       </button>
     </div>
-    <form hx-post="/documents/" hx-target="body" hx-swap="innerHTML" hx-encoding="multipart/form-data" class="space-y-4">
+    {% if open_add_doc and upload_error %}
+    <div class="mb-4 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700" role="alert">
+      {{ upload_error }} The document was not saved. Choose the file again.
+    </div>
+    {% endif %}
+    <form hx-post="/documents/" hx-target="body" hx-swap="innerHTML" hx-encoding="multipart/form-data"
+          hx-on::xhr:progress="docUploadProgress(this, event)" class="space-y-4">
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Title <span class="text-red-500">*</span></label>
-        <input type="text" name="title" required
+        <label for="add-doc-title" class="block text-sm font-medium text-gray-700 mb-1">Title <span class="text-red-500">*</span></label>
+        <input type="text" name="title" id="add-doc-title" required value="{{ af.get('title', '') }}"
                class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                placeholder="e.g. Boiler Warranty" />
       </div>
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Type <span class="text-red-500">*</span></label>
-        <select name="document_type" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+        <label for="add-doc-type" class="block text-sm font-medium text-gray-700 mb-1">Type <span class="text-red-500">*</span></label>
+        <select name="document_type" id="add-doc-type" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          <option value="" disabled {% if not af.get('document_type') %}selected{% endif %}>Select type…</option>
           {% for value, label in doc_types %}
-          <option value="{{ value }}">{{ label }}</option>
+          <option value="{{ value }}" {% if af.get('document_type') == value %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
         </select>
       </div>
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Link, URL, or File Path</label>
-        <input type="text" name="file_path"
+        <label for="add-doc-path" class="block text-sm font-medium text-gray-700 mb-1">Link, URL, or File Path</label>
+        <input type="text" name="file_path" id="add-doc-path" value="{{ af.get('file_path', '') }}"
                class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                placeholder="https://drive.google.com/... or /files/docs/..." />
       </div>
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Or upload a file</label>
+        <div class="block text-sm font-medium text-gray-700 mb-1">Or upload a file</div>
         {% include "partials/doc_file_input.html" %}
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Property</label>
-          <select name="property_id" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          <label for="add-doc-property" class="block text-sm font-medium text-gray-700 mb-1">Property</label>
+          <select name="property_id" id="add-doc-property" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
             <option value="">All properties</option>
-            {% for p in properties %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+            {% for p in properties %}<option value="{{ p.id }}" {% if af.get('property_id') == p.id|string %}selected{% endif %}>{{ p.name }}</option>{% endfor %}
           </select>
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Expires</label>
-          <input type="date" name="expires_at"
+          <label for="add-doc-expires" class="block text-sm font-medium text-gray-700 mb-1">Expires</label>
+          <input type="date" name="expires_at" id="add-doc-expires" value="{{ af.get('expires_at', '') }}"
                  class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
         </div>
       </div>
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-        <textarea name="notes" rows="2"
+        <label for="add-doc-notes" class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+        <textarea name="notes" id="add-doc-notes" rows="2"
                   class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
-                  placeholder="Brief description or instructions…"></textarea>
+                  placeholder="Brief description or instructions…">{{ af.get('notes', '') }}</textarea>
+      </div>
+      <div data-upload-progress class="hidden" aria-live="polite">
+        <div class="flex items-center justify-between text-xs text-gray-500 mb-1"><span>Uploading…</span><span data-pct>0%</span></div>
+        <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden"><div data-bar class="h-1.5 bg-brand-500 rounded-full transition-all" style="width:0%"></div></div>
       </div>
       <div class="flex gap-3 pt-1">
-        <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Save</button>
-        <button type="button" onclick="document.getElementById('add-doc-modal').classList.add('hidden')"
+        <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 disabled:opacity-60 disabled:cursor-not-allowed">Save</button>
+        <button type="button" onclick="closeModal('add-doc-modal')"
                 class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">Cancel</button>
       </div>
     </form>
@@ -219,10 +259,12 @@
   {% set _p = properties | selectattr('id', 'equalto', doc.entity_id) | first %}
   {% if _p %}{% set prop_name = _p.name %}{% set prop_id = _p.id %}{% endif %}
 {% endif %}
+{% set is_open = open_doc == doc.slug %}
+{# After a failed edit the form shows what the user typed, not the saved values. #}
+{% set ef = edit_form if (is_open and edit_form) else {} %}
 
-<div id="doc-modal-{{ doc.slug }}" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-     onclick="if(event.target===this)closeModal('doc-modal-{{ doc.slug }}')">
-  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col" onclick="event.stopPropagation()">
+<div id="doc-modal-{{ doc.slug }}" class="{% if not is_open %}hidden {% endif %}fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
 
     <!-- Modal header -->
     <div class="flex items-start justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
@@ -236,21 +278,21 @@
           <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-700">Expiring Soon</span>
           {% endif %}
         </div>
-        {% if prop_name %}<p class="text-xs text-gray-400 mt-0.5">{{ prop_name }}</p>{% endif %}
+        {% if prop_name %}<p class="text-xs text-gray-500 mt-0.5">{{ prop_name }}</p>{% endif %}
       </div>
       <div class="flex items-center gap-2 flex-shrink-0">
-        <button onclick="enterEdit('doc','{{ doc.slug }}')"
-                class="p-2.5 text-gray-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors" title="Edit">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+        <button type="button" data-slug="{{ doc.slug }}" onclick="enterEdit('doc', this.dataset.slug)"
+                class="p-2.5 text-gray-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors" title="Edit" aria-label="Edit document">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
         </button>
         <button hx-post="/documents/{{ doc.slug }}/delete"
                 hx-target="body" hx-swap="innerHTML"
-                hx-confirm="Delete '{{ doc.title }}'? This cannot be undone."
-                class="p-2.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                hx-confirm="Delete this document? This cannot be undone."
+                class="p-2.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete" aria-label="Delete document">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
         </button>
-        <button onclick="closeModal('doc-modal-{{ doc.slug }}')" class="p-2.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        <button type="button" data-modal="doc-modal-{{ doc.slug }}" onclick="closeModal(this.dataset.modal)" aria-label="Close" class="p-2.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>
       </div>
     </div>
@@ -258,25 +300,25 @@
     <div class="flex-1 overflow-y-auto">
 
       <!-- View mode -->
-      <div id="doc-view-{{ doc.slug }}" class="px-6 py-5 space-y-4">
+      <div id="doc-view-{{ doc.slug }}" class="{% if ef %}hidden {% endif %}px-6 py-5 space-y-4">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div class="bg-gray-50 rounded-xl p-3">
-            <div class="text-xs text-gray-400 mb-0.5">Property</div>
+            <div class="text-xs text-gray-500 mb-0.5">Property</div>
             <div class="text-sm font-medium text-gray-800">{{ prop_name or '—' }}</div>
           </div>
           <div class="bg-gray-50 rounded-xl p-3">
-            <div class="text-xs text-gray-400 mb-0.5">Expires</div>
+            <div class="text-xs text-gray-500 mb-0.5">Expires</div>
             <div class="text-sm font-medium {% if doc.id in expiring_ids %}text-amber-600{% else %}text-gray-800{% endif %}">
               {{ doc.expires_at.strftime('%b %d, %Y') if doc.expires_at else '—' }}
             </div>
           </div>
           <div class="bg-gray-50 rounded-xl p-3">
-            <div class="text-xs text-gray-400 mb-0.5">Added</div>
+            <div class="text-xs text-gray-500 mb-0.5">Added</div>
             <div class="text-sm font-medium text-gray-800">{{ doc.created_at.strftime('%b %d, %Y') if doc.created_at else '—' }}</div>
           </div>
           <div class="bg-gray-50 rounded-xl p-3">
             {% set kind = doc.file_path | doc_kind %}
-            <div class="text-xs text-gray-400 mb-0.5">{{ 'File' if kind else 'Link / Path' }}</div>
+            <div class="text-xs text-gray-500 mb-0.5">{{ 'File' if kind else 'Link / Path' }}</div>
             {% if kind %}
               <button type="button" data-preview-fp="{{ doc.file_path | doc_url }}" data-preview-title="{{ doc.title }}" data-preview-type="{{ kind }}"
                       class="text-sm text-brand-600 hover:underline font-medium">Preview {{ 'PDF' if kind == 'pdf' else 'image' }}</button>
@@ -284,27 +326,27 @@
               {% if doc.file_path.startswith('http') %}
               <a href="{{ doc.file_path }}" target="_blank" rel="noopener"
                  class="text-sm text-brand-600 hover:underline inline-flex items-center gap-1">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
                 Open Link
               </a>
               {% else %}
               <div class="text-sm font-mono text-gray-700 break-all">{{ doc.file_path }}</div>
               {% endif %}
             {% else %}
-            <div class="text-sm text-gray-400">—</div>
+            <div class="text-sm text-gray-500">—</div>
             {% endif %}
           </div>
         </div>
         {% if (doc.file_path | doc_kind) == 'image' %}
         <button type="button" data-preview-fp="{{ doc.file_path | doc_url }}" data-preview-title="{{ doc.title }}" data-preview-type="image"
-                class="block w-full focus:outline-none">
+                class="block w-full focus:outline-none focus:ring-2 focus:ring-brand-500 rounded-xl">
           <img src="{{ doc.file_path | doc_url }}" alt="{{ doc.title }}" loading="lazy"
                class="w-full max-h-56 object-contain rounded-xl border border-gray-200 bg-gray-50 cursor-zoom-in" />
         </button>
         {% endif %}
         {% if doc.notes %}
         <div>
-          <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Notes</div>
+          <div class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Notes</div>
           <div class="text-sm text-gray-700 whitespace-pre-wrap">{{ doc.notes }}</div>
         </div>
         {% endif %}
@@ -316,13 +358,13 @@
            so the picker would silently become a one-item list of themselves. #}
         {% if can_grant %}
         <div class="pt-2 border-t border-gray-100">
-          <div class="flex items-center justify-between mb-2">
-            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Who can see this</div>
-            <span class="text-[10px] text-gray-400">Staff see nothing until granted</span>
+          <div class="flex flex-wrap items-center justify-between gap-1 mb-2">
+            <div class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Who can see this</div>
+            <span class="text-[10px] text-gray-500">Staff see nothing until granted</span>
           </div>
 
-          {% if access_error %}
-          <div class="mb-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+          {% if access_error and is_open %}
+          <div class="mb-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800" role="alert">
             {{ access_error }}
           </div>
           {% endif %}
@@ -335,22 +377,23 @@
                         {% if has_access %}bg-emerald-50{% else %}bg-gray-50{% endif %}">
               <div class="min-w-0">
                 <div class="text-sm font-medium text-gray-800 truncate">{{ member.name }}</div>
-                <div class="text-[10px] text-gray-400">{{ member.role.value.replace('-', ' ')|title }}</div>
+                <div class="text-[10px] text-gray-500">{{ member.role.value.replace('-', ' ')|title }}{% if has_access %} · has access{% endif %}</div>
               </div>
+              {# The response re-renders the page with this modal still open (route `open_doc`). #}
               {% if has_access %}
               <button hx-post="/documents/{{ doc.slug }}/access/revoke"
                       hx-vals='{"staff_id": "{{ member.id }}"}'
                       hx-target="body" hx-swap="innerHTML"
-                      class="flex-shrink-0 px-2.5 py-1 text-xs font-medium text-emerald-700 bg-emerald-100
-                             hover:bg-red-100 hover:text-red-700 rounded-md transition-colors"
-                      title="Revoke access">
-                Has access
+                      hx-confirm="Revoke {{ member.name }}'s access to this document?"
+                      class="flex-shrink-0 px-3 py-1.5 text-xs font-medium text-red-700 bg-white border border-red-200
+                             hover:bg-red-50 rounded-md transition-colors">
+                Revoke
               </button>
               {% else %}
               <button hx-post="/documents/{{ doc.slug }}/access"
                       hx-vals='{"staff_id": "{{ member.id }}"}'
                       hx-target="body" hx-swap="innerHTML"
-                      class="flex-shrink-0 px-2.5 py-1 text-xs font-medium text-gray-500 bg-white
+                      class="flex-shrink-0 px-3 py-1.5 text-xs font-medium text-gray-600 bg-white
                              border border-gray-200 hover:border-brand-400 hover:text-brand-600
                              rounded-md transition-colors">
                 Grant
@@ -363,8 +406,8 @@
           {# Only staff with a linked login can hold a grant — see document_svc.grantable_staff.
              Saying why, rather than showing an empty list, is the difference between "nobody to
              pick" and "the feature is broken". #}
-          <p class="text-xs text-gray-400 italic">
-            No staff have a MiHomes login yet. Invite someone before granting document access.
+          <p class="text-xs text-gray-500 italic">
+            No staff have a MiHomes login yet. <a href="/team" class="text-brand-600 not-italic hover:underline">Invite someone</a> before granting document access.
           </p>
           {% endif %}
         </div>
@@ -372,18 +415,25 @@
       </div>
 
       <!-- Edit mode -->
-      <div id="doc-edit-{{ doc.slug }}" class="hidden px-6 py-5">
-        <form hx-post="/documents/{{ doc.slug }}/edit" hx-target="body" hx-swap="innerHTML" hx-encoding="multipart/form-data" class="space-y-4">
+      <div id="doc-edit-{{ doc.slug }}" class="{% if not ef %}hidden {% endif %}px-6 py-5">
+        {% if ef and upload_error %}
+        <div class="mb-4 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700" role="alert">
+          {{ upload_error }} Nothing was saved — choose the file again.
+        </div>
+        {% endif %}
+        <form hx-post="/documents/{{ doc.slug }}/edit" hx-target="body" hx-swap="innerHTML" hx-encoding="multipart/form-data"
+              hx-on::xhr:progress="docUploadProgress(this, event)" class="space-y-4">
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Title</label>
-            <input type="text" name="title" value="{{ doc.title }}" required
+            <label for="edit-title-{{ doc.slug }}" class="block text-sm font-medium text-gray-700 mb-1">Title <span class="text-red-500">*</span></label>
+            <input type="text" name="title" id="edit-title-{{ doc.slug }}" value="{{ ef.get('title', doc.title) }}" required
                    class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
           </div>
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Type</label>
-            <select name="document_type" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+            <label for="edit-type-{{ doc.slug }}" class="block text-sm font-medium text-gray-700 mb-1">Type</label>
+            {% set cur_type = ef.get('document_type', doc.document_type.value) %}
+            <select name="document_type" id="edit-type-{{ doc.slug }}" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
               {% for value, label in doc_types %}
-              <option value="{{ value }}" {% if doc.document_type.value == value %}selected{% endif %}>{{ label }}</option>
+              <option value="{{ value }}" {% if cur_type == value %}selected{% endif %}>{{ label }}</option>
               {% endfor %}
             </select>
           </div>
@@ -391,46 +441,51 @@
           {# An uploaded file: its storage key means nothing to a person, so carry it unchanged. #}
           <input type="hidden" name="file_path" value="{{ doc.file_path }}" />
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Current file</label>
+            <div class="block text-sm font-medium text-gray-700 mb-1">Current file</div>
             <div class="text-sm text-gray-600">Uploaded {{ 'PDF' if (doc.file_path | doc_kind) == 'pdf' else 'image' }}</div>
           </div>
           {% else %}
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Link, URL, or File Path</label>
-            <input type="text" name="file_path" value="{{ doc.file_path if doc.file_path != '—' else '' }}"
+            <label for="edit-path-{{ doc.slug }}" class="block text-sm font-medium text-gray-700 mb-1">Link, URL, or File Path</label>
+            <input type="text" name="file_path" id="edit-path-{{ doc.slug }}" value="{{ ef.get('file_path', doc.file_path if doc.file_path != '—' else '') }}"
                    class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                    placeholder="https://... or /local/path" />
           </div>
           {% endif %}
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">{{ 'Replace file' if doc.file_path | doc_kind else 'Or upload a file' }}</label>
+            <div class="block text-sm font-medium text-gray-700 mb-1">{{ 'Replace file' if doc.file_path | doc_kind else 'Or upload a file' }}</div>
             {% include "partials/doc_file_input.html" %}
           </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Property</label>
-              <select name="property_id" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+              <label for="edit-property-{{ doc.slug }}" class="block text-sm font-medium text-gray-700 mb-1">Property</label>
+              {% set cur_prop = ef.get('property_id', (doc.entity_id|string) if (doc.entity_type == 'property' and doc.entity_id) else '') %}
+              <select name="property_id" id="edit-property-{{ doc.slug }}" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
                 <option value="">All properties</option>
                 {% for p in properties %}
-                <option value="{{ p.id }}" {% if doc.entity_type == 'property' and doc.entity_id == p.id %}selected{% endif %}>{{ p.name }}</option>
+                <option value="{{ p.id }}" {% if cur_prop == p.id|string %}selected{% endif %}>{{ p.name }}</option>
                 {% endfor %}
               </select>
             </div>
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Expires</label>
-              <input type="date" name="expires_at" value="{{ doc.expires_at.isoformat() if doc.expires_at else '' }}"
+              <label for="edit-expires-{{ doc.slug }}" class="block text-sm font-medium text-gray-700 mb-1">Expires</label>
+              <input type="date" name="expires_at" id="edit-expires-{{ doc.slug }}" value="{{ ef.get('expires_at', doc.expires_at.isoformat() if doc.expires_at else '') }}"
                      class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
             </div>
           </div>
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-            <textarea name="notes" rows="3"
-                      class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none">{{ doc.notes or '' }}</textarea>
+            <label for="edit-notes-{{ doc.slug }}" class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+            <textarea name="notes" id="edit-notes-{{ doc.slug }}" rows="3"
+                      class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none">{{ ef.get('notes', doc.notes or '') }}</textarea>
           </div>
+          <div data-upload-progress class="hidden" aria-live="polite">
+        <div class="flex items-center justify-between text-xs text-gray-500 mb-1"><span>Uploading…</span><span data-pct>0%</span></div>
+        <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden"><div data-bar class="h-1.5 bg-brand-500 rounded-full transition-all" style="width:0%"></div></div>
+      </div>
           <div class="flex justify-end gap-2 pt-2 border-t border-gray-100">
-            <button type="button" onclick="exitEdit('doc','{{ doc.slug }}')"
+            <button type="button" data-slug="{{ doc.slug }}" onclick="exitEdit('doc', this.dataset.slug)"
                     class="px-4 py-1.5 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
-            <button type="submit" class="px-4 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg">Save</button>
+            <button type="submit" class="px-4 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg disabled:opacity-60 disabled:cursor-not-allowed">Save</button>
           </div>
         </form>
       </div>
@@ -443,9 +498,6 @@
 
 {% block scripts %}
 <script>
-function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
-function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
-
 function enterEdit(prefix, id) {
   document.getElementById(prefix+'-view-'+id)?.classList.add('hidden');
   document.getElementById(prefix+'-edit-'+id)?.classList.remove('hidden');
@@ -454,5 +506,57 @@ function exitEdit(prefix, id) {
   document.getElementById(prefix+'-edit-'+id)?.classList.add('hidden');
   document.getElementById(prefix+'-view-'+id)?.classList.remove('hidden');
 }
+
+/* Upload size check at pick time — the server's limit (forms.MAX_DOCUMENT_BYTES, decimal MB)
+   would otherwise only be discovered after the whole file had been sent. */
+function docFileChosen(input) {
+  const wrap = input.closest('[data-doc-file]');
+  const label = wrap.querySelector('[data-file-label]');
+  const err = wrap.querySelector('[data-file-error]');
+  const f = input.files[0];
+  const max = Number(input.dataset.maxBytes);
+  err.classList.add('hidden');
+  if (f && max && f.size > max) {
+    err.textContent = `“${f.name}” is ${(f.size / 1e6).toFixed(1)} MB — the limit is ${Math.round(max / 1e6)} MB.`;
+    err.classList.remove('hidden');
+    input.value = '';
+  }
+  label.textContent = input.files[0]?.name || 'Choose a PDF or image…';
+}
+
+/* Upload progress bar (htmx:xhr:progress); only shown when a file is actually being sent. */
+function docUploadProgress(form, evt) {
+  const box = form.querySelector('[data-upload-progress]');
+  const file = form.querySelector('input[type=file]');
+  if (!box || !file || !file.files.length || !evt.detail.lengthComputable) return;
+  const pct = Math.round((evt.detail.loaded / evt.detail.total) * 100);
+  box.classList.remove('hidden');
+  box.querySelector('[data-bar]').style.width = pct + '%';
+  box.querySelector('[data-pct]').textContent = pct + '%';
+}
+
+/* A modal the server rendered open (failed save, grant/revoke) skipped openModal(), so it has no
+   dialog semantics or focus yet: re-open it through the global helper. Runs on every swap. */
+document.querySelectorAll('.fixed.inset-0[id*="modal"]:not(.hidden)').forEach((m) => {
+  m.classList.add('hidden');
+  openModal(m.id);
+});
+
+/* `?open=<slug>` deep link (global search). htmx re-runs this script after every body swap and
+   a POST swap keeps the URL, so it fires once per URL — otherwise saving anything would re-open
+   the linked document. */
+(function () {
+  if (window.__mhDocsOpenFor === location.href) return;
+  window.__mhDocsOpenFor = location.href;
+  let slug = null;
+  try { slug = new URLSearchParams(location.search).get('open'); } catch (_) { slug = null; }
+  if (!slug) return;
+  const go = () => {
+    const m = document.getElementById('doc-modal-' + slug);
+    if (m && m.classList.contains('hidden')) openModal(m.id);
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go);
+  else go();
+})();
 </script>
 {% endblock %}

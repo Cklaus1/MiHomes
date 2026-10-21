@@ -112,6 +112,9 @@
   }
 
   document.addEventListener('input', (e) => { if (e.target && e.target.id === 'pb-content') count(); });
+  document.addEventListener('focusin', (e) => {
+    if (e.target && e.target.id === 'pb-content') e.target.dataset.touched = '1';
+  });
 
   document.addEventListener('click', (e) => {
     const t = e.target instanceof Element ? e.target : null;
@@ -136,7 +139,11 @@
       const snippet = ins.getAttribute('data-pb-insert') === 'section'
         ? '\n## New section\n- [ ] '
         : '\n- [ ] ';
-      const at = ta.selectionEnd ?? ta.value.length;
+      // After the line the cursor is on — never mid-line — and at the end if the box has not
+      // been touched yet (its caret then sits at 0, which put the step above the title).
+      let at = ta.dataset.touched ? (ta.selectionEnd ?? ta.value.length) : ta.value.length;
+      const eol = ta.value.indexOf('\n', at);
+      at = eol === -1 ? ta.value.length : eol;
       ta.value = ta.value.slice(0, at) + snippet + ta.value.slice(at);
       const caret = at + snippet.length;
       ta.focus();

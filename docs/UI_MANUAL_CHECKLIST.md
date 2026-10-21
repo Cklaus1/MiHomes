@@ -55,6 +55,7 @@ static tests do cover them directly.
 
 | Template | Route | Lines | 375px | 768px | 1440px |
 |---|---|---|---|---|---|
+| `_auth_layout.html` | (layout for /login, /signup, password reset, invitations) | — | ☐ | ☐ | ☐ |
 | `ai.html` | /ai/ | 786 | ☐ | ☐ | ☐ |
 | `alerts.html` | /alerts/ | 26 | ☐ | ☐ | ☐ |
 | `assets.html` | /assets/ | 802 | ☐ | ☐ | ☐ |
@@ -71,6 +72,7 @@ static tests do cover them directly.
 | `issues.html` | /issues/ | 558 | ☐ | ☐ | ☐ |
 | `library.html` | — | 98 | ☐ | ☐ | ☐ |
 | `login.html` | /login | 131 | ☐ | ☐ | ☐ |
+| `onboarding/_layout.html` | (layout for /onboarding/ steps) | — | ☐ | ☐ | ☐ |
 | `onboarding/account.html` | — | 20 | ☐ | ☐ | ☐ |
 | `onboarding/invite.html` | — | 18 | ☐ | ☐ | ☐ |
 | `onboarding/property.html` | — | 17 | ☐ | ☐ | ☐ |
@@ -83,15 +85,16 @@ static tests do cover them directly.
 | `properties.html` | /properties/ | 17 | ☐ | ☐ | ☐ |
 | `property_detail.html` | — | 197 | ☐ | ☐ | ☐ |
 | `property_form.html` | — | 38 | ☐ | ☐ | ☐ |
-| `recurring.html` | — | 301 | ☐ | ☐ | ☐ |
 | `search.html` | /search/ | 150 | ☐ | ☐ | ☐ |
+| `settings/_account_switcher.html` | (included in /settings and /settings/connections) | — | ☐ | ☐ | ☐ |
+| `settings/_danger.html` | (included in /settings and /settings/connections) | — | ☐ | ☐ | ☐ |
+| `settings/_notice.html` | (included in /settings and /settings/connections) | — | ☐ | ☐ | ☐ |
 | `settings/_personal.html` | (included in /settings and /settings/connections) | — | ☐ | ☐ | ☐ |
 | `settings/connections.html` | /settings/connections (staff) | — | ☐ | ☐ | ☐ |
 | `settings/index.html` | /settings | 54 | ☐ | ☐ | ☐ |
 | `signup.html` | /signup | 87 | ☐ | ☐ | ☐ |
 | `staff.html` | /staff/ | 353 | ☐ | ☐ | ☐ |
 | `tasks.html` | /tasks/ | 503 | ☐ | ☐ | ☐ |
-| `team/index.html` | — | 42 | ☐ | ☐ | ☐ |
 | `team/invite.html` | — | 21 | ☐ | ☐ | ☐ |
 | `templates.html` | /templates/ | 184 | ☐ | ☐ | ☐ |
 | `vendors.html` | /vendors/ | 982 | ☐ | ☐ | ☐ |

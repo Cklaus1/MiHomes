@@ -235,10 +235,10 @@
     <div class="mt-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">
       <p class="font-semibold">This permanently deletes {{ prop.name }} and everything in it:</p>
       <ul class="mt-2 list-disc pl-5 space-y-0.5">
-        <li>{{ dc.rooms }} room{{ 's' if dc.rooms != 1 }}</li>
-        <li>{{ dc.assets }} asset{{ 's' if dc.assets != 1 }}</li>
-        <li>{{ dc.tasks }} task{{ 's' if dc.tasks != 1 }}, with their completion history</li>
-        <li>{{ dc.issues }} issue{{ 's' if dc.issues != 1 }}</li>
+        {% if dc.rooms %}<li>{{ dc.rooms }} room{{ 's' if dc.rooms != 1 }}</li>{% endif %}
+        {% if dc.assets %}<li>{{ dc.assets }} asset{{ 's' if dc.assets != 1 }}</li>{% endif %}
+        {% if dc.tasks %}<li>{{ dc.tasks }} task{{ 's' if dc.tasks != 1 }}, with their completion history</li>{% endif %}
+        {% if dc.issues %}<li>{{ dc.issues }} issue{{ 's' if dc.issues != 1 }}</li>{% endif %}
         <li>its budgets and transactions</li>
       </ul>
       <p class="mt-3 font-semibold">Deleted data cannot be retrieved — not by you, and not by us.</p>
@@ -267,7 +267,8 @@
         <span>I have exported anything I need, and I understand {{ prop.name }} and all of its data will be permanently deleted and cannot be retrieved.</span>
       </label>
       <p class="mt-5 text-sm font-medium text-gray-900">Are you sure you want to delete {{ prop.name }}?</p>
-      <div class="mt-3 flex flex-col-reverse sm:flex-row gap-3">
+      {# No first in the DOM: on a phone it stacks on top, so the safe choice is the nearest. #}
+      <div class="mt-3 flex flex-col sm:flex-row gap-3">
         <button type="button" onclick="closeModal('delete-property-modal')"
                 class="flex-1 py-2.5 border border-gray-200 text-gray-800 text-sm font-medium rounded-lg hover:bg-gray-50">No, keep it</button>
         <button type="submit" data-delete-yes disabled

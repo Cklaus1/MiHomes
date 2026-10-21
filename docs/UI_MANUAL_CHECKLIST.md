@@ -80,7 +80,10 @@ static tests do cover them directly.
 | `plan_required.html` | — | 45 | ☐ | ☐ | ☐ |
 | `password_reset.html` | /password/reset/{token} | 69 | ☐ | ☐ | ☐ |
 | `password_reset_request.html` | /password/reset | 71 | ☐ | ☐ | ☐ |
-| `playbook_detail.html` | — | 103 | ☐ | ☐ | ☐ |
+| `playbook_detail.html` | /playbooks/{slug} | 103 | ☐ | ☐ | ☐ |
+| `playbook_form.html` | /playbooks/new, /playbooks/{slug}/edit | — | ☐ | ☐ | ☐ |
+| `playbook_template_preview.html` | /playbooks/templates/{slug} | — | ☐ | ☐ | ☐ |
+| `playbook_templates.html` | /playbooks/templates | — | ☐ | ☐ | ☐ |
 | `playbooks.html` | /playbooks/ | 44 | ☐ | ☐ | ☐ |
 | `properties.html` | /properties/ | 17 | ☐ | ☐ | ☐ |
 | `property_detail.html` | — | 197 | ☐ | ☐ | ☐ |

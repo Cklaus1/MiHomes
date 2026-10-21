@@ -265,6 +265,20 @@
             </form>
           {% endif %}
 
+          {# Per-person grant (2026-10-21): staff who may write playbooks without being made
+             admins. Owners and admins always can, so the toggle is shown only for staff. #}
+          {% if member.role == "staff" %}
+            <form method="post" action="/settings/members/{{ member.membership_id }}/playbooks"
+                  class="mt-3 flex flex-wrap items-center gap-3">
+              <label class="text-sm flex items-center gap-2" for="pb-edit-{{ member.membership_id }}">
+                <input type="checkbox" name="enabled" id="pb-edit-{{ member.membership_id }}"
+                       class="h-4 w-4" {% if member.can_edit_playbooks %}checked{% endif %} />
+                Can create and edit playbooks
+              </label>
+              <button class="border rounded-lg px-3 py-1.5 text-sm">Save</button>
+            </form>
+          {% endif %}
+
           {# Omitted on your own row: `offboard` has no self-check, so this would be a one-click
              lockout with no way back. The route refuses it regardless. The name travels in a
              data attribute, never inside the JS string, so an apostrophe cannot break it. #}

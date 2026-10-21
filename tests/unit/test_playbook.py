@@ -1,22 +1,31 @@
-"""Tests for playbook service."""
+"""Tests for the playbook service — per-account playbooks (2026-10-21).
 
+Playbooks used to be files in `knowledge/playbooks/`, listed for every account; they are now
+`Playbook` rows. Parser and knowledge-search tests are unchanged; listing, permissions, the
+template gallery, import and run are exercised against the database.
+"""
+
+from datetime import date, timedelta
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
 
 import pytest
 
 from mihomes.models.property import Property, PropertyType
+from mihomes.services import playbook as pb_svc
 from mihomes.services.playbook import (
     _extract_checklist_items,
-    _parse_frontmatter,
     _slug_to_name,
-    get_playbook,
     kb_path,
     knowledge_search,
-    list_playbooks,
-    playbooks_dir,
+    parse_markdown,
     run_playbook,
 )
+
+OWNER = SimpleNamespace(role="owner", can_edit_playbooks=False)
+ADMIN = SimpleNamespace(role="admin", can_edit_playbooks=False)
+STAFF = SimpleNamespace(role="staff", can_edit_playbooks=False)
+STAFF_EDITOR = SimpleNamespace(role="staff", can_edit_playbooks=True)
 
 
 # ── kb_path ───────────────────────────────────────────────────────────────────
@@ -50,42 +59,30 @@ class TestSlugToName:
         assert _slug_to_name("maintenance") == "Maintenance"
 
 
-# ── _parse_frontmatter ────────────────────────────────────────────────────────
+# ── parse_markdown ────────────────────────────────────────────────────────────
 
-class TestParseFrontmatter:
-    def test_parses_name_and_type(self, tmp_path):
-        f = tmp_path / "test.md"
-        f.write_text(
-            "# Spring Opening\n\n**Type**: seasonal\n**Owner**: Lead Housekeeper\n---\n\n## Step 1\n",
-            encoding="utf-8",
+class TestParseMarkdown:
+    def test_parses_title_and_metadata(self):
+        meta = parse_markdown(
+            "# Spring Opening\n\n**Type**: seasonal\n**Owner**: Lead Housekeeper\n"
+            "**Estimated Time**: 2 hours\n---\n\n## Step 1\n- [ ] Open shutters\n"
         )
-        meta = _parse_frontmatter(f)
-        assert meta["type"] == "seasonal"
-        assert meta["owner"] == "Lead Housekeeper"
+        assert meta["name"] == "Spring Opening"
+        assert meta["kind"] == "seasonal"
+        assert meta["audience"] == "Lead Housekeeper"
+        assert meta["estimated_time"] == "2 hours"
+        assert "Open shutters" in meta["content"]  # the whole text is kept
 
-    def test_stops_at_subheading(self, tmp_path):
-        f = tmp_path / "test.md"
-        f.write_text("# Title\n\n**Type**: daily\n\n## Section\n**Owner**: Not Here\n", encoding="utf-8")
-        meta = _parse_frontmatter(f)
-        assert "owner" not in meta
+    def test_stops_at_subheading(self):
+        meta = parse_markdown("# Title\n\n**Type**: daily\n\n## Section\n**Owner**: Not Here\n")
+        assert meta["audience"] is None
 
-    def test_stops_at_horizontal_rule(self, tmp_path):
-        f = tmp_path / "test.md"
-        f.write_text("# Title\n\n**Type**: monthly\n---\n**Owner**: After Rule\n", encoding="utf-8")
-        meta = _parse_frontmatter(f)
-        assert "owner" not in meta
+    def test_stops_at_horizontal_rule(self):
+        meta = parse_markdown("# Title\n\n**Type**: monthly\n---\n**Owner**: After Rule\n")
+        assert meta["audience"] is None
 
-    def test_returns_empty_dict_for_no_meta(self, tmp_path):
-        f = tmp_path / "test.md"
-        f.write_text("# Just a title\n\nSome text here.", encoding="utf-8")
-        meta = _parse_frontmatter(f)
-        assert meta == {}
-
-    def test_estimated_time_parsed(self, tmp_path):
-        f = tmp_path / "test.md"
-        f.write_text("# Title\n\n**Estimated Time**: 2 hours\n---\n", encoding="utf-8")
-        meta = _parse_frontmatter(f)
-        assert meta["estimated time"] == "2 hours"
+    def test_fallback_name_without_title(self):
+        assert parse_markdown("No title here", fallback_name="Fallback")["name"] == "Fallback"
 
 
 # ── _extract_checklist_items ──────────────────────────────────────────────────
@@ -125,146 +122,122 @@ class TestExtractChecklistItems:
         assert items[0]["day_offset"] == 0
 
 
-# ── list_playbooks ────────────────────────────────────────────────────────────
+# ── permissions ───────────────────────────────────────────────────────────────
 
-class TestListPlaybooks:
-    def test_returns_empty_when_no_playbooks_dir(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("MIHOMES_KB", str(tmp_path))
-        result = list_playbooks()
-        assert result == []
+class TestCanEdit:
+    def test_owner_and_admin_always(self):
+        assert pb_svc.can_edit(OWNER) and pb_svc.can_edit(ADMIN)
 
-    def test_lists_markdown_files(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("MIHOMES_KB", str(tmp_path))
-        pb_dir = tmp_path / "playbooks"
-        pb_dir.mkdir()
-        (pb_dir / "daily-checklist.md").write_text(
-            "# Daily Checklist\n\n**Type**: daily\n**Owner**: Housekeeper\n---\n\n## Morning\n\n- [ ] Sweep\n",
-            encoding="utf-8",
-        )
-        (pb_dir / "weekly-review.md").write_text(
-            "# Weekly Review\n\n**Type**: weekly\n---\n",
-            encoding="utf-8",
-        )
-        result = list_playbooks()
-        slugs = [r["slug"] for r in result]
-        assert "daily-checklist" in slugs
-        assert "weekly-review" in slugs
+    def test_staff_only_with_the_grant(self):
+        assert not pb_svc.can_edit(STAFF)
+        assert pb_svc.can_edit(STAFF_EDITOR)
 
-    def test_ignores_non_md_files(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("MIHOMES_KB", str(tmp_path))
-        pb_dir = tmp_path / "playbooks"
-        pb_dir.mkdir()
-        (pb_dir / "ignore.txt").write_text("text file")
-        result = list_playbooks()
-        assert result == []
+    def test_no_membership_cannot(self):
+        assert not pb_svc.can_edit(None)
 
-    def test_playbook_entry_has_expected_keys(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("MIHOMES_KB", str(tmp_path))
-        pb_dir = tmp_path / "playbooks"
-        pb_dir.mkdir()
-        (pb_dir / "test-playbook.md").write_text("# Test\n\n**Type**: daily\n---\n")
-        result = list_playbooks()
-        assert len(result) == 1
-        entry = result[0]
-        assert "slug" in entry
-        assert "name" in entry
-        assert "type" in entry
-        assert "file" in entry
+    def test_writes_refuse_staff_without_grant(self, session):
+        with pytest.raises(pb_svc.PlaybookPermissionError):
+            pb_svc.create_playbook(session, STAFF, name="Nope", content="- [ ] x")
 
 
-# ── get_playbook ──────────────────────────────────────────────────────────────
+# ── create / update / delete ──────────────────────────────────────────────────
 
-class TestGetPlaybook:
-    def _write_playbook(self, pb_dir, slug, content):
-        (pb_dir / f"{slug}.md").write_text(content, encoding="utf-8")
+class TestWrites:
+    def test_create_list_get(self, session):
+        pb = pb_svc.create_playbook(session, ADMIN, name="Guest Arrival",
+                                    content="## Before\n- [ ] Air out rooms\n", kind="one-off")
+        assert pb.slug == "guest-arrival"
+        assert [p.slug for p in pb_svc.list_playbooks(session)] == ["guest-arrival"]
+        assert pb_svc.checklist(pb_svc.get_playbook(session, "guest-arrival"))[0]["title"] == "Air out rooms"
 
-    def test_returns_none_for_missing_playbook(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("MIHOMES_KB", str(tmp_path))
-        (tmp_path / "playbooks").mkdir()
-        result = get_playbook("nonexistent")
-        assert result is None
+    def test_staff_editor_can_write(self, session):
+        pb = pb_svc.create_playbook(session, STAFF_EDITOR, name="Linen Rotation", content="")
+        assert pb.name == "Linen Rotation"
 
-    def test_returns_playbook_dict(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("MIHOMES_KB", str(tmp_path))
-        pb_dir = tmp_path / "playbooks"
-        pb_dir.mkdir()
-        self._write_playbook(
-            pb_dir, "spring-opening",
-            "# Spring Opening\n\n**Type**: seasonal\n**Owner**: Lead Housekeeper\n---\n\n## Prepare\n\n- [ ] Turn on water\n- [ ] Check HVAC\n",
-        )
-        result = get_playbook("spring-opening")
-        assert result is not None
-        assert result["slug"] == "spring-opening"
-        assert result["type"] == "seasonal"
-        assert len(result["checklist"]) == 2
+    def test_update_renames_slug_and_content(self, session):
+        pb_svc.create_playbook(session, OWNER, name="Old Name", content="- [ ] a")
+        pb = pb_svc.update_playbook(session, OWNER, "old-name", name="New Name",
+                                    content="- [ ] a\n- [ ] b")
+        assert pb.slug == "new-name" and len(pb_svc.checklist(pb)) == 2
 
-    def test_partial_match_works(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("MIHOMES_KB", str(tmp_path))
-        pb_dir = tmp_path / "playbooks"
-        pb_dir.mkdir()
-        self._write_playbook(pb_dir, "spring-opening", "# Spring Opening\n\n- [ ] Task\n")
-        result = get_playbook("spring")
-        assert result is not None
+    def test_delete(self, session):
+        pb_svc.create_playbook(session, OWNER, name="Temp", content="")
+        assert pb_svc.delete_playbook(session, OWNER, "temp") == "Temp"
+        assert pb_svc.get_playbook(session, "temp") is None
 
-    def test_content_returned(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("MIHOMES_KB", str(tmp_path))
-        pb_dir = tmp_path / "playbooks"
-        pb_dir.mkdir()
-        self._write_playbook(pb_dir, "test-pb", "# Test\n\n- [ ] Do something\n")
-        result = get_playbook("test-pb")
-        assert "Do something" in result["content"]
+    def test_name_required(self, session):
+        with pytest.raises(ValueError, match="name"):
+            pb_svc.create_playbook(session, OWNER, name="   ", content="")
+
+
+# ── template gallery ──────────────────────────────────────────────────────────
+
+class TestTemplates:
+    def test_gallery_has_the_seven_generic_templates(self):
+        slugs = {t["slug"] for t in pb_svc.list_templates()}
+        assert slugs == {
+            "housekeeping-standards", "daily-operations", "emergency-response", "hiring",
+            "onboarding-new-hire", "offboarding", "household-communication",
+        }
+        assert all(t["steps"] > 0 for t in pb_svc.list_templates())
+
+    def test_unknown_template_is_none_not_a_path(self):
+        assert pb_svc.get_template("../../../etc/passwd") is None
+
+    def test_copy_creates_an_editable_playbook(self, session):
+        pb = pb_svc.copy_template(session, ADMIN, "emergency-response")
+        assert pb.name and pb_svc.checklist(pb)
+        again = pb_svc.copy_template(session, ADMIN, "emergency-response")
+        assert again.slug != pb.slug  # a second copy gets its own slug
+
+    def test_copy_needs_an_editor(self, session):
+        with pytest.raises(pb_svc.PlaybookPermissionError):
+            pb_svc.copy_template(session, STAFF, "hiring")
+
+
+# ── import ────────────────────────────────────────────────────────────────────
+
+class TestImport:
+    def test_import_is_idempotent(self, session):
+        text = "# Spring Check\n\n**Type**: seasonal\n---\n\n## Prep\n- [ ] Turn on water\n"
+        pb, created = pb_svc.import_markdown(session, "spring-check", text)
+        assert created and pb.kind == "seasonal"
+        _, created_again = pb_svc.import_markdown(session, "spring-check", text)
+        assert not created_again
+        assert len(pb_svc.list_playbooks(session)) == 1
 
 
 # ── run_playbook ──────────────────────────────────────────────────────────────
 
 class TestRunPlaybook:
-    def _write_playbook(self, pb_dir, slug, content):
-        (pb_dir / f"{slug}.md").write_text(content, encoding="utf-8")
-
     @pytest.fixture
     def prop(self, session):
-        p = Property(name="Belle Estate", slug="belle-estate",
+        p = Property(name="Test Estate", slug="test-estate",
                      property_type=PropertyType.PRIMARY)
         session.add(p)
         session.flush()
         return p
 
-    def test_creates_tasks_from_checklist(self, session, tmp_path, monkeypatch, prop):
-        monkeypatch.setenv("MIHOMES_KB", str(tmp_path))
-        pb_dir = tmp_path / "playbooks"
-        pb_dir.mkdir()
-        self._write_playbook(
-            pb_dir, "spring-check",
+    def test_creates_tasks_from_checklist(self, session, prop):
+        pb_svc.import_markdown(
+            session, "spring-check",
             "# Spring Check\n\n**Type**: seasonal\n---\n\n## Prep\n\n- [ ] Turn on water\n- [ ] Check roof\n",
         )
         tasks = run_playbook(session, "spring-check", prop.slug)
-        assert len(tasks) == 2
-        titles = [t.title for t in tasks]
-        assert "Turn on water" in titles
-        assert "Check roof" in titles
+        assert {t.title for t in tasks} == {"Turn on water", "Check roof"}
 
-    def test_raises_for_unknown_playbook(self, session, tmp_path, monkeypatch, prop):
-        monkeypatch.setenv("MIHOMES_KB", str(tmp_path))
-        (tmp_path / "playbooks").mkdir()
+    def test_raises_for_unknown_playbook(self, session, prop):
         with pytest.raises(ValueError, match="not found"):
             run_playbook(session, "nonexistent-pb", prop.slug)
 
-    def test_raises_for_empty_checklist(self, session, tmp_path, monkeypatch, prop):
-        monkeypatch.setenv("MIHOMES_KB", str(tmp_path))
-        pb_dir = tmp_path / "playbooks"
-        pb_dir.mkdir()
-        self._write_playbook(pb_dir, "empty-pb", "# Empty Playbook\n\nNo tasks here.\n")
+    def test_raises_for_empty_checklist(self, session, prop):
+        pb_svc.import_markdown(session, "empty-pb", "# Empty Playbook\n\nNo tasks here.\n")
         with pytest.raises(ValueError, match="no checklist items"):
             run_playbook(session, "empty-pb", prop.slug)
 
-    def test_day_offset_applied(self, session, tmp_path, monkeypatch, prop):
-        from datetime import date, timedelta
-        monkeypatch.setenv("MIHOMES_KB", str(tmp_path))
-        pb_dir = tmp_path / "playbooks"
-        pb_dir.mkdir()
-        self._write_playbook(
-            pb_dir, "multi-day",
-            "# Multi Day\n\n## Day 1\n\n- [ ] Task A\n\n## Day 2\n\n- [ ] Task B\n",
+    def test_day_offset_applied(self, session, prop):
+        pb_svc.import_markdown(
+            session, "multi-day", "# Multi Day\n\n## Day 1\n\n- [ ] Task A\n\n## Day 2\n\n- [ ] Task B\n",
         )
         today = date.today()
         tasks = run_playbook(session, "multi-day", prop.slug, start_date=today)

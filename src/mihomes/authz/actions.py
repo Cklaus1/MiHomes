@@ -144,6 +144,17 @@ MATRIX: dict[str, ActionSpec] = {
     "automation.manage":   _spec("automation.manage",   5,  _A, _A, _D, _ACCT,
                                  rule="U6b: split from row 5 — staff may run a template, "
                                       "never manage one"),
+    # **Row 5's second split (2026-10-21) — writing playbooks.** Playbooks were read-only files
+    # shared by every account; they are now each account's own rows, written in the app. Running
+    # one stays `task.manage` (it creates tasks). *Writing* one is configuration, like
+    # `automation.manage` — except the owner may hand it to chosen staff without making them
+    # admins (user decision). A role grant cannot say "some staff", so staff is `_A` here and
+    # narrowed by the mechanism, the `staff.view_own` shape: `services.playbook` refuses a staff
+    # writer whose membership lacks `can_edit_playbooks`. Every write path goes through that
+    # service, so no route can grant more than the flag does.
+    "playbook.manage":     _spec("playbook.manage",     5,  _A, _A, _A, _ACCT,
+                                 rule="2026-10-21: staff only with Membership.can_edit_playbooks, "
+                                      "enforced in services.playbook — never by this grant"),
     "invite.create":       _spec("invite.create",       11, _A, _A, _D, _ACCT),
     "invite.modify":       _spec("invite.modify",       12, _A, _A, _D, _ACCT),
     "member.change_role":  _spec("member.change_role",  13, _A, _A, _D, _ACCT, rule="R1"),
@@ -291,6 +302,7 @@ def _entity_classes() -> dict[type, EntityClass]:
     from mihomes.models.note import Note
     from mihomes.models.onboarding_state import OnboardingState
     from mihomes.models.password_reset_token import PasswordResetToken
+    from mihomes.models.playbook import Playbook
     from mihomes.models.processed_webhook_event import ProcessedWebhookEvent
     from mihomes.models.property import Property
     from mihomes.models.recurring_expense import RecurringExpense
@@ -380,6 +392,9 @@ def _entity_classes() -> dict[type, EntityClass]:
         # neutralise the wrong label retire with this change.
         Template: EntityClass.ACCOUNT_SHARED,
         TemplateItem: EntityClass.ACCOUNT_SHARED,
+        # Same class as Template: account-wide procedures staff read and run. Who may *write*
+        # one is a verb rule (`playbook.manage` + the per-member flag), not row visibility.
+        Playbook: EntityClass.ACCOUNT_SHARED,
         AIConversation: account,
         AuditLog: account,
         Account: account,

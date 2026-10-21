@@ -65,6 +65,7 @@ class MemberView:
     email: str
     role: str
     joined_at: datetime
+    can_edit_playbooks: bool = False
 
     @property
     def display_name(self) -> str:
@@ -230,6 +231,7 @@ def list_members(session: Session, account_id: uuid.UUID) -> list[MemberView]:
             Membership.id,
             Membership.role,
             Membership.created_at,
+            Membership.can_edit_playbooks,
             User.id.label("user_id"),
             User.name,
             User.email,
@@ -250,11 +252,41 @@ def list_members(session: Session, account_id: uuid.UUID) -> list[MemberView]:
                 email=row.email,
                 role=row.role,
                 joined_at=row.created_at,
+                can_edit_playbooks=row.can_edit_playbooks,
             )
             for row in rows
         ),
         key=lambda m: (_ROLE_ORDER.get(m.role, len(_ROLE_ORDER)), (m.name or m.email).lower()),
     )
+
+
+def set_playbook_editor(session: Session, membership: Membership, enabled: bool) -> None:
+    """Grant or withdraw a staff member's right to create and edit playbooks (2026-10-21).
+
+    **Refuses for owner and admin**, for the reason `set_property_scope` gives: they can always
+    edit playbooks (`services.playbook.can_edit` never reads the flag for them), so storing it
+    would be state that looks like it governs access and does not.
+    """
+    if membership.role != "staff":
+        raise MembershipError(
+            f"a {membership.role} can always edit playbooks — the setting is only for staff"
+        )
+    enabled = bool(enabled)
+    if membership.can_edit_playbooks == enabled:
+        return
+    with account_context(membership.account_id):
+        bind_account_guc(session, membership.account_id)
+        before = membership.can_edit_playbooks
+        membership.can_edit_playbooks = enabled
+        record_change(
+            session,
+            entity_type="membership",
+            entity_id=membership.id,
+            # `audit_log.action` is String(10).
+            action="playbooks",
+            changes={"can_edit_playbooks": {"old": before, "new": enabled}},
+        )
+        session.flush()
 
 
 def set_property_scope(

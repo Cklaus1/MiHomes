@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+
+{% block title %}{{ 'New playbook' if mode == 'new' else 'Edit ' ~ form.name }} — MiHomes{% endblock %}
+{% block heading %}{{ 'New playbook' if mode == 'new' else 'Edit playbook' }}{% endblock %}
+{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">Steps you write here become tasks when the playbook is run.</p>{% endblock %}
+
+{% block actions %}
+<a href="{{ '/playbooks/' ~ slug if slug else '/playbooks/' }}" class="text-sm text-gray-600 hover:text-gray-800 px-2 py-2">Cancel</a>
+{% endblock %}
+
+{% block content %}
+{% if notice %}
+<div class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">{{ notice }}</div>
+{% endif %}
+{% if error %}
+<div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">{{ error }}</div>
+{% endif %}
+
+<form method="post" action="{{ '/playbooks/new' if mode == 'new' else '/playbooks/' ~ slug ~ '/edit' }}"
+      class="grid grid-cols-1 xl:grid-cols-3 gap-6" id="playbook-form">
+
+  <!-- Details -->
+  <div class="space-y-4 xl:order-2">
+    <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+      <div>
+        <label for="pb-name" class="block text-sm font-medium text-gray-700 mb-1">Name <span class="text-red-500">*</span></label>
+        <input type="text" id="pb-name" name="name" value="{{ form.name }}" required maxlength="200"
+               {% if error %}aria-invalid="true"{% endif %}
+               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+      </div>
+      <div>
+        <label for="pb-kind" class="block text-sm font-medium text-gray-700 mb-1">Type</label>
+        <input type="text" id="pb-kind" name="kind" value="{{ form.kind }}" list="pb-kinds" maxlength="50"
+               placeholder="recurring, one-off, emergency…"
+               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        <datalist id="pb-kinds"><option value="recurring"><option value="one-off"><option value="emergency"></datalist>
+      </div>
+      <div>
+        <label for="pb-audience" class="block text-sm font-medium text-gray-700 mb-1">Who runs it</label>
+        <input type="text" id="pb-audience" name="audience" value="{{ form.audience }}" maxlength="200"
+               placeholder="e.g. Housekeeper, All staff"
+               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+      </div>
+      <div>
+        <label for="pb-time" class="block text-sm font-medium text-gray-700 mb-1">Estimated time</label>
+        <input type="text" id="pb-time" name="estimated_time" value="{{ form.estimated_time }}" maxlength="100"
+               placeholder="e.g. 2–3 hours"
+               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+      </div>
+    </div>
+
+    <div class="bg-white rounded-xl border border-gray-200 p-5 text-sm text-gray-700 space-y-2">
+      <h2 class="text-sm font-semibold text-gray-900">How to write steps</h2>
+      <p><code class="bg-gray-100 px-1 rounded text-xs">- [ ] Do something</code> — a step. Each one becomes a task when the playbook is run.</p>
+      <p><code class="bg-gray-100 px-1 rounded text-xs">## Section</code> — groups steps. Each new section is scheduled one day after the last.</p>
+      <p><code class="bg-gray-100 px-1 rounded text-xs">- note</code> — a plain bullet for reference; it does not become a task.</p>
+      <p><code class="bg-gray-100 px-1 rounded text-xs">**bold**</code> for emphasis.</p>
+    </div>
+
+    <div class="flex gap-3">
+      <button type="submit" class="flex-1 py-2.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">
+        {{ 'Create playbook' if mode == 'new' else 'Save changes' }}
+      </button>
+      <a href="{{ '/playbooks/' ~ slug if slug else '/playbooks/' }}"
+         class="flex-1 py-2.5 text-center border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">Cancel</a>
+    </div>
+  </div>
+
+  <!-- Content -->
+  <div class="xl:col-span-2 xl:order-1 bg-white rounded-xl border border-gray-200">
+    <div class="flex flex-wrap items-center justify-between gap-2 px-4 pt-3 border-b border-gray-100" role="tablist">
+      <div class="flex">
+        <button type="button" role="tab" data-pb-tab="write" aria-selected="true"
+                class="px-3 py-2 -mb-px text-sm font-medium border-b-2 border-brand-600 text-brand-600">Write</button>
+        <button type="button" role="tab" data-pb-tab="preview" aria-selected="false"
+                hx-post="/playbooks/preview" hx-include="#pb-content" hx-target="#pb-preview" hx-swap="innerHTML"
+                class="px-3 py-2 -mb-px text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700">Preview</button>
+      </div>
+      <div class="flex items-center gap-2 pb-2">
+        <span class="text-xs text-gray-500" id="pb-step-count" aria-live="polite">{{ step_count }} step{{ 's' if step_count != 1 }}</span>
+        <button type="button" data-pb-insert="section" class="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50">+ Section</button>
+        <button type="button" data-pb-insert="step" class="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50">+ Step</button>
+      </div>
+    </div>
+    <div data-pb-panel="write" class="p-4">
+      <label for="pb-content" class="sr-only">Playbook content</label>
+      <textarea id="pb-content" name="content" rows="24" spellcheck="true"
+                class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-brand-500">{{ form.content }}</textarea>
+    </div>
+    <div data-pb-panel="preview" class="hidden p-6">
+      <div id="pb-preview">{{ preview_html | safe }}</div>
+    </div>
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* Editor helpers: Write/Preview tabs, insert a section or step at the cursor, live step count.
+   Delegated and installed once — the page body can be swapped and re-run this script. */
+(function () {
+  if (window.__mhPlaybookEditor) return;
+  window.__mhPlaybookEditor = true;
+  const STEP = /^\s*-\s+\[\s*\]\s+\S/;
+
+  function count() {
+    const ta = document.getElementById('pb-content');
+    const out = document.getElementById('pb-step-count');
+    if (!ta || !out) return;
+    const n = ta.value.split('\n').filter((l) => STEP.test(l)).length;
+    out.textContent = n + (n === 1 ? ' step' : ' steps');
+  }
+
+  document.addEventListener('input', (e) => { if (e.target && e.target.id === 'pb-content') count(); });
+
+  document.addEventListener('click', (e) => {
+    const t = e.target instanceof Element ? e.target : null;
+    if (!t) return;
+    const tab = t.closest('[data-pb-tab]');
+    if (tab) {
+      const which = tab.getAttribute('data-pb-tab');
+      document.querySelectorAll('[data-pb-tab]').forEach((b) => {
+        const on = b.getAttribute('data-pb-tab') === which;
+        b.setAttribute('aria-selected', on ? 'true' : 'false');
+        b.classList.toggle('border-brand-600', on); b.classList.toggle('text-brand-600', on);
+        b.classList.toggle('border-transparent', !on); b.classList.toggle('text-gray-500', !on);
+      });
+      document.querySelectorAll('[data-pb-panel]').forEach((p) =>
+        p.classList.toggle('hidden', p.getAttribute('data-pb-panel') !== which));
+      return;
+    }
+    const ins = t.closest('[data-pb-insert]');
+    if (ins) {
+      const ta = document.getElementById('pb-content');
+      if (!ta) return;
+      const snippet = ins.getAttribute('data-pb-insert') === 'section'
+        ? '\n## New section\n- [ ] '
+        : '\n- [ ] ';
+      const at = ta.selectionEnd ?? ta.value.length;
+      ta.value = ta.value.slice(0, at) + snippet + ta.value.slice(at);
+      const caret = at + snippet.length;
+      ta.focus();
+      ta.setSelectionRange(caret, caret);
+      count();
+    }
+  });
+})();
+</script>
+{% endblock %}

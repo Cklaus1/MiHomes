@@ -262,7 +262,10 @@ def test_registry_size_is_asserted_explicitly():
     # `task_completions` (0020, 2026-10-16) -> 51: one row per time a task was done. Repeating
     # tasks now reset in place instead of spawning a COMPLETED copy, so this log is what reports
     # and staff stats count. Tenant-scoped — a completion belongs to the account whose task it was.
-    assert len(TENANT_TABLES) == 51, (
-        f"expected 51 tenant-owned tables, registry has {len(TENANT_TABLES)} — "
+    #
+    # `playbooks` (0022, 2026-10-21) -> 52: each account's own playbooks. They were markdown
+    # files read by every account, so one estate's procedures were visible to all of them.
+    assert len(TENANT_TABLES) == 52, (
+        f"expected 52 tenant-owned tables, registry has {len(TENANT_TABLES)} — "
         "if a table was legitimately added or removed, update this number and say why"
     )

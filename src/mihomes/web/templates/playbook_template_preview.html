@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block title %}{{ tpl.name }} (template) — MiHomes{% endblock %}
+{% block heading %}{{ tpl.name }}{% endblock %}
+{% block subheading %}
+<p class="text-sm text-gray-500 mt-0.5">
+  Template{% if tpl.kind %} · {{ tpl.kind }}{% endif %}{% if tpl.audience %} · {{ tpl.audience }}{% endif %} · {{ tpl.steps }} steps
+</p>
+{% endblock %}
+
+{% block actions %}
+<a href="/playbooks/templates" class="text-sm text-gray-600 hover:text-gray-800 px-2 py-2">← Templates</a>
+{% if can_edit %}
+<form method="post" action="/playbooks/templates/{{ tpl.slug }}/use">
+  <button type="submit" class="inline-flex items-center px-3 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Use this template</button>
+</form>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="bg-white rounded-xl border border-gray-200 p-6 overflow-auto max-w-4xl">
+  {{ html_content | safe }}
+</div>
+{% endblock %}

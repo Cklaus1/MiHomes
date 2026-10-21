@@ -120,6 +120,7 @@ from mihomes.models.onboarding_state import OnboardingState  # noqa: E402, F401
 from mihomes.models.password_reset_token import (  # noqa: E402, F401
     PasswordResetToken,
 )
+from mihomes.models.playbook import Playbook  # noqa: E402, F401
 from mihomes.models.processed_webhook_event import (  # noqa: E402, F401
     ProcessedWebhookEvent,
 )

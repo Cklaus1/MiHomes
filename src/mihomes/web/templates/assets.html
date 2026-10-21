@@ -15,19 +15,19 @@
 
 {% block actions %}
 <div id="tab-actions-assets" class="flex items-center gap-2 {% if active_tab != 'assets' %}hidden{% endif %}">
-  <button onclick="document.getElementById('scan-room-modal').classList.remove('hidden')"
+  <button onclick="openModal('scan-room-modal')"
           class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-brand-300 text-brand-700 text-sm font-medium rounded-lg hover:bg-brand-50 transition-colors">
     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
     Scan Room
   </button>
-  <button onclick="document.getElementById('add-asset-modal').classList.remove('hidden')"
+  <button onclick="openModal('add-asset-modal')"
           class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
     Add Asset
   </button>
 </div>
 <div id="tab-actions-books" {% if active_tab != 'books' %}class="hidden"{% endif %}>
-  <button onclick="document.getElementById('add-book-modal').classList.remove('hidden')"
+  <button onclick="openModal('add-book-modal')"
           class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
     Add Book
@@ -38,23 +38,24 @@
 {% block content %}
 {% set condition_colors = {'excellent':'bg-emerald-100 text-emerald-700','good':'bg-blue-100 text-blue-700','fair':'bg-amber-100 text-amber-700','poor':'bg-red-100 text-red-700','damaged':'bg-red-100 text-red-700'} %}
 {% set type_icons = {'appliance':'🔌','vehicle':'🚗','valuable':'💎','consumable':'📦','equipment':'🔧'} %}
+{% macro warranty_badge(d, today) %}{% set days = (d - today).days %}<span class="text-xs whitespace-nowrap {% if days < 0 %}text-red-600 font-medium{% elif days <= 90 %}text-amber-700 font-medium{% else %}text-gray-500{% endif %}">{{ d.strftime('%b %d, %Y') }}</span>{% if days < 0 %} <span class="ml-1 px-1.5 py-0.5 rounded text-xs font-medium bg-red-50 text-red-700">Expired</span>{% elif days <= 90 %} <span class="ml-1 px-1.5 py-0.5 rounded text-xs font-medium bg-amber-50 text-amber-700">Expiring</span>{% endif %}{% endmacro %}
 
 <!-- Tab bar -->
-<div class="flex gap-1 mb-5 border-b border-gray-200">
+<div class="flex gap-1 mb-5 border-b border-gray-200 overflow-x-auto whitespace-nowrap">
   <button id="tab-btn-assets" onclick="switchSpaceTab('assets')"
-          class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if active_tab == 'assets' %}border-brand-500 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
-    Assets <span class="ml-1 px-1.5 py-0.5 rounded-full text-xs bg-gray-100 text-gray-500">{{ assets|length }}</span>
+          class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if active_tab == 'assets' %}border-brand-600 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
+    Assets <span class="ml-1 px-1.5 py-0.5 rounded-full text-xs bg-gray-100 text-gray-500">{{ room_asset_count }}</span>
   </button>
   <button id="tab-btn-books" onclick="switchSpaceTab('books')"
-          class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if active_tab == 'books' %}border-brand-500 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
+          class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if active_tab == 'books' %}border-brand-600 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
     Books <span class="ml-1 px-1.5 py-0.5 rounded-full text-xs bg-gray-100 text-gray-500">{{ books|length }}</span>
   </button>
   <button id="tab-btn-issues" onclick="switchSpaceTab('issues')"
-          class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if active_tab == 'issues' %}border-brand-500 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
+          class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if active_tab == 'issues' %}border-brand-600 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
     Issues <span class="ml-1 px-1.5 py-0.5 rounded-full text-xs bg-gray-100 text-gray-500">{{ space_issues|length }}</span>
   </button>
   <button id="tab-btn-notes" onclick="switchSpaceTab('notes')"
-          class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if active_tab == 'notes' %}border-brand-500 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
+          class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if active_tab == 'notes' %}border-brand-600 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
     Notes <span id="badge-space-notes" class="ml-1 px-1.5 py-0.5 rounded-full text-xs bg-gray-100 text-gray-500">{{ space_notes|length }}</span>
   </button>
 </div>
@@ -62,10 +63,10 @@
 <!-- Assets panel -->
 <div id="panel-assets" {% if active_tab == 'books' %}class="hidden"{% endif %}>
 
-{% if all_assets %}
+{% if room_asset_count %}
 <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
   {% for type_val, label in [('appliance','Appliances'),('vehicle','Vehicles'),('valuable','Valuables'),('equipment','Equipment'),('consumable','Consumables')] %}
-  {% set count = assets | selectattr('asset_type', 'equalto', type_val) | list | length %}
+  {% set count = type_counts.get(type_val, 0) %}
   <a href="{% if filter_type == type_val %}/assets/{{ prop.slug }}/{{ space_slug }}{% else %}/assets/{{ prop.slug }}/{{ space_slug }}?asset_type={{ type_val }}{% endif %}"
      class="block rounded-xl border px-4 py-3 text-center transition-all hover:shadow-sm
             {% if filter_type == type_val %}bg-brand-50 border-brand-400{% else %}bg-white border-gray-200 hover:border-brand-300{% endif %}">
@@ -80,7 +81,8 @@
 {% if assets %}
 <div class="relative mb-3">
   <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/></svg>
-  <input id="asset-search" type="search" placeholder="Search assets…" oninput="filterRows('asset-search','asset-tbody')"
+  <label for="asset-search" class="sr-only">Search assets</label>
+  <input id="asset-search" type="search" placeholder="Search name, type, make, notes…" data-search-rows="#asset-tbody > tr"
          class="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white" />
 </div>
 <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -88,22 +90,23 @@
   <table class="w-full text-sm">
     <thead>
       <tr class="border-b border-gray-100 bg-gray-50">
-        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Asset</th>
-        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Type</th>
-        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Make / Model</th>
-        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Value</th>
-        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Warranty</th>
-        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Condition</th>
+        <th data-sort="text" class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide"><button type="button" class="inline-flex items-center gap-1 uppercase tracking-wide hover:text-gray-700">Asset <span data-sort-icon aria-hidden="true"></span></button></th>
+        <th data-sort="text" class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide"><button type="button" class="inline-flex items-center gap-1 uppercase tracking-wide hover:text-gray-700">Type <span data-sort-icon aria-hidden="true"></span></button></th>
+        <th data-sort="text" class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell"><button type="button" class="inline-flex items-center gap-1 uppercase tracking-wide hover:text-gray-700">Make / Model <span data-sort-icon aria-hidden="true"></span></button></th>
+        <th data-sort="num" class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell"><button type="button" class="inline-flex items-center gap-1 uppercase tracking-wide hover:text-gray-700">Value <span data-sort-icon aria-hidden="true"></span></button></th>
+        <th data-sort="text" class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell"><button type="button" class="inline-flex items-center gap-1 uppercase tracking-wide hover:text-gray-700">Warranty <span data-sort-icon aria-hidden="true"></span></button></th>
+        <th data-sort="text" class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide"><button type="button" class="inline-flex items-center gap-1 uppercase tracking-wide hover:text-gray-700">Condition <span data-sort-icon aria-hidden="true"></span></button></th>
       </tr>
     </thead>
     <tbody id="asset-tbody" class="divide-y divide-gray-50">
       {% for asset in assets %}
-      <tr class="hover:bg-gray-50 cursor-pointer transition-colors" onclick="openModal('asset-modal-{{ asset.id }}')">
+      <tr class="hover:bg-gray-50 cursor-pointer transition-colors" onclick="openModal('asset-modal-{{ asset.id }}')"
+          data-search="{{ [asset.name, asset.asset_type.value, asset.make, asset.model_name, asset.serial_number, asset.notes] | select | join(' ') | lower }}">
         <td class="px-4 py-3"><div class="font-medium text-gray-900">{{ asset.name }}</div>{% if asset.serial_number %}<div class="text-xs text-gray-400 font-mono">S/N: {{ asset.serial_number }}</div>{% endif %}</td>
         <td class="px-4 py-3"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-600 font-medium capitalize">{{ type_icons.get(asset.asset_type.value,'📦') }} {{ asset.asset_type.value }}</span></td>
         <td class="px-4 py-3 text-gray-600 hidden md:table-cell">{% if asset.make or asset.model_name %}{{ asset.make or '' }}{% if asset.make and asset.model_name %} {% endif %}{{ asset.model_name or '' }}{% else %}—{% endif %}</td>
-        <td class="px-4 py-3 text-gray-600 hidden lg:table-cell">{% if asset.purchase_date or asset.purchase_price %}{% if asset.purchase_date %}<div>{{ asset.purchase_date.strftime('%b %Y') }}</div>{% endif %}{% if asset.purchase_price %}<div class="text-xs text-gray-400">{{ asset.purchase_price | money }}</div>{% endif %}{% else %}—{% endif %}</td>
-        <td class="px-4 py-3 hidden lg:table-cell">{% if asset.warranty_expires %}<span class="text-xs {% if asset.warranty_expires.year < 2027 %}text-red-600 font-medium{% else %}text-gray-500{% endif %}">{{ asset.warranty_expires.strftime('%b %d, %Y') }}</span>{% else %}<span class="text-gray-400 text-xs">—</span>{% endif %}</td>
+        <td class="px-4 py-3 text-gray-600 hidden lg:table-cell" data-sort-value="{{ asset.purchase_price or '' }}">{% if asset.purchase_date or asset.purchase_price %}{% if asset.purchase_date %}<div>{{ asset.purchase_date.strftime('%b %Y') }}</div>{% endif %}{% if asset.purchase_price %}<div class="text-xs text-gray-400">{{ asset.purchase_price | money }}</div>{% endif %}{% else %}—{% endif %}</td>
+        <td class="px-4 py-3 hidden lg:table-cell" data-sort-value="{{ asset.warranty_expires.isoformat() if asset.warranty_expires else '' }}">{% if asset.warranty_expires %}{{ warranty_badge(asset.warranty_expires, today) }}{% else %}<span class="text-gray-400 text-xs">—</span>{% endif %}</td>
         <td class="px-4 py-3"><span class="px-2 py-0.5 rounded-full text-xs font-medium capitalize {{ condition_colors.get(asset.condition.value,'bg-gray-100 text-gray-600') }}">{{ asset.condition.value }}</span></td>
       </tr>
       {% endfor %}
@@ -111,11 +114,20 @@
   </table>
   </div>
 </div>
+{% elif filter_type and room_asset_count %}
+<div class="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center">
+  <div class="text-gray-500 font-medium">No {{ filter_type }} assets here</div>
+  <a href="/assets/{{ prop.slug }}/{{ space_slug }}" class="mt-3 inline-block px-4 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">Clear filter</a>
+</div>
 {% else %}
 <div class="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center">
   <div class="text-3xl mb-2">🔧</div>
   <div class="text-gray-500 font-medium">No assets in this space yet</div>
-  <button onclick="document.getElementById('add-asset-modal').classList.remove('hidden')" class="mt-3 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Add First Asset</button>
+  <div class="text-sm text-gray-400 mt-1">Add them one by one, or scan the room with your camera.</div>
+  <div class="mt-3 flex flex-wrap justify-center gap-2">
+    <button type="button" onclick="openModal('add-asset-modal')" class="px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Add First Asset</button>
+    <button type="button" onclick="openModal('scan-room-modal')" class="px-4 py-2 border border-brand-300 text-brand-700 text-sm font-medium rounded-lg hover:bg-brand-50">Scan Room</button>
+  </div>
 </div>
 {% endif %}
 
@@ -126,7 +138,8 @@
 {% if books %}
 <div class="relative mb-3">
   <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/></svg>
-  <input id="book-search" type="search" placeholder="Search by title, author, or genre…" oninput="filterRows('book-search','book-tbody')"
+  <label for="book-search" class="sr-only">Search books</label>
+  <input id="book-search" type="search" placeholder="Search by title, author, or genre…" data-search-rows="#book-tbody > tr"
          class="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white" />
 </div>
 <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -134,16 +147,17 @@
   <table class="w-full text-sm">
     <thead>
       <tr class="border-b border-gray-100 bg-gray-50">
-        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Title</th>
-        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">Author</th>
-        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Genre</th>
-        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Location</th>
-        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Condition</th>
+        <th data-sort="text" class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide"><button type="button" class="inline-flex items-center gap-1 uppercase tracking-wide hover:text-gray-700">Title <span data-sort-icon aria-hidden="true"></span></button></th>
+        <th data-sort="text" class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell"><button type="button" class="inline-flex items-center gap-1 uppercase tracking-wide hover:text-gray-700">Author <span data-sort-icon aria-hidden="true"></span></button></th>
+        <th data-sort="text" class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell"><button type="button" class="inline-flex items-center gap-1 uppercase tracking-wide hover:text-gray-700">Genre <span data-sort-icon aria-hidden="true"></span></button></th>
+        <th data-sort="text" class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide"><button type="button" class="inline-flex items-center gap-1 uppercase tracking-wide hover:text-gray-700">Location <span data-sort-icon aria-hidden="true"></span></button></th>
+        <th data-sort="text" class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide"><button type="button" class="inline-flex items-center gap-1 uppercase tracking-wide hover:text-gray-700">Condition <span data-sort-icon aria-hidden="true"></span></button></th>
       </tr>
     </thead>
     <tbody id="book-tbody" class="divide-y divide-gray-50">
       {% for book in books %}
-      <tr class="hover:bg-gray-50 cursor-pointer transition-colors" onclick="openModal('book-modal-{{ book.id }}')">
+      <tr class="hover:bg-gray-50 cursor-pointer transition-colors" onclick="openModal('book-modal-{{ book.id }}')"
+          data-search="{{ [book.title, book.author, book.genre, book.isbn, book.notes] | select | join(' ') | lower }}">
         <td class="px-4 py-3"><div class="font-medium text-gray-900">{{ book.title }}</div>{% if book.isbn %}<div class="text-xs text-gray-400 font-mono">ISBN: {{ book.isbn }}</div>{% endif %}</td>
         <td class="px-4 py-3 text-gray-600 hidden sm:table-cell">{{ book.author or '—' }}</td>
         <td class="px-4 py-3 text-gray-500 hidden md:table-cell">{{ book.genre or '—' }}</td>
@@ -159,7 +173,7 @@
 <div class="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center">
   <div class="text-3xl mb-2">📚</div>
   <div class="text-gray-500 font-medium">No books recorded in this space yet</div>
-  <button onclick="switchSpaceTab('books'); document.getElementById('add-book-modal').classList.remove('hidden')"
+  <button type="button" onclick="switchSpaceTab('books'); openModal('add-book-modal')"
           class="mt-3 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Add First Book</button>
 </div>
 {% endif %}
@@ -167,13 +181,15 @@
 
 <!-- Issues panel -->
 <div id="panel-issues" {% if active_tab != 'issues' %}class="hidden"{% endif %}>
+  {% if space %}
   <div class="flex justify-end mb-3">
-    <button onclick="document.getElementById('report-room-issue-modal').classList.remove('hidden')"
+    <button type="button" onclick="openModal('report-room-issue-modal')"
             class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
       Report Issue in this Room
     </button>
   </div>
+  {% endif %}
   {% if space_issues %}
   <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
     <div class="overflow-x-auto">
@@ -190,7 +206,7 @@
         {% for issue in space_issues %}
         <tr class="hover:bg-gray-50 transition-colors">
           <td class="px-4 py-3">
-            <div class="font-medium text-gray-900">{{ issue.title }}</div>
+            <a href="/issues/?open={{ issue.id }}" class="font-medium text-gray-900 hover:text-brand-700 hover:underline">{{ issue.title }}</a>
             {% if issue.description %}<div class="text-xs text-gray-400 truncate max-w-xs">{{ issue.description }}</div>{% endif %}
           </td>
           <td class="px-4 py-3">
@@ -223,10 +239,11 @@
   <div class="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center">
     <div class="text-3xl mb-2">✅</div>
     <div class="text-gray-500 font-medium">No issues in this room</div>
+    {% if space %}<button type="button" onclick="openModal('report-room-issue-modal')" class="mt-3 px-4 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">Report an issue</button>{% endif %}
   </div>
   {% endif %}
   <div class="mt-3 flex justify-end">
-    <a href="/issues?property_id={{ prop.id }}"
+    <a href="/issues/?property_id={{ prop.id }}"
        class="text-sm text-brand-600 hover:text-brand-700">View all property issues →</a>
   </div>
 </div><!-- /panel-issues -->
@@ -250,7 +267,7 @@
   <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
     <div class="flex items-center justify-between mb-1">
       <h2 class="text-lg font-semibold text-gray-900">Scan {{ space.name if space else 'Room' }}</h2>
-      <button onclick="document.getElementById('scan-room-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+      <button type="button" onclick="closeModal('scan-room-modal')" class="p-2.5 -m-2.5 text-gray-400 hover:text-gray-600"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
     </div>
     <p class="text-xs text-gray-500 mb-4">Take or upload photo(s) of the room — the AI lists the assets it sees, and you review them before adding. Values are rough estimates.</p>
 
@@ -282,7 +299,7 @@
   <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
     <div class="flex items-center justify-between mb-5">
       <h2 class="text-lg font-semibold text-gray-900">New Asset</h2>
-      <button onclick="document.getElementById('add-asset-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+      <button type="button" onclick="closeModal('add-asset-modal')" class="p-2.5 -m-2.5 text-gray-400 hover:text-gray-600"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
     </div>
     <form hx-post="/assets/" hx-target="body" hx-swap="innerHTML" class="space-y-4">
       <input type="hidden" name="from_property" value="{{ prop.slug }}">
@@ -292,27 +309,28 @@
       <input type="hidden" name="space_slug" value="{{ space_slug }}">
       {% endif %}
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Name <span class="text-red-500">*</span></label>
-        <input type="text" name="name" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        <label for="add-asset-name" class="block text-sm font-medium text-gray-700 mb-1">Name <span class="text-red-500">*</span></label>
+        <input type="text" id="add-asset-name" name="name" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Type <span class="text-red-500">*</span></label>
-          <select name="asset_type" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
-            {% for t in asset_types %}<option value="{{ t }}">{{ t | capitalize }}</option>{% endfor %}
+          <label for="add-asset-type" class="block text-sm font-medium text-gray-700 mb-1">Type <span class="text-red-500">*</span></label>
+          <select id="add-asset-type" name="asset_type" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+            <option value="" disabled {% if not filter_type %}selected{% endif %}>Select type…</option>
+            {% for t in asset_types %}<option value="{{ t }}" {% if filter_type == t %}selected{% endif %}>{{ t | capitalize }}</option>{% endfor %}
           </select>
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Condition</label>
-          <select name="condition" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          <label for="add-asset-condition" class="block text-sm font-medium text-gray-700 mb-1">Condition</label>
+          <select id="add-asset-condition" name="condition" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
             {% for c in conditions %}<option value="{{ c }}" {% if c == 'good' %}selected{% endif %}>{{ c | capitalize }}</option>{% endfor %}
           </select>
         </div>
       </div>
       {% if not space or space_slug == 'unassigned' %}
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Room</label>
-        <select name="space_slug" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+        <label for="add-asset-room" class="block text-sm font-medium text-gray-700 mb-1">Room</label>
+        <select id="add-asset-room" name="space_slug" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
           <option value="">No room</option>
           {% for s in spaces %}<option value="{{ s.slug }}">{{ s.name }}</option>{% endfor %}
         </select>
@@ -320,25 +338,25 @@
       {% endif %}
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Make</label>
-          <input type="text" name="make" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          <label for="add-asset-make" class="block text-sm font-medium text-gray-700 mb-1">Make</label>
+          <input type="text" id="add-asset-make" name="make" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Model</label>
-          <input type="text" name="model_name" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          <label for="add-asset-model" class="block text-sm font-medium text-gray-700 mb-1">Model</label>
+          <input type="text" id="add-asset-model" name="model_name" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
         </div>
       </div>
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Value ($)</label>
-        <input type="number" name="purchase_price" min="0" step="0.01" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        <label for="add-asset-value" class="block text-sm font-medium text-gray-700 mb-1">Value ({{ currency_symbol() }})</label>
+        <input type="number" id="add-asset-value" name="purchase_price" min="0" step="0.01" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
       </div>
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-        <textarea name="notes" rows="2" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"></textarea>
+        <label for="add-asset-notes" class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+        <textarea id="add-asset-notes" name="notes" rows="2" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"></textarea>
       </div>
       <div class="flex gap-3 pt-1">
         <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Add Asset</button>
-        <button type="button" onclick="document.getElementById('add-asset-modal').classList.add('hidden')" class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-50">Cancel</button>
+        <button type="button" onclick="closeModal('add-asset-modal')" class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-50">Cancel</button>
       </div>
     </form>
   </div>
@@ -349,7 +367,7 @@
   <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
     <div class="flex items-center justify-between mb-5">
       <h2 class="text-lg font-semibold text-gray-900">Add Book</h2>
-      <button onclick="document.getElementById('add-book-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+      <button type="button" onclick="closeModal('add-book-modal')" class="p-2.5 -m-2.5 text-gray-400 hover:text-gray-600"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
     </div>
     <form hx-post="/books/" hx-target="body" hx-swap="innerHTML" class="space-y-4">
       <input type="hidden" name="from_property" value="{{ prop.slug }}">
@@ -359,47 +377,47 @@
       <input type="hidden" name="space_slug" value="{{ space_slug }}">
       {% endif %}
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Title <span class="text-red-500">*</span></label>
-        <input type="text" name="title" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        <label for="add-book-title" class="block text-sm font-medium text-gray-700 mb-1">Title <span class="text-red-500">*</span></label>
+        <input type="text" id="add-book-title" name="title" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Author</label>
-          <input type="text" name="author" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          <label for="add-book-author" class="block text-sm font-medium text-gray-700 mb-1">Author</label>
+          <input type="text" id="add-book-author" name="author" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Genre</label>
-          <input type="text" name="genre" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          <label for="add-book-genre" class="block text-sm font-medium text-gray-700 mb-1">Genre</label>
+          <input type="text" id="add-book-genre" name="genre" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
         </div>
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">ISBN</label>
-          <input type="text" name="isbn" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          <label for="add-book-isbn" class="block text-sm font-medium text-gray-700 mb-1">ISBN</label>
+          <input type="text" id="add-book-isbn" name="isbn" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Condition</label>
-          <select name="condition" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          <label for="add-book-condition" class="block text-sm font-medium text-gray-700 mb-1">Condition</label>
+          <select id="add-book-condition" name="condition" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
             {% for c in book_conditions %}<option value="{{ c }}" {% if c == 'good' %}selected{% endif %}>{{ c | capitalize }}</option>{% endfor %}
           </select>
         </div>
       </div>
       {% if not space or space_slug == 'unassigned' %}
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Room</label>
-        <select name="space_slug" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+        <label for="add-book-room" class="block text-sm font-medium text-gray-700 mb-1">Room</label>
+        <select id="add-book-room" name="space_slug" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
           <option value="">No room assigned</option>
           {% for s in spaces %}<option value="{{ s.slug }}">{{ s.name }}</option>{% endfor %}
         </select>
       </div>
       {% endif %}
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-        <textarea name="notes" rows="2" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"></textarea>
+        <label for="add-book-notes" class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+        <textarea id="add-book-notes" name="notes" rows="2" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"></textarea>
       </div>
       <div class="flex gap-3 pt-1">
         <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Add Book</button>
-        <button type="button" onclick="document.getElementById('add-book-modal').classList.add('hidden')" class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-50">Cancel</button>
+        <button type="button" onclick="closeModal('add-book-modal')" class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-50">Cancel</button>
       </div>
     </form>
   </div>
@@ -416,7 +434,7 @@
       </div>
       <div class="flex items-center gap-2">
         <span class="px-2.5 py-1 rounded-full text-xs font-medium capitalize {{ condition_colors.get(book.condition.value,'bg-gray-100 text-gray-600') }}">{{ book.condition.value }}</span>
-        <form hx-post="/books/{{ book.slug }}/delete" hx-target="body" hx-swap="innerHTML" hx-confirm="Remove this book?" class="inline">
+        <form hx-post="/books/{{ book.slug }}/delete" hx-target="body" hx-swap="innerHTML" hx-confirm="Remove {{ book.title }} from the library?" class="inline">
           <input type="hidden" name="from_property" value="{{ prop.slug }}">
           <input type="hidden" name="from_space" value="{{ space_slug }}">
           <button type="submit" class="text-gray-400 hover:text-red-500 p-2.5 rounded-lg hover:bg-red-50 transition-colors"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
@@ -446,27 +464,27 @@
           <input type="hidden" name="from_property" value="{{ prop.slug }}">
           <input type="hidden" name="from_space" value="{{ space_slug }}">
           <div class="space-y-3">
-            <div><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Title</div>
-            <input type="text" name="title" value="{{ book.title }}" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" /></div>
+            <div><label for="book-{{ book.id }}-title" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Title</label>
+            <input id="book-{{ book.id }}-title" type="text" name="title" value="{{ book.title }}" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" /></div>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Author</div>
-              <input type="text" name="author" value="{{ book.author or '' }}" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" /></div>
-              <div><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Genre</div>
-              <input type="text" name="genre" value="{{ book.genre or '' }}" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" /></div>
-              <div><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">ISBN</div>
-              <input type="text" name="isbn" value="{{ book.isbn or '' }}" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" /></div>
-              <div><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Condition</div>
-              <select name="condition" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+              <div><label for="book-{{ book.id }}-author" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Author</label>
+              <input id="book-{{ book.id }}-author" type="text" name="author" value="{{ book.author or '' }}" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" /></div>
+              <div><label for="book-{{ book.id }}-genre" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Genre</label>
+              <input id="book-{{ book.id }}-genre" type="text" name="genre" value="{{ book.genre or '' }}" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" /></div>
+              <div><label for="book-{{ book.id }}-isbn" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">ISBN</label>
+              <input id="book-{{ book.id }}-isbn" type="text" name="isbn" value="{{ book.isbn or '' }}" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" /></div>
+              <div><label for="book-{{ book.id }}-condition" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Condition</label>
+              <select id="book-{{ book.id }}-condition" name="condition" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
                 {% for c in book_conditions %}<option value="{{ c }}" {% if book.condition.value == c %}selected{% endif %}>{{ c | capitalize }}</option>{% endfor %}
               </select></div>
             </div>
-            <div><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Room</div>
-            <select name="space_slug" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+            <div><label for="book-{{ book.id }}-space-slug" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Room</label>
+            <select id="book-{{ book.id }}-space-slug" name="space_slug" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
               <option value="">No room assigned</option>
               {% for s in spaces %}<option value="{{ s.slug }}" {% if book.space and book.space.slug == s.slug %}selected{% endif %}>{{ s.name }}</option>{% endfor %}
             </select></div>
-            <div><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Notes</div>
-            <textarea name="notes" rows="2" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">{{ book.notes or '' }}</textarea></div>
+            <div><label for="book-{{ book.id }}-notes" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Notes</label>
+            <textarea id="book-{{ book.id }}-notes" name="notes" rows="2" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">{{ book.notes or '' }}</textarea></div>
           </div>
           <div class="flex justify-end gap-2 mt-4 pt-4 border-t border-gray-100">
             <button type="button" onclick="exitEdit('book','{{ book.id }}')" class="px-4 py-1.5 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
@@ -493,7 +511,7 @@
       </div>
       <div class="flex items-center gap-2">
         <span class="px-2.5 py-1 rounded-full text-xs font-medium capitalize {{ condition_colors.get(asset.condition.value,'bg-gray-100 text-gray-600') }}">{{ asset.condition.value }}</span>
-        <form hx-post="/assets/{{ asset.slug }}/delete" hx-target="body" hx-swap="innerHTML" hx-confirm="Delete this asset?" class="inline">
+        <form hx-post="/assets/{{ asset.slug }}/delete" hx-target="body" hx-swap="innerHTML" hx-confirm="Delete {{ asset.name }}? This cannot be undone." class="inline">
           <input type="hidden" name="from_property" value="{{ prop.slug }}">
           <input type="hidden" name="from_space" value="{{ space_slug }}">
           <button type="submit" class="text-gray-400 hover:text-red-500 p-2.5 rounded-lg hover:bg-red-50 transition-colors"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
@@ -502,11 +520,11 @@
       </div>
     </div>
 
-    <div class="flex border-b border-gray-200 px-6 flex-shrink-0">
+    <div class="flex border-b border-gray-200 px-6 flex-shrink-0 overflow-x-auto whitespace-nowrap">
       {% set a_docs = asset_docs_map.get(asset.id, []) %}
       {% for tid, tlabel in [('details','Details'),('pricing','Pricing'),('documents','Photos & Docs'),('notes','Notes')] %}
-      <button onclick="switchTab('asset','{{ asset.id }}','{{ tid }}')" id="asset-tab-{{ asset.id }}-{{ tid }}"
-              class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if tid=='details' %}border-brand-500 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
+      <button type="button" data-tab="{{ tid }}" onclick="switchTab('asset-modal-{{ asset.id }}','{{ tid }}')"
+              class="flex-shrink-0 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {% if tid=='details' %}border-brand-600 text-brand-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
         {{ tlabel }}{% if tid=='pricing' and asset.price_entries %} ({{ asset.price_entries|length }}){% endif %}{% if tid=='documents' and a_docs %} ({{ a_docs|length }}){% endif %}{% if tid=='notes' %}<span id="badge-asset-notes-{{ asset.id }}" class="ml-1 px-1.5 py-0.5 rounded-full text-xs bg-gray-100 text-gray-500">{{ a_notes|length }}</span>{% endif %}
       </button>
       {% endfor %}
@@ -515,14 +533,14 @@
     <div class="flex-1 overflow-y-auto">
 
       <!-- Details tab -->
-      <div id="asset-panel-{{ asset.id }}-details" class="px-6 py-5">
+      <div id="asset-modal-{{ asset.id }}-tab-details" class="px-6 py-5">
         <div id="asset-view-{{ asset.id }}">
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
             <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Make</div><div class="font-medium text-sm text-gray-800">{{ asset.make or '—' }}</div></div>
             <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Model</div><div class="font-medium text-sm text-gray-800">{{ asset.model_name or '—' }}</div></div>
             <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Purchase Date</div><div class="font-medium text-sm text-gray-800">{{ asset.purchase_date.strftime('%b %d, %Y') if asset.purchase_date else '—' }}</div></div>
             <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Value</div><div class="font-medium text-sm text-gray-800">{{ asset.purchase_price | money(none, 2) if asset.purchase_price else '—' }}</div></div>
-            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Warranty Expires</div><div class="font-medium text-sm {{ 'text-red-600' if asset.warranty_expires and asset.warranty_expires.year < 2027 else 'text-gray-800' if asset.warranty_expires else 'text-gray-400' }}">{{ asset.warranty_expires.strftime('%b %d, %Y') if asset.warranty_expires else '—' }}</div></div>
+            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Warranty Expires</div><div class="font-medium text-sm text-gray-800">{% if asset.warranty_expires %}{{ warranty_badge(asset.warranty_expires, today) }}{% else %}<span class="text-gray-400">—</span>{% endif %}</div></div>
             <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Last Serviced</div><div class="font-medium text-sm text-gray-800">{{ asset.last_serviced.strftime('%b %d, %Y') if asset.last_serviced else '—' }}</div></div>
             {% if asset.serial_number %}<div class="bg-gray-50 rounded-xl p-3 col-span-2"><div class="text-xs text-gray-400 mb-0.5">Serial Number</div><div class="font-mono text-sm text-gray-700">{{ asset.serial_number }}</div></div>{% endif %}
             {% if asset.expected_lifespan_years %}<div class="bg-blue-50 rounded-xl p-3 border border-blue-100"><div class="text-xs text-gray-500 mb-0.5">Expected Lifespan</div><div class="font-medium text-sm text-gray-800">{{ asset.expected_lifespan_years|int }} years</div></div>{% endif %}
@@ -546,66 +564,66 @@
             <input type="hidden" name="from_property" value="{{ prop.slug }}">
             <input type="hidden" name="from_space" value="{{ space_slug }}">
             <div class="mb-4">
-              <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Name</div>
-              <input type="text" name="name" value="{{ asset.name }}" required
+              <label for="asset-{{ asset.id }}-name" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Name</label>
+              <input id="asset-{{ asset.id }}-name" type="text" name="name" value="{{ asset.name }}" required
                      class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
               <div>
-                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Make</div>
-                <input type="text" name="make" value="{{ asset.make or '' }}"
+                <label for="asset-{{ asset.id }}-make" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Make</label>
+                <input id="asset-{{ asset.id }}-make" type="text" name="make" value="{{ asset.make or '' }}"
                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
               <div>
-                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Model</div>
-                <input type="text" name="model_name" value="{{ asset.model_name or '' }}"
+                <label for="asset-{{ asset.id }}-model-name" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Model</label>
+                <input id="asset-{{ asset.id }}-model-name" type="text" name="model_name" value="{{ asset.model_name or '' }}"
                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
               <div>
-                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Condition</div>
-                <select name="condition" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                <label for="asset-{{ asset.id }}-condition" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Condition</label>
+                <select id="asset-{{ asset.id }}-condition" name="condition" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
                   {% for c in conditions %}<option value="{{ c }}" {% if asset.condition.value == c %}selected{% endif %}>{{ c | capitalize }}</option>{% endfor %}
                 </select>
               </div>
               <div>
-                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Serial Number</div>
-                <input type="text" name="serial_number" value="{{ asset.serial_number or '' }}"
+                <label for="asset-{{ asset.id }}-serial-number" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Serial Number</label>
+                <input id="asset-{{ asset.id }}-serial-number" type="text" name="serial_number" value="{{ asset.serial_number or '' }}"
                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
               <div>
-                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Purchase Date</div>
-                <input type="date" name="purchase_date" value="{{ asset.purchase_date.isoformat() if asset.purchase_date else '' }}"
+                <label for="asset-{{ asset.id }}-purchase-date" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Purchase Date</label>
+                <input id="asset-{{ asset.id }}-purchase-date" type="date" name="purchase_date" value="{{ asset.purchase_date.isoformat() if asset.purchase_date else '' }}"
                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
               <div>
-                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Value ($)</div>
-                <input type="number" name="purchase_price" step="0.01" min="0" value="{{ asset.purchase_price or '' }}"
+                <label for="asset-{{ asset.id }}-purchase-price" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Value ({{ currency_symbol() }})</label>
+                <input id="asset-{{ asset.id }}-purchase-price" type="number" name="purchase_price" step="0.01" min="0" value="{{ asset.purchase_price or '' }}"
                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
               <div>
-                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Warranty Expires</div>
-                <input type="date" name="warranty_expires" value="{{ asset.warranty_expires.isoformat() if asset.warranty_expires else '' }}"
+                <label for="asset-{{ asset.id }}-warranty-expires" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Warranty Expires</label>
+                <input id="asset-{{ asset.id }}-warranty-expires" type="date" name="warranty_expires" value="{{ asset.warranty_expires.isoformat() if asset.warranty_expires else '' }}"
                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
               <div>
-                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Last Serviced</div>
-                <input type="date" name="last_serviced" value="{{ asset.last_serviced.isoformat() if asset.last_serviced else '' }}"
+                <label for="asset-{{ asset.id }}-last-serviced" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Last Serviced</label>
+                <input id="asset-{{ asset.id }}-last-serviced" type="date" name="last_serviced" value="{{ asset.last_serviced.isoformat() if asset.last_serviced else '' }}"
                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
               <div>
-                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Expected Lifespan (yrs)</div>
-                <input type="number" name="expected_lifespan_years" step="1" min="0" value="{{ asset.expected_lifespan_years|int if asset.expected_lifespan_years else '' }}"
+                <label for="asset-{{ asset.id }}-expected-lifespan-years" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Expected Lifespan (yrs)</label>
+                <input id="asset-{{ asset.id }}-expected-lifespan-years" type="number" name="expected_lifespan_years" step="1" min="0" value="{{ asset.expected_lifespan_years|int if asset.expected_lifespan_years else '' }}"
                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
               <div>
-                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Replacement Est. ($)</div>
-                <input type="number" name="replacement_cost_estimate" step="1" min="0" value="{{ asset.replacement_cost_estimate|int if asset.replacement_cost_estimate else '' }}"
+                <label for="asset-{{ asset.id }}-replacement-cost-estimate" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Replacement Est. ({{ currency_symbol() }})</label>
+                <input id="asset-{{ asset.id }}-replacement-cost-estimate" type="number" name="replacement_cost_estimate" step="1" min="0" value="{{ asset.replacement_cost_estimate|int if asset.replacement_cost_estimate else '' }}"
                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
             </div>
             <div>
-              <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Notes</div>
-              <textarea name="notes" data-autoresize
+              <label for="asset-{{ asset.id }}-notes" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Notes</label>
+              <textarea id="asset-{{ asset.id }}-notes" name="notes" data-autoresize
                         class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
                         placeholder="No notes yet…">{{ asset.notes or '' }}</textarea>
             </div>
@@ -620,7 +638,7 @@
       </div>
 
       <!-- Pricing tab -->
-      <div id="asset-panel-{{ asset.id }}-pricing" class="px-6 py-5 hidden">
+      <div id="asset-modal-{{ asset.id }}-tab-pricing" class="px-6 py-5 hidden">
         <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Price History</div>
 
         <form hx-post="/assets/{{ asset.slug }}/price-entries" hx-target="body" hx-swap="innerHTML" class="mb-4 p-3 bg-gray-50 rounded-xl space-y-2">
@@ -628,30 +646,30 @@
           <input type="hidden" name="from_space" value="{{ space_slug }}">
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <div>
-              <label class="block text-xs text-gray-500 mb-1">Price ($) <span class="text-red-400">*</span></label>
-              <input type="number" name="price" required min="0" step="0.01" placeholder="0.00"
+              <label for="asset-{{ asset.id }}-entry-price" class="block text-xs text-gray-500 mb-1">Price ({{ currency_symbol() }}) <span class="text-red-500">*</span></label>
+              <input type="number" id="asset-{{ asset.id }}-entry-price" name="price" required min="0" step="0.01" placeholder="0.00"
                      class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
             </div>
             <div>
-              <label class="block text-xs text-gray-500 mb-1">Date <span class="text-red-400">*</span></label>
-              <input type="date" name="entry_date" required
+              <label for="asset-{{ asset.id }}-entry-date" class="block text-xs text-gray-500 mb-1">Date <span class="text-red-500">*</span></label>
+              <input type="date" id="asset-{{ asset.id }}-entry-date" name="entry_date" required
                      class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
             </div>
             <div>
-              <label class="block text-xs text-gray-500 mb-1">Qty</label>
-              <input type="number" name="quantity" value="1" min="0.01" step="0.01"
+              <label for="asset-{{ asset.id }}-entry-qty" class="block text-xs text-gray-500 mb-1">Qty</label>
+              <input type="number" id="asset-{{ asset.id }}-entry-qty" name="quantity" value="1" min="0.01" step="0.01"
                      class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
             </div>
             <div>
-              <label class="block text-xs text-gray-500 mb-1">Type</label>
-              <select name="entry_type" class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+              <label for="asset-{{ asset.id }}-entry-type" class="block text-xs text-gray-500 mb-1">Type</label>
+              <select id="asset-{{ asset.id }}-entry-type" name="entry_type" class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
                 <option value="purchase">Purchase</option>
                 <option value="valuation">Valuation</option>
                 <option value="estimate">Estimate</option>
               </select>
             </div>
           </div>
-          <input type="text" name="note" placeholder="Note (optional)…"
+          <input type="text" name="note" placeholder="Note (optional)…" aria-label="Note"
                  class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
           <button type="submit" class="w-full py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">Add Entry</button>
         </form>
@@ -684,7 +702,7 @@
 
       <!-- Notes tab -->
       <!-- Documents tab -->
-      <div id="asset-panel-{{ asset.id }}-documents" class="px-6 py-5 hidden">
+      <div id="asset-modal-{{ asset.id }}-tab-documents" class="px-6 py-5 hidden">
         <div data-docs-container>
           {% with docs=a_docs, post_url="/assets/"+asset.slug+"/documents", delete_url_prefix="/assets/"+asset.slug+"/documents" %}
           {% include "partials/docs_section.html" %}
@@ -692,7 +710,7 @@
         </div>
       </div>
 
-      <div id="asset-panel-{{ asset.id }}-notes" class="px-6 py-5 hidden">
+      <div id="asset-modal-{{ asset.id }}-tab-notes" class="px-6 py-5 hidden">
         <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Notes & Comments</div>
         <div data-notes-container data-notes-badge="badge-asset-notes-{{ asset.id }}">
           {% with notes=a_notes, post_url="/assets/"+asset.slug+"/notes", delete_url_prefix="/assets/"+asset.slug+"/notes" %}{% include "partials/notes_section.html" %}{% endwith %}
@@ -706,37 +724,21 @@
 {% endblock %}
 
 {% block scripts %}
+{% include "partials/_table_tools.html" %}
 <script>
-function filterRows(inputId, tbodyId) {
-  const q = document.getElementById(inputId).value.toLowerCase();
-  document.querySelectorAll('#' + tbodyId + ' tr').forEach(row => {
-    row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
-  });
-}
-function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
-function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+// Page-level tabs (Assets / Books / Issues / Notes) — not a modal, so not the global switchTab.
 function switchSpaceTab(tab) {
   ['assets','books','issues','notes'].forEach(t => {
     document.getElementById('panel-'+t)?.classList.toggle('hidden', t !== tab);
     document.getElementById('tab-actions-'+t)?.classList.toggle('hidden', t !== tab);
     const btn = document.getElementById('tab-btn-'+t);
     if (btn) {
-      btn.classList.toggle('border-brand-500', t === tab);
+      btn.classList.toggle('border-brand-600', t === tab);
       btn.classList.toggle('text-brand-600', t === tab);
       btn.classList.toggle('border-transparent', t !== tab);
       btn.classList.toggle('text-gray-500', t !== tab);
     }
   });
-}
-function switchTab(prefix, entityId, tab) {
-  ['details','pricing','documents','notes','report'].forEach(t => {
-    document.getElementById(prefix+'-panel-'+entityId+'-'+t)?.classList.add('hidden');
-    const btn = document.getElementById(prefix+'-tab-'+entityId+'-'+t);
-    if (btn) { btn.classList.remove('border-brand-500','text-brand-600'); btn.classList.add('border-transparent','text-gray-500'); }
-  });
-  document.getElementById(prefix+'-panel-'+entityId+'-'+tab)?.classList.remove('hidden');
-  const active = document.getElementById(prefix+'-tab-'+entityId+'-'+tab);
-  if (active) { active.classList.add('border-brand-500','text-brand-600'); active.classList.remove('border-transparent','text-gray-500'); }
 }
 function autoResize(el){el.style.height='auto';el.style.height=el.scrollHeight+'px';}
 function enterEdit(prefix, id) {
@@ -749,7 +751,23 @@ function exitEdit(prefix, id) {
   document.getElementById(prefix+'-edit-'+id).classList.add('hidden');
   document.getElementById(prefix+'-view-'+id).classList.remove('hidden');
 }
-document.addEventListener('DOMContentLoaded',()=>document.querySelectorAll('textarea[data-autoresize]').forEach(t=>t.addEventListener('input',()=>autoResize(t))));
+document.querySelectorAll('textarea[data-autoresize]').forEach(t => {
+  if (t.dataset.autoresizeBound) return;
+  t.dataset.autoresizeBound = '1';
+  t.addEventListener('input', () => autoResize(t));
+});
+// Deep link: ?open=book-<id> | asset-<id> (the Library links here). Opened once, then the
+// parameter is dropped so a later save — which re-runs this script — does not reopen it.
+(function () {
+  const params = new URLSearchParams(location.search);
+  const m = /^(book|asset)-([0-9a-f-]{8,})$/i.exec(params.get('open') || '');
+  if (!m) return;
+  if (m[1] === 'book') switchSpaceTab('books');
+  if (document.getElementById(m[1] + '-modal-' + m[2])) openModal(m[1] + '-modal-' + m[2]);
+  params.delete('open');
+  const qs = params.toString();
+  history.replaceState(null, '', location.pathname + (qs ? '?' + qs : ''));
+})();
 </script>
 
 {% if space %}
@@ -762,7 +780,7 @@ document.addEventListener('DOMContentLoaded',()=>document.querySelectorAll('text
         <h2 class="text-lg font-semibold text-gray-900">Report Issue</h2>
         <p class="text-xs text-gray-500 mt-0.5">Room: {{ space.name }}</p>
       </div>
-      <button onclick="document.getElementById('report-room-issue-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600">
+      <button type="button" onclick="closeModal('report-room-issue-modal')" class="p-2.5 -m-2.5 text-gray-400 hover:text-gray-600">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
       </button>
     </div>
@@ -791,7 +809,7 @@ document.addEventListener('DOMContentLoaded',()=>document.querySelectorAll('text
       </div>
       <div class="flex gap-3 pt-1">
         <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Submit</button>
-        <button type="button" onclick="document.getElementById('report-room-issue-modal').classList.add('hidden')"
+        <button type="button" onclick="closeModal('report-room-issue-modal')"
                 class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-50">Cancel</button>
       </div>
     </form>

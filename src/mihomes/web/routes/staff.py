@@ -12,7 +12,7 @@ from mihomes.models.staff import CATEGORY_ORDER, StaffRole, category_for_role, i
 from mihomes.services import note as note_svc
 from mihomes.services import property as prop_svc
 from mihomes.services import staff as staff_svc
-from mihomes.web.deps import get_db, templates
+from mihomes.web.deps import get_db, templates, with_toast
 
 router = APIRouter()
 
@@ -83,7 +83,7 @@ def create_staff(
     )
     for pid in property_ids:
         staff_svc.assign_to_property(db, member.slug, str(pid))
-    return templates.TemplateResponse(request, "staff.html", _ctx(db))
+    return with_toast(templates.TemplateResponse(request, "staff.html", _ctx(db)), f"{member.name} added")
 
 
 @router.post("/{slug}/assign", response_class=HTMLResponse)
@@ -95,7 +95,7 @@ def assign_property(
     db: Session = Depends(get_db),
 ):
     staff_svc.assign_to_property(db, slug, str(property_id))
-    return templates.TemplateResponse(request, "staff.html", _ctx(db))
+    return with_toast(templates.TemplateResponse(request, "staff.html", _ctx(db)), "Property assigned")
 
 
 @router.post("/{slug}/edit", response_class=HTMLResponse)
@@ -129,14 +129,14 @@ def edit_staff(
         staff_svc.assign_to_property(db, member.slug, str(pid))
     for pid in current - selected:
         staff_svc.remove_from_property(db, member.slug, str(pid))
-    return templates.TemplateResponse(request, "staff.html", _ctx(db))
+    return with_toast(templates.TemplateResponse(request, "staff.html", _ctx(db)), f"{member.name} saved")
 
 
 @router.post("/{slug}/delete", response_class=HTMLResponse)
 @declares("member.manage", Access.ACCOUNT)
 def delete_staff(request: Request, slug: str, db: Session = Depends(get_db)):
     staff_svc.delete_staff(db, slug)
-    return templates.TemplateResponse(request, "staff.html", _ctx(db))
+    return with_toast(templates.TemplateResponse(request, "staff.html", _ctx(db)), "Person removed")
 
 
 @router.post("/{slug}/notes", response_class=HTMLResponse)
@@ -145,11 +145,11 @@ def add_note(request: Request, slug: str, content: str = Form(...), db: Session 
     member = staff_svc.get_staff(db, slug)
     note_svc.add_note(db, f"staff:{member.id}", content)
     notes = note_svc.list_notes(db, f"staff:{member.id}")
-    return templates.TemplateResponse(request, "partials/notes_section.html", {
+    return with_toast(templates.TemplateResponse(request, "partials/notes_section.html", {
         "notes": notes,
         "post_url": f"/staff/{slug}/notes",
         "delete_url_prefix": f"/staff/{slug}/notes",
-    })
+    }), "Note added")
 
 
 @router.delete("/{slug}/notes/{note_id}", response_class=HTMLResponse)
@@ -158,8 +158,8 @@ def delete_note(request: Request, slug: str, note_id: UUID, db: Session = Depend
     note_svc.delete_note(db, note_id)
     member = staff_svc.get_staff(db, slug)
     notes = note_svc.list_notes(db, f"staff:{member.id}")
-    return templates.TemplateResponse(request, "partials/notes_section.html", {
+    return with_toast(templates.TemplateResponse(request, "partials/notes_section.html", {
         "notes": notes,
         "post_url": f"/staff/{slug}/notes",
         "delete_url_prefix": f"/staff/{slug}/notes",
-    })
+    }), "Note deleted")

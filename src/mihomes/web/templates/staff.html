@@ -4,7 +4,7 @@
 {% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ staff|length }} {{ 'person' if staff|length == 1 else 'people' }}</p>{% endblock %}
 
 {% block actions %}
-<button onclick="document.getElementById('add-staff-modal').classList.remove('hidden')"
+<button type="button" onclick="openModal('add-staff-modal')"
         class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
   Add Person
@@ -12,21 +12,29 @@
 {% endblock %}
 
 {% block content %}
+{% set phone_icon %}<svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/></svg>{% endset %}
+{% set mail_icon %}<svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>{% endset %}
 
 {% if staff %}
-<!-- Category filter pills -->
-<div class="mb-4">
-  <div class="flex flex-wrap items-center gap-1.5">
-    <button onclick="filterByCategory('')" id="cat-filter-all"
-            class="cat-filter-btn px-3 py-1 text-xs font-medium rounded-full bg-gray-900 text-white transition-colors">
+<!-- Search + category filter pills -->
+<div class="mb-4 flex flex-col sm:flex-row sm:items-center gap-3">
+  <div class="flex flex-wrap items-center gap-1.5" id="staff-cat-pills">
+    <button type="button" data-cat-filter="" aria-pressed="true" id="cat-filter-all"
+            class="cat-filter-btn px-3 py-1.5 text-xs font-medium rounded-full bg-gray-900 text-white transition-colors">
       All <span class="ml-1 opacity-75">{{ staff|length }}</span>
     </button>
     {% for cat in category_order %}
-    <button onclick="filterByCategory('{{ cat }}')" data-cat="{{ cat }}"
-            class="cat-filter-btn px-3 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors">
+    <button type="button" data-cat="{{ cat }}" data-cat-filter="{{ cat }}" aria-pressed="false"
+            class="cat-filter-btn px-3 py-1.5 text-xs font-medium rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors">
       {{ cat }} <span class="ml-1 opacity-75">{{ grouped[cat]|length }}</span>
     </button>
     {% endfor %}
+  </div>
+  <div class="relative sm:ml-auto">
+    <label for="staff-search" class="sr-only">Search people</label>
+    <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/></svg>
+    <input id="staff-search" type="search" placeholder="Search name or role…"
+           class="w-full sm:w-52 pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white" />
   </div>
 </div>
 
@@ -34,6 +42,7 @@
   {% for member in staff %}
   <div class="staff-card bg-white rounded-xl border border-gray-200 p-5 cursor-pointer hover:border-brand-400 hover:shadow-sm transition-all group"
        data-category="{{ category_for_role(member.role) }}"
+       data-search="{{ [member.name, member.role.value.replace('-', ' '), category_for_role(member.role)] | join(' ') | lower }}"
        onclick="openModal('staff-modal-{{ member.id }}')">
     <div class="flex items-start gap-3">
       <div class="w-10 h-10 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center font-semibold text-sm flex-shrink-0">
@@ -51,63 +60,63 @@
     {% if member.phone or member.email %}
     <div class="mt-3 space-y-1">
       {% if member.phone %}
-      <div class="flex items-center gap-2 text-xs text-gray-500">
-        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/></svg>
-        {{ member.phone }}
-      </div>
+      <a href="tel:{{ member.phone }}" onclick="event.stopPropagation()" class="flex items-center gap-2 text-xs text-gray-500 hover:text-brand-700 py-0.5">
+        {{ phone_icon }}<span>{{ member.phone }}</span>
+      </a>
       {% endif %}
       {% if member.email %}
-      <div class="flex items-center gap-2 text-xs text-gray-500 truncate">
-        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
-        {{ member.email }}
-      </div>
+      <a href="mailto:{{ member.email }}" onclick="event.stopPropagation()" class="flex items-center gap-2 text-xs text-gray-500 hover:text-brand-700 py-0.5 min-w-0">
+        {{ mail_icon }}<span class="truncate">{{ member.email }}</span>
+      </a>
       {% endif %}
     </div>
     {% endif %}
     {% if member.properties %}
     <div class="mt-3 flex flex-wrap gap-1.5">
       {% for prop in member.properties %}
-      <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs bg-gray-100 text-gray-600">{{ prop.name }}</span>
+      <a href="/properties/{{ prop.slug }}" onclick="event.stopPropagation()" class="inline-flex items-center px-2 py-0.5 rounded-md text-xs bg-gray-100 text-gray-600 hover:bg-brand-50 hover:text-brand-700">{{ prop.name }}</a>
       {% endfor %}
     </div>
     {% endif %}
     <div class="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between">
       <span class="text-xs text-gray-400">{{ notes_map[member.id]|length }} note{{ 's' if notes_map[member.id]|length != 1 else '' }}</span>
-      <svg class="w-4 h-4 text-gray-300 group-hover:text-brand-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg class="w-4 h-4 text-gray-300 group-hover:text-brand-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
       </svg>
     </div>
   </div>
   {% endfor %}
 </div>
+<div id="staff-no-match" class="hidden bg-white rounded-xl border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500">
+  Nobody matches. <button type="button" data-staff-clear class="text-brand-600 hover:text-brand-700 font-medium">Clear filters</button>
+</div>
 
 <!-- Person detail modals (outside card grid) -->
 {% for member in staff %}
 <div id="staff-modal-{{ member.id }}"
-     class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-     onclick="if(event.target===this)closeModal('staff-modal-{{ member.id }}')">
-  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col" onclick="event.stopPropagation()">
+     class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
 
     <!-- Modal header -->
     <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
-      <div class="flex items-center gap-3">
+      <div class="flex items-center gap-3 min-w-0">
         <div class="w-10 h-10 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center font-bold text-sm flex-shrink-0">
           {{ member.name[0].upper() }}
         </div>
-        <div>
-          <h2 class="text-lg font-bold text-gray-900">{{ member.name }}</h2>
+        <div class="min-w-0">
+          <h2 class="text-lg font-bold text-gray-900 truncate">{{ member.name }}</h2>
           <p class="text-xs text-gray-500 mt-0.5">{{ member.role.value.replace('-', ' ').title() }}</p>
         </div>
       </div>
       <div class="flex items-center gap-2 flex-shrink-0">
-        <button hx-post="/staff/{{ member.slug }}/delete"
+        <button type="button" hx-post="/staff/{{ member.slug }}/delete"
                 hx-target="body" hx-swap="innerHTML"
                 hx-confirm="Remove {{ member.name }} from the directory? This cannot be undone."
                 class="p-2.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                title="Delete">
+                title="Delete" aria-label="Delete {{ member.name }}">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
         </button>
-        <button onclick="closeModal('staff-modal-{{ member.id }}')"
+        <button type="button" onclick="closeModal('staff-modal-{{ member.id }}')"
                 class="p-2.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>
@@ -115,12 +124,10 @@
     </div>
 
     <!-- Tabs -->
-    <div class="flex border-b border-gray-100 px-6 flex-shrink-0">
-      <button onclick="switchTab('staff','{{ member.id }}','details')"
-              id="staff-tab-{{ member.id }}-details"
+    <div class="flex border-b border-gray-100 px-6 flex-shrink-0 overflow-x-auto whitespace-nowrap">
+      <button type="button" data-tab="details" onclick="switchTab('staff-modal-{{ member.id }}','details')"
               class="px-1 py-3 text-sm font-medium border-b-2 border-brand-600 text-brand-600 mr-5">Details</button>
-      <button onclick="switchTab('staff','{{ member.id }}','notes')"
-              id="staff-tab-{{ member.id }}-notes"
+      <button type="button" data-tab="notes" onclick="switchTab('staff-modal-{{ member.id }}','notes')"
               class="px-1 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 mr-5">Notes ({{ notes_map[member.id]|length }})</button>
     </div>
 
@@ -128,7 +135,7 @@
     <div class="flex-1 overflow-y-auto">
 
       <!-- Details tab -->
-      <div id="staff-panel-{{ member.id }}-details" class="px-6 py-5">
+      <div id="staff-modal-{{ member.id }}-tab-details" class="px-6 py-5">
 
         <!-- View div -->
         <div id="staff-view-{{ member.id }}">
@@ -148,18 +155,18 @@
             </div>
             <div>
               <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Phone</dt>
-              <dd class="text-gray-700 pt-0.5">{{ member.phone or '—' }}</dd>
+              <dd class="text-gray-700 pt-0.5">{% if member.phone %}<a href="tel:{{ member.phone }}" class="inline-flex items-center gap-1.5 text-brand-600 hover:underline">{{ phone_icon }}{{ member.phone }}</a>{% else %}—{% endif %}</dd>
             </div>
             <div>
               <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Email</dt>
-              <dd class="text-gray-700 pt-0.5">{{ member.email or '—' }}</dd>
+              <dd class="text-gray-700 pt-0.5 min-w-0">{% if member.email %}<a href="mailto:{{ member.email }}" class="inline-flex items-center gap-1.5 text-brand-600 hover:underline break-all">{{ mail_icon }}{{ member.email }}</a>{% else %}—{% endif %}</dd>
             </div>
             {% if member.properties %}
-            <div class="col-span-2">
+            <div class="sm:col-span-2">
               <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Property / Location</dt>
               <dd class="flex flex-wrap gap-1.5 pt-0.5">
                 {% for prop in member.properties %}
-                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs bg-gray-100 text-gray-600">{{ prop.name }}</span>
+                <a href="/properties/{{ prop.slug }}" class="inline-flex items-center px-2 py-0.5 rounded-md text-xs bg-gray-100 text-gray-600 hover:bg-brand-50 hover:text-brand-700">{{ prop.name }}</a>
                 {% endfor %}
               </dd>
             </div>
@@ -179,13 +186,13 @@
           <form hx-post="/staff/{{ member.slug }}/edit" hx-target="body" hx-swap="innerHTML">
             <div class="space-y-4">
               <div>
-                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Name</div>
-                <input type="text" name="name" value="{{ member.name }}" required
+                <label for="staff-{{ member.id }}-name" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Name <span class="text-red-500">*</span></label>
+                <input type="text" id="staff-{{ member.id }}-name" name="name" value="{{ member.name }}" required
                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
               <div>
-                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Role</div>
-                <select name="role" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                <label for="staff-{{ member.id }}-role" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Role</label>
+                <select id="staff-{{ member.id }}-role" name="role" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
                   {% for group_label, group_roles in role_groups %}
                   <optgroup label="{{ group_label }}">
                     {% for r in group_roles %}<option value="{{ r }}" {% if member.role.value == r %}selected{% endif %}>{{ r.replace('-', ' ').title() }}</option>{% endfor %}
@@ -195,13 +202,13 @@
               </div>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Phone</div>
-                  <input type="tel" name="phone" value="{{ member.phone or '' }}"
+                  <label for="staff-{{ member.id }}-phone" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Phone</label>
+                  <input type="tel" id="staff-{{ member.id }}-phone" name="phone" value="{{ member.phone or '' }}"
                          class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
                 </div>
                 <div>
-                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Email</div>
-                  <input type="email" name="email" value="{{ member.email or '' }}"
+                  <label for="staff-{{ member.id }}-email" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Email</label>
+                  <input type="email" id="staff-{{ member.id }}-email" name="email" value="{{ member.email or '' }}"
                          class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
                 </div>
               </div>
@@ -213,12 +220,12 @@
                 <label for="active-{{ member.id }}" class="text-sm text-gray-700">Active</label>
               </div>
               {% if properties %}
-              <div>
-                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Property / Location</div>
+              <fieldset>
+                <legend class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Property / Location</legend>
                 {% set member_prop_ids = member.properties | map(attribute='id') | list %}
                 <div class="flex flex-wrap gap-2">
                   {% for p in properties %}
-                  <label class="inline-flex items-center gap-1.5 px-2.5 py-1 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 text-xs">
+                  <label class="inline-flex items-center gap-1.5 px-2.5 py-1.5 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 text-xs">
                     <input type="checkbox" name="property_ids" value="{{ p.id }}"
                            {% if p.id in member_prop_ids %}checked{% endif %}
                            class="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
@@ -226,7 +233,7 @@
                   </label>
                   {% endfor %}
                 </div>
-              </div>
+              </fieldset>
               {% endif %}
             </div>
             <div class="flex justify-end gap-2 mt-4 pt-4 border-t border-gray-100">
@@ -241,7 +248,7 @@
       </div>
 
       <!-- Notes tab (hidden by default) -->
-      <div id="staff-panel-{{ member.id }}-notes" class="hidden px-6 py-5" data-notes-container>
+      <div id="staff-modal-{{ member.id }}-tab-notes" class="hidden px-6 py-5" data-notes-container>
         {% with notes=notes_map[member.id], post_url="/staff/"+member.slug+"/notes", delete_url_prefix="/staff/"+member.slug+"/notes" %}
         {% include "partials/notes_section.html" %}
         {% endwith %}
@@ -254,27 +261,31 @@
 
 {% else %}
 <div class="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center">
-  <div class="text-gray-400 text-sm">No people yet. Add staff, residents, associates, or family.</div>
+  <div class="text-gray-500 font-medium">No people yet</div>
+  <div class="text-sm text-gray-400 mt-1">Add staff, residents, associates, or family.</div>
+  <button type="button" onclick="openModal('add-staff-modal')"
+          class="mt-3 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Add Person</button>
 </div>
 {% endif %}
 
 <!-- Add person modal -->
-<div id="add-staff-modal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6 max-h-[90vh] overflow-y-auto">
+<div id="add-staff-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
     <div class="flex items-center justify-between mb-5">
       <h2 class="text-lg font-semibold text-gray-900">Add Person</h2>
-      <button onclick="document.getElementById('add-staff-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600">
+      <button type="button" onclick="closeModal('add-staff-modal')" class="p-2.5 -m-2.5 text-gray-400 hover:text-gray-600">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
       </button>
     </div>
     <form hx-post="/staff" hx-target="body" hx-swap="innerHTML" class="space-y-4">
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
-        <input type="text" name="name" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        <label for="add-staff-name" class="block text-sm font-medium text-gray-700 mb-1">Full Name <span class="text-red-500">*</span></label>
+        <input type="text" id="add-staff-name" name="name" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
       </div>
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Role</label>
-        <select name="role" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+        <label for="add-staff-role" class="block text-sm font-medium text-gray-700 mb-1">Role <span class="text-red-500">*</span></label>
+        <select id="add-staff-role" name="role" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          <option value="" disabled selected>Select role…</option>
           {% for group_label, group_roles in role_groups %}
           <optgroup label="{{ group_label }}">
             {% for r in group_roles %}<option value="{{ r }}">{{ r.replace('-', ' ').title() }}</option>{% endfor %}
@@ -284,62 +295,95 @@
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-          <input type="tel" name="phone" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          <label for="add-staff-phone" class="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+          <input type="tel" id="add-staff-phone" name="phone" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
-          <input type="email" name="email" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          <label for="add-staff-email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+          <input type="email" id="add-staff-email" name="email" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
         </div>
       </div>
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Property / Location</label>
+      {% if properties %}
+      <fieldset>
+        <legend class="block text-sm font-medium text-gray-700 mb-1">Property / Location</legend>
         <div class="space-y-1.5">
           {% for p in properties %}
-          <label class="flex items-center gap-2 text-sm text-gray-700">
+          <label class="flex items-center gap-2 text-sm text-gray-700 py-0.5">
             <input type="checkbox" name="property_ids" value="{{ p.id }}" class="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
             {{ p.name }}
           </label>
           {% endfor %}
         </div>
-      </div>
+      </fieldset>
+      {% endif %}
       <div class="flex gap-3 pt-1">
         <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Add</button>
-        <button type="button" onclick="document.getElementById('add-staff-modal').classList.add('hidden')" class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">Cancel</button>
+        <button type="button" onclick="closeModal('add-staff-modal')" class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">Cancel</button>
       </div>
     </form>
   </div>
 </div>
 
+{# This script sits in <body>, so htmx re-runs it after every save that swaps the page. It holds
+   no state of its own (the pressed pill and the search box are the state), installs its
+   document listeners once, and re-applies the current filter on every run. #}
 <script>
-let activeCategory = '';
-function filterByCategory(cat) {
-  activeCategory = cat;
-  document.querySelectorAll('.cat-filter-btn').forEach(btn => {
-    const isActive = cat === '' ? btn.id === 'cat-filter-all' : btn.dataset.cat === cat;
-    btn.classList.toggle('bg-gray-900', isActive);
-    btn.classList.toggle('text-white', isActive);
-    btn.classList.toggle('bg-gray-100', !isActive);
-    btn.classList.toggle('text-gray-600', !isActive);
-  });
-  document.querySelectorAll('.staff-card').forEach(card => {
-    const ok = !activeCategory || card.dataset.category === activeCategory;
-    card.classList.toggle('hidden', !ok);
-  });
-}
+(function () {
+  function applyStaffFilters() {
+    var pressed = document.querySelector('#staff-cat-pills [aria-pressed="true"]');
+    var cat = pressed ? pressed.dataset.catFilter : '';
+    var input = document.getElementById('staff-search');
+    var q = input ? input.value.trim().toLowerCase() : '';
+    var shown = 0;
+    document.querySelectorAll('.staff-card').forEach(function (card) {
+      var ok = (!cat || card.dataset.category === cat) && (!q || (card.dataset.search || '').indexOf(q) !== -1);
+      card.classList.toggle('hidden', !ok);
+      if (ok) shown++;
+    });
+    var none = document.getElementById('staff-no-match');
+    if (none) none.classList.toggle('hidden', shown > 0);
+  }
+  function pressPill(btn) {
+    document.querySelectorAll('#staff-cat-pills .cat-filter-btn').forEach(function (b) {
+      var on = b === btn;
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      b.classList.toggle('bg-gray-900', on);
+      b.classList.toggle('text-white', on);
+      b.classList.toggle('bg-gray-100', !on);
+      b.classList.toggle('text-gray-600', !on);
+    });
+  }
+  if (!window.__mhStaffPage) {
+    window.__mhStaffPage = true;
+    document.addEventListener('click', function (e) {
+      if (!(e.target instanceof Element)) return;
+      var pill = e.target.closest('#staff-cat-pills [data-cat-filter]');
+      if (pill) { pressPill(pill); applyStaffFilters(); return; }
+      if (e.target.closest('[data-staff-clear]')) {
+        var input = document.getElementById('staff-search');
+        if (input) input.value = '';
+        pressPill(document.getElementById('cat-filter-all'));
+        applyStaffFilters();
+      }
+    });
+    document.addEventListener('input', function (e) {
+      if (e.target instanceof Element && e.target.id === 'staff-search') applyStaffFilters();
+    });
+  }
+  applyStaffFilters();
 
-function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
-function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
-function switchTab(prefix, id, tab) {
-  ['details','notes'].forEach(t => {
-    document.getElementById(prefix+'-panel-'+id+'-'+t).classList.toggle('hidden', t !== tab);
-    const btn = document.getElementById(prefix+'-tab-'+id+'-'+t);
-    btn.classList.toggle('border-brand-600', t === tab);
-    btn.classList.toggle('text-brand-600', t === tab);
-    btn.classList.toggle('border-transparent', t !== tab);
-    btn.classList.toggle('text-gray-500', t !== tab);
-  });
-}
+  // Deep link from search and other pages: /staff/?open=<person id>. Opened once, then the
+  // parameter is dropped so a later save (which re-runs this script) does not reopen it.
+  var params = new URLSearchParams(location.search);
+  var id = params.get('open') || '';
+  if (/^[0-9a-f-]{8,}$/i.test(id)) {
+    if (document.getElementById('staff-modal-' + id)) openModal('staff-modal-' + id);
+    params.delete('open');
+    var qs = params.toString();
+    history.replaceState(null, '', location.pathname + (qs ? '?' + qs : ''));
+  }
+})();
+
 function enterEdit(prefix, id) {
   document.getElementById(prefix+'-view-'+id).classList.add('hidden');
   document.getElementById(prefix+'-edit-'+id).classList.remove('hidden');

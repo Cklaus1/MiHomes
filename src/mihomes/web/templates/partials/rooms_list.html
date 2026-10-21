@@ -1,20 +1,25 @@
+{% from "partials/_room_confirm.html" import room_delete_confirm %}
 {% if spaces %}
 <ul class="divide-y divide-gray-50">
   {% for space in spaces %}
-  <li class="px-5 py-3 flex items-center justify-between gap-3">
-    <div class="flex items-center gap-2.5 min-w-0">
-      <div class="font-medium text-sm text-gray-900 truncate">{{ space.name }}</div>
+  {% set contents = (room_contents or {}).get(space.id) %}
+  <li class="px-5 py-1.5 flex items-center justify-between gap-3">
+    <a href="/assets/{{ prop_slug }}/{{ space.slug }}" class="flex items-center gap-2.5 min-w-0 flex-1 py-1.5 group">
+      <span class="font-medium text-sm text-gray-900 truncate group-hover:text-brand-700">{{ space.name }}</span>
       {% if space.space_type %}
       <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600 flex-shrink-0">
         {{ space.space_type.replace('-', ' ').title() }}
       </span>
       {% endif %}
-    </div>
-    <button hx-post="/properties/{{ prop_slug }}/spaces/{{ space.slug }}/delete"
+      {% if contents %}
+      <span class="text-xs text-gray-400 flex-shrink-0">{{ contents.assets }} asset{{ 's' if contents.assets != 1 }}{% if contents.books %} · {{ contents.books }} book{{ 's' if contents.books != 1 }}{% endif %}</span>
+      {% endif %}
+    </a>
+    <button type="button" hx-post="/properties/{{ prop_slug }}/spaces/{{ space.slug }}/delete"
             hx-target="#rooms-list" hx-swap="innerHTML"
-            hx-confirm="Remove {{ space.name }}?"
-            class="p-2.5 text-gray-300 hover:text-red-500 transition-colors flex-shrink-0"
-            title="Remove">
+            hx-confirm="{{ room_delete_confirm(space, contents) }}"
+            class="p-2.5 text-gray-400 hover:text-red-500 transition-colors flex-shrink-0"
+            title="Delete room" aria-label="Delete {{ space.name }}">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
       </svg>
@@ -23,26 +28,28 @@
   {% endfor %}
 </ul>
 {% else %}
-<div class="px-5 py-6 text-center text-sm text-gray-400">No rooms added yet</div>
+<div class="px-5 py-6 text-center text-sm text-gray-400">No rooms yet — add the first one below to start organising assets and books.</div>
 {% endif %}
 
 <!-- Inline add form -->
 <div class="px-5 py-3 border-t border-gray-100 bg-gray-50">
   <form hx-post="/properties/{{ prop_slug }}/spaces"
         hx-target="#rooms-list" hx-swap="innerHTML"
-        class="flex gap-2">
-    <input type="text" name="name" required placeholder="Room name…"
-           class="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white" />
-    <select name="space_type"
-            class="border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+        class="flex flex-wrap gap-2">
+    <label for="new-room-name" class="sr-only">Room name</label>
+    <input type="text" id="new-room-name" name="name" required placeholder="Room name…"
+           class="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white" />
+    <label for="new-room-type" class="sr-only">Room type</label>
+    <select id="new-room-type" name="space_type"
+            class="border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
       <option value="">Type…</option>
       {% for t in space_types %}
       <option value="{{ t }}">{{ t.replace('-', ' ').title() }}</option>
       {% endfor %}
     </select>
     <button type="submit"
-            class="px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
-      Add
+            class="px-3 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
+      Add room
     </button>
   </form>
 </div>

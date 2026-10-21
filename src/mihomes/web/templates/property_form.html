@@ -20,23 +20,23 @@
        this form sitting there unchanged. A normal post renders the paywall page. #}
     <form method="post" action="/properties/" class="space-y-4">
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Name</label>
-        <input type="text" name="name" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" placeholder="e.g. Beach House" />
+        <label for="new-property-name" class="block text-sm font-medium text-gray-700 mb-1">Name <span class="text-red-500">*</span></label>
+        <input type="text" id="new-property-name" name="name" required autofocus class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" placeholder="e.g. Beach House" />
       </div>
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Address</label>
-        <input type="text" name="address" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" placeholder="123 Ocean Dr, Malibu CA" />
+        <label for="new-property-address" class="block text-sm font-medium text-gray-700 mb-1">Address</label>
+        <input type="text" id="new-property-address" name="address" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" placeholder="123 Ocean Dr, Malibu CA" />
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Type</label>
-          <select name="property_type" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+          <label for="new-property-type" class="block text-sm font-medium text-gray-700 mb-1">Type</label>
+          <select id="new-property-type" name="property_type" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
             {% for t in property_types %}<option value="{{ t }}">{{ t.title() }}</option>{% endfor %}
           </select>
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
-          <select name="status" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+          <label for="new-property-status" class="block text-sm font-medium text-gray-700 mb-1">Status</label>
+          <select id="new-property-status" name="status" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
             {% for s in property_statuses %}<option value="{{ s }}">{{ s.replace('-', ' ').title() }}</option>{% endfor %}
           </select>
         </div>

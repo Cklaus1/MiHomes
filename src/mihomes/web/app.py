@@ -1,7 +1,7 @@
 """MiHomes Web — FastAPI app factory."""
 
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
@@ -276,8 +276,22 @@ def create_app() -> FastAPI:
                 )
             return RedirectResponse("/login", status_code=303)
 
+        # An HTMX request keeps its 401 + JSON (a 303 would swap the login page into whatever
+        # fragment it targeted), but also gets `HX-Redirect`: htmx follows that header before
+        # it looks at the status, so an expired session sends the user to sign in instead of
+        # every click silently doing nothing. `next` is the page they were on, not the
+        # fragment URL, so signing in lands them back where they were.
+        headers = {}
+        if is_htmx:
+            current = urlsplit(request.headers.get("hx-current-url", ""))
+            target = _safe_next(current.path or "/", current.query)
+            headers["HX-Redirect"] = (
+                f"/login?next={quote(target, safe='')}" if target else "/login"
+            )
         return JSONResponse(
-            {"detail": getattr(exc, "detail", "Not authenticated")}, status_code=401
+            {"detail": getattr(exc, "detail", "Not authenticated")},
+            status_code=401,
+            headers=headers,
         )
 
     @app.exception_handler(403)
@@ -327,6 +341,11 @@ def create_app() -> FastAPI:
 
             if wants_html and not is_htmx and not already_there:
                 return RedirectResponse("/onboarding/", status_code=303)
+            if is_htmx and not already_there:
+                # Same reasoning as the 401 handler: keep the 403, add the header htmx follows.
+                return JSONResponse(
+                    {"detail": detail}, status_code=403, headers={"HX-Redirect": "/onboarding/"}
+                )
 
         return JSONResponse({"detail": detail or "Forbidden"}, status_code=403)
 

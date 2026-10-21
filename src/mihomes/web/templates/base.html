@@ -18,7 +18,11 @@
        class worked because the compiler was present; now the `content` globs decide. Run
        `npm run build:css` after editing a template, or A13 turns red. -->
   <link rel="stylesheet" href="/static/app.css" />
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
   <script src="/static/htmx.min.js"></script>
+  <!-- Error/success toasts, pending state, shared modal behaviour. In <head>, not inline below:
+       body swaps re-run inline scripts, which would register every listener again. -->
+  <script src="/static/app.js"></script>
   <!-- The inline <style> block that lived here moved to `static/input.css` and is
        compiled into `app.css` (SPEC-009 Step 2). Kept as one stylesheet so the custom
        component rules and the Tailwind utilities cannot drift apart. -->
@@ -45,7 +49,7 @@
                   md:static md:translate-x-0 md:z-auto">
       <div class="px-5 py-5 border-b border-gray-700">
         <div class="text-white font-semibold text-lg tracking-tight">MiHomes</div>
-        <div class="text-gray-400 text-xs mt-0.5">Estate Management</div>
+        <div class="text-gray-400 text-xs mt-0.5">Home Management</div>
       </div>
 
       <nav class="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
@@ -55,43 +59,68 @@
            outside is indistinguishable from the feature not existing, and was reported exactly
            that way: "there isn't a settings feature". It sits at the end because it is the one
            destination that is not estate data. #}
-        {% set nav = [
-          ('/', 'dashboard', 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6', 'Dashboard'),
-          ('/properties/', 'properties', 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4', 'Properties'),
-          ('/alerts/', 'alerts', 'M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9', 'Alerts'),
-          ('/tasks/', 'tasks', 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4', 'Tasks'),
-          ('/issues/', 'issues', 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z', 'Issues'),
-          ('/work-orders/', 'work_orders', 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01', 'Work Orders'),
-          ('/staff/', 'staff', 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z', 'Directory'),
-          ('/vendors/', 'vendors', 'M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2', 'Vendors'),
-          ('/assets/', 'assets', 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4', 'Rooms'),
-          ('/inventory/', 'inventory', 'M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4', 'Inventory'),
-          ('/budget/', 'budget', 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z', 'Budget'),
-          ('/documents/', 'documents', 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z', 'Documents'),
-          ('/playbooks/', 'playbooks', 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4', 'Playbooks'),
-          ('/templates/', 'templates', 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01', 'Templates'),
-          ('/search/', 'search', 'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z', 'Search'),
-          ('/ai/', 'ai', 'M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z', 'AI Advisor'),
-          ('/calendar/', 'calendar', 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z', 'Calendar'),
-          ('/settings', 'settings', 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z', 'Settings'),
+        {# Grouped by the job, not one flat list of eighteen: a new user scans five headings
+           instead of every item. "Search" is gone as a destination — the header search is on
+           every page and its "See all results" still reaches /search/. "Directory" (residents
+           as well as staff) and "Rooms" are deliberate renames; keep them. Library and
+           Plan & billing had no inbound link at all before. #}
+        {% set nav_groups = [
+          ('', [
+            ('/', 'dashboard', 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6', 'Dashboard'),
+            ('/alerts/', 'alerts', 'M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9', 'Alerts'),
+            ('/calendar/', 'calendar', 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z', 'Calendar'),
+          ]),
+          ('Work', [
+            ('/tasks/', 'tasks', 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4', 'Tasks'),
+            ('/issues/', 'issues', 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z', 'Issues'),
+            ('/work-orders/', 'work_orders', 'M21.75 6.75a4.5 4.5 0 01-4.884 4.484c-1.076-.091-2.264.071-2.95.904l-7.152 8.684a2.548 2.548 0 11-3.586-3.586l8.684-7.152c.833-.686.995-1.874.904-2.95a4.5 4.5 0 016.336-4.486l-3.276 3.276a3.004 3.004 0 002.25 2.25l3.276-3.276c.256.565.398 1.192.398 1.852z', 'Work Orders'),
+          ]),
+          ('Homes', [
+            ('/properties/', 'properties', 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4', 'Properties'),
+            ('/assets/', 'assets', 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4', 'Rooms'),
+            ('/inventory/', 'inventory', 'M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4', 'Inventory'),
+            ('/library/', 'library', 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253', 'Library'),
+            ('/documents/', 'documents', 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z', 'Documents'),
+          ]),
+          ('People', [
+            ('/staff/', 'staff', 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z', 'Directory'),
+            ('/vendors/', 'vendors', 'M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z', 'Vendors'),
+          ]),
+          ('Plan', [
+            ('/budget/', 'budget', 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z', 'Budget'),
+            ('/playbooks/', 'playbooks', 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01', 'Playbooks'),
+            ('/templates/', 'templates', 'M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z', 'Templates'),
+            ('/ai/', 'ai', 'M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z', 'AI Advisor'),
+          ]),
+          ('', [
+            ('/settings', 'settings', 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z', 'Settings'),
+            ('/billing', 'billing', 'M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z', 'Plan & billing'),
+          ]),
         ] %}
-        {% for href, key, icon_path, label in nav %}
-        <div class="relative">
+        {% for group_label, items in nav_groups %}
+        <div class="{% if not loop.first %}pt-3 mt-3 border-t border-gray-800{% endif %}">
+          {% if group_label %}
+          <div class="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-500">{{ group_label }}</div>
+          {% endif %}
+          {% for href, key, icon_path, label in items if key != 'billing' or viewer_role == 'owner' %}
+          {# py-2.5 + 20px icon = 40px rows; the old py-2 rows were 36px, under the tap floor. #}
           <a href="{{ href }}"
-             class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors
-                    {% if page == key %}bg-gray-700 text-white{% else %}text-gray-400 hover:bg-gray-800 hover:text-white{% endif %}">
-            <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+             {% if page == key %}aria-current="page"{% endif %}
+             class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors
+                    {% if page == key %}bg-gray-700 text-white{% else %}text-gray-300 hover:bg-gray-800 hover:text-white{% endif %}">
+            <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" d="{{ icon_path }}" />
             </svg>
             <span class="flex-1">{{ label }}</span>
             {% if key == 'alerts' %}
             <span id="nav-alert-badge"
                   hx-get="/alerts/badge"
-                  hx-trigger="load, every 60s"
+                  hx-trigger="load, every 60s, alerts-changed from:body"
                   hx-swap="outerHTML">
             </span>
             {% endif %}
           </a>
+          {% endfor %}
         </div>
         {% endfor %}
       </nav>
@@ -127,40 +156,57 @@
     <div class="flex-1 flex flex-col overflow-hidden">
 
       <!-- Top bar -->
-      <header class="bg-white border-b border-gray-200 px-4 md:px-6 py-4 flex items-center justify-between gap-3 flex-shrink-0">
-        <div class="flex items-center gap-3 min-w-0">
+      {# The `actions` block is defined here, unrendered, so the header can render it through
+         `self.actions()` and tell whether a page has any. #}
+      {% if false %}{% block actions %}{% endblock %}{% endif %}
+      {% set page_actions = self.actions() %}
+      {# Below sm the page's action buttons move to a second row. On one row, a 375px phone had
+         the toggle, the button and the search box fixed in width, and the title — the only
+         flexible item — collapsed to nothing ("T..", "3 / op / · / 0"). #}
+      <header class="bg-white border-b border-gray-200 px-4 md:px-6 py-3 md:py-4 flex flex-wrap items-center gap-x-3 gap-y-2 flex-shrink-0">
+        <div class="flex items-center gap-3 min-w-0 flex-1">
           <!-- Nav toggle — below md only. 44x44 (p-2.5 + w-6 icon) to clear the tap-target
                floor A10 sets; `-ml-1` pulls it back to the header's optical edge. -->
           <button type="button" id="nav-toggle"
                   aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false"
                   class="md:hidden -ml-1 p-2.5 rounded-lg text-gray-600 hover:bg-gray-100 flex-shrink-0">
-            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
             </svg>
           </button>
           <div class="min-w-0">
             <h1 class="text-lg md:text-xl font-semibold text-gray-900 truncate">{% block heading %}{% endblock %}</h1>
-            {% block subheading %}<p class="text-sm text-gray-500 mt-0.5"></p>{% endblock %}
+            <div class="truncate">{% block subheading %}<p class="text-sm text-gray-500 mt-0.5"></p>{% endblock %}</div>
           </div>
         </div>
-        <div class="flex items-center gap-3">
-          {% block actions %}{% endblock %}
-          <!-- Global search — live input with results dropdown -->
+        {% if page_actions | trim %}
+        <div class="order-last sm:order-none w-full sm:w-auto flex items-center gap-2 flex-wrap">
+          {{ page_actions }}
+        </div>
+        {% endif %}
+        <div class="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+          <!-- Global search — live input with results dropdown. Below sm it is an icon that
+               opens the field as an overlay (app.js), so it costs 44px instead of 144. -->
           <div class="relative" id="global-search-wrap">
-            <svg class="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <button type="button" id="global-search-open" aria-label="Search" aria-controls="global-search-input"
+                    class="sm:hidden p-2.5 rounded-lg text-gray-600 hover:bg-gray-100">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+              </svg>
+            </button>
+            <svg class="hidden sm:block w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
             </svg>
-            <input type="text" name="q" id="global-search-input" autocomplete="off"
-                   placeholder="Search…" title="Search (Ctrl+K)"
+            <input type="search" name="q" id="global-search-input" autocomplete="off"
+                   placeholder="Search…" aria-label="Search everything"
                    hx-get="/search/dropdown" hx-trigger="keyup changed delay:250ms, focus"
                    hx-target="#global-search-results" hx-swap="innerHTML"
-                   onfocus="document.getElementById('global-search-results').classList.remove('hidden')"
-                   class="w-36 sm:w-52 focus:w-64 pl-8 pr-10 py-1.5 text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:bg-white transition-all" />
-            <kbd class="hidden sm:inline absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-mono bg-white border border-gray-200 rounded px-1 py-0.5 text-gray-400 pointer-events-none">⌘K</kbd>
-            <div id="global-search-results"
-                 class="hidden absolute right-0 mt-1 w-80 bg-white border border-gray-200 rounded-xl shadow-lg z-50 max-h-96 overflow-y-auto"></div>
+                   class="hidden sm:block w-52 focus:w-64 pl-8 pr-14 py-1.5 text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:bg-white transition-all" />
+            <kbd data-kbd-mod="K" class="hidden sm:inline absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-mono bg-white border border-gray-200 rounded px-1 py-0.5 text-gray-500 pointer-events-none">Ctrl K</kbd>
+            <div id="global-search-results" role="listbox" aria-label="Search results"
+                 class="hidden absolute right-0 mt-1 w-80 max-w-[calc(100vw-2rem)] bg-white border border-gray-200 rounded-xl shadow-lg z-50 max-h-96 overflow-y-auto"></div>
           </div>
-          <span id="htmx-loading" class="htmx-indicator">
+          <span id="htmx-loading" class="htmx-indicator" aria-hidden="true">
             <svg class="w-5 h-5 animate-spin text-brand-500" fill="none" viewBox="0 0 24 24">
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
@@ -172,7 +218,11 @@
       <!-- Page body -->
       <!-- `p-4 md:p-6`: 24px of padding on each side costs 48px of a 375px viewport. The
            desktop value is unchanged. -->
-      <main class="flex-1 overflow-y-auto p-4 md:p-6">
+      {# `relative`: the positioning context for absolutely placed children (sr-only labels,
+         popovers). Without it they anchor to the page, escape main's scroll clipping, and
+         stretch the document — an anchor jump (/settings#danger-zone) then scrolled the whole
+         shell, sidebar included. #}
+      <main class="relative flex-1 overflow-y-auto p-4 md:p-6">
         {# Trial banner, fetched as its own request after the page loads. The first version read
            the account while rendering every page and, when that read failed, hung the whole app
            (6628d39). Loaded this way a failure only leaves this slot empty. #}
@@ -192,7 +242,7 @@
   {% block scripts %}{% endblock %}
 
   <!-- Global document preview overlay -->
-  <div id="preview-overlay" class="hidden fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4"
+  <div id="preview-overlay" role="dialog" aria-modal="true" aria-labelledby="preview-title" class="hidden fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4"
        onclick="if(event.target===this)closePreview()">
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl flex flex-col overflow-hidden"
          style="max-height:90vh" onclick="event.stopPropagation()">
@@ -201,7 +251,7 @@
         <div class="flex items-center gap-4 flex-shrink-0">
           <a id="preview-open-link" href="#" target="_blank" rel="noopener"
              class="text-xs text-brand-600 hover:text-brand-700 font-medium">Open in new tab ↗</a>
-          <button onclick="closePreview()" class="text-gray-400 hover:text-gray-600 p-2.5 rounded hover:bg-gray-100">
+          <button type="button" onclick="closePreview()" aria-label="Close preview" class="text-gray-400 hover:text-gray-600 p-2.5 rounded hover:bg-gray-100">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
             </svg>
@@ -212,145 +262,8 @@
     </div>
   </div>
 
-<script>
-/* ---------------------------------------------------------------------------
-   Mobile navigation drawer (SPEC-009 G1 · A1/A4)
-   ---------------------------------------------------------------------------
-   Vanilla, ~30 lines, no framework — N2. The app is HTMX plus templates, and
-   introducing Alpine/React for a class toggle would be a re-platform wearing a
-   bug fix's clothes.
-
-   A4 is why this is more than a class toggle. `aria-expanded` tracks state for
-   assistive tech; Escape closes; focus moves into the drawer on open and back
-   to the toggle on close. A drawer only a mouse can dismiss is a trap on a
-   screen reader — the user opens it and cannot get out.
-
-   The drawer is `-translate-x-full` at rest and `translate-x-0` when open. At
-   md+ the sidebar is `md:static md:translate-x-0`, so none of this applies and
-   the desktop layout is untouched (A3/N1).
---------------------------------------------------------------------------- */
-(function () {
-  const toggle   = document.getElementById('nav-toggle');
-  const sidebar  = document.getElementById('sidebar');
-  const backdrop = document.getElementById('nav-backdrop');
-  if (!toggle || !sidebar || !backdrop) return;
-
-  let lastFocus = null;
-
-  function isOpen() {
-    return toggle.getAttribute('aria-expanded') === 'true';
-  }
-
-  function open() {
-    lastFocus = document.activeElement;
-    sidebar.classList.remove('-translate-x-full');
-    sidebar.classList.add('translate-x-0');
-    backdrop.classList.remove('hidden');
-    toggle.setAttribute('aria-expanded', 'true');
-    /* Move focus into the drawer so a keyboard or screen-reader user lands on
-       the navigation they just opened, rather than staying behind the backdrop. */
-    const first = sidebar.querySelector('a, button');
-    if (first) first.focus();
-  }
-
-  function close() {
-    sidebar.classList.add('-translate-x-full');
-    sidebar.classList.remove('translate-x-0');
-    backdrop.classList.add('hidden');
-    toggle.setAttribute('aria-expanded', 'false');
-    /* Return focus to the control that opened it — otherwise focus is orphaned
-       on a now-hidden element and the next Tab starts from the top of the page. */
-    if (lastFocus && document.contains(lastFocus)) lastFocus.focus();
-  }
-
-  toggle.addEventListener('click', () => (isOpen() ? close() : open()));
-  backdrop.addEventListener('click', close);
-
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && isOpen()) close();
-  });
-
-  /* Navigating closes it. Without this the drawer stays open over the page the
-     user just asked for, and on an HTMX swap it would cover the new content. */
-  sidebar.querySelectorAll('a').forEach((a) =>
-    a.addEventListener('click', () => { if (isOpen()) close(); })
-  );
-
-  /* Resizing past md makes the sidebar static again; the drawer's open state
-     would otherwise persist as a stale `translate-x-0` when the window shrinks
-     back. Reset rather than track. */
-  window.addEventListener('resize', () => {
-    if (window.innerWidth >= 768 && isOpen()) close();
-  });
-})();
-
-/* After any notes-container swap, recount note items and update the nearest badge. */
-document.addEventListener('htmx:afterSettle', function(e) {
-  const container = e.detail.elt;
-  if (!container || !container.hasAttribute('data-notes-container')) return;
-  const count = container.querySelectorAll('[data-note-item]').length;
-  const badgeId = container.dataset.notesBadge;
-  if (badgeId) {
-    const badge = document.getElementById(badgeId);
-    if (badge) badge.textContent = count;
-  }
-});
-
-/* Cmd+K / Ctrl+K → focus the header search input */
-document.addEventListener('keydown', function(e) {
-  if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-    e.preventDefault();
-    const searchInput = document.getElementById('global-search-input');
-    if (searchInput) {
-      searchInput.focus();
-      searchInput.select();
-    }
-  }
-  if (e.key === 'Escape') {
-    document.getElementById('global-search-results')?.classList.add('hidden');
-  }
-});
-
-/* Close the search results dropdown when clicking outside it */
-document.addEventListener('click', function(e) {
-  const wrap = document.getElementById('global-search-wrap');
-  if (wrap && !wrap.contains(e.target)) {
-    document.getElementById('global-search-results')?.classList.add('hidden');
-  }
-});
-
-/* Document preview overlay */
-function previewDoc(url, title, type) {
-  document.getElementById('preview-title').textContent = title;
-  document.getElementById('preview-open-link').href = url;
-  const container = document.getElementById('preview-content');
-  if (type === 'image') {
-    container.innerHTML = '<img src="' + url + '" alt="' + title.replace(/"/g, '&quot;') + '" style="max-width:100%;max-height:75vh;object-fit:contain;border-radius:8px;" />';
-  } else if (type === 'pdf') {
-    container.innerHTML = '<iframe src="' + url + '" style="width:100%;height:75vh;border:none;border-radius:4px;" title="' + title.replace(/"/g, '&quot;') + '"></iframe>';
-  }
-  document.getElementById('preview-overlay').classList.remove('hidden');
-  document.addEventListener('keydown', _previewEscHandler);
-}
-function closePreview() {
-  document.getElementById('preview-overlay').classList.add('hidden');
-  document.getElementById('preview-content').innerHTML = '';
-  document.removeEventListener('keydown', _previewEscHandler);
-}
-function _previewEscHandler(e) { if (e.key === 'Escape') closePreview(); }
-
-/* Delegated preview trigger: elements carry data-preview-fp/title/type so a
-   hostile document title can never break out of an inline onclick JS string. */
-document.addEventListener('click', function(e) {
-  const trigger = e.target.closest('[data-preview-fp]');
-  if (!trigger) return;
-  e.preventDefault();
-  previewDoc(
-    trigger.getAttribute('data-preview-fp'),
-    trigger.getAttribute('data-preview-title') || '',
-    trigger.getAttribute('data-preview-type') || 'image'
-  );
-});
-</script>
+{# The drawer, Ctrl+K, search and preview behaviour that lived in an inline <script> here
+   moved to static/app.js: ~70 forms swap the whole <body>, and every swap re-ran this block and
+   stacked another copy of each document-level listener. #}
 </body>
 </html>

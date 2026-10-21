@@ -15,7 +15,7 @@ ENTITY_TYPES = [
     ("property", "Properties"),
     ("task", "Tasks"),
     ("issue", "Issues"),
-    ("staff", "Staff"),
+    ("staff", "People"),
     ("vendor", "Vendors"),
     ("asset", "Assets"),
     ("workorder", "Work Orders"),
@@ -23,22 +23,36 @@ ENTITY_TYPES = [
     ("note", "Notes"),
 ]
 
+#: Where a result goes. `{slug}`/`{id}` are filled per result. Records that live in a modal on
+#: their list page deep-link with `?open=`, so a search lands on the record, not on the list.
 ENTITY_URLS = {
     "property": "/properties/{slug}/",
-    "task": "/tasks/",
-    "issue": "/issues/",
-    "staff": "/staff/",
-    "resident": "/staff/",
-    "associate": "/staff/",
-    "family": "/staff/",
-    "vendor": "/vendors/",
+    "task": "/tasks/?open={id}",
+    "issue": "/issues/?open={id}",
+    "staff": "/staff/?open={id}",
+    "resident": "/staff/?open={id}",
+    "associate": "/staff/?open={id}",
+    "family": "/staff/?open={id}",
+    "vendor": "/vendors/?open={id}",
     "asset": "/assets/",
-    "workorder": "/work-orders/",
-    "document": None,
+    "workorder": "/work-orders/?open={id}",
+    "document": "/documents/?open={slug}",
     "note": None,
-    "event": None,
+    "event": "/calendar/",
     "guest": None,
 }
+
+
+def result_url(item: dict) -> str | None:
+    """The link for one search result, or None when it has nowhere to go."""
+    template = ENTITY_URLS.get(item.get("type"))
+    if not template:
+        return None
+    if "{slug}" in template and not item.get("slug"):
+        return None
+    return template.replace("{slug}", str(item.get("slug") or "")).replace(
+        "{id}", str(item.get("id") or "")
+    )
 
 
 @router.get("/dropdown")
@@ -50,7 +64,7 @@ def search_dropdown(request: Request, q: str = "", db: Session = Depends(get_db)
     return templates.TemplateResponse(request, "partials/search_results_dropdown.html", {
         "q": q,
         "results": results,
-        "entity_urls": ENTITY_URLS,
+        "result_url": result_url,
     })
 
 
@@ -74,6 +88,6 @@ def search(
         "type_filter": type,
         "results_by_type": results_by_type,
         "entity_types": ENTITY_TYPES,
-        "entity_urls": ENTITY_URLS,
+        "result_url": result_url,
         "total": sum(len(v) for v in results_by_type.values()),
     })

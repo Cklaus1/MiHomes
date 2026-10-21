@@ -76,13 +76,16 @@ class RedactingTemplates(Jinja2Templates):
         # rather than assuming a position — guessing wrong would silently skip redaction on
         # whichever form the codebase does not use today, and it uses both shapes across 24
         # router files.
+        # `viewer_role` lets the shared layout hide links the viewer would only be refused at
+        # (Plan & billing is owner-only). Display only — every route still enforces its own
+        # declared action; hiding a link is never the authorisation.
         if "context" in kwargs:
-            kwargs["context"] = redact_context(kwargs["context"], role)
+            kwargs["context"] = {**redact_context(kwargs["context"], role), "viewer_role": role}
         else:
             args = list(args)
             for index, value in enumerate(args):
                 if isinstance(value, dict):
-                    args[index] = redact_context(value, role)
+                    args[index] = {**redact_context(value, role), "viewer_role": role}
                     break
             args = tuple(args)
 
@@ -166,6 +169,19 @@ def _currency_symbol():
 
 
 templates.env.globals["currency_symbol"] = _currency_symbol
+
+
+def with_toast(response, message: str, kind: str = "success"):
+    """Attach a toast to an HTMX response and return it.
+
+    Most saves answer with the whole page swapped into `<body>`, which redraws but never said
+    "Saved" — the user could not tell a save from a refresh. `static/app.js` turns the
+    `HX-Trigger` event into a toast. Harmless on a non-HTMX response: browsers ignore the header.
+    """
+    import json
+
+    response.headers["HX-Trigger"] = json.dumps({"toast": {"message": message, "kind": kind}})
+    return response
 
 
 def get_db() -> Generator[Session, None, None]:

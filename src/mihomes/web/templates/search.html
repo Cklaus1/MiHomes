@@ -16,7 +16,7 @@
       <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
       </svg>
-      <input type="text" name="q" value="{{ q }}" autofocus
+      <input type="search" name="q" value="{{ q }}" autofocus aria-label="Search"
              placeholder="Search properties, tasks, issues, vendors, assets…"
              class="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent shadow-sm" />
       <input type="hidden" name="type" value="{{ type_filter }}" />
@@ -31,8 +31,8 @@
 <!-- Type filter chips -->
 <div class="flex flex-wrap gap-2 mb-6">
   {% for value, label in entity_types %}
-  <a href="/search/?q={{ q }}&type={{ value }}"
-     hx-get="/search/?q={{ q }}&type={{ value }}" hx-target="body" hx-swap="innerHTML" hx-push-url="true"
+  <a href="/search/?q={{ q | urlencode }}&type={{ value }}"
+     hx-get="/search/?q={{ q | urlencode }}&type={{ value }}" hx-target="body" hx-swap="innerHTML" hx-push-url="true"
      class="px-3 py-1.5 text-xs font-medium rounded-full border transition-colors
        {% if type_filter == value %}bg-brand-600 border-brand-600 text-white{% else %}bg-white border-gray-200 text-gray-600 hover:border-brand-400 hover:text-brand-600{% endif %}">
     {{ label }}
@@ -46,8 +46,8 @@
   <svg class="w-12 h-12 text-gray-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
   </svg>
-  <p class="text-sm font-medium text-gray-500">Type something to search across all your estate data</p>
-  <p class="text-xs text-gray-400 mt-1">Properties, tasks, issues, staff, vendors, assets, documents, notes…</p>
+  <p class="text-sm font-medium text-gray-600">Type something to search across all your estate data</p>
+  <p class="text-xs text-gray-500 mt-1">Properties, tasks, issues, staff, vendors, assets, documents, notes…</p>
 </div>
 
 {% elif total == 0 %}
@@ -57,7 +57,7 @@
     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
   </svg>
   <p class="text-sm font-medium text-gray-500">No results for "{{ q }}"</p>
-  <p class="text-xs text-gray-400 mt-1">Try a broader search or different keywords</p>
+  <p class="text-xs text-gray-500 mt-1">Try a broader search or different keywords</p>
 </div>
 
 {% else %}
@@ -78,7 +78,7 @@
 
 {% set type_labels = {
   'property': 'Properties', 'task': 'Tasks', 'issue': 'Issues',
-  'staff': 'Staff', 'vendor': 'Vendors', 'asset': 'Assets',
+  'staff': 'People', 'vendor': 'Vendors', 'asset': 'Assets',
   'workorder': 'Work Orders', 'document': 'Documents', 'note': 'Notes',
   'event': 'Events', 'guest': 'Guests',
 } %}
@@ -115,30 +115,22 @@
     <!-- Results list -->
     <ul class="divide-y divide-gray-50">
       {% for item in items %}
-      {% set url_template = entity_urls.get(type_key) %}
-      {% if url_template and item.slug %}
-        {% set url = url_template.replace('{slug}', item.slug) %}
-      {% elif url_template %}
-        {% set url = url_template %}
-      {% else %}
-        {% set url = None %}
-      {% endif %}
-
-      <li class="px-5 py-3 flex items-center justify-between {% if url %}hover:bg-gray-50 cursor-pointer{% endif %}"
-          {% if url %}onclick="window.location='{{ url }}'"{% endif %}>
-        <div>
-          <div class="text-sm font-medium text-gray-900">{{ item.name }}</div>
+      {% set url = result_url(item) %}
+      {# A real link, not an onclick on the <li>: reachable by Tab, opens in a new tab with a
+         middle-click, and announced as a link. #}
+      <li>
+        {% if url %}<a href="{{ url }}" class="px-5 py-3 flex items-center justify-between hover:bg-gray-50 focus:bg-gray-50 focus:outline-none">{% else %}<div class="px-5 py-3 flex items-center justify-between">{% endif %}
+        <div class="min-w-0">
+          <div class="text-sm font-medium text-gray-900 truncate">{{ item.name }}</div>
           {% if item.subtitle %}
-          <div class="text-xs text-gray-400 mt-0.5">{{ item.subtitle }}</div>
-          {% elif item.slug %}
-          <div class="text-xs text-gray-400 mt-0.5">{{ item.slug }}</div>
+          <div class="text-xs text-gray-500 mt-0.5">{{ item.subtitle }}</div>
           {% endif %}
         </div>
         {% if url %}
-        <svg class="w-4 h-4 text-gray-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg class="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
         </svg>
-        {% endif %}
+        </a>{% else %}</div>{% endif %}
       </li>
       {% endfor %}
     </ul>

@@ -22,6 +22,10 @@ in parallel, (5) Twilio SMS then email as further adapters. Design: `docs/produc
 - [ ] NOT ported: Jen candidate notes (`701b869` `e7b1a19`) — HR notes; repo is PUBLIC
 - [ ] User: archive tag, delete local + remote `telegram-bot`, move main checkout off it, confirm no poller
       runs from old code on evo-dev
+- Review: full suite on a private DB (`mihomes_test_rtb`) — 3297 passed, 7 failed, all pre-existing and in
+  code this branch doesn't touch (billing ×4 Stripe env, full_workflow quarterly, pg_baseline round-trip,
+  settings `/settings` staff 403). An earlier run on the shared `mihomes_test` hit 1518 deadlock errors from
+  another session's concurrent run — use a per-session test DB. New: 7 web tests + 4 staff-403 authz tests.
 
 ### Step 2 — Phase 0: one adapter seam, one message type (plan — awaiting user check-in)
 - [ ] `gateways/message.py`: `InternalMessage` TypedDict for the canonical envelope the code already emits

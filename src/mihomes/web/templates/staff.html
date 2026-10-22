@@ -129,6 +129,8 @@
               class="px-1 py-3 text-sm font-medium border-b-2 border-brand-600 text-brand-600 mr-5">Details</button>
       <button type="button" data-tab="notes" onclick="switchTab('staff-modal-{{ member.id }}','notes')"
               class="px-1 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 mr-5">Notes ({{ notes_map[member.id]|length }})</button>
+      <button type="button" data-tab="documents" onclick="switchTab('staff-modal-{{ member.id }}','documents')"
+              class="px-1 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 mr-5">Documents ({{ docs_map[member.id]|length }})</button>
     </div>
 
     <!-- Modal body -->
@@ -251,6 +253,13 @@
       <div id="staff-modal-{{ member.id }}-tab-notes" class="hidden px-6 py-5" data-notes-container>
         {% with notes=notes_map[member.id], post_url="/staff/"+member.slug+"/notes", delete_url_prefix="/staff/"+member.slug+"/notes" %}
         {% include "partials/notes_section.html" %}
+        {% endwith %}
+      </div>
+
+      <!-- Documents tab (hidden by default) -->
+      <div id="staff-modal-{{ member.id }}-tab-documents" class="hidden px-6 py-5" data-docs-container>
+        {% with docs=docs_map[member.id], post_url="/staff/"+member.slug+"/documents", delete_url_prefix="/staff/"+member.slug+"/documents" %}
+        {% include "partials/docs_section.html" %}
         {% endwith %}
       </div>
 

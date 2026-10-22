@@ -3,15 +3,18 @@
 from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from mihomes.authz.actions import Access
 from mihomes.authz.declare import declares
+from mihomes.models.document import DocumentType
+from mihomes.services import document as doc_svc
 from mihomes.services import note as note_svc
 from mihomes.services import vendor as vendor_svc
 from mihomes.web.deps import get_db, templates, with_toast
+from mihomes.web.forms import read_document_upload
 
 router = APIRouter()
 
@@ -78,6 +81,7 @@ def _ctx(db: Session) -> dict:
         # failure here a failure of this page rather than of the whole site.
         "ratings_entitled": vendor_svc.ratings_are_entitled(db),
         "notes_map": {v.id: note_svc.list_notes(db, f"vendor:{v.id}") for v in all_vendors},
+        "docs_map": {v.id: doc_svc.list_documents(db, entity_type="vendor", entity_id=v.id) for v in all_vendors},
         "properties": properties,
         "vendor_properties": vendor_properties,
         "all_categories": all_categories,
@@ -282,3 +286,50 @@ def delete_note(request: Request, slug: str, note_id: UUID, db: Session = Depend
         "post_url": f"/vendors/{slug}/notes",
         "delete_url_prefix": f"/vendors/{slug}/notes",
     }), "Note deleted")
+
+
+def _docs_ctx(db: Session, vendor, slug: str) -> dict:
+    return {
+        "docs": doc_svc.list_documents(db, entity_type="vendor", entity_id=vendor.id),
+        "post_url": f"/vendors/{slug}/documents",
+        "delete_url_prefix": f"/vendors/{slug}/documents",
+    }
+
+
+@router.post("/{slug}/documents", response_class=HTMLResponse)
+@declares("vendor.manage", Access.ITEM)
+async def add_vendor_document(
+    request: Request,
+    slug: str,
+    title: str = Form(...),
+    doc_type: str = Form("invoice"),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    vendor = vendor_svc.get_vendor(db, slug)
+    try:
+        file_path = await read_document_upload(file)
+    except ValueError as e:
+        ctx = _docs_ctx(db, vendor, slug)
+        ctx["error"] = str(e)
+        return templates.TemplateResponse(request, "partials/docs_section.html", ctx)
+    doc_svc.create_document(
+        db, title=title, file_path=file_path,
+        document_type=DocumentType(doc_type),
+        entity_type="vendor", entity_id=vendor.id,
+    )
+    return with_toast(templates.TemplateResponse(
+        request, "partials/docs_section.html", _docs_ctx(db, vendor, slug)), "Document added")
+
+
+@router.delete("/{slug}/documents/{doc_id}", response_class=HTMLResponse)
+@declares("vendor.manage", Access.ITEM)
+def delete_vendor_document(request: Request, slug: str, doc_id: str, db: Session = Depends(get_db)):
+    vendor = vendor_svc.get_vendor(db, slug)
+    doc = doc_svc.get_document(db, doc_id)
+    # The URL names a vendor; refuse to delete a document attached to anything else.
+    if doc.entity_type != "vendor" or doc.entity_id != vendor.id:
+        raise HTTPException(status_code=404, detail="Document not found")
+    doc_svc.delete_document(db, doc_id)
+    return with_toast(templates.TemplateResponse(
+        request, "partials/docs_section.html", _docs_ctx(db, vendor, slug)), "Document deleted")

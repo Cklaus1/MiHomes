@@ -268,11 +268,13 @@ def normalize_cloud_message(entry: dict, *, property_slug: str | None = None) ->
     return {
         "id": msg.get("id") or "",
         "timestamp": msg.get("timestamp"),
-        # `jid` holds the WhatsApp id. In a group the Cloud API reports the group in
-        # `value.metadata`; per-message it is the sender's wa_id, so a group-capable tier fills
-        # this from metadata and a 1:1 tier from `from` — one key either way (D2).
-        "jid": str((value.get("metadata") or {}).get("display_phone_number") or wa_id),
-        "isGroup": bool((value.get("metadata") or {}).get("group_id")),
+        # `jid` is where the responder replies, so it is the sender's wa_id. It used to read
+        # `metadata.display_phone_number`, which is the business's OWN number — every 1:1 reply
+        # would have gone to ourselves. Group conversations are not modelled until U2 (does the
+        # tier support groups, and what identifies one) is decided; until then every Cloud
+        # message is 1:1.
+        "jid": str(wa_id),
+        "isGroup": False,
         "sender": str(wa_id),
         "senderName": profile.get("name") or "",
         # The Cloud API has no usernames — WhatsApp identity is the phone number. Empty rather

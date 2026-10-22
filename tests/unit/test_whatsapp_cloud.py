@@ -190,6 +190,19 @@ def test_the_parity_target_is_the_shape_the_telegram_client_really_produces():
     assert set(produced) == BAILEYS_ENVELOPE_KEYS
 
 
+def test_a_reply_goes_to_the_sender_not_to_our_own_number():
+    """`jid` is where the responder sends its reply, so it must be the sender's wa_id.
+
+    It used to be `metadata.display_phone_number` — the business's OWN number — so every
+    one-to-one reply would have been addressed to ourselves. Groups are not modelled here: whether
+    the Cloud API tier supports them, and how a group is identified, is still open (U2).
+    """
+    msg = normalize_cloud_message(_cloud_entry(wa_id="15551234567"))
+    assert msg["jid"] == "15551234567"
+    assert msg["jid"] != "15559876543"  # display_phone_number in the fixture
+    assert msg["isGroup"] is False
+
+
 def test_a_media_message_carries_its_caption():
     """A photo with a caption must keep the caption — it is the human's actual words.
 

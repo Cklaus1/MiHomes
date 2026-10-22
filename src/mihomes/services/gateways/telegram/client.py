@@ -1,17 +1,28 @@
 """Telegram Bot API client — plain urllib, no external dependencies."""
 
 import json
+import logging
 import os
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
-import logging
 
 logger = logging.getLogger(__name__)
 
 TELEGRAM_API = "https://api.telegram.org"
 MEDIA_DIR = Path(os.path.expanduser("~/.mihomes/media/telegram"))
+
+
+def platform_bot_token() -> str:
+    """The deployment's bot token, from `TELEGRAM_BOT_TOKEN`, or "" when unset.
+
+    Read from the environment for the same reason `TELEGRAM_WEBHOOK_SECRET` is: the webhook's
+    unlinked-sender reply runs before any account is bound, so the tenant-owned
+    `telegram.bot_token` config row is unreadable there. One webhook URL means one bot, so this
+    is also the token every webhook-path reply should come from (per-account bots are U6).
+    """
+    return os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 
 
 class TelegramError(Exception):

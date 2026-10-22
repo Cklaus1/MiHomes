@@ -23,8 +23,15 @@ logger = logging.getLogger("mihomes.telegram")
 
 
 def _get_client(session: Session) -> TelegramClient:
+    """The deployment's bot (`TELEGRAM_BOT_TOKEN`) when set, else the account's configured one.
+
+    The environment token wins because the webhook delivers every account's traffic through one
+    bot; replying with a different account-configured token would answer from a different bot.
+    The config fallback keeps a single-estate local install (the poller) working unchanged.
+    """
     from mihomes.services.config_service import get_config
-    token = get_config(session, "telegram.bot_token")
+    from mihomes.services.gateways.telegram.client import platform_bot_token
+    token = platform_bot_token() or get_config(session, "telegram.bot_token")
     if not token:
         raise TelegramError("telegram.bot_token not configured — run: mihomes config set telegram.bot_token <token>")
     return TelegramClient(token)

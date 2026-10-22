@@ -159,9 +159,15 @@ def sent(monkeypatch):
     """
     captured: list[tuple[str, str]] = []
 
+    # The real constructor signature, not `*a, **k`. The permissive fake is what hid `_reply`
+    # building `TelegramClient()` with no token: the TypeError was swallowed by `_reply`'s
+    # except-all, so unlinked senders never got the link prompt in production.
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:platform-token")
+
     class _FakeClient:
-        def __init__(self, *a, **k):
-            pass
+        def __init__(self, token):
+            assert token, "a client built without a token can never send"
+            self.token = token
 
         def send_message(self, chat_id, text_, **kwargs):
             captured.append((str(chat_id), text_))
@@ -172,7 +178,7 @@ def sent(monkeypatch):
     )
     monkeypatch.setattr(
         "mihomes.services.gateways.telegram.responder._get_client",
-        lambda session: _FakeClient(),
+        lambda session: _FakeClient("123:platform-token"),
     )
     return captured
 

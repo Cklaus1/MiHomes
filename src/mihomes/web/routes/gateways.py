@@ -215,10 +215,17 @@ def _reply(chat_id: str, text: str) -> None:
     account to open a session for, so this cannot go through `GatewayAdapter`, which the
     responders build inside a scoped session.
     """
-    try:
-        from mihomes.services.gateways.telegram.client import TelegramClient
+    from mihomes.services.gateways.telegram.client import TelegramClient, platform_bot_token
 
-        TelegramClient().send_message(chat_id, text)
+    token = platform_bot_token()
+    if not token:
+        logger.warning(
+            "telegram webhook: TELEGRAM_BOT_TOKEN is not set, so an unlinked sender in %s "
+            "got no reply", chat_id,
+        )
+        return
+    try:
+        TelegramClient(token).send_message(chat_id, text)
     except Exception:
         # A failed reply must not turn into a 500: Telegram would retry the update, and the
         # retry would fail the same way. The sender sees silence, which is the milder failure.

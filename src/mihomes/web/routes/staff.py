@@ -2,17 +2,20 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from mihomes.authz.actions import Access
 from mihomes.authz.declare import declares
+from mihomes.models.document import DocumentType
 from mihomes.models.staff import CATEGORY_ORDER, StaffRole, category_for_role, is_staff_role
+from mihomes.services import document as doc_svc
 from mihomes.services import note as note_svc
 from mihomes.services import property as prop_svc
 from mihomes.services import staff as staff_svc
 from mihomes.web.deps import get_db, templates, with_toast
+from mihomes.web.forms import read_document_upload
 
 router = APIRouter()
 
@@ -38,6 +41,7 @@ def _ctx(db: Session) -> dict:
         "roles": [r.value for r in StaffRole],
         "role_groups": role_groups,
         "notes_map": {m.id: note_svc.list_notes(db, f"staff:{m.id}") for m in staff},
+        "docs_map": {m.id: doc_svc.list_documents(db, entity_type="staff", entity_id=m.id) for m in staff},
     }
 
 
@@ -163,3 +167,50 @@ def delete_note(request: Request, slug: str, note_id: UUID, db: Session = Depend
         "post_url": f"/staff/{slug}/notes",
         "delete_url_prefix": f"/staff/{slug}/notes",
     }), "Note deleted")
+
+
+def _docs_ctx(db: Session, member, slug: str) -> dict:
+    return {
+        "docs": doc_svc.list_documents(db, entity_type="staff", entity_id=member.id),
+        "post_url": f"/staff/{slug}/documents",
+        "delete_url_prefix": f"/staff/{slug}/documents",
+    }
+
+
+@router.post("/{slug}/documents", response_class=HTMLResponse)
+@declares("member.manage", Access.ACCOUNT)
+async def add_staff_document(
+    request: Request,
+    slug: str,
+    title: str = Form(...),
+    doc_type: str = Form("other"),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    member = staff_svc.get_staff(db, slug)
+    try:
+        file_path = await read_document_upload(file)
+    except ValueError as e:
+        ctx = _docs_ctx(db, member, slug)
+        ctx["error"] = str(e)
+        return templates.TemplateResponse(request, "partials/docs_section.html", ctx)
+    doc_svc.create_document(
+        db, title=title, file_path=file_path,
+        document_type=DocumentType(doc_type),
+        entity_type="staff", entity_id=member.id,
+    )
+    return with_toast(templates.TemplateResponse(
+        request, "partials/docs_section.html", _docs_ctx(db, member, slug)), "Document added")
+
+
+@router.delete("/{slug}/documents/{doc_id}", response_class=HTMLResponse)
+@declares("member.manage", Access.ACCOUNT)
+def delete_staff_document(request: Request, slug: str, doc_id: str, db: Session = Depends(get_db)):
+    member = staff_svc.get_staff(db, slug)
+    doc = doc_svc.get_document(db, doc_id)
+    # The URL names a person; refuse to delete a document attached to anything else.
+    if doc.entity_type != "staff" or doc.entity_id != member.id:
+        raise HTTPException(status_code=404, detail="Document not found")
+    doc_svc.delete_document(db, doc_id)
+    return with_toast(templates.TemplateResponse(
+        request, "partials/docs_section.html", _docs_ctx(db, member, slug)), "Document deleted")

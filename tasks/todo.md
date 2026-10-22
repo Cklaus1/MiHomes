@@ -1,5 +1,61 @@
 # MiHomes — Project State & Next Actions
 
+## ACTIVE: Omnichannel gateway — retire telegram-bot, then Phase 0 → Telegram → WhatsApp → SMS/email (2026-10-22)
+
+Order agreed with the user: (1) reconcile + retire `telegram-bot`, (2) Phase 0 shared seam,
+(3) Telegram as the end-to-end reference channel on webhooks, (4) WhatsApp Cloud API with Meta
+in parallel, (5) Twilio SMS then email as further adapters. Design: `docs/product/OMNICHANNEL_GATEWAY_PRD.md`
++ SPEC-006 (shipped 25/25; U1–U9 open — see `tasks/build-loop-spec006-report.md`).
+
+### Step 1 — reconcile `telegram-bot` (branch `worktree-retire-telegram-bot`) — U1
+- [x] Diff: 18 non-merge commits, none patch-equivalent in the harness
+- [x] Already superseded on harness (not ported): PRDs + PRD review (harness copies repaired), `telegram stop`,
+      cross-platform PID check, watchdog zombie fix (harness keeps opt-in WhatsApp supervision on purpose),
+      documents upload (`a7e2bd2`), sidebar "Home Management", new-member-join ignore, busy_timeout DB-lock fix
+- [x] Ported: room-level book counts (`e4c2e75` `ea02c64` `687f980`) + follow-up fix (property-scoped by-room
+      breakdown, "No room assigned" instead of `space None`) + tests
+- [x] Ported: worktree workflow rules in CLAUDE.md / lessons.md (`012178c` `222bc4a`)
+- [x] Ported: Generate Transactions on every budget tab (`78853af`)
+- [x] Rebuilt, not cherry-picked: staff/vendor Documents tab (`6d077ae` wrote to public `/static/uploads`)
+- [ ] Deferred to backlog: floating AI chat widget (`b095a67`) — harness dashboard drifted (onboarding card,
+      SPEC-009); re-derive from the archive tag, check AI endpoint + tier gating
+- [ ] NOT ported: Jen candidate notes (`701b869` `e7b1a19`) — HR notes; repo is PUBLIC
+- [ ] User: archive tag, delete local + remote `telegram-bot`, move main checkout off it, confirm no poller
+      runs from old code on evo-dev
+- Review: full suite on a private DB (`mihomes_test_rtb`) — 3297 passed, 7 failed, all pre-existing and in
+  code this branch doesn't touch (billing ×4 Stripe env, full_workflow quarterly, pg_baseline round-trip,
+  settings `/settings` staff 403). An earlier run on the shared `mihomes_test` hit 1518 deadlock errors from
+  another session's concurrent run — use a per-session test DB. New: 7 web tests + 4 staff-403 authz tests.
+
+### Step 2 — Phase 0: one adapter seam, one message type (plan — awaiting user check-in)
+- [ ] `gateways/message.py`: `InternalMessage` TypedDict for the canonical envelope the code already emits
+      (`webhook.py:158-191`, camelCase keys) + a `channel` key. Fix PRD §7 to match the code, not the reverse.
+- [ ] `ChannelAdapter` Protocol (`name`, `normalize(raw) -> list[InternalMessage]`, `send(target, text)`);
+      `GatewayAdapter` becomes the Telegram/WhatsApp-Baileys/WhatsApp-Cloud implementations of it
+- [ ] One shared entry point `review_common.handle_inbound(session, messages, adapter, property_slug)`;
+      the two `process_and_respond` copies become thin callers
+- [ ] BUG: `web/routes/gateways.py:221` `_reply` builds `TelegramClient()` with no token → TypeError swallowed →
+      unlinked senders never get LINK_PROMPT / LINK_SUCCESS. Tests miss it (fake takes `*a, **k`). Needs a
+      platform-level token (`TELEGRAM_BOT_TOKEN` env) since the unscoped path can't read tenant config (U6)
+- [ ] BUG: `review_common.py:372` `ai_response` rolls back the whole batch on AI failure but reports `logged: 1`
+      → SAVEPOINT per item
+- [ ] Contract test: every normalizer returns the same keys (extend A19 to the Protocol)
+
+### Step 3 — Telegram end to end on evo-dev (needs user decisions + deploy)
+- [ ] DECISION U3: public ingress. evo-dev is Tailscale **Serve** (tailnet-only) — Telegram can't reach it.
+      Option: `tailscale funnel` scoped to `/webhooks/telegram` only
+- [ ] `mihomes telegram set-webhook | delete-webhook | webhook-info` (TELEGRAM_PRD §152; nothing calls setWebhook)
+- [ ] Group routing: webhook passes `chat_account_id` from `telegram.chat_links` so group senders aren't AmbiguousSender
+- [ ] Deploy (user runs `!` commands), set `TELEGRAM_WEBHOOK_SECRET` + token, link Belle group, `/link` a test user,
+      send one fresh message → logged once, reply received; no poller running (getUpdates blocks webhooks)
+
+### Step 4 — WhatsApp Cloud API (user-only, start now)
+- [ ] Meta Business verification, WABA, phone number, permanent system-user token, webhook verify token
+- [ ] DECISION U2: Cloud API group support — Belle is a group; if groups unavailable, choose a routing key
+
+### Step 5 — SMS (Twilio) then email
+- [ ] Write SPEC-007 from `TWILIO_PRD.md` against the Phase 0 Protocol; then inbound email (no code yet)
+
 ## ACTIVE: Playbooks are documents with tick boxes, not task templates (2026-10-22)
 
 > User: "these turn into tasks? I think we need to remove that. The playbook isn't like the task

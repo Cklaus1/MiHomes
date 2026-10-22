@@ -643,6 +643,35 @@ def set_member_scope(
     return RedirectResponse("/settings?notice=access_saved#members", status_code=303)
 
 
+@router.post("/settings/members/{membership_id}/playbooks")
+@declares(_SETTINGS_ACTION, Access.ACCOUNT)
+def set_member_playbook_editor(
+    request: Request,
+    membership_id: uuid.UUID,
+    enabled: str = Form(""),
+    principal=require_authenticated(),
+    db: Session = Depends(get_db),
+):
+    """Let a staff member create and edit playbooks without making them an admin.
+
+    A checkbox: present ("on") grants, absent withdraws. `member.manage`, so only owners and
+    admins reach it — the same people who set a staff member's properties.
+    """
+    from mihomes.services import membership_service
+
+    target = _member_in_account(db, principal, membership_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    try:
+        membership_service.set_playbook_editor(db, target, enabled == "on")
+        db.commit()
+    except membership_service.MembershipError as exc:
+        return _member_error(request, db, principal, str(exc))
+
+    return RedirectResponse("/settings?notice=access_saved#members", status_code=303)
+
+
 @router.post("/settings/members/{membership_id}/revoke")
 @declares(_SETTINGS_ACTION, Access.ACCOUNT)
 def revoke_member(

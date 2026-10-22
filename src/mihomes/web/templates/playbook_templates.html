@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}Playbook templates — MiHomes{% endblock %}
+{% block heading %}Playbook templates{% endblock %}
+{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">Starter playbooks — add one, then edit it to fit your home.</p>{% endblock %}
+
+{% block actions %}
+<a href="/playbooks/" class="text-sm text-gray-600 hover:text-gray-800 px-2 py-2">← All playbooks</a>
+{% endblock %}
+
+{% block content %}
+{% if not can_edit %}
+<div class="mb-4 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+  You can browse these, but only an owner, an admin, or someone they've allowed can add them to your playbooks.
+</div>
+{% endif %}
+
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+  {% for tpl in templates %}
+  <div class="bg-white rounded-xl border border-gray-200 p-5 flex flex-col">
+    <div class="font-semibold text-gray-900">{{ tpl.name }}</div>
+    <div class="flex flex-wrap gap-2 mt-2">
+      {% if tpl.kind %}<span class="inline-flex items-center px-2 py-0.5 bg-gray-100 rounded text-xs text-gray-600">{{ tpl.kind }}</span>{% endif %}
+      {% if tpl.audience %}<span class="inline-flex items-center px-2 py-0.5 bg-gray-100 rounded text-xs text-gray-600">{{ tpl.audience }}</span>{% endif %}
+      <span class="inline-flex items-center px-2 py-0.5 bg-gray-100 rounded text-xs text-gray-600">{{ tpl.steps }} steps</span>
+    </div>
+    {% if tpl.estimated_time %}<p class="text-xs text-gray-500 mt-2">About {{ tpl.estimated_time }}</p>{% endif %}
+    <div class="mt-auto pt-4 flex gap-2">
+      <a href="/playbooks/templates/{{ tpl.slug }}"
+         class="flex-1 text-center px-3 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">Preview</a>
+      {% if can_edit %}
+      <form method="post" action="/playbooks/templates/{{ tpl.slug }}/use" class="flex-1">
+        <button type="submit" class="w-full px-3 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Use this template</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  {% else %}
+  <p class="text-sm text-gray-500">No templates are available.</p>
+  {% endfor %}
+</div>
+{% endblock %}

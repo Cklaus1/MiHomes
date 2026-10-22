@@ -2,9 +2,30 @@
 
 {% block title %}Playbooks — MiHomes{% endblock %}
 {% block heading %}Playbooks{% endblock %}
-{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ playbooks|length }} operational playbook{{ 's' if playbooks|length != 1 else '' }}</p>{% endblock %}
+{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ playbooks|length }} playbook{{ 's' if playbooks|length != 1 else '' }}</p>{% endblock %}
+
+{% block actions %}
+<a href="/playbooks/templates"
+   class="inline-flex items-center px-3 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">
+  {{ 'Start from a template' if can_edit else 'Browse templates' }}
+</a>
+{% if can_edit %}
+<a href="/playbooks/new"
+   class="inline-flex items-center gap-1.5 px-3 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">
+  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+  New playbook
+</a>
+{% endif %}
+{% endblock %}
 
 {% block content %}
+
+{% if notice %}
+<div class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">{{ notice }}</div>
+{% endif %}
+{% if error %}
+<div class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="alert">{{ error }}</div>
+{% endif %}
 
 {% if playbooks %}
 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -13,32 +34,43 @@
      class="bg-white rounded-xl border border-gray-200 p-5 hover:border-brand-400 hover:shadow-sm transition-all block">
     <div class="flex items-start justify-between mb-3">
       <div class="w-9 h-9 rounded-lg bg-brand-50 flex items-center justify-center flex-shrink-0">
-        <svg class="w-5 h-5 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg class="w-5 h-5 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                 d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
         </svg>
       </div>
-      {% if pb.item_count %}
-      <span class="text-xs text-gray-500">{{ pb.item_count }} steps</span>
+      {% if pb.checklist %}
+      <span class="text-xs text-gray-500">{{ pb.checklist|length }} steps</span>
       {% endif %}
     </div>
     <div class="font-semibold text-gray-900 mb-1">{{ pb.name }}</div>
     <div class="flex flex-wrap gap-2 mt-2">
       {% if pb.type and pb.type != '—' %}
-      <span class="inline-flex items-center px-2 py-0.5 bg-gray-100 rounded text-xs text-gray-500">{{ pb.type }}</span>
+      <span class="inline-flex items-center px-2 py-0.5 bg-gray-100 rounded text-xs text-gray-600">{{ pb.type }}</span>
       {% endif %}
       {% if pb.owner and pb.owner != '—' %}
-      <span class="inline-flex items-center px-2 py-0.5 bg-gray-100 rounded text-xs text-gray-500">{{ pb.owner }}</span>
+      <span class="inline-flex items-center px-2 py-0.5 bg-gray-100 rounded text-xs text-gray-600">{{ pb.owner }}</span>
       {% endif %}
     </div>
   </a>
   {% endfor %}
 </div>
 {% else %}
-<div class="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center">
-  <div class="text-3xl mb-3">📋</div>
-  <div class="text-gray-600 text-sm font-medium">No playbooks available yet</div>
-  <p class="text-gray-500 text-sm mt-1">Playbooks are step-by-step procedures — like opening a house for the season — that turn into tasks in one go. For a checklist of your own, <a href="/templates/" class="text-brand-600 hover:underline">create a template</a>.</p>
+<div class="bg-white rounded-xl border border-dashed border-gray-300 p-10 sm:p-12 text-center">
+  <div class="text-3xl mb-3" aria-hidden="true">📋</div>
+  <div class="text-gray-800 font-medium">No playbooks yet</div>
+  <p class="text-gray-500 text-sm mt-1 max-w-md mx-auto">
+    Playbooks are step-by-step procedures — like opening a house for the season or what to do in an
+    emergency — that turn into tasks in one go.
+  </p>
+  {% if can_edit %}
+  <div class="mt-5 flex flex-col sm:flex-row gap-3 justify-center">
+    <a href="/playbooks/templates" class="px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700">Start from a template</a>
+    <a href="/playbooks/new" class="px-4 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">Write your own</a>
+  </div>
+  {% else %}
+  <p class="text-gray-500 text-sm mt-3">Ask an owner or admin to add your household's playbooks.</p>
+  {% endif %}
 </div>
 {% endif %}
 

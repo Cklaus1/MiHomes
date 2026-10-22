@@ -12,10 +12,22 @@
 {% endblock %}
 
 {% block actions %}
-<a href="/playbooks/" class="text-sm text-gray-500 hover:text-gray-700">← All Playbooks</a>
+<a href="/playbooks/" class="text-sm text-gray-600 hover:text-gray-800 px-2 py-2">← All playbooks</a>
+{% if can_edit %}
+<a href="/playbooks/{{ pb.slug }}/edit"
+   class="inline-flex items-center px-3 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">Edit</a>
+<form method="post" action="/playbooks/{{ pb.slug }}/delete" data-name="{{ pb.name }}"
+      onsubmit="return confirm('Delete the playbook “' + this.dataset.name + '”? Tasks already created from it are kept. This cannot be undone.')">
+  <button type="submit"
+          class="inline-flex items-center px-3 py-2 text-red-600 border border-red-200 text-sm font-medium rounded-lg hover:bg-red-50">Delete</button>
+</form>
+{% endif %}
 {% endblock %}
 
 {% block content %}
+{% if notice %}
+<div class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">{{ notice }}</div>
+{% endif %}
 <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
 
   <!-- Playbook content -->

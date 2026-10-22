@@ -19,11 +19,13 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     ForeignKey,
     Index,
     String,
     UniqueConstraint,
+    false,
     func,
     text,
 )
@@ -52,6 +54,12 @@ class Membership(Base, TenantOwned):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    # Per-person grant: lets a *staff* member create and edit playbooks without being made an
+    # admin (user decision 2026-10-21). Owners and admins can always; this is never read for
+    # them. Granted in Settings → Members, audited. See `playbook.manage` in authz/actions.py.
+    can_edit_playbooks: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=false(), default=False
     )
 
     __table_args__ = (

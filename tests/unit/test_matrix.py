@@ -65,18 +65,20 @@ class TestMatrixCoverage:
         members"), row 5 (U6b — `automation.manage` alongside `task.manage`, because running a
         template is task work and managing one is not), row 7 (SPEC-004 — `document.grant`
         alongside `inventory.manage`, because reading a document and deciding who else reads it are
-        different powers).
+        different powers), and row 5 again (2026-10-21 — `playbook.manage`, because writing a
+        playbook is configuration the owner may hand to chosen staff, while running one is task
+        work).
         """
         from collections import Counter
 
         per_row = Counter(spec.row for spec in MATRIX.values())
         split_rows = {row: n for row, n in per_row.items() if n > 1}
 
-        assert split_rows == {5: 2, 7: 2, 8: 2, 10: 2}, (
+        assert split_rows == {5: 3, 7: 2, 8: 2, 10: 2}, (
             "the set of split rows changed. Each split needs a written reason at its MATRIX "
             f"entry, because it breaks the one-key-per-source-row correspondence. Now: {split_rows}"
         )
-        assert len(MATRIX) == 20 + sum(n - 1 for n in split_rows.values()) == 24
+        assert len(MATRIX) == 20 + sum(n - 1 for n in split_rows.values()) == 25
 
     def test_key_matches_its_own_spec_key_field(self):
         """A transcription guard: the dict key and `ActionSpec.key` must agree.

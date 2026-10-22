@@ -1,5 +1,71 @@
 # MiHomes — Project State & Next Actions
 
+## ACTIVE: Editable, per-account playbooks + template gallery (2026-10-21)
+
+> User: playbooks are "set in stone" with no edit button; they should be made by the admin or
+> whoever the admin gives access; the existing ones are strictly for mlim@fusen.world's account;
+> new users get templates. Decisions (user, 2026-10-21): edit = owner + admins + **chosen staff**
+> (per-person toggle) · templates = **gallery** (new accounts start empty, one-click copy) ·
+> template content = **new generic versions** (not copies of Belle's).
+
+Root problem: playbooks are 7 markdown files in `knowledge/playbooks/`, read by
+`services/playbook.py` for **every account** — a cross-tenant leak. The repo is **public on
+GitHub**, so those files (and all of `knowledge/`) are also world-readable.
+
+Branch: `worktree-editable-playbooks` off `worktree-spec-build-harness` (c26b935).
+
+### Data + permissions
+- [x] Model `Playbook(Base, TenantOwned, SlugMixin, TimestampMixin)`: name, slug (unique per
+      account), kind (one-off / recurring), audience (who runs it, free text), estimated_time,
+      content (markdown). Registered in `TENANT_TABLES`, `_entity_classes` as ACCOUNT_SHARED
+      (staff read all, like Template); registry/isolation test counts bumped.
+- [x] `memberships.can_edit_playbooks` boolean, default false.
+- [x] Migration `0022_playbooks`: table + RLS policy + triggers (0020 recipe) + the column.
+- [x] Matrix: `playbook.manage` split from the task row (precedent `automation.manage`):
+      owner ALLOW, admin ALLOW, staff ALLOW with rule "only with can_edit_playbooks", enforced
+      in the service so no route can skip it. Viewing/running stays `task.manage`.
+
+### UI
+- [x] Playbooks list: New playbook · Start from a template · Edit/Delete for permitted users.
+- [x] Editor (create/edit): name, kind, audience, estimated time, content with checklist help
+      (`- [ ] step`) and a Preview; Delete with confirm. Run keeps working off the checklist.
+- [x] Template gallery `/playbooks/templates`: generic starter playbooks shipped in the app
+      (package data, read-only, not tenant rows); "Use this template" copies into the account.
+- [x] Settings → Members: "Can edit playbooks" toggle per staff member (owner/admin only;
+      audited). Admins/owners always can.
+- [x] **Security:** `_md_to_html` never HTML-escapes and renders `| safe` — stored XSS once
+      content is user-editable. Escape first, then apply formatting.
+
+### Content + migration of Belle's playbooks
+- [x] Write 7 generic templates: housekeeping standards, daily operations, emergency
+      response, hiring, onboarding a new hire, offboarding, household communication.
+- [x] `scripts/import_playbooks.py --account <slug> --dir <path>`: idempotent import of
+      markdown files into one account (sets the tenant GUC; skips existing slugs).
+- [ ] Run it for `belle` on laptop dev (done, as mihomes_dev_app: 7 imported, re-run 0) + evo-dev; verify other accounts see 0.
+- [x] Remove `knowledge/playbooks/*.md` from the repo after import (content lives in the DB).
+      Git **history** still holds them — purging history is a separate, destructive decision.
+- [x] CLI `mihomes playbook` reads the DB (account context) instead of files.
+
+### Verify + ship
+- [x] Tests: cross-account isolation; staff without toggle → 403 on edit, with toggle → ok;
+      admin always; XSS escaped; gallery copy; import idempotent; matrix/registry tests.
+- [x] Full suite diffed by test id vs baseline; live walk (owner, staff with/without toggle).
+- [ ] Merge `--no-ff`, push; deploy = backup DB → `alembic upgrade head` → import → restart.
+
+### Review (build)
+- Commits 44e6cae (feature), 85d554b (editor insert fix), 25ecd4e (0022 created_at NOT NULL +
+  slug count), plus LF CSS stamps. New tests: tests/integration/test_playbooks_web.py (8),
+  tests/unit/test_playbook.py rewritten (DB-backed; parser/search tests kept).
+- Full suite vs baseline by test id: no regressions after 25ecd4e (the run before it caught the
+  two now-fixed failures). `test_isolation::test_registry_covers_every_tenant_table`, red since
+  0020, now passes.
+- Migration 0022 verified up → down → up on a scratch DB (RLS enabled + forced).
+- Live walk (laptop, Pro tester): no Belle playbooks visible, gallery 7, copy → editor →
+  preview → save → detail with Edit. Found + fixed: "+ Step" inserted above the title.
+- Communication and Emergency (Belle's) have 0 steps — reference prose, as before.
+- Still exposed in the public repo (user chose: list only): knowledge/staff/ (job descriptions,
+  candidate notes), knowledge/properties/; and all of it in git history.
+
 ## DONE (merge pending): UI/UX fix-all from the 2026-10-21 audit
 
 > User: "go through mihomes app and see what improvements can be made to make the ui/ux better",

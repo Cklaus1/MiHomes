@@ -79,7 +79,9 @@ from mihomes.tenancy.registry import ASSOCIATION_TABLES, GLOBAL_TABLES, TENANT_T
 # writing the number as a literal: it makes an *accidental* addition visible.
 # SPEC-006 Step 1 adds `gateway_link_tokens` (0016, A3) -> 50. Tenant-owned and RLS-protected:
 # an operator listing one account's outstanding link codes must not see another's.
-EXPECTED_TENANT_TABLE_COUNT = 50
+# `task_completions` (0020) -> 51 — the registry moved and this literal did not, which is why
+# this test was red from 0020 until 2026-10-21. `playbooks` (0022) -> 52: per-account playbooks.
+EXPECTED_TENANT_TABLE_COUNT = 52
 
 
 # --------------------------------------------------------------------------------------

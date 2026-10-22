@@ -108,12 +108,14 @@ def test_template_name_with_apostrophe_uses_data_attributes(client):
 
 
 def test_playbook_run_redirects_after_post(client):
-    from mihomes.services.playbook import get_playbook, list_playbooks
+    from mihomes.services.playbook import import_markdown
 
-    runnable = [p["slug"] for p in list_playbooks() if (get_playbook(p["slug"]) or {}).get("checklist")]
-    if not runnable:
-        return
-    slug = runnable[0]
+    # Playbooks are account rows now (2026-10-21), so the test seeds its own instead of relying on
+    # whatever files happened to be in knowledge/playbooks/.
+    with client._SessionLocal() as s:
+        import_markdown(s, "season-open", "# Season Open\n\n## Day 1\n- [ ] Air out rooms\n- [ ] Check water\n")
+        s.commit()
+    slug = "season-open"
     resp = client.post(f"/playbooks/{slug}/run", data={"property_slug": "test-manor"}, follow_redirects=False)
     assert resp.status_code == 303
     assert f"/playbooks/{slug}?ran=" in resp.headers["location"]

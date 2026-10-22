@@ -19,13 +19,29 @@ from mihomes.services.slug import EntityNotFoundError
 app = typer.Typer(name="playbook", help="Manage and run operational playbooks")
 
 
+def _load(slug: str) -> dict | None:
+    """One playbook as a plain dict, read in its own session (playbooks are account rows)."""
+    with get_session() as session:
+        pb = pb_svc.get_playbook(session, slug)
+        if pb is None:
+            return None
+        return {
+            "slug": pb.slug, "name": pb.name, "type": pb.kind or "—", "owner": pb.audience or "—",
+            "content": pb.content, "checklist": pb_svc.checklist(pb),
+        }
+
+
 @app.command("list")
 def list_playbooks():
     """List all available playbooks."""
-    playbooks = pb_svc.list_playbooks()
+    with get_session() as session:
+        playbooks = [
+            {"slug": p.slug, "name": p.name, "type": p.kind or "—", "owner": p.audience or "—"}
+            for p in pb_svc.list_playbooks(session)
+        ]
     if not playbooks:
-        console.print(f"[dim]No playbooks found in knowledge/playbooks/[/dim]")
-        console.print("[dim]Add .md files to create playbooks.[/dim]")
+        console.print("[dim]No playbooks yet. Add one in the web app (Playbooks → New playbook "
+                      "or Start from a template).[/dim]")
         return
     t = Table(box=box.SIMPLE, show_header=True, header_style="bold dim")
     t.add_column("Slug", style="cyan")
@@ -36,17 +52,17 @@ def list_playbooks():
         t.add_row(pb["slug"], pb["name"], pb["type"], pb["owner"])
     console.print()
     console.print(t)
-    console.print(f"[dim]  {len(playbooks)} playbook(s) · knowledge/playbooks/[/dim]\n")
+    console.print(f"[dim]  {len(playbooks)} playbook(s)[/dim]\n")
 
 
 @app.command("show")
 def show_playbook(
-    slug: str = typer.Argument(..., help="Playbook slug (filename without .md)"),
+    slug: str = typer.Argument(..., help="Playbook slug"),
     raw: bool = typer.Option(False, "--raw", help="Show raw markdown instead of rendered"),
     checklist: bool = typer.Option(False, "--checklist", "-c", help="Show checklist items only"),
 ):
     """Show a playbook — rendered markdown or checklist view."""
-    pb = pb_svc.get_playbook(slug)
+    pb = _load(slug)
     if not pb:
         format_error(f"Playbook '{slug}' not found. Run: mihomes playbook list")
         raise typer.Exit(1)
@@ -95,7 +111,7 @@ def run_playbook(
         mihomes playbook run daily-operations --property miami
         mihomes playbook run onboarding-new-hire --property miami --start 2026-04-21
     """
-    pb = pb_svc.get_playbook(slug)
+    pb = _load(slug)
     if not pb:
         format_error(f"Playbook '{slug}' not found. Run: mihomes playbook list")
         raise typer.Exit(1)
@@ -108,12 +124,12 @@ def run_playbook(
         pri = TaskPriority(priority.lower())
     except ValueError:
         format_error(f"Invalid priority '{priority}'. Use: urgent, high, medium, low")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     start_date = date.fromisoformat(start) if start else date.today()
 
     if dry_run:
-        console.print(f"\n[dim]Dry run — no tasks will be created[/dim]")
+        console.print("\n[dim]Dry run — no tasks will be created[/dim]")
         console.print(f"[bold]{pb['name']}[/bold] → {escape(property)} (from {start_date})\n")
         t = Table(box=box.SIMPLE, show_header=True, header_style="dim")
         t.add_column("#", style="dim", justify="right")
@@ -135,7 +151,7 @@ def run_playbook(
             )
         except (ValueError, EntityNotFoundError) as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
     format_success(f"Created {len(tasks)} tasks from '{pb['name']}' for {property}")
     console.print(f"[dim]  Run 'mihomes task list --property {escape(property)}' to see them.[/dim]")

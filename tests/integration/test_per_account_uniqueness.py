@@ -102,7 +102,8 @@ def test_every_slug_table_has_the_constraint():
         if issubclass(m.class_, SlugMixin)
         and m.class_.__tablename__ not in TEST_ONLY_TABLES
     )
-    assert len(slug_tables) == 15, f"SlugMixin table count changed: {slug_tables}"
+    # 16 since 2026-10-21: `playbooks` (0022) — per-account playbooks, slug unique per account.
+    assert len(slug_tables) == 16, f"SlugMixin table count changed: {slug_tables}"
     for table in slug_tables:
         names = {c.name for c in Base.metadata.tables[table].constraints}
         assert f"uq_{table}_account_slug" in names, (

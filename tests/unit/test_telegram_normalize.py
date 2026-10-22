@@ -36,6 +36,7 @@ def test_webhook_and_poller_produce_the_same_envelope():
     assert from_webhook == {
         "id": "-100555:42",
         "timestamp": "2025-08-29T20:40:00+00:00",
+        "channel": "telegram",
         "jid": "-100555",
         "isGroup": True,
         "sender": "7001",

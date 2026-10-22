@@ -38,6 +38,7 @@ from mihomes.services.gateways.whatsapp.protocol import WhatsAppBridge
 BAILEYS_ENVELOPE_KEYS = {
     "id",
     "timestamp",
+    "channel",
     "jid",
     "isGroup",
     "sender",
@@ -169,6 +170,16 @@ def test_envelope_parity():
     assert msg["text"] == "Boiler is leaking"
     assert msg["propertySlug"] == "belle-estate"
     assert msg["hasMedia"] is False
+    assert msg["channel"] == "whatsapp"
+    # One timestamp format across channels — Meta's epoch string becomes ISO-8601 UTC.
+    assert msg["timestamp"] == "2025-08-29T20:40:00+00:00"
+
+
+def test_the_literal_key_list_is_the_typed_envelope():
+    """The literal above guards against shrinkage; this ties it to `InternalMessage`."""
+    from mihomes.services.gateways.message import ENVELOPE_KEYS
+
+    assert BAILEYS_ENVELOPE_KEYS == ENVELOPE_KEYS
 
 
 def test_the_parity_target_is_the_shape_the_telegram_client_really_produces():

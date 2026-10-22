@@ -5,8 +5,9 @@ import logging
 import os
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
 from pathlib import Path
+
+from mihomes.services.gateways.message import InternalMessage, iso_utc
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ def media_file_id(msg: dict) -> str | None:
     return None
 
 
-def normalize_message(update: dict) -> dict | None:
+def normalize_message(update: dict) -> InternalMessage | None:
     """One Telegram update → the internal message envelope, or None. **Both transports call this.**
 
     The poller (`TelegramClient.normalize_update`) and the webhook (`normalize_telegram_update`)
@@ -64,7 +65,8 @@ def normalize_message(update: dict) -> dict | None:
 
     return {
         "id": f"{chat_id}:{msg['message_id']}",
-        "timestamp": datetime.fromtimestamp(msg.get("date", 0), tz=timezone.utc).isoformat(),
+        "timestamp": iso_utc(msg.get("date")),
+        "channel": "telegram",
         "jid": chat_id,  # "jid" slot — WhatsApp's vocabulary, kept so the envelope is one shape
         "isGroup": chat.get("type") in ("group", "supergroup", "channel"),
         "sender": str(from_user.get("id", "")),  # Telegram user_id (no phone number available)

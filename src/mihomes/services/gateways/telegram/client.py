@@ -14,6 +14,69 @@ TELEGRAM_API = "https://api.telegram.org"
 MEDIA_DIR = Path(os.path.expanduser("~/.mihomes/media/telegram"))
 
 
+def media_file_id(msg: dict) -> str | None:
+    """The file_id of a message's media — the largest photo, else a document or video."""
+    if msg.get("photo"):
+        return msg["photo"][-1]["file_id"]
+    for kind in ("document", "video"):
+        if msg.get(kind):
+            return msg[kind]["file_id"]
+    return None
+
+
+def normalize_message(update: dict) -> dict | None:
+    """One Telegram update → the internal message envelope, or None. **Both transports call this.**
+
+    The poller (`TelegramClient.normalize_update`) and the webhook (`normalize_telegram_update`)
+    used to normalize separately and had drifted:
+
+    * the webhook kept member joins/leaves and other bots' messages, which the poller skips —
+      so on webhooks a new member joining a group was sent to the AI;
+    * the webhook's `id` was `update_id` and the poller's `chat:message_id`, so the shared
+      processed-id store (A17) could never match one message across the two transports;
+    * the webhook's `timestamp` was a raw epoch int and the poller's an ISO string.
+
+    `id` is `"<chat_id>:<message_id>"`, the form already in live `telegram.processed_ids` stores
+    (message_id is unique per chat and repeats on redelivery). `timestamp` is ISO-8601 UTC.
+    `propertySlug` and `mediaPath` are left None: the chat→property map is tenant config, read
+    only once an account is bound, and media needs an authenticated fetch.
+    """
+    msg = update.get("message") if isinstance(update, dict) else None
+    if not isinstance(msg, dict):
+        return None
+
+    # Skip system events — new member joins, member leaves, etc.
+    if msg.get("new_chat_members") or msg.get("left_chat_member"):
+        return None
+
+    from_user = msg.get("from") or {}
+    if from_user.get("is_bot"):
+        return None
+
+    chat = msg.get("chat") or {}
+    if chat.get("id") is None or msg.get("message_id") is None:
+        return None
+    chat_id = str(chat["id"])
+
+    first = from_user.get("first_name", "")
+    last = from_user.get("last_name", "")
+    sender_name = f"{first} {last}".strip() or from_user.get("username", "Unknown")
+
+    return {
+        "id": f"{chat_id}:{msg['message_id']}",
+        "timestamp": datetime.fromtimestamp(msg.get("date", 0), tz=timezone.utc).isoformat(),
+        "jid": chat_id,  # "jid" slot — WhatsApp's vocabulary, kept so the envelope is one shape
+        "isGroup": chat.get("type") in ("group", "supergroup", "channel"),
+        "sender": str(from_user.get("id", "")),  # Telegram user_id (no phone number available)
+        "senderName": sender_name,
+        "senderUsername": from_user.get("username", ""),
+        "text": (msg.get("text") or msg.get("caption") or "").strip(),
+        "hasMedia": media_file_id(msg) is not None,
+        "mediaPath": None,
+        "propertySlug": None,
+    }
+
+
 def platform_bot_token() -> str:
     """The deployment's bot token, from `TELEGRAM_BOT_TOKEN`, or "" when unset.
 
@@ -123,68 +186,25 @@ class TelegramClient:
     # -------------------------------------------------------------------------
 
     def normalize_update(self, update: dict, chat_links: dict) -> dict | None:
-        """Convert a raw Telegram Update into the internal message dict format.
+        """The poller's normalize: `normalize_message`, then the chat's property and its media.
 
-        The internal format matches the WhatsApp message dict so review.py and
-        responder.py work unchanged:
-            id, timestamp, jid (chat_id), isGroup, sender (user_id),
-            senderName, text, hasMedia, mediaPath, propertySlug
-
-        Returns None for non-message updates or bot's own messages.
+        Media is fetched here rather than in `normalize_message` because it needs this client's
+        token and an API call. L15: only for chats linked to a property — fetching media for
+        unlinked chats fills MEDIA_DIR and slows the poll.
         """
-        msg = update.get("message")
-        if not msg:
+        message = normalize_message(update)
+        if message is None:
             return None
 
-        # Skip system events — new member joins, member leaves, etc.
-        if msg.get("new_chat_members") or msg.get("left_chat_member"):
-            return None
-
-        from_user = msg.get("from") or {}
-        if from_user.get("is_bot"):
-            return None
-
-        chat = msg.get("chat") or {}
-        chat_id = str(chat.get("id", ""))
-        user_id = str(from_user.get("id", ""))
-        property_slug = chat_links.get(chat_id)
-
-        ts = datetime.fromtimestamp(msg.get("date", 0), tz=timezone.utc).isoformat()
-        text = (msg.get("text") or msg.get("caption") or "").strip()
-
-        # Detect media — largest photo, or document/video.
-        file_id = None
-        if msg.get("photo"):
-            file_id = msg["photo"][-1]["file_id"]
-        elif msg.get("document"):
-            file_id = msg["document"]["file_id"]
-        elif msg.get("video"):
-            file_id = msg["video"]["file_id"]
-
-        # L15: download lazily — only for chats linked to a property. Fetching
-        # media for unlinked/filtered chats fills MEDIA_DIR and slows the poll.
-        has_media = file_id is not None
+        message["propertySlug"] = chat_links.get(message["jid"])
+        file_id = media_file_id(update["message"])
         media_path = (
-            self.download_file(file_id) if file_id and property_slug else None
+            self.download_file(file_id) if file_id and message["propertySlug"] else None
         )
-
-        first = from_user.get("first_name", "")
-        last = from_user.get("last_name", "")
-        sender_name = f"{first} {last}".strip() or from_user.get("username", "Unknown")
-
-        return {
-            "id": f"{chat_id}:{msg['message_id']}",
-            "timestamp": ts,
-            "jid": chat_id,          # "jid" slot — same key as WhatsApp for pipeline compat
-            "isGroup": chat.get("type") in ("group", "supergroup", "channel"),
-            "sender": user_id,        # Telegram user_id (no phone number available)
-            "senderName": sender_name,
-            "senderUsername": from_user.get("username", ""),
-            "text": text,
-            "hasMedia": has_media and media_path is not None,
-            "mediaPath": media_path,
-            "propertySlug": property_slug,
-        }
+        message["mediaPath"] = media_path
+        # The poller has always reported media only once it is on disk to look at.
+        message["hasMedia"] = media_path is not None
+        return message
 
     # -------------------------------------------------------------------------
     # Internal HTTP helpers

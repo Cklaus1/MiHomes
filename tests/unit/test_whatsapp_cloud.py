@@ -174,18 +174,20 @@ def test_envelope_parity():
 def test_the_parity_target_is_the_shape_the_telegram_client_really_produces():
     """The other half of A19: `BAILEYS_ENVELOPE_KEYS` must describe live code.
 
-    A constant in a test file agrees with itself forever. This reads `telegram/client.py`'s
-    normalizer and asserts the same keys appear there, so a transport that changes its envelope
-    fails here rather than drifting away from the other one in silence.
+    A constant in a test file agrees with itself forever. This runs Telegram's shared normalizer
+    (both Telegram transports call it) and compares the keys it actually emits, so a transport
+    that changes its envelope fails here rather than drifting away from the other in silence.
     """
     from mihomes.services.gateways.telegram import client as tg
 
-    source = inspect.getsource(tg.TelegramClient.normalize_update)
-    for key in sorted(BAILEYS_ENVELOPE_KEYS):
-        assert f'"{key}"' in source, (
-            f"{key!r} is asserted as part of the shared envelope but "
-            "TelegramClient.normalize_update no longer produces it"
-        )
+    produced = tg.normalize_message({
+        "update_id": 1,
+        "message": {
+            "message_id": 1, "date": 1756500000, "text": "hi",
+            "from": {"id": 5, "first_name": "A"}, "chat": {"id": -1, "type": "group"},
+        },
+    })
+    assert set(produced) == BAILEYS_ENVELOPE_KEYS
 
 
 def test_a_media_message_carries_its_caption():

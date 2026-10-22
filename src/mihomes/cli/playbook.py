@@ -1,7 +1,4 @@
-"""Playbook CLI commands — markdown-first operational playbooks."""
-
-from datetime import date, timedelta
-from typing import Optional
+"""Playbook CLI commands — read an account's playbooks (they are documents, not task templates)."""
 
 import typer
 from rich import box
@@ -10,13 +7,11 @@ from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
-from mihomes.cli.formatters import console, format_error, format_success
+from mihomes.cli.formatters import console, format_error
 from mihomes.db import get_session
-from mihomes.models.task import TaskPriority
 from mihomes.services import playbook as pb_svc
-from mihomes.services.slug import EntityNotFoundError
 
-app = typer.Typer(name="playbook", help="Manage and run operational playbooks")
+app = typer.Typer(name="playbook", help="View operational playbooks")
 
 
 def _load(slug: str) -> dict | None:
@@ -94,82 +89,3 @@ def show_playbook(
         box=box.ROUNDED,
     ))
     console.print(Markdown(pb["content"]))
-
-
-@app.command("run")
-def run_playbook(
-    slug: str = typer.Argument(..., help="Playbook slug"),
-    property: str = typer.Option(..., "--property", "-p", help="Property slug to create tasks for"),
-    priority: str = typer.Option("medium", "--priority", help="Task priority: urgent/high/medium/low"),
-    start: Optional[str] = typer.Option(None, "--start", help="Start date YYYY-MM-DD (default: today)"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Preview tasks without creating them"),
-):
-    """
-    Run a playbook — creates tasks from all checklist items for a property.
-
-    Example:
-        mihomes playbook run daily-operations --property miami
-        mihomes playbook run onboarding-new-hire --property miami --start 2026-04-21
-    """
-    pb = _load(slug)
-    if not pb:
-        format_error(f"Playbook '{slug}' not found. Run: mihomes playbook list")
-        raise typer.Exit(1)
-
-    if not pb["checklist"]:
-        format_error(f"Playbook '{slug}' has no checklist items — nothing to run.")
-        raise typer.Exit(1)
-
-    try:
-        pri = TaskPriority(priority.lower())
-    except ValueError:
-        format_error(f"Invalid priority '{priority}'. Use: urgent, high, medium, low")
-        raise typer.Exit(1) from None
-
-    start_date = date.fromisoformat(start) if start else date.today()
-
-    if dry_run:
-        console.print("\n[dim]Dry run — no tasks will be created[/dim]")
-        console.print(f"[bold]{pb['name']}[/bold] → {escape(property)} (from {start_date})\n")
-        t = Table(box=box.SIMPLE, show_header=True, header_style="dim")
-        t.add_column("#", style="dim", justify="right")
-        t.add_column("Task")
-        t.add_column("Section", style="dim")
-        t.add_column("Due", style="dim", justify="right")
-        for i, item in enumerate(pb["checklist"], 1):
-            due = (start_date + timedelta(days=item.get("day_offset", 0))).isoformat()
-            t.add_row(str(i), item["title"], item["section"], due)
-        console.print(t)
-        console.print(f"\n[dim]{len(pb['checklist'])} tasks would be created.[/dim]\n")
-        return
-
-    with get_session() as session:
-        try:
-            tasks = pb_svc.run_playbook(
-                session, slug, property,
-                priority=pri, start_date=start_date,
-            )
-        except (ValueError, EntityNotFoundError) as e:
-            format_error(str(e))
-            raise typer.Exit(1) from None
-
-    format_success(f"Created {len(tasks)} tasks from '{pb['name']}' for {property}")
-    console.print(f"[dim]  Run 'mihomes task list --property {escape(property)}' to see them.[/dim]")
-
-
-@app.command("search")
-def search_knowledge(
-    query: str = typer.Argument(..., help="Search term"),
-):
-    """Search across all files in the knowledge base."""
-    results = pb_svc.knowledge_search(query)
-    if not results:
-        console.print(f"[dim]No matches for '{query}' in knowledge base.[/dim]")
-        return
-
-    console.print(f"\n[bold]Knowledge base search: '{escape(query)}'[/bold] — {len(results)} file(s)\n")
-    for r in results:
-        console.print(f"  [cyan]{r['file']}[/cyan]  [dim]{r['title']}[/dim]")
-        for lineno, line in r["matches"]:
-            console.print(f"    [dim]{lineno:>4}:[/dim] {escape(line[:100])}")
-        console.print()

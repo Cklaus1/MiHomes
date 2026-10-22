@@ -140,6 +140,7 @@ TENANT_TABLES = frozenset({
     "insurance_policies",
     "issues",
     "notes",
+    "playbook_checks",    # 2026-10-22: shared ticks on a playbook's steps
     "playbooks",          # 2026-10-21: per-account playbooks (were shared files)
     "properties",
     "recurring_expenses",

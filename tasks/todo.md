@@ -1,5 +1,24 @@
 # MiHomes — Project State & Next Actions
 
+## ACTIVE: Playbooks are documents with tick boxes, not task templates (2026-10-22)
+
+> User: "these turn into tasks? I think we need to remove that. The playbook isn't like the task
+> templates … have the checkbox options available to tick off when user clicks it … the option to
+> reset it". Decisions: ticks **shared by the whole household** (one live checklist per playbook,
+> shows who/when) · **Reset = untick everything** · anyone who can open a playbook can tick; only
+> editors (owner/admin/granted staff) can Reset.
+
+- [ ] Remove Run: panel + route + `run_playbook` + CLI `run` + stagger/`day_offset` + tests/copy that
+      say "become tasks" (editor help, list empty state, `docs/millena-howto.md`).
+- [ ] `playbook_checks` table (tenant-owned, RLS): playbook_id, item_key, checked_by, checked_at,
+      UNIQUE(playbook_id, item_key); migration 0023; registry/isolation counts → 53.
+- [ ] Item key = hash of the step text + occurrence (duplicates OK; reordering keeps ticks; editing a
+      step's text drops its tick). Editing a playbook prunes ticks for steps that no longer exist.
+- [ ] Detail page: full-width document, each `- [ ]` is a real checkbox → `POST /playbooks/{slug}/check`
+      (htmx, swaps just that line), shows "Name · date", progress "N of M", Reset (editors) with confirm.
+- [ ] Preview / template pages stay static (no ticking).
+- [ ] Tests (service, routes, isolation, role rules, key stability) + real-browser click-through.
+
 ## ACTIVE: Editable, per-account playbooks + template gallery (2026-10-21)
 
 > User: playbooks are "set in stone" with no edit button; they should be made by the admin or

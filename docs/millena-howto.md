@@ -257,19 +257,12 @@ mihomes playbook search "background check"
 mihomes playbook search "phone screen"
 ```
 
-### Run a playbook (turns it into tasks in the system)
+### Working through a playbook (tick boxes)
 
-When you're starting a process — like onboarding a new hire — you can turn the entire checklist into tasks automatically:
-
-```
-mihomes playbook run onboarding-new-hire --property miami --start 2026-04-21
-```
-
-Want to preview what tasks it would create before committing?
-
-```
-mihomes playbook run onboarding-new-hire --property miami --dry-run
-```
+Playbooks are documents, not task lists — running one no longer creates tasks. In the web app, open
+**Playbooks**, pick one, and tick each step as you do it. Everyone in the household sees the same
+ticks (with who ticked it and when). To start a fresh pass, an owner, admin, or someone allowed to
+edit playbooks presses **Reset all ticks**.
 
 ---
 
@@ -449,7 +442,6 @@ Cut this out and keep it handy.
 | Resolve an issue | `mihomes issue resolve <id>` |
 | Read a playbook | `mihomes playbook show <name>` |
 | Search playbooks | `mihomes playbook search "term"` |
-| Run a playbook | `mihomes playbook run <name> --property X` |
 | Rank resumes | `mihomes ai rank-resumes <folder> --role <role>` |
 | Log an expense | `mihomes expense add --property X --amount Y --category Z --description "..."` |
 | Check bot status (VM only) | `mihomes telegram status` |

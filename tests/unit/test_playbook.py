@@ -5,13 +5,11 @@ Playbooks used to be files in `knowledge/playbooks/`, listed for every account; 
 template gallery, import and run are exercised against the database.
 """
 
-from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from mihomes.models.property import Property, PropertyType
 from mihomes.services import playbook as pb_svc
 from mihomes.services.playbook import (
     _extract_checklist_items,
@@ -19,7 +17,7 @@ from mihomes.services.playbook import (
     kb_path,
     knowledge_search,
     parse_markdown,
-    run_playbook,
+    step_keys,
 )
 
 OWNER = SimpleNamespace(role="owner", can_edit_playbooks=False)
@@ -101,12 +99,6 @@ class TestExtractChecklistItems:
         assert items[0]["section"] == "Morning"
         assert items[1]["section"] == "Evening"
 
-    def test_day_offset_increments_per_section(self):
-        content = "## Day 1\n\n- [ ] Task A\n\n## Day 2\n\n- [ ] Task B\n"
-        items = _extract_checklist_items(content)
-        assert items[0]["day_offset"] == 0
-        assert items[1]["day_offset"] == 1
-
     def test_ignores_completed_checkboxes(self):
         content = "## Section\n\n- [ ] Open task\n- [x] Done task\n"
         items = _extract_checklist_items(content)
@@ -115,11 +107,6 @@ class TestExtractChecklistItems:
 
     def test_empty_content_returns_empty(self):
         assert _extract_checklist_items("# Title\n\nNo checklist here.") == []
-
-    def test_subsection_header_does_not_increment_offset(self):
-        content = "## Section One\n\n### Subsection\n\n- [ ] Task\n"
-        items = _extract_checklist_items(content)
-        assert items[0]["day_offset"] == 0
 
 
 # ── permissions ───────────────────────────────────────────────────────────────
@@ -207,44 +194,91 @@ class TestImport:
         assert len(pb_svc.list_playbooks(session)) == 1
 
 
-# ── run_playbook ──────────────────────────────────────────────────────────────
+# ── step keys ─────────────────────────────────────────────────────────────────
 
-class TestRunPlaybook:
+class TestStepKeys:
+    def test_one_key_per_step_in_order(self):
+        keys = step_keys("## A\n- [ ] One\n- note\n- [ ] Two\n")
+        assert [t for _, t in keys] == ["One", "Two"]
+        assert len({k for k, _ in keys}) == 2
+
+    def test_reordering_keeps_a_steps_key(self):
+        before = dict((t, k) for k, t in step_keys("- [ ] One\n- [ ] Two\n"))
+        after = dict((t, k) for k, t in step_keys("- [ ] Two\n- [ ] One\n"))
+        assert before == after
+
+    def test_rewording_changes_that_steps_key_only(self):
+        before = dict((t, k) for k, t in step_keys("- [ ] One\n- [ ] Two\n"))
+        after = dict((t, k) for k, t in step_keys("- [ ] One\n- [ ] Two!\n"))
+        assert before["One"] == after["One"] and "Two" not in after
+
+    def test_the_same_text_twice_gets_two_keys(self):
+        keys = step_keys("## Day\n- [ ] Lock the doors\n## Night\n- [ ] Lock the doors\n")
+        assert len(keys) == 2 and keys[0][0] != keys[1][0]
+
+    def test_case_and_spacing_do_not_matter(self):
+        a = step_keys("- [ ] Lock  the Doors\n")[0][0]
+        b = step_keys("- [ ] lock the doors\n")[0][0]
+        assert a == b
+
+
+# ── ticking ───────────────────────────────────────────────────────────────────
+
+class TestTicks:
     @pytest.fixture
-    def prop(self, session):
-        p = Property(name="Test Estate", slug="test-estate",
-                     property_type=PropertyType.PRIMARY)
-        session.add(p)
-        session.flush()
-        return p
-
-    def test_creates_tasks_from_checklist(self, session, prop):
-        pb_svc.import_markdown(
-            session, "spring-check",
-            "# Spring Check\n\n**Type**: seasonal\n---\n\n## Prep\n\n- [ ] Turn on water\n- [ ] Check roof\n",
+    def pb(self, session):
+        return pb_svc.create_playbook(
+            session, OWNER, name="Daily Close",
+            content="## Close\n- [ ] Lock the doors\n- [ ] Set the alarm\n",
         )
-        tasks = run_playbook(session, "spring-check", prop.slug)
-        assert {t.title for t in tasks} == {"Turn on water", "Check roof"}
 
-    def test_raises_for_unknown_playbook(self, session, prop):
-        with pytest.raises(ValueError, match="not found"):
-            run_playbook(session, "nonexistent-pb", prop.slug)
+    def _key(self, pb, title):
+        return next(k for k, t in step_keys(pb.content) if t == title)
 
-    def test_raises_for_empty_checklist(self, session, prop):
-        pb_svc.import_markdown(session, "empty-pb", "# Empty Playbook\n\nNo tasks here.\n")
-        with pytest.raises(ValueError, match="no checklist items"):
-            run_playbook(session, "empty-pb", prop.slug)
+    def test_tick_then_untick(self, session, pb):
+        key = self._key(pb, "Lock the doors")
+        pb_svc.set_check(session, pb, None, key, True)
+        assert key in pb_svc.get_checks(session, pb)
+        pb_svc.set_check(session, pb, None, key, False)
+        assert pb_svc.get_checks(session, pb) == {}
 
-    def test_day_offset_applied(self, session, prop):
-        pb_svc.import_markdown(
-            session, "multi-day", "# Multi Day\n\n## Day 1\n\n- [ ] Task A\n\n## Day 2\n\n- [ ] Task B\n",
-        )
-        today = date.today()
-        tasks = run_playbook(session, "multi-day", prop.slug, start_date=today)
-        task_a = next(t for t in tasks if t.title == "Task A")
-        task_b = next(t for t in tasks if t.title == "Task B")
-        assert task_a.due_date == today
-        assert task_b.due_date == today + timedelta(days=1)
+    def test_ticking_twice_is_harmless(self, session, pb):
+        key = self._key(pb, "Lock the doors")
+        pb_svc.set_check(session, pb, None, key, True)
+        pb_svc.set_check(session, pb, None, key, True)
+        assert len(pb_svc.get_checks(session, pb)) == 1
+
+    def test_a_stale_key_is_refused(self, session, pb):
+        with pytest.raises(ValueError, match="changed"):
+            pb_svc.set_check(session, pb, None, "0" * 40, True)
+
+    def test_tick_time_is_in_the_estate_time_zone(self, session, pb):
+        from zoneinfo import ZoneInfo
+
+        from mihomes.services.config_service import set_config
+
+        set_config(session, "locale.timezone", "America/New_York")
+        key = self._key(pb, "Lock the doors")
+        pb_svc.set_check(session, pb, None, key, True)
+        at = pb_svc.get_checks(session, pb)[key]["at"]
+        assert at.tzinfo is not None and at.utcoffset() == ZoneInfo("America/New_York").utcoffset(at.replace(tzinfo=None))
+
+    def test_editing_prunes_ticks_for_removed_steps(self, session, pb):
+        lock, alarm = self._key(pb, "Lock the doors"), self._key(pb, "Set the alarm")
+        pb_svc.set_check(session, pb, None, lock, True)
+        pb_svc.set_check(session, pb, None, alarm, True)
+        pb_svc.update_playbook(session, OWNER, pb.slug, name="Daily Close",
+                               content="## Close\n- [ ] Lock the doors\n- [ ] Check windows\n")
+        assert set(pb_svc.get_checks(session, pb)) == {lock}
+
+    def test_reset_unticks_everything_and_needs_an_editor(self, session, pb):
+        for key, _ in step_keys(pb.content):
+            pb_svc.set_check(session, pb, None, key, True)
+        with pytest.raises(pb_svc.PlaybookPermissionError):
+            pb_svc.reset_checks(session, STAFF, pb.slug)
+        assert len(pb_svc.get_checks(session, pb)) == 2
+        assert pb_svc.reset_checks(session, STAFF_EDITOR, pb.slug) == 2
+        assert pb_svc.get_checks(session, pb) == {}
 
 
 # ── knowledge_search ──────────────────────────────────────────────────────────

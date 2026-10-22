@@ -5,7 +5,9 @@ while they read it. One row per ticked step, shared by the whole account (user d
 housekeeper's tick is visible to the manager, with who and when. Unticking deletes the row.
 
 `UNIQUE (playbook_id, item_key)` is what makes two people ticking the same step at once harmless:
-the second insert collides and is ignored. Cascades with the playbook (and its account).
+the second insert collides and is ignored, and its index also serves lookups by playbook (no
+separate `playbook_id` index: the tenant-index rule wants every index to lead with `account_id`).
+Cascades with the playbook (and its account).
 
 Revision ID: 0023_playbook_checks
 Revises: 0022_playbooks
@@ -42,9 +44,6 @@ def upgrade() -> None:
     op.create_index(
         op.f("ix_playbook_checks_account_id"), "playbook_checks", ["account_id"], unique=False
     )
-    op.create_index(
-        op.f("ix_playbook_checks_playbook_id"), "playbook_checks", ["playbook_id"], unique=False
-    )
 
     # RLS and drift guard for the table this migration creates (0007/0009 established this).
     if op.get_bind().dialect.name == "postgresql":
@@ -59,6 +58,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index(op.f("ix_playbook_checks_playbook_id"), table_name="playbook_checks")
     op.drop_index(op.f("ix_playbook_checks_account_id"), table_name="playbook_checks")
     op.drop_table("playbook_checks")

@@ -61,9 +61,10 @@ class PlaybookCheck(Base, TenantOwned):
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, default=new_id
     )
+    # No separate index: `uq_playbook_checks_playbook_item (playbook_id, item_key)` already leads
+    # with `playbook_id`, and the tenant-index rule forbids a non-`account_id`-leading index.
     playbook_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("playbooks.id", ondelete="CASCADE"),
-        nullable=False, index=True,
+        PGUUID(as_uuid=True), ForeignKey("playbooks.id", ondelete="CASCADE"), nullable=False,
     )
     item_key: Mapped[str] = mapped_column(String(40), nullable=False)
     checked_by: Mapped[uuid.UUID | None] = mapped_column(

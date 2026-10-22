@@ -302,7 +302,7 @@ def _entity_classes() -> dict[type, EntityClass]:
     from mihomes.models.note import Note
     from mihomes.models.onboarding_state import OnboardingState
     from mihomes.models.password_reset_token import PasswordResetToken
-    from mihomes.models.playbook import Playbook
+    from mihomes.models.playbook import Playbook, PlaybookCheck
     from mihomes.models.processed_webhook_event import ProcessedWebhookEvent
     from mihomes.models.property import Property
     from mihomes.models.recurring_expense import RecurringExpense
@@ -395,6 +395,9 @@ def _entity_classes() -> dict[type, EntityClass]:
         # Same class as Template: account-wide procedures staff read and run. Who may *write*
         # one is a verb rule (`playbook.manage` + the per-member flag), not row visibility.
         Playbook: EntityClass.ACCOUNT_SHARED,
+        # The shared ticks on a playbook: same class as the playbook, anyone who can open it
+        # can tick; only editors reset them (verb rules, not row visibility).
+        PlaybookCheck: EntityClass.ACCOUNT_SHARED,
         AIConversation: account,
         AuditLog: account,
         Account: account,

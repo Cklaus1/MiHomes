@@ -1,4 +1,4 @@
-"""Playbook service — each account's own operational playbooks, with task execution.
+"""Playbook service — each account's own operational playbooks, with shared tick boxes.
 
 **Playbooks are tenant rows (2026-10-21).** They used to be markdown files in
 `knowledge/playbooks/`, read by every account — one estate's hiring, offboarding and emergency
@@ -11,24 +11,26 @@ procedures were visible to every signup, and nobody could edit them in the app. 
 - New accounts start empty and copy from the generic template gallery
   (`mihomes/playbook_templates/*.md`) — package data, identical for everyone, never tenant data.
 
-The content format is unchanged: markdown, metadata as `**Key**: value` lines under the title,
-and `- [ ] step` checklist lines that "Run" turns into tasks.
+A playbook is a **document, not a task template** (user decision 2026-10-22): it never creates
+tasks. Its markdown — metadata as `**Key**: value` lines under the title, `- [ ] step` lines —
+renders with a tick box per step that anyone who can open the playbook can tick; the ticks are
+shared by the whole account (`PlaybookCheck`), and an editor can Reset them all.
 """
 
+import hashlib
 import re
-from datetime import date, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from mihomes.models.membership import Membership
-from mihomes.models.playbook import Playbook
-from mihomes.models.property import Property
-from mihomes.models.task import Task, TaskPriority
+from mihomes.models.playbook import Playbook, PlaybookCheck
+from mihomes.models.user import User
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
-from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
-from mihomes.services.task import create_task
+from mihomes.services.slug import ensure_unique_slug, generate_slug
 
 # Knowledge base location — project root / knowledge, or override via env. Playbooks no longer
 # live here; the rest of the knowledge base (job descriptions, notes) is still read by the CLI's
@@ -84,8 +86,110 @@ def get_playbook(session: Session, slug: str) -> Optional[Playbook]:
 
 
 def checklist(pb: Playbook) -> list[dict]:
-    """The `- [ ]` steps a run turns into tasks: [{title, section, day_offset}]."""
+    """The `- [ ]` steps of a playbook: [{title, section}]."""
     return _extract_checklist_items(pb.content or "")
+
+
+# ── Ticking ───────────────────────────────────────────────────────────────────
+
+def step_keys(content: str) -> list[tuple[str, str]]:
+    """[(key, title)] for each `- [ ]` step, in order.
+
+    A step is identified by its **text**, not its position: reordering a playbook keeps its
+    ticks, and rewording a step drops just that one. The same text appearing twice ("Lock the
+    doors" under two sections) is told apart by occurrence — `#0`, `#1` — so each can be ticked
+    on its own. 40 chars of SHA-1 fits `item_key`; this is an identifier, not a secret.
+    """
+    seen: dict[str, int] = {}
+    out = []
+    for item in _extract_checklist_items(content or ""):
+        title = item["title"]
+        norm = " ".join(title.lower().split())
+        n = seen.get(norm, 0)
+        seen[norm] = n + 1
+        key = hashlib.sha1(f"{norm}#{n}".encode("utf-8")).hexdigest()
+        out.append((key, title))
+    return out
+
+
+def get_checks(session: Session, pb: Playbook) -> dict[str, dict]:
+    """{item_key: {"by": name, "at": datetime}} for the ticked steps still in the text.
+
+    `at` is in the estate's time zone: ticks are stored as UTC, and a tick at 9pm Eastern must not
+    be labelled with tomorrow's date on a checklist people read day by day.
+    """
+    from mihomes.services.config_service import estate_zone
+
+    zone = estate_zone(session)
+    live = {key for key, _ in step_keys(pb.content)}
+    rows = (
+        session.query(PlaybookCheck, User.name, User.email)
+        .outerjoin(User, User.id == PlaybookCheck.checked_by)
+        .filter(PlaybookCheck.playbook_id == pb.id)
+        .all()
+    )
+    return {
+        c.item_key: {"by": name or email, "at": c.checked_at.replace(tzinfo=timezone.utc).astimezone(zone)}
+        for c, name, email in rows
+        if c.item_key in live
+    }
+
+
+def set_check(session: Session, pb: Playbook, user_id, key: str, checked: bool) -> bool:
+    """Tick or untick one step. Anyone who can open the playbook may — that is how staff use it.
+
+    Returns whether the step is ticked afterwards. Raises `ValueError` for a key that is not a step
+    of the playbook as it stands now: the page was open while someone edited it, and ticking a step
+    that no longer exists must not silently succeed.
+    """
+    if key not in {k for k, _ in step_keys(pb.content)}:
+        raise ValueError("That step has changed — reload the playbook to see the latest.")
+    existing = (
+        session.query(PlaybookCheck)
+        .filter(PlaybookCheck.playbook_id == pb.id, PlaybookCheck.item_key == key)
+        .one_or_none()
+    )
+    if checked and existing is None:
+        try:
+            with session.begin_nested():
+                session.add(PlaybookCheck(
+                    playbook_id=pb.id, item_key=key, checked_by=user_id,
+                    checked_at=datetime.now(timezone.utc).replace(tzinfo=None),  # naive UTC
+                ))
+                session.flush()
+        except IntegrityError:
+            pass  # someone else ticked it in the same instant — already the state we want
+    elif not checked and existing is not None:
+        session.delete(existing)
+        session.flush()
+    return checked
+
+
+def reset_checks(session: Session, editor: Membership | None, slug: str) -> int:
+    """Untick every step of a playbook; returns how many were ticked. Editors only."""
+    require_editor(editor)
+    pb = get_playbook(session, slug)
+    if pb is None:
+        raise ValueError("That playbook no longer exists.")
+    n = (
+        session.query(PlaybookCheck)
+        .filter(PlaybookCheck.playbook_id == pb.id)
+        .delete(synchronize_session=False)
+    )
+    session.flush()
+    if n:
+        # `audit_log.action` is String(10).
+        record_change(session, "playbook", pb.id, "reset", {"unticked": n})
+    return n
+
+
+def _prune_checks(session: Session, pb: Playbook) -> None:
+    """Drop ticks for steps that are no longer in the text, so they cannot pile up."""
+    live = [k for k, _ in step_keys(pb.content)]
+    q = session.query(PlaybookCheck).filter(PlaybookCheck.playbook_id == pb.id)
+    if live:
+        q = q.filter(PlaybookCheck.item_key.notin_(live))
+    q.delete(synchronize_session=False)
 
 
 # ── Writing (every function here calls require_editor) ────────────────────────
@@ -153,6 +257,7 @@ def update_playbook(
     pb.audience = (audience or "").strip() or None
     pb.estimated_time = (estimated_time or "").strip() or None
     session.flush()
+    _prune_checks(session, pb)
     changes = diff_instance(before, snapshot_instance(pb))
     if changes:
         record_change(session, "playbook", pb.id, "update", changes)
@@ -224,52 +329,6 @@ def import_markdown(session: Session, slug: str, text: str) -> tuple[Playbook, b
     return pb, True
 
 
-# ── Running ───────────────────────────────────────────────────────────────────
-
-def run_playbook(
-    session: Session,
-    slug: str,
-    property_id_or_slug: str,
-    *,
-    priority: TaskPriority = TaskPriority.MEDIUM,
-    start_date: Optional[date] = None,
-    assignee_id=None,
-) -> list[Task]:
-    """
-    Instantiate a playbook into tasks for a property.
-
-    Extracts all checklist items (lines starting with '- [ ]') from the
-    playbook markdown and creates one Task per item, staggered by section.
-    """
-    pb = get_playbook(session, slug)
-    if pb is None:
-        raise ValueError(f"Playbook '{slug}' not found")
-
-    items = checklist(pb)
-    if not items:
-        raise ValueError(f"Playbook '{slug}' has no checklist items (lines starting with '- [ ]')")
-
-    # Validate property
-    resolve_identifier(session, Property, property_id_or_slug)
-    base_date = start_date or date.today()
-    tasks = []
-
-    for item in items:
-        task = create_task(
-            session,
-            item["title"][:300],
-            property_id_or_slug,
-            priority=priority,
-            due_date=base_date + timedelta(days=item.get("day_offset", 0)),
-            description=f"Playbook: {pb.name} › {item.get('section', '')}".rstrip(" ›"),
-        )
-        if assignee_id:
-            task.assignee_id = assignee_id
-        tasks.append(task)
-
-    return tasks
-
-
 def knowledge_search(query: str) -> list[dict]:
     """Full-text search across all files in the knowledge base."""
     query_lower = query.lower()
@@ -337,22 +396,16 @@ def parse_markdown(text: str, *, fallback_name: str = "Untitled playbook") -> di
 def _extract_checklist_items(content: str) -> list[dict]:
     """
     Extract all '- [ ]' checklist items from markdown, tracking section headers.
-    Returns list of {title, section, day_offset}.
+    Returns list of {title, section}.
     """
     items = []
     current_section = ""
-    day_offset = 0
-    seen_sections: list[str] = []
 
     for line in content.splitlines():
-        # Track section headers (## or ###)
+        # Track section headers (## ### ####)
         header_match = re.match(r'^#{2,4}\s+(.+)', line)
         if header_match:
             current_section = header_match.group(1).strip()
-            # Increment day offset when we enter a new top-level section
-            if line.startswith("## ") and current_section not in seen_sections:
-                seen_sections.append(current_section)
-                day_offset = len(seen_sections) - 1
 
         # Checklist items
         checklist_match = re.match(r'\s*-\s+\[\s*\]\s+(.+)', line)
@@ -360,7 +413,6 @@ def _extract_checklist_items(content: str) -> list[dict]:
             items.append({
                 "title": checklist_match.group(1).strip(),
                 "section": current_section,
-                "day_offset": day_offset,
             })
 
     return items

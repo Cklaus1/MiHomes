@@ -2,7 +2,7 @@
 
 {% block title %}{{ 'New playbook' if mode == 'new' else 'Edit ' ~ form.name }} — MiHomes{% endblock %}
 {% block heading %}{{ 'New playbook' if mode == 'new' else 'Edit playbook' }}{% endblock %}
-{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">Steps you write here become tasks when the playbook is run.</p>{% endblock %}
+{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">Write steps as tick boxes — people tick them off as they read the playbook.</p>{% endblock %}
 
 {% block actions %}
 <a href="{{ '/playbooks/' ~ slug if slug else '/playbooks/' }}" class="text-sm text-gray-600 hover:text-gray-800 px-2 py-2">Cancel</a>
@@ -51,9 +51,9 @@
 
     <div class="bg-white rounded-xl border border-gray-200 p-5 text-sm text-gray-700 space-y-2">
       <h2 class="text-sm font-semibold text-gray-900">How to write steps</h2>
-      <p><code class="bg-gray-100 px-1 rounded text-xs">- [ ] Do something</code> — a step. Each one becomes a task when the playbook is run.</p>
-      <p><code class="bg-gray-100 px-1 rounded text-xs">## Section</code> — groups steps. Each new section is scheduled one day after the last.</p>
-      <p><code class="bg-gray-100 px-1 rounded text-xs">- note</code> — a plain bullet for reference; it does not become a task.</p>
+      <p><code class="bg-gray-100 px-1 rounded text-xs">- [ ] Do something</code> — a step with a tick box. Anyone who opens the playbook can tick it off.</p>
+      <p><code class="bg-gray-100 px-1 rounded text-xs">## Section</code> — a heading that groups steps.</p>
+      <p><code class="bg-gray-100 px-1 rounded text-xs">- note</code> — a plain bullet for reference, with no tick box.</p>
       <p><code class="bg-gray-100 px-1 rounded text-xs">**bold**</code> for emphasis.</p>
     </div>
 

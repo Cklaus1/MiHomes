@@ -7,7 +7,6 @@
   {% if pb.type and pb.type != '—' %}<span>{{ pb.type }}</span>{% endif %}
   {% if pb.owner and pb.owner != '—' %} · {{ pb.owner }}{% endif %}
   {% if pb.estimated_time and pb.estimated_time != '—' %} · {{ pb.estimated_time }}{% endif %}
-  · {{ pb.checklist|length }} steps
 </p>
 {% endblock %}
 
@@ -17,7 +16,7 @@
 <a href="/playbooks/{{ pb.slug }}/edit"
    class="inline-flex items-center px-3 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">Edit</a>
 <form method="post" action="/playbooks/{{ pb.slug }}/delete" data-name="{{ pb.name }}"
-      onsubmit="return confirm('Delete the playbook “' + this.dataset.name + '”? Tasks already created from it are kept. This cannot be undone.')">
+      onsubmit="return confirm('Delete the playbook “' + this.dataset.name + '”? This cannot be undone.')">
   <button type="submit"
           class="inline-flex items-center px-3 py-2 text-red-600 border border-red-200 text-sm font-medium rounded-lg hover:bg-red-50">Delete</button>
 </form>
@@ -28,86 +27,65 @@
 {% if notice %}
 <div class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">{{ notice }}</div>
 {% endif %}
-<div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+
+{# The playbook is a document you read and tick as you go. Nothing here creates tasks. #}
+<div class="max-w-4xl">
+  {% if total %}
+  <div class="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2" id="pb-progress-bar"
+       data-total="{{ total }}">
+    <div class="flex items-center gap-3 flex-1 min-w-[12rem]">
+      <div class="h-2 flex-1 rounded-full bg-gray-200 overflow-hidden" aria-hidden="true">
+        <div id="pb-progress-fill" class="h-2 bg-emerald-500 rounded-full transition-all" style="width: {{ (ticked * 100 // total) }}%"></div>
+      </div>
+      <span class="text-sm text-gray-700 whitespace-nowrap" id="pb-progress" aria-live="polite">{{ ticked }} of {{ total }} done</span>
+    </div>
+    {% if can_edit %}
+    <form method="post" action="/playbooks/{{ pb.slug }}/reset" data-name="{{ pb.name }}"
+          onsubmit="return confirm('Untick every step in “' + this.dataset.name + '” so it can be run through again? Everyone sees the change.')">
+      <button type="submit" id="pb-reset" {% if not ticked %}disabled{% endif %}
+              class="inline-flex items-center px-3 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed">
+        Reset all ticks
+      </button>
+    </form>
+    {% endif %}
+  </div>
+  {% endif %}
 
   <!-- Playbook content -->
-  <div class="xl:col-span-2 bg-white rounded-xl border border-gray-200 p-6 overflow-auto">
+  <div class="bg-white rounded-xl border border-gray-200 p-6 overflow-auto">
     {{ html_content | safe }}
   </div>
-
-  <!-- Run panel -->
-  <div class="space-y-4">
-
-    <!-- Run result -->
-    {% if run_result %}
-    <div class="rounded-xl border p-4 {% if run_result.ok %}bg-emerald-50 border-emerald-200{% else %}bg-red-50 border-red-200{% endif %}">
-      {% if run_result.ok %}
-      <div class="font-semibold text-emerald-800 mb-1" role="status">{{ run_result.count }} task{{ 's' if run_result.count != 1 else '' }} created</div>
-      <a href="/tasks/" class="inline-flex items-center text-sm font-medium text-emerald-700 hover:text-emerald-800">
-        View in Tasks →
-      </a>
-      {% else %}
-      <div class="font-semibold text-red-800 mb-1" role="alert">Couldn't run this playbook</div>
-      <div class="text-sm text-red-700">{{ run_result.error }}</div>
-      {% endif %}
-    </div>
-    {% endif %}
-
-    <!-- Run form -->
-    <div class="bg-white rounded-xl border border-gray-200 p-5">
-      <h3 class="text-sm font-semibold text-gray-800 mb-4">Run This Playbook</h3>
-      {% if pb.checklist %}
-      {# Confirm (it creates every step as a task at once), then lock the button: a plain form
-         post has no htmx pending state, and a double click ran the playbook twice. #}
-      <form method="post" action="/playbooks/{{ pb.slug }}/run" class="space-y-4"
-            data-step-count="{{ pb.checklist|length }}"
-            onsubmit="if(!confirm('This will create ' + this.dataset.stepCount + ' tasks. Continue?')) return false; const b=this.querySelector('[type=submit]'); b.disabled=true; b.textContent='Creating tasks…'; return true;">
-        <div>
-          <label for="pb-property" class="block text-xs font-medium text-gray-600 mb-1">Property <span class="text-red-500">*</span></label>
-          <select name="property_slug" id="pb-property" required
-                  class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
-            <option value="" disabled selected>Select property…</option>
-            {% for prop in properties %}
-            <option value="{{ prop.slug }}">{{ prop.name }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div>
-          <label for="pb-start" class="block text-xs font-medium text-gray-600 mb-1">Start Date <span class="text-gray-500">(optional)</span></label>
-          <input type="date" name="start_date" id="pb-start"
-                 class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
-          <p class="text-xs text-gray-500 mt-1">Defaults to today. Tasks are staggered by section.</p>
-        </div>
-        <button type="submit"
-                class="w-full bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-wait">
-          Create {{ pb.checklist|length }} Tasks from Playbook
-        </button>
-      </form>
-      {% else %}
-      <p class="text-sm text-gray-500">This playbook is for reference only — it has no checklist steps to turn into tasks.</p>
-      {% endif %}
-    </div>
-
-    <!-- Checklist summary -->
-    {% if pb.checklist %}
-    <div class="bg-white rounded-xl border border-gray-200 p-5">
-      <h3 class="text-sm font-semibold text-gray-800 mb-3">{{ pb.checklist|length }} Steps</h3>
-      <ul class="space-y-1.5 max-h-80 overflow-y-auto">
-        {% for item in pb.checklist %}
-        <li class="flex items-start gap-2">
-          <span class="w-4 h-4 rounded border border-gray-300 flex-shrink-0 mt-0.5"></span>
-          <div class="min-w-0">
-            <div class="text-xs text-gray-700 leading-snug">{{ item.title }}</div>
-            {% if item.section %}
-            <div class="text-xs text-gray-400 mt-0.5">{{ item.section }}</div>
-            {% endif %}
-          </div>
-        </li>
-        {% endfor %}
-      </ul>
-    </div>
-    {% endif %}
-
-  </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* Keep "N of M done" and the bar in step as boxes are ticked. The server answers each tick with
+   just that line (htmx swaps it), so the counts are recomputed from the page. Installed once —
+   a page swap can re-run this script. */
+(function () {
+  if (window.__mhPlaybookProgress) return;
+  window.__mhPlaybookProgress = true;
+  function update() {
+    const bar = document.getElementById('pb-progress-bar');
+    if (!bar) return;
+    const boxes = document.querySelectorAll('[data-pb-check]');
+    const done = Array.from(boxes).filter((b) => b.checked).length;
+    const total = boxes.length || Number(bar.dataset.total) || 0;
+    const label = document.getElementById('pb-progress');
+    const fill = document.getElementById('pb-progress-fill');
+    const reset = document.getElementById('pb-reset');
+    if (label) label.textContent = done + ' of ' + total + ' done';
+    if (fill) fill.style.width = (total ? Math.floor(done * 100 / total) : 0) + '%';
+    if (reset) reset.disabled = done === 0;
+  }
+  document.addEventListener('htmx:afterSwap', update);
+  // A refused tick (409: the playbook changed under you) leaves the box in the wrong state.
+  document.addEventListener('htmx:responseError', function (e) {
+    const el = e.detail && e.detail.elt;
+    if (el && el.hasAttribute && el.hasAttribute('data-pb-check')) el.checked = !el.checked;
+    update();
+  });
+})();
+</script>
 {% endblock %}

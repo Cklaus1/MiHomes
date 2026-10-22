@@ -265,7 +265,9 @@ def test_registry_size_is_asserted_explicitly():
     #
     # `playbooks` (0022, 2026-10-21) -> 52: each account's own playbooks. They were markdown
     # files read by every account, so one estate's procedures were visible to all of them.
-    assert len(TENANT_TABLES) == 52, (
-        f"expected 52 tenant-owned tables, registry has {len(TENANT_TABLES)} — "
+    #
+    # `playbook_checks` (0023, 2026-10-22) -> 53: the shared tick boxes on a playbook's steps.
+    assert len(TENANT_TABLES) == 53, (
+        f"expected 53 tenant-owned tables, registry has {len(TENANT_TABLES)} — "
         "if a table was legitimately added or removed, update this number and say why"
     )

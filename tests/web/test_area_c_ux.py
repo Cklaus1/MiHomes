@@ -107,18 +107,15 @@ def test_template_name_with_apostrophe_uses_data_attributes(client):
     assert "<details" in body
 
 
-def test_playbook_run_redirects_after_post(client):
+def test_a_playbook_is_a_document_not_a_task_template(client):
+    """2026-10-22: playbooks never create tasks. The Run panel and route are gone; the page is the
+    document with tick boxes."""
     from mihomes.services.playbook import import_markdown
 
-    # Playbooks are account rows now (2026-10-21), so the test seeds its own instead of relying on
-    # whatever files happened to be in knowledge/playbooks/.
     with client._SessionLocal() as s:
         import_markdown(s, "season-open", "# Season Open\n\n## Day 1\n- [ ] Air out rooms\n- [ ] Check water\n")
         s.commit()
-    slug = "season-open"
-    resp = client.post(f"/playbooks/{slug}/run", data={"property_slug": "test-manor"}, follow_redirects=False)
-    assert resp.status_code == 303
-    assert f"/playbooks/{slug}?ran=" in resp.headers["location"]
-    assert re.search(r"\d+ tasks? created", client.get(resp.headers["location"]).text)
-    bad = client.post(f"/playbooks/{slug}/run", data={"property_slug": "no-such-place"})
-    assert "Couldn&#39;t run this playbook" in bad.text or "Couldn't run this playbook" in bad.text
+    page = client.get("/playbooks/season-open").text
+    assert "Air out rooms" in page and "data-pb-check" in page
+    assert "Run This Playbook" not in page and "Create 2 Tasks" not in page
+    assert client.post("/playbooks/season-open/run", data={"property_slug": "test-manor"}).status_code in (404, 405)

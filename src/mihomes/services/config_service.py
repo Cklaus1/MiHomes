@@ -118,6 +118,17 @@ def validate_user_setting(key: str, value: str) -> str:
     return value
 
 
+def estate_zone(session: Session):
+    """The estate's time zone (`locale.timezone`); unknown zones fall back to UTC."""
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    name = get_config(session, "locale.timezone") or "UTC"
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        return ZoneInfo("UTC")
+
+
 def estate_today(session: Session):
     """Today's date in the estate's time zone (`locale.timezone`), not the server's.
 
@@ -125,14 +136,8 @@ def estate_today(session: Session):
     9pm would then roll forward from "tomorrow" and skip a day. Unknown zones fall back to UTC.
     """
     from datetime import datetime
-    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-    name = get_config(session, "locale.timezone") or "UTC"
-    try:
-        zone = ZoneInfo(name)
-    except (ZoneInfoNotFoundError, ValueError):
-        zone = ZoneInfo("UTC")
-    return datetime.now(zone).date()
+    return datetime.now(estate_zone(session)).date()
 
 
 def get_user_settings(session: Session) -> dict[str, str]:

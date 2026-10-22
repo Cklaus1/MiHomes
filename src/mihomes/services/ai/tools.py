@@ -407,11 +407,15 @@ def _query_library(session: Session, inp: dict) -> str:
                 lines.append(f"  - {name}: {cnt} books")
         # Break down by space/room
         from mihomes.models.space import Space
-        by_space = (
+        space_q = (
             session.query(Space.name, func.count(Book.id))
             .join(Book, Book.space_id == Space.id)
             .filter(Book.active.is_(True))
-            .group_by(Space.id)
+        )
+        if inp.get("property_slug"):
+            space_q = space_q.filter(Book.property_id == prop.id)
+        by_space = (
+            space_q.group_by(Space.id)
             .order_by(func.count(Book.id).desc())
             .all()
         )

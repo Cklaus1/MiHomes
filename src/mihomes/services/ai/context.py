@@ -401,8 +401,8 @@ def _fetch_books(session: Session, property_slug: str | None) -> str:
     if by_space:
         lines.append("By room:")
         for space_id, cnt in by_space:
-            s = session.get(Space, space_id)
-            space_name = s.name if s else f"space {space_id}"
+            s = session.get(Space, space_id) if space_id is not None else None
+            space_name = s.name if s else "No room assigned"
             lines.append(f"  - {space_name}: {cnt} books")
         lines.append("")
 

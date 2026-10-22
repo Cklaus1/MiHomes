@@ -347,32 +347,36 @@ def resolve_room(session: Session, room_name: str | None, prop_slug: str | None)
 def ai_response(session: Session, prompt: str, role: str, property_slug: str | None) -> str | None:
     """Call the AI advisor for a plain-text 1-2 sentence reply, or None.
 
-    H27: on failure the session must be rolled back before the caller continues
-    to the next item, otherwise a half-applied transaction poisons every
-    subsequent create in the same batch. The WhatsApp copy skipped the rollback.
+    H27: a failure inside the AI call (a provider error, or a failed statement that
+    aborts the Postgres transaction) must not poison the rest of the batch. The call
+    runs in a SAVEPOINT, so a failure undoes only the AI call's own work. The earlier
+    fix was a full `session.rollback()`, which also discarded every write already
+    made in the batch — an issue created a moment before its expert reply failed
+    vanished while `dispatch_items` still counted it and confirmed "logged ✓".
     """
     try:
-        from mihomes.services.ai.orchestrator import ask
-        full_prompt = (
-            f"{prompt}\n\n"
-            "Reply in 1-2 sentences maximum. Plain text only — no bullet points, "
-            "no headers, no markdown. Be direct and practical. "
-            "If you are not confident in your answer or do not have enough information, "
-            "respond with exactly: NO_RESPONSE"
-        )
-        response = ask(session, full_prompt, role=role, property_slug=property_slug)
-        text = strip_markdown(response.text.strip())
-        text = re.sub(r"\n{2,}", " ", text)
-        if not text or text.upper() == "NO_RESPONSE":
-            return None
-        return text
+        with session.begin_nested():
+            return _ai_response_text(session, prompt, role, property_slug)
     except Exception as e:
         logger.warning("AI response failed: %s", e)
-        try:
-            session.rollback()
-        except Exception:
-            logger.exception("ai_response: rollback failed")
         return None
+
+
+def _ai_response_text(session: Session, prompt: str, role: str, property_slug: str | None) -> str | None:
+    from mihomes.services.ai.orchestrator import ask
+    full_prompt = (
+        f"{prompt}\n\n"
+        "Reply in 1-2 sentences maximum. Plain text only — no bullet points, "
+        "no headers, no markdown. Be direct and practical. "
+        "If you are not confident in your answer or do not have enough information, "
+        "respond with exactly: NO_RESPONSE"
+    )
+    response = ask(session, full_prompt, role=role, property_slug=property_slug)
+    text = strip_markdown(response.text.strip())
+    text = re.sub(r"\n{2,}", " ", text)
+    if not text or text.upper() == "NO_RESPONSE":
+        return None
+    return text
 
 
 def issue_expert_reply(session: Session, title: str, description: str | None, property_slug: str | None) -> str | None:

@@ -268,14 +268,18 @@
           {# Per-person grant (2026-10-21): staff who may write playbooks without being made
              admins. Owners and admins always can, so the toggle is shown only for staff. #}
           {% if member.role == "staff" %}
+            {# A switch, so it saves when flipped: it used to wait for a separate Save button that
+               nothing said to press, and ticking the box looked like it did nothing. The button
+               stays inside <noscript> for browsers without scripts. #}
             <form method="post" action="/settings/members/{{ member.membership_id }}/playbooks"
                   class="mt-3 flex flex-wrap items-center gap-3">
-              <label class="text-sm flex items-center gap-2" for="pb-edit-{{ member.membership_id }}">
+              <label class="text-sm flex items-center gap-2 cursor-pointer" for="pb-edit-{{ member.membership_id }}">
                 <input type="checkbox" name="enabled" id="pb-edit-{{ member.membership_id }}"
-                       class="h-4 w-4" {% if member.can_edit_playbooks %}checked{% endif %} />
+                       onchange="this.form.requestSubmit()"
+                       class="h-5 w-5 cursor-pointer" {% if member.can_edit_playbooks %}checked{% endif %} />
                 Can create and edit playbooks
               </label>
-              <button class="border rounded-lg px-3 py-1.5 text-sm">Save</button>
+              <noscript><button class="border rounded-lg px-3 py-1.5 text-sm">Save</button></noscript>
             </form>
           {% endif %}
 

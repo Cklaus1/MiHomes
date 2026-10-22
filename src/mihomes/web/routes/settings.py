@@ -135,6 +135,8 @@ _NOTICES = {
     "profile_saved": "Profile saved",
     "role_changed": "Role changed",
     "access_saved": "Property access saved",
+    "playbooks_on": "Playbook editing turned on — they can now create and edit playbooks",
+    "playbooks_off": "Playbook editing turned off — they can still view and run playbooks",
     "member_removed": "Access removed",
     "invite_revoked": "Invitation revoked",
     "telegram_unlinked": "Telegram unlinked",
@@ -663,13 +665,16 @@ def set_member_playbook_editor(
     if target is None:
         raise HTTPException(status_code=404, detail="Not found")
 
+    granted = enabled == "on"
     try:
-        membership_service.set_playbook_editor(db, target, enabled == "on")
+        membership_service.set_playbook_editor(db, target, granted)
         db.commit()
     except membership_service.MembershipError as exc:
         return _member_error(request, db, principal, str(exc))
 
-    return RedirectResponse("/settings?notice=access_saved#members", status_code=303)
+    # Its own message: this reused "Property access saved", which said nothing about playbooks.
+    notice = "playbooks_on" if granted else "playbooks_off"
+    return RedirectResponse(f"/settings?notice={notice}#members", status_code=303)
 
 
 @router.post("/settings/members/{membership_id}/revoke")

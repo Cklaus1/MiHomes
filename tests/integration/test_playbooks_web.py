@@ -127,6 +127,39 @@ def test_settings_toggle_grants_and_is_staff_only(web_client_as):
     assert "only for staff" in r.text  # refused: admins can always edit
 
 
+def _toggle_tag(html: str, membership_id) -> str:
+    import re
+    m = re.search(r'<input type="checkbox" name="enabled" id="pb-edit-%s".*?/>' % membership_id,
+                  html, re.S)
+    assert m, "the playbook toggle is not on the page"
+    return " ".join(m.group(0).split())
+
+
+def test_the_toggle_saves_itself_and_the_page_shows_the_result(web_client_as):
+    """The toggle used to need a separate Save button that nothing said to press, so ticking it
+    looked like it did nothing. It now submits on change, and the reloaded page must show the new
+    state and a message that names what happened (it used to say "Property access saved")."""
+    owner = web_client_as("owner")
+    staff = web_client_as("staff", scoped_to=[])
+    mid = staff.membership_id
+
+    page = owner.get("/settings").text
+    tag = _toggle_tag(page, mid)
+    assert 'onchange="this.form.requestSubmit()"' in tag
+    assert " checked" not in tag
+    # The Save button is only a no-script fallback.
+    assert "<noscript><button" in page
+
+    on = owner.post(f"/settings/members/{mid}/playbooks", data={"enabled": "on"},
+                    follow_redirects=True)
+    assert "Playbook editing turned on" in on.text and "Property access saved" not in on.text
+    assert " checked" in _toggle_tag(on.text, mid)
+
+    off = owner.post(f"/settings/members/{mid}/playbooks", data={}, follow_redirects=True)
+    assert "Playbook editing turned off" in off.text
+    assert " checked" not in _toggle_tag(off.text, mid)
+
+
 def test_staff_cannot_grant_themselves(web_client_as):
     staff = web_client_as("staff", scoped_to=[])
     r = staff.post(f"/settings/members/{staff.membership_id}/playbooks", data={"enabled": "on"})

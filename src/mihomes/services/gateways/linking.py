@@ -196,10 +196,39 @@ def redeem_link_token(
             f"Unknown gateway {gateway!r}. Expected one of: {', '.join(SUPPORTED_GATEWAYS)}."
         )
 
-    token = session.execute(
-        select(GatewayLinkToken).where(
-            GatewayLinkToken.token_hash == hash_token(raw_token or "")
+    # Step 1 — which account does this code belong to? This read cannot be account-scoped, and
+    # on the production role it was broken twice: the ORM tenancy filter raised LookupError
+    # (no account bound), and RLS hid the row even from a Core select. A Core select under the
+    # link-token bootstrap policy (`rls.GATEWAY_BOOTSTRAP_POLICIES`) reads exactly this hash.
+    from mihomes.tenancy.connection import (
+        GATEWAY_LINK_TOKEN_GUC,
+        bind_account_guc,
+        bind_gateway_guc,
+    )
+    from mihomes.tenancy.context import account_context
+
+    token_hash = hash_token(raw_token or "")
+    bind_gateway_guc(session, GATEWAY_LINK_TOKEN_GUC, token_hash)
+    account_id = session.execute(
+        select(GatewayLinkToken.__table__.c.account_id).where(
+            GatewayLinkToken.__table__.c.token_hash == token_hash
         )
+    ).scalar_one_or_none()
+    if account_id is None:
+        raise UnknownCode("That code is not valid. Check it and try again.")
+
+    # Step 2 — everything else is an ordinary tenant operation in the account the code named:
+    # the ContextVar for the ORM filter and the insert stamp, the GUC for RLS's WITH CHECK.
+    with account_context(account_id):
+        bind_account_guc(session, account_id)
+        return _redeem_in_account(session, gateway=gateway, sender_id=sender_id,
+                                  token_hash=token_hash)
+
+
+def _redeem_in_account(session: Session, *, gateway: str, sender_id: str,
+                       token_hash: str) -> ResolvedSender:
+    token = session.execute(
+        select(GatewayLinkToken).where(GatewayLinkToken.token_hash == token_hash)
     ).scalar_one_or_none()
 
     if token is None:

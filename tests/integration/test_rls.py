@@ -344,3 +344,62 @@ def test_membership_self_is_the_only_user_keyed_policy(_pg_engine):
     assert user_keyed == [("memberships", MEMBERSHIP_SELF_POLICY)], (
         f"expected exactly one user-keyed policy, found: {user_keyed}"
     )
+
+
+def test_bootstrap_policies_are_exactly_the_known_set(_pg_engine):
+    """Every policy that is NOT the per-table tenant policy is a hole in account scoping by
+    design, so the full set is pinned: `membership_self` and the two gateway bootstrap policies.
+    A new one must be added here on purpose, with its reasoning in `rls.py`."""
+    from mihomes.tenancy.rls import GATEWAY_BOOTSTRAP_POLICIES
+
+    with _pg_engine.connect() as conn:
+        rows = conn.execute(
+            text("SELECT tablename, policyname, cmd FROM pg_policies WHERE schemaname = 'public'")
+        ).fetchall()
+    extra = sorted(
+        (r.tablename, r.policyname, r.cmd) for r in rows if r.policyname != policy_name(r.tablename)
+    )
+    expected = sorted(
+        [("memberships", MEMBERSHIP_SELF_POLICY, "SELECT")]
+        + [(t, name, "SELECT") for t, (name, _pred) in GATEWAY_BOOTSTRAP_POLICIES.items()]
+    )
+    assert extra == expected
+
+
+def test_gateway_bootstrap_reads_only_the_stamped_sender(_pg_engine, app_engine, account_a):
+    """Under the app role, with no account bound: the stamped Telegram user's links are visible,
+    another user's are not, and with nothing stamped nothing is."""
+    from mihomes.tenancy.connection import GATEWAY_TELEGRAM_USER_GUC
+
+    member_ids = []
+    with _pg_engine.begin() as conn:
+        for tg_user in (910001, 910002):
+            uid, mid = uuid.uuid4(), uuid.uuid4()
+            conn.execute(text("INSERT INTO users (id, google_sub, email) VALUES (:u, :s, :e)"),
+                         {"u": uid, "s": f"sub-{uid.hex[:10]}", "e": f"rls-{uid.hex[:8]}@example.com"})
+            conn.execute(
+                text("INSERT INTO memberships (id, account_id, user_id, role, status) "
+                     "VALUES (:m, :a, :u, 'staff', 'active')"),
+                {"m": mid, "a": account_a, "u": uid},
+            )
+            conn.execute(
+                text("INSERT INTO telegram_links (id, account_id, membership_id, telegram_user_id) "
+                     "VALUES (:i, :a, :m, :t)"),
+                {"i": uuid.uuid4(), "a": account_a, "m": mid, "t": tg_user},
+            )
+            member_ids.append((mid, uid))
+    try:
+        query = text("SELECT telegram_user_id FROM telegram_links WHERE telegram_user_id IN (910001, 910002)")
+        with app_engine.begin() as conn:
+            assert conn.execute(query).scalars().all() == []
+            conn.execute(text("SELECT set_config(:g, '910001', true)"), {"g": GATEWAY_TELEGRAM_USER_GUC})
+            assert conn.execute(query).scalars().all() == [910001]
+        with app_engine.begin() as conn:  # transaction-local: gone in the next transaction
+            assert conn.execute(query).scalars().all() == []
+    finally:
+        app_engine.dispose()  # no stamped GUC may reach a later test on a pooled connection
+        with _pg_engine.begin() as conn:
+            for mid, uid in member_ids:
+                conn.execute(text("DELETE FROM telegram_links WHERE membership_id = :m"), {"m": mid})
+                conn.execute(text("DELETE FROM memberships WHERE id = :m"), {"m": mid})
+                conn.execute(text("DELETE FROM users WHERE id = :u"), {"u": uid})

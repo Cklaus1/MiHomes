@@ -263,6 +263,114 @@ def send_message(
 
 
 # ---------------------------------------------------------------------------
+# webhook registration — deploy-time, platform-level (one bot for every account)
+# ---------------------------------------------------------------------------
+
+#: The ports Telegram will deliver webhooks to (Bot API setWebhook docs).
+_TELEGRAM_WEBHOOK_PORTS = (443, 80, 88, 8443)
+_WEBHOOK_PATH = "/webhooks/telegram"
+
+
+def _platform_client() -> TelegramClient:
+    """The bot the webhook route replies as — `TELEGRAM_BOT_TOKEN`, never an account's config.
+
+    Registering a webhook for a different bot than the server replies with would leave every
+    update unanswerable, so there is deliberately no fallback to `telegram.bot_token` here.
+    """
+    from mihomes.services.gateways.telegram.client import platform_bot_token
+
+    token = platform_bot_token()
+    if not token:
+        raise TelegramError("TELEGRAM_BOT_TOKEN is not set in this environment.")
+    return TelegramClient(token)
+
+
+def webhook_url_problem(url: str) -> str | None:
+    """Why Telegram would refuse `url`, or why our route would never see it; None if fine."""
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        return "Telegram only delivers webhooks over https."
+    if not parsed.hostname:
+        return "The URL has no host."
+    port = parsed.port or 443
+    if port not in _TELEGRAM_WEBHOOK_PORTS:
+        return f"Telegram only delivers to ports {', '.join(map(str, _TELEGRAM_WEBHOOK_PORTS))}."
+    if parsed.path.rstrip("/") != _WEBHOOK_PATH:
+        return f"The path must be {_WEBHOOK_PATH} — that is where the route listens."
+    return None
+
+
+def webhook_secret_problem(secret: str) -> str | None:
+    """Telegram's rule for secret_token: 1-256 of A-Z a-z 0-9 _ -."""
+    import re
+
+    if not secret:
+        return "TELEGRAM_WEBHOOK_SECRET is not set — the route refuses every update without it."
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,256}", secret):
+        return "TELEGRAM_WEBHOOK_SECRET may only use A-Z a-z 0-9 _ - (1-256 characters)."
+    return None
+
+
+@app.command("set-webhook")
+def set_webhook_cmd(
+    url: str = typer.Option(..., "--url", help=f"Public https URL ending in {_WEBHOOK_PATH}"),
+    drop_pending: bool = typer.Option(False, "--drop-pending", help="Discard updates queued at Telegram"),
+):
+    """Register the webhook with Telegram. Reads TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET.
+
+    Once set, Telegram refuses getUpdates — stop any `telegram monitor` poller first.
+    """
+    secret = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "")
+    problem = webhook_url_problem(url) or webhook_secret_problem(secret)
+    if problem:
+        format_error(problem)
+        raise typer.Exit(1)
+    try:
+        _platform_client().set_webhook(url, secret, drop_pending=drop_pending)
+    except TelegramError as e:
+        format_error(str(e))
+        raise typer.Exit(1) from e
+    format_success(f"Webhook set: {url}")
+    console.print("[dim]Check delivery with: mihomes telegram webhook-info[/dim]")
+
+
+@app.command("delete-webhook")
+def delete_webhook_cmd(
+    drop_pending: bool = typer.Option(False, "--drop-pending", help="Discard updates queued at Telegram"),
+):
+    """Unregister the webhook (polling with `telegram monitor` works again afterwards)."""
+    try:
+        _platform_client().delete_webhook(drop_pending=drop_pending)
+    except TelegramError as e:
+        format_error(str(e))
+        raise typer.Exit(1) from e
+    format_success("Webhook deleted")
+
+
+@app.command("webhook-info")
+def webhook_info_cmd():
+    """Show Telegram's view of the webhook: URL, queue length, and the last delivery error."""
+    try:
+        info = _platform_client().get_webhook_info()
+    except TelegramError as e:
+        format_error(str(e))
+        raise typer.Exit(1) from e
+
+    table = Table(show_header=False, box=None)
+    table.add_row("URL", info.get("url") or "[yellow](none — not registered)[/yellow]")
+    table.add_row("Pending updates", str(info.get("pending_update_count", 0)))
+    table.add_row("Allowed updates", ", ".join(info.get("allowed_updates") or []) or "(all)")
+    if info.get("last_error_date"):
+        when = datetime.fromtimestamp(info["last_error_date"], tz=timezone.utc).isoformat()
+        table.add_row("Last error", f"[red]{info.get('last_error_message', '')}[/red] ({when})")
+    else:
+        table.add_row("Last error", "[green]none[/green]")
+    console.print(table)
+
+
+# ---------------------------------------------------------------------------
 # monitor
 # ---------------------------------------------------------------------------
 

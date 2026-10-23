@@ -161,6 +161,8 @@ FOREIGN_SYSTEM_IDS = {
     # SPEC-003 G16 / D19. Telegram's own user id, BigInteger because it exceeds 2^31 and keeps
     # growing — a plain Integer would start silently rejecting new accounts at signup.
     ("telegram_links", "telegram_user_id"),
+    # Telegram's chat id — negative 64-bit for groups (-100…), owned by Telegram, not us (0025).
+    ("telegram_chat_bindings", "chat_id"),
 }
 
 

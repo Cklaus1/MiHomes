@@ -81,18 +81,27 @@ env -i "${E[@]}" .venv/bin/mihomes --account default telegram webhook-info
 
 To go back to polling: `telegram delete-webhook`.
 
-## 6. Link people and the group
+## 6. Link yourself, then the group
 
-1. **Each person**: Settings → Connections → Telegram → get a code, then DM the bot `/link <code>`.
-   The bot answers "You're linked."
-2. **The group → property map** (which house a group's messages belong to):
+1. **You (an owner or admin)**: Settings → Connections → Telegram → get a code, then DM the bot
+   `/link <code>`. The bot answers "You're linked."
+2. **The group**: in the group, send `/linkchat`. The bot answers "This group is now linked to
+   your estate." From then on every message in the group belongs to the estate — including from
+   members with **no MiHomes login**, who are processed as untrusted: they can report issues and
+   tasks, but expenses, PTO, work orders, task completion and resolving issues need a linked or
+   allow-listed sender. Nobody in a linked group is ever told "I don't recognise you".
+   `/unlinkchat` (owner/admin) undoes it.
+3. **Which house** a group's messages belong to, if the estate has more than one property:
 
    ```bash
    env -i "${E[@]}" .venv/bin/mihomes --account default telegram link-chat --chat-id <group id> --property <slug>
    ```
 
-3. Send one fresh message in the group and confirm it is logged **once** (an issue or task appears,
+   With a single property this is not needed.
+4. Send one fresh message in the group and confirm it is logged **once** (an issue or task appears,
    the bot confirms in the group).
+
+Migration `0025_telegram_chat_bindings` must be applied (step 2 runs `alembic upgrade head`).
 
 ## Troubleshooting
 

@@ -96,9 +96,12 @@ MEMBERSHIPS_TABLE = "memberships"
 # status, the link insert) runs under that account's own GUC and the ordinary tenant policy.
 _TG_USER = "(SELECT NULLIF(current_setting('app.gateway_telegram_user', true), '')::bigint)"
 _LINK_HASH = "(SELECT NULLIF(current_setting('app.gateway_link_token_hash', true), ''))"
+_TG_CHAT = "(SELECT NULLIF(current_setting('app.gateway_telegram_chat', true), '')::bigint)"
 GATEWAY_BOOTSTRAP_POLICIES: dict[str, tuple[str, str]] = {
     "telegram_links": ("telegram_links_gateway_sender", f"telegram_user_id = {_TG_USER}"),
     "gateway_link_tokens": ("gateway_link_tokens_by_hash", f"token_hash = {_LINK_HASH}"),
+    # Which account a group chat belongs to — the group-binding counterpart of the sender read.
+    "telegram_chat_bindings": ("telegram_chat_bindings_gateway_chat", f"chat_id = {_TG_CHAT}"),
 }
 
 

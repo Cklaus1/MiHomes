@@ -82,7 +82,10 @@ from mihomes.tenancy.registry import ASSOCIATION_TABLES, GLOBAL_TABLES, TENANT_T
 # `playbook_checks` (0023, 2026-10-22) -> 53: shared ticks on a playbook's steps.
 # `task_completions` (0020) -> 51 — the registry moved and this literal did not, which is why
 # this test was red from 0020 until 2026-10-21. `playbooks` (0022) -> 52: per-account playbooks.
-EXPECTED_TENANT_TABLE_COUNT = 53
+# `telegram_chat_bindings` (0025, 2026-10-23) -> 54: a Telegram group bound to one account by
+# /linkchat, so staff without logins can report through a household group. `UNIQUE (chat_id)`
+# across accounts (one group, one estate) — hence `_value_for`'s per-account unique integers.
+EXPECTED_TENANT_TABLE_COUNT = 54
 
 
 # --------------------------------------------------------------------------------------
@@ -110,6 +113,18 @@ def _topological_tables() -> list[str]:
         ordered.extend(ready)
         remaining -= set(ready)
     return ordered
+
+
+def _unique_alone(col) -> bool:
+    """True if `col` is unique by itself (a column flag or a one-column UNIQUE constraint)."""
+    from sqlalchemy import UniqueConstraint
+
+    if col.unique:
+        return True
+    return any(
+        isinstance(c, UniqueConstraint) and [x.name for x in c.columns] == [col.name]
+        for c in col.table.constraints
+    )
 
 
 def _value_for(col, tag: str, ids: dict[str, uuid.UUID]):
@@ -140,6 +155,11 @@ def _value_for(col, tag: str, ids: dict[str, uuid.UUID]):
     if type_name == "DateTime":
         return datetime(2026, 1, 1, tzinfo=timezone.utc)
     if type_name in ("Integer", "SmallInteger", "BigInteger"):
+        # A column unique on its own across accounts (`telegram_chat_bindings.chat_id`) cannot take
+        # the same 1 in both seeded accounts. Everything else stays 1, so range checks elsewhere
+        # (ratings, quantities) are not disturbed.
+        if _unique_alone(col):
+            return 1 + sum(map(ord, tag))
         return 1
     if type_name in ("Float",):
         return 1.0

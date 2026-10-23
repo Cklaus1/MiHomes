@@ -106,17 +106,37 @@ async def telegram_webhook(request: Request) -> Response:
         # stops resending it.
         return Response(status_code=200)
 
-    # --- 3. resolve the sender — UNSCOPED, and the one place that is legitimate -----------
     from mihomes.db import get_session
+    from mihomes.services.gateways.chat_binding import bound_account_for_chat, parse_chat_command
+    from mihomes.services.gateways.linking import parse_link_command
 
+    # --- 2b. /linkchat, /unlinkchat — bind a group to an account (group binding) ----------
+    command = parse_chat_command(message.get("text"))
+    if command is not None:
+        _reply(message["jid"], _chat_command(command, message))
+        return Response(status_code=200)
+
+    # --- 3. resolve — UNSCOPED, and the one place that is legitimate ----------------------
+    # A bound group names its account; the sender is then resolved *within* it (D5's
+    # `chat_account_id`). A DM or an unbound group has only the sender to go on.
     try:
         with get_session() as unscoped:
-            resolved = resolve_sender(
-                unscoped, gateway="telegram", sender_id=message["sender"]
+            chat_account = (
+                bound_account_for_chat(unscoped, message["jid"]) if message.get("isGroup") else None
             )
+            resolved = resolve_sender(
+                unscoped, gateway="telegram", sender_id=message["sender"],
+                chat_account_id=chat_account,
+            )
+        account_id = resolved.account_id
     except UnlinkedSender:
-        _reply(message["jid"], _link_or_prompt(message))
-        return Response(status_code=200)
+        if chat_account is None or parse_link_command(message.get("text")) is not None:
+            _reply(message["jid"], _link_or_prompt(message))
+            return Response(status_code=200)
+        # A bound group's member without a link — the staff the binding exists for. Their
+        # message belongs to the group's account and is processed as UNTRUSTED: trust is decided
+        # per sender by `is_trusted_sender` (M27), so no money/PTO/resolution actions. No prompt.
+        account_id = chat_account
     except AmbiguousSender:
         _reply(
             message["jid"],
@@ -125,9 +145,25 @@ async def telegram_webhook(request: Request) -> Response:
         )
         return Response(status_code=200)
 
-    # --- 4 & 5. scope to the resolved account, then dispatch -----------------------------
-    _dispatch(resolved, message)
+    # --- 4 & 5. scope to the account, then dispatch --------------------------------------
+    _dispatch(account_id, message)
     return Response(status_code=200)
+
+
+def _chat_command(command: str, message: dict) -> str:
+    """Run `/linkchat` or `/unlinkchat` on an unscoped session; returns the reply sentence."""
+    from mihomes.db import get_session
+    from mihomes.services.gateways.chat_binding import link_chat, unlink_chat
+
+    try:
+        with get_session() as unscoped:
+            if command == "linkchat":
+                return link_chat(unscoped, chat_id=message["jid"], sender_id=message["sender"],
+                                 is_group=bool(message.get("isGroup")))
+            return unlink_chat(unscoped, chat_id=message["jid"], sender_id=message["sender"])
+    except Exception:
+        logger.exception("telegram webhook: /%s failed", command)
+        return "Something went wrong. Please try again."
 
 
 #: Sent once a `/link CODE` redeems. Names no account, for the same reason `LINK_PROMPT` doesn't.
@@ -232,8 +268,11 @@ def _reply(chat_id: str, text: str) -> None:
         logger.exception("telegram webhook: could not send reply to %s", chat_id)
 
 
-def _dispatch(resolved, message: dict) -> None:
-    """Open a session bound to the resolved account and hand off (steps 4–5).
+def _dispatch(account_id, message: dict) -> None:
+    """Open a session bound to the message's account and hand off (steps 4–5).
+
+    `account_id` is the sender's resolved account, or — for an unlinked member of a bound
+    group — the group's account.
 
     **A seam, deliberately.** Everything account-specific happens inside `account_context`, so
     the dedup store, `is_trusted_sender` and `dispatch_items` all see the tenant the sender
@@ -248,7 +287,7 @@ def _dispatch(resolved, message: dict) -> None:
     )
     from mihomes.tenancy.context import account_context
 
-    with account_context(resolved.account_id):
+    with account_context(account_id):
         with get_session() as session:
             # A16 (redelivery) and **A17 (no double transport)** are the same store, and that
             # is the entire mechanism: the webhook and the poller must key on the *same*

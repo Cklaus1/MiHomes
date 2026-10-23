@@ -74,6 +74,7 @@ USER_GUC = "app.current_user"
 #: Gateway bootstrap GUCs — see `rls.GATEWAY_BOOTSTRAP_POLICIES` and `bind_gateway_guc`.
 GATEWAY_TELEGRAM_USER_GUC = "app.gateway_telegram_user"
 GATEWAY_LINK_TOKEN_GUC = "app.gateway_link_token_hash"
+GATEWAY_TELEGRAM_CHAT_GUC = "app.gateway_telegram_chat"
 
 
 def bind_account_guc(session: Session, account_id) -> None:
@@ -164,7 +165,7 @@ def bind_gateway_guc(session: Session, guc: str, value: str) -> None:
     one external id, so this widens what one transaction can read to the rows for that id and
     nothing else; writes still need the account GUC. `is_local=true` (N3) — gone at commit.
     """
-    if guc not in (GATEWAY_TELEGRAM_USER_GUC, GATEWAY_LINK_TOKEN_GUC):
+    if guc not in (GATEWAY_TELEGRAM_USER_GUC, GATEWAY_LINK_TOKEN_GUC, GATEWAY_TELEGRAM_CHAT_GUC):
         raise ValueError(f"{guc!r} is not a gateway bootstrap GUC")
     if session.get_bind().dialect.name != "postgresql":
         return

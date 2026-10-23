@@ -46,13 +46,17 @@ in parallel, (5) Twilio SMS then email as further adapters. Design: `docs/produc
   hard-coded `update_id`, source-grep parity test)
 
 
-### Step 3 — Telegram end to end on evo-dev (needs user decisions + deploy)
-- [ ] DECISION U3: public ingress. evo-dev is Tailscale **Serve** (tailnet-only) — Telegram can't reach it.
-      Option: `tailscale funnel` scoped to `/webhooks/telegram` only
-- [ ] `mihomes telegram set-webhook | delete-webhook | webhook-info` (TELEGRAM_PRD §152; nothing calls setWebhook)
-- [ ] Group routing: webhook passes `chat_account_id` from `telegram.chat_links` so group senders aren't AmbiguousSender
-- [ ] Deploy (user runs `!` commands), set `TELEGRAM_WEBHOOK_SECRET` + token, link Belle group, `/link` a test user,
-      send one fresh message → logged once, reply received; no poller running (getUpdates blocks webhooks)
+### Step 3 — Telegram end to end on evo-dev
+- [x] DECISION U3 (user, 2026-10-23): Tailscale Funnel, :8443, `/webhooks/telegram` path only
+- [x] BUG (found): under the production role (table owner, FORCE RLS) the webhook resolved NO sender and redeemed
+      NO code — suite was superuser-only. Fixed with two SELECT-only bootstrap policies (0024); app-role tests added
+- [x] `mihomes telegram set-webhook | delete-webhook | webhook-info` (platform token only)
+- [x] DECISION (user, 2026-10-23): Belle staff have no logins → group binding approved (changes SPEC-006 D12).
+      `/linkchat` / `/unlinkchat` (linked owner/admin only), `telegram_chat_bindings` (0025, UNIQUE chat_id,
+      bootstrap policy by chat id). Bound group: linked senders resolve within it; unlinked = untrusted, no prompt
+- [x] Runbook `docs/deploy/TELEGRAM-WEBHOOK.md`
+- [ ] Deploy (user runs it): env vars, migrations 0024+0025, stop poller, Funnel, set-webhook, `/link` yourself,
+      `/linkchat` in Belle, one fresh message → logged once
 
 ### Step 4 — WhatsApp Cloud API (user-only, start now)
 - [ ] Meta Business verification, WABA, phone number, permanent system-user token, webhook verify token

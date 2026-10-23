@@ -132,6 +132,7 @@ from mihomes.models.staff import Staff  # noqa: E402, F401
 from mihomes.models.staff_pto import StaffPTORequest  # noqa: E402, F401
 from mihomes.models.tag import Tag, TagAssignment  # noqa: E402, F401
 from mihomes.models.task import Task, TaskCompletion, TaskSchedule  # noqa: E402, F401
+from mihomes.models.telegram_chat_binding import TelegramChatBinding  # noqa: E402, F401
 from mihomes.models.telegram_link import TelegramLink  # noqa: E402, F401
 from mihomes.models.template import Template, TemplateItem  # noqa: E402, F401
 from mihomes.models.user import User  # noqa: E402, F401

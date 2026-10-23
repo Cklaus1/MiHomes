@@ -170,6 +170,9 @@ TENANT_TABLES = frozenset({
     # makes TELEGRAM_PRD:158's "revoking a membership implicitly revokes the link" structural
     # rather than remembered. Never keyed on `Staff` (N6): that is a job enum with its own OWNER.
     "telegram_links",
+    # A Telegram group bound to one account by `/linkchat` (group binding, 2026-10-23), so staff
+    # without logins can report through a household group.
+    "telegram_chat_bindings",
     # --- identity, added by Step 1 --------------------------------------
     "invites",
     "membership_property_scopes",

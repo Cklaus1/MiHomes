@@ -122,6 +122,31 @@ class TelegramClient:
     # Sending
     # -------------------------------------------------------------------------
 
+    # -------------------------------------------------------------------------
+    # Webhook registration (setWebhook is a deploy-time action — `mihomes telegram set-webhook`)
+    # -------------------------------------------------------------------------
+
+    def set_webhook(self, url: str, secret_token: str, *, drop_pending: bool = False) -> dict:
+        """Register `url`; Telegram then sends `secret_token` in X-Telegram-Bot-Api-Secret-Token.
+
+        Only `message` updates are requested — the one kind `normalize_message` acts on — so
+        Telegram does not spend deliveries (and our 200s) on edits, polls and member changes.
+        """
+        return self._post("setWebhook", {
+            "url": url,
+            "secret_token": secret_token,
+            "allowed_updates": ["message"],
+            "drop_pending_updates": drop_pending,
+        })
+
+    def delete_webhook(self, *, drop_pending: bool = False) -> dict:
+        """Unregister the webhook (polling with getUpdates works again afterwards)."""
+        return self._post("deleteWebhook", {"drop_pending_updates": drop_pending})
+
+    def get_webhook_info(self) -> dict:
+        """Telegram's view: url, pending_update_count, last_error_date/message, allowed_updates."""
+        return self._get("getWebhookInfo")["result"]
+
     def send_message(self, chat_id: int | str, text: str) -> dict:
         """Send a text message to any chat (direct or group)."""
         return self._post("sendMessage", {"chat_id": int(chat_id), "text": text})

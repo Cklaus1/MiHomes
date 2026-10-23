@@ -78,6 +78,40 @@ _ACCOUNT_PREDICATE = (
 MEMBERSHIP_SELF_POLICY = "membership_self"
 MEMBERSHIPS_TABLE = "memberships"
 
+# The gateway bootstrap — the second (and, by design, last) exception to account scoping.
+#
+# A chat webhook knows only an external id, and finding the account is the first read's whole
+# job, so that read cannot be account-scoped (SPEC-006 §5.1). It used a "Core select is
+# unscoped" carve-out that only ever worked as a superuser: under the production role, which
+# owns the tables with FORCE ROW LEVEL SECURITY, it saw nothing. These policies give that read a
+# real basis, in the same shape as `membership_self`:
+#
+# * SELECT-only — they widen visibility for one id, never write permission;
+# * keyed on a GUC that only the resolver stamps, transaction-locally (`bind_gateway_guc`);
+# * each matches rows for exactly one external id, and NULL (unset) matches nothing;
+# * each reads only its own table — no policy references another table, so no table gains a
+#   policy dependency on another (that blocks DROP TABLE and migration downgrades).
+#
+# Only the external-id → account step needs them. Everything after it (the membership's role and
+# status, the link insert) runs under that account's own GUC and the ordinary tenant policy.
+_TG_USER = "(SELECT NULLIF(current_setting('app.gateway_telegram_user', true), '')::bigint)"
+_LINK_HASH = "(SELECT NULLIF(current_setting('app.gateway_link_token_hash', true), ''))"
+GATEWAY_BOOTSTRAP_POLICIES: dict[str, tuple[str, str]] = {
+    "telegram_links": ("telegram_links_gateway_sender", f"telegram_user_id = {_TG_USER}"),
+    "gateway_link_tokens": ("gateway_link_tokens_by_hash", f"token_hash = {_LINK_HASH}"),
+}
+
+
+def gateway_bootstrap_statements(table: str) -> list[str]:
+    """The bootstrap policy DDL for `table`, or [] if it has none. Idempotent."""
+    if table not in GATEWAY_BOOTSTRAP_POLICIES:
+        return []
+    name, predicate = GATEWAY_BOOTSTRAP_POLICIES[table]
+    return [
+        f"DROP POLICY IF EXISTS {name} ON {table}",
+        f"CREATE POLICY {name} ON {table} FOR SELECT USING ({predicate})",
+    ]
+
 
 def policy_name(table: str) -> str:
     return f"{table}_tenant"
@@ -100,6 +134,7 @@ def policy_statements(table: str) -> list[str]:
             "USING (user_id = (SELECT NULLIF("
             "current_setting('app.current_user', true), '')::uuid))",
         ]
+    stmts += gateway_bootstrap_statements(table)
     return stmts
 
 
@@ -139,6 +174,10 @@ def drop_statements(tables: set[str] | None = None) -> list[str]:
         if table == MEMBERSHIPS_TABLE:
             stmts.append(
                 f"DROP POLICY IF EXISTS {MEMBERSHIP_SELF_POLICY} ON {table}"
+            )
+        if table in GATEWAY_BOOTSTRAP_POLICIES:
+            stmts.append(
+                f"DROP POLICY IF EXISTS {GATEWAY_BOOTSTRAP_POLICIES[table][0]} ON {table}"
             )
         stmts.append(f"ALTER TABLE {table} NO FORCE ROW LEVEL SECURITY")
         stmts.append(f"ALTER TABLE {table} DISABLE ROW LEVEL SECURITY")

@@ -623,3 +623,126 @@ def test_the_route_stays_under_the_exempt_prefix():
             f"{path} is outside {WEBHOOK_PATH_PREFIX!r}, so `web/security.py`'s exemption no "
             "longer covers it and the Host guard will reject every delivery"
         )
+
+
+# ------------------------------------------------------------------------------------- #
+# The unscoped bootstrap reads must work under the PRODUCTION role, not only as superuser
+# ------------------------------------------------------------------------------------- #
+@pytest.fixture
+def app_role(app_engine):
+    """`app_engine`, with its pool disposed afterwards.
+
+    These tests stamp `app.current_account` on app-role connections; the test engine has no
+    pool-checkin reset, so a returned connection would carry the GUC (as '' rather than NULL)
+    into `test_rls.py::test_unset_guc_returns_empty`, which needs a pristine connection.
+    """
+    yield app_engine
+    app_engine.dispose()
+
+
+def test_sender_resolution_works_under_the_app_role(app_role, account_a, wired):
+    """`resolve_sender` runs before any account is bound — that is its whole job.
+
+    Every other test here connects as `postgres`, which bypasses RLS, so they cannot see whether
+    the unscoped lookup survives `FORCE ROW LEVEL SECURITY` on `telegram_links` under the
+    non-superuser role production runs as (`verify_runtime_role`, N5).
+    """
+    from sqlalchemy.orm import Session
+
+    from mihomes.services.gateways.identity import resolve_sender
+
+    with Session(app_role) as s:
+        resolved = resolve_sender(s, gateway="telegram", sender_id="424242424")
+    assert resolved.account_id == account_a
+
+
+def _issue_code(_pg_engine, account_a) -> str:
+    """A fresh staff membership with an unredeemed Telegram link code, committed (raw code)."""
+    from sqlalchemy.orm import sessionmaker
+
+    from mihomes.services.gateways.linking import issue_link_token
+
+    conn = _pg_engine.connect()
+    tx = conn.begin()
+    s = sessionmaker(bind=conn, future=True, join_transaction_mode="create_savepoint")()
+    with account_context(account_a):
+        user = User(id=uuid.uuid4(), google_sub=f"sub-{uuid.uuid4().hex[:12]}",
+                    email=f"wh-{uuid.uuid4().hex[:8]}@example.com")
+        s.add(user)
+        s.flush()
+        membership = Membership(id=uuid.uuid4(), account_id=account_a, user_id=user.id,
+                                role="staff", status="active")
+        s.add(membership)
+        s.flush()
+        code = issue_link_token(s, account_a, membership.id, gateway="telegram")
+        s.commit()
+    s.close()
+    tx.commit()
+    conn.close()
+    return code
+
+
+def test_the_whole_webhook_path_works_under_the_app_role(
+    web_client_factory, _pg_engine, app_role, account_a, wired, sent
+):
+    """Unlinked → `/link CODE` → linked message → issue row, with the ROUTE on the app role.
+
+    Every other webhook test runs the route's own sessions as `postgres`, which bypasses RLS —
+    so the suite was green while, in production, no sender could resolve and no code redeem.
+    """
+    from mihomes import db
+
+    code = _issue_code(_pg_engine, account_a)
+    db._engine, db._SessionLocal = app_role, None  # restored by `_pin_engine_to_test_db`
+    client = web_client_factory()
+    before = _counts(_pg_engine, account_a)
+    try:
+        r = client.post(
+            "/webhooks/telegram",
+            content=_update(9801, sender_id="777000111", chat_id="-100777", text_=f"/link {code}"),
+            headers={SECRET_HEADER: SECRET},
+        )
+        assert r.status_code == 200
+        assert any("You're linked" in t for _c, t in sent), sent
+
+        r = client.post(
+            "/webhooks/telegram",
+            content=_update(9802, sender_id="777000111", chat_id="-100777",
+                            text_="The boiler in the cellar is leaking"),
+            headers={SECRET_HEADER: SECRET},
+        )
+        assert r.status_code == 200
+        assert _counts(_pg_engine, account_a)["issues"] == before["issues"] + 1
+    finally:
+        with _pg_engine.begin() as cleanup:
+            cleanup.execute(text("DELETE FROM gateway_link_tokens WHERE account_id = :a"),
+                            {"a": account_a})
+
+
+def test_link_redemption_works_under_the_app_role(_pg_engine, app_role, account_a, wired):
+    """`/link CODE` runs before any account is bound: the code is what reveals the account.
+
+    Under the production role the token lookup used to find nothing (every code "not valid"),
+    and the link insert needs the account GUC for RLS's WITH CHECK.
+    """
+    from sqlalchemy.orm import Session
+
+    from mihomes.services.gateways.linking import redeem_link_token
+
+    code = _issue_code(_pg_engine, account_a)
+    try:
+        with Session(app_role) as app_s:
+            resolved = redeem_link_token(app_s, gateway="telegram", sender_id="555000111",
+                                         raw_token=code)
+            app_s.commit()
+        assert resolved.account_id == account_a
+
+        with _pg_engine.connect() as check:
+            linked = check.execute(
+                text("SELECT count(*) FROM telegram_links WHERE telegram_user_id = 555000111")
+            ).scalar_one()
+        assert linked == 1
+    finally:
+        with _pg_engine.begin() as cleanup:
+            cleanup.execute(text("DELETE FROM gateway_link_tokens WHERE account_id = :a"),
+                            {"a": account_a})

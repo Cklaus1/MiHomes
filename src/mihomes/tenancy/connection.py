@@ -71,6 +71,9 @@ __all__ = [
 
 ACCOUNT_GUC = "app.current_account"
 USER_GUC = "app.current_user"
+#: Gateway bootstrap GUCs — see `rls.GATEWAY_BOOTSTRAP_POLICIES` and `bind_gateway_guc`.
+GATEWAY_TELEGRAM_USER_GUC = "app.gateway_telegram_user"
+GATEWAY_LINK_TOKEN_GUC = "app.gateway_link_token_hash"
 
 
 def bind_account_guc(session: Session, account_id) -> None:
@@ -144,6 +147,28 @@ def bind_user_guc(session: Session, user_id) -> None:
         text("SELECT set_config(:guc, :value, true)"),
         {"guc": USER_GUC, "value": str(user_id)},
     )
+
+
+def bind_gateway_guc(session: Session, guc: str, value: str) -> None:
+    """Stamp one gateway bootstrap GUC so its narrow SELECT policy can see the matching rows.
+
+    The chat gateways have the same problem `bind_user_guc` solves, one step earlier: a
+    webhook carries only an external id (a Telegram user id, a link code), and *which account it
+    belongs to* is what the first read has to discover. Under the production role — the table
+    owner, with `FORCE ROW LEVEL SECURITY` — an unscoped read of `telegram_links` or
+    `gateway_link_tokens` returned **zero rows for a properly linked sender**, so every message
+    was answered "I don't recognise you" and every code was "not valid". The suite connects as a
+    superuser and could not see it (`test_gateway_webhook::...under_the_app_role`).
+
+    The matching policies (`rls.GATEWAY_BOOTSTRAP_POLICIES`) are SELECT-only and key on exactly
+    one external id, so this widens what one transaction can read to the rows for that id and
+    nothing else; writes still need the account GUC. `is_local=true` (N3) — gone at commit.
+    """
+    if guc not in (GATEWAY_TELEGRAM_USER_GUC, GATEWAY_LINK_TOKEN_GUC):
+        raise ValueError(f"{guc!r} is not a gateway bootstrap GUC")
+    if session.get_bind().dialect.name != "postgresql":
+        return
+    session.execute(text("SELECT set_config(:guc, :value, true)"), {"guc": guc, "value": value})
 
 
 def _set_tenant_guc(session: Session, transaction, connection) -> None:

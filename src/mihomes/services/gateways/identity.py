@@ -53,8 +53,9 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from typing import NamedTuple
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from mihomes.models.membership import Membership
@@ -69,6 +70,12 @@ __all__ = [
 
 _MEMBERSHIPS = Membership.__table__
 _LINKS = TelegramLink.__table__
+
+
+class _LinkRow(NamedTuple):
+    account_id: uuid.UUID
+    membership_id: uuid.UUID
+    role: str
 
 
 @dataclass(frozen=True)
@@ -137,20 +144,47 @@ def _links_for(session: Session, *, gateway: str, sender_id: str) -> list:
         # the lookup would give, reached without a query.
         raise UnlinkedSender(f"malformed telegram sender id {sender_id!r}") from None
 
-    return session.execute(
-        select(
-            _LINKS.c.account_id,
-            _MEMBERSHIPS.c.id.label("membership_id"),
-            _MEMBERSHIPS.c.role,
-        )
-        .select_from(
-            _LINKS.join(_MEMBERSHIPS, _LINKS.c.membership_id == _MEMBERSHIPS.c.id)
-        )
-        .where(
-            _LINKS.c.telegram_user_id == telegram_user_id,
-            _MEMBERSHIPS.c.status == "active",
+    # The Core select bypasses the ORM tenancy filter, but not Postgres RLS: under the
+    # production role (the table owner, FORCE RLS) it saw no rows at all — every linked sender
+    # read as unlinked. Two steps, each with a real RLS basis:
+    #   1. this sender's links, via the bootstrap policy keyed on this one Telegram user id;
+    #   2. each linked membership's role/status, under *that* link's account GUC and the
+    #      ordinary tenant policy — so nothing outside the candidate accounts is readable.
+    from mihomes.tenancy.connection import (
+        ACCOUNT_GUC,
+        GATEWAY_TELEGRAM_USER_GUC,
+        bind_account_guc,
+        bind_gateway_guc,
+    )
+
+    bind_gateway_guc(session, GATEWAY_TELEGRAM_USER_GUC, str(telegram_user_id))
+    links = session.execute(
+        select(_LINKS.c.account_id, _LINKS.c.membership_id).where(
+            _LINKS.c.telegram_user_id == telegram_user_id
         )
     ).all()
+
+    rows = []
+    try:
+        for link in links:
+            bind_account_guc(session, link.account_id)
+            membership = session.execute(
+                select(_MEMBERSHIPS.c.id, _MEMBERSHIPS.c.role).where(
+                    _MEMBERSHIPS.c.id == link.membership_id,
+                    _MEMBERSHIPS.c.status == "active",
+                )
+            ).first()
+            if membership is not None:
+                rows.append(_LinkRow(link.account_id, membership.id, membership.role))
+    finally:
+        # Leave no account bound on this unscoped transaction: the caller opens its own scoped
+        # session with the resolved account and does nothing else on this one first.
+        if links and session.get_bind().dialect.name == "postgresql":
+            # NULL, not '' — "unbound is stamped as NULL" (tenancy/connection.py).
+            session.execute(
+                text("SELECT set_config(:guc, NULL, true)"), {"guc": ACCOUNT_GUC}
+            )
+    return rows
 
 
 def resolve_sender(

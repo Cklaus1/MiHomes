@@ -267,7 +267,10 @@ def test_registry_size_is_asserted_explicitly():
     # files read by every account, so one estate's procedures were visible to all of them.
     #
     # `playbook_checks` (0023, 2026-10-22) -> 53: the shared tick boxes on a playbook's steps.
-    assert len(TENANT_TABLES) == 53, (
-        f"expected 53 tenant-owned tables, registry has {len(TENANT_TABLES)} — "
+    #
+    # `telegram_chat_bindings` (0025, 2026-10-23) -> 54: a Telegram group bound to one account by
+    # /linkchat, so a household group's staff without logins can report through it.
+    assert len(TENANT_TABLES) == 54, (
+        f"expected 54 tenant-owned tables, registry has {len(TENANT_TABLES)} — "
         "if a table was legitimately added or removed, update this number and say why"
     )

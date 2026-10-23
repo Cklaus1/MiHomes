@@ -298,6 +298,7 @@ def wired(_pg_engine, account_a, sent):
     for table in (
         *WATCHED_TABLES,
         "audit_log",
+        "telegram_chat_bindings",
         "telegram_links",
         "memberships",
         "configurations",
@@ -746,3 +747,167 @@ def test_link_redemption_works_under_the_app_role(_pg_engine, app_role, account_
         with _pg_engine.begin() as cleanup:
             cleanup.execute(text("DELETE FROM gateway_link_tokens WHERE account_id = :a"),
                             {"a": account_a})
+
+
+# ------------------------------------------------------------------------------------- #
+# Group binding — /linkchat, /unlinkchat, and an unlinked member of a bound group
+# ------------------------------------------------------------------------------------- #
+GROUP = "-100888"
+ADMIN_TG = "424242424"  # linked as admin in account A by `wired`
+
+
+def _commit_link(_pg_engine, account_id, telegram_user_id: int, role: str) -> None:
+    """A committed user + membership(role) + Telegram link in `account_id`."""
+    with _pg_engine.begin() as conn:
+        uid, mid = uuid.uuid4(), uuid.uuid4()
+        conn.execute(text("INSERT INTO users (id, google_sub, email) VALUES (:u, :s, :e)"),
+                     {"u": uid, "s": f"sub-{uid.hex[:10]}", "e": f"wh-{uid.hex[:8]}@example.com"})
+        conn.execute(text("INSERT INTO memberships (id, account_id, user_id, role, status) "
+                          "VALUES (:m, :a, :u, :r, 'active')"),
+                     {"m": mid, "a": account_id, "u": uid, "r": role})
+        conn.execute(text("INSERT INTO telegram_links (id, account_id, membership_id, telegram_user_id) "
+                          "VALUES (:i, :a, :m, :t)"),
+                     {"i": uuid.uuid4(), "a": account_id, "m": mid, "t": telegram_user_id})
+
+
+def _say(client, update_id: int, sender: str, text_: str, chat: str = GROUP):
+    r = client.post("/webhooks/telegram",
+                    content=_update(update_id, sender_id=sender, chat_id=chat, text_=text_),
+                    headers={SECRET_HEADER: SECRET})
+    assert r.status_code == 200
+    return r
+
+
+def _bound_to(_pg_engine, chat: str = GROUP):
+    with _pg_engine.connect() as conn:
+        return conn.execute(text("SELECT account_id FROM telegram_chat_bindings WHERE chat_id = :c"),
+                            {"c": int(chat)}).scalar_one_or_none()
+
+
+@pytest.fixture
+def unbind_all(_pg_engine):
+    yield
+    with _pg_engine.begin() as conn:
+        conn.execute(text("DELETE FROM telegram_chat_bindings WHERE chat_id = :c"), {"c": int(GROUP)})
+
+
+def test_linkchat_binds_and_an_unlinked_member_is_logged_without_a_prompt(
+    web_client_factory, _pg_engine, app_role, account_a, wired, sent, unbind_all
+):
+    """The Belle case, on the production role: staff without logins report through the group."""
+    from mihomes import db
+    from mihomes.services.gateways import chat_binding as cb
+
+    db._engine, db._SessionLocal = app_role, None  # restored by `_pin_engine_to_test_db`
+    client = web_client_factory()
+
+    _say(client, 9901, ADMIN_TG, "/linkchat")
+    assert sent[-1] == (GROUP, cb.LINKED)
+    assert _bound_to(_pg_engine) == account_a
+
+    before = _counts(_pg_engine, account_a)
+    sent.clear()
+    _say(client, 9902, "123123123", "The pool gate latch is broken")  # no link, no login
+    assert _counts(_pg_engine, account_a)["issues"] == before["issues"] + 1
+    assert not any("recognise" in t for _c, t in sent), "a bound group must never prompt"
+
+
+def test_an_unlinked_member_is_untrusted(
+    web_client_factory, _pg_engine, account_a, wired, sent, unbind_all, monkeypatch
+):
+    """Binding routes the message; it does not make the sender trusted (M27)."""
+    client = web_client_factory()
+    _say(client, 9911, ADMIN_TG, "/linkchat")
+
+    expense = {"items": [{"category": "expense_log", "title": "Pool chemicals", "amount": 250}]}
+    monkeypatch.setattr("mihomes.services.gateways.telegram.responder.analyze_messages",
+                        lambda *a, **k: expense)
+    with _pg_engine.connect() as conn:
+        before = conn.execute(text("SELECT count(*) FROM transactions WHERE account_id = :a"),
+                              {"a": account_a}).scalar_one()
+    _say(client, 9912, "123123123", "Paid 250 for pool chemicals")
+    with _pg_engine.connect() as conn:
+        after = conn.execute(text("SELECT count(*) FROM transactions WHERE account_id = :a"),
+                             {"a": account_a}).scalar_one()
+    assert after == before
+
+
+def test_unbound_group_still_prompts_and_writes_nothing(
+    web_client_factory, _pg_engine, account_a, wired, sent
+):
+    client = web_client_factory()
+    before = _counts(_pg_engine, account_a)
+    _say(client, 9921, "123123123", "The pool gate latch is broken")
+    assert any("recognise" in t for _c, t in sent)
+    assert _counts(_pg_engine, account_a) == before
+
+
+def test_only_a_linked_owner_or_admin_may_bind(
+    web_client_factory, _pg_engine, account_a, wired, sent, unbind_all
+):
+    from mihomes.services.gateways import chat_binding as cb
+
+    _commit_link(_pg_engine, account_a, 515151515, "staff")
+    client = web_client_factory()
+
+    _say(client, 9931, "123123123", "/linkchat")          # no link at all
+    assert sent[-1] == (GROUP, cb.LINK_YOURSELF_FIRST)
+    _say(client, 9932, "515151515", "/linkchat@MiHomesBot")  # linked, but staff
+    assert sent[-1] == (GROUP, cb.MANAGERS_ONLY)
+    dm = json.loads(_update(9933, sender_id=ADMIN_TG, chat_id="777000", text_="/linkchat"))
+    dm["message"]["chat"]["type"] = "private"  # `_update` always builds a group
+    r = client.post("/webhooks/telegram", content=json.dumps(dm).encode(),
+                    headers={SECRET_HEADER: SECRET})
+    assert r.status_code == 200
+    assert sent[-1] == ("777000", cb.NOT_A_GROUP)
+    assert _bound_to(_pg_engine) is None
+
+
+def test_a_group_bound_elsewhere_is_refused_without_naming_it(
+    web_client_factory, _pg_engine, account_a, account_b, wired, sent, unbind_all
+):
+    from mihomes.services.gateways import chat_binding as cb
+
+    _commit_link(_pg_engine, account_b, 626262626, "owner")
+    client = web_client_factory()
+    try:
+        _say(client, 9941, ADMIN_TG, "/linkchat")
+        _say(client, 9942, "626262626", "/linkchat")
+        assert sent[-1] == (GROUP, cb.LINKED_ELSEWHERE)
+        assert _bound_to(_pg_engine) == account_a
+        _say(client, 9943, ADMIN_TG, "/linkchat")
+        assert sent[-1] == (GROUP, cb.ALREADY_LINKED)
+    finally:
+        with _pg_engine.begin() as conn:
+            for t in ("telegram_links", "memberships"):
+                conn.execute(text(f"DELETE FROM {t} WHERE account_id = :a"), {"a": account_b})  # noqa: S608
+
+
+def test_unlinkchat_restores_per_sender_resolution(
+    web_client_factory, _pg_engine, account_a, wired, sent, unbind_all
+):
+    from mihomes.services.gateways import chat_binding as cb
+
+    _commit_link(_pg_engine, account_a, 515151516, "staff")
+    client = web_client_factory()
+    _say(client, 9951, ADMIN_TG, "/linkchat")
+    _say(client, 9952, "515151516", "/unlinkchat")
+    assert sent[-1] == (GROUP, cb.MANAGERS_ONLY)
+    _say(client, 9953, ADMIN_TG, "/unlinkchat")
+    assert sent[-1] == (GROUP, cb.UNLINKED)
+    assert _bound_to(_pg_engine) is None
+
+    sent.clear()
+    _say(client, 9954, "123123123", "Anyone there?")
+    assert any("recognise" in t for _c, t in sent)
+
+
+@pytest.mark.parametrize(
+    ("text_", "expected"),
+    [("/linkchat", "linkchat"), ("/LinkChat@MiHomesBot", "linkchat"), ("  /unlinkchat ", "unlinkchat"),
+     ("/linkchat now", None), ("/link ABC123", None), ("please /linkchat", None), (None, None)],
+)
+def test_parse_chat_command(text_, expected):
+    from mihomes.services.gateways.chat_binding import parse_chat_command
+
+    assert parse_chat_command(text_) == expected

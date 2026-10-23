@@ -457,6 +457,10 @@ class TestModelsWithNoPropertyLinkageAreDenied:
             "Invite",
             "OnboardingState",
             "TelegramLink",
+            # Group binding (0025): which estate a Telegram group belongs to. Identity plumbing
+            # like `TelegramLink` — read only by the webhook's bootstrap lookup — so staff are
+            # denied it outright; binding and unbinding are owner/admin actions in the chat.
+            "TelegramChatBinding",
             "Account",
             # SPEC-004 §4.2 — the AI usage meter, and this gate is doing its job by demanding
             # the addition be acknowledged rather than absorbed.

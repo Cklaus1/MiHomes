@@ -312,6 +312,7 @@ def _entity_classes() -> dict[type, EntityClass]:
     from mihomes.models.staff_pto import StaffPTORequest
     from mihomes.models.tag import Tag, TagAssignment
     from mihomes.models.task import Task, TaskCompletion, TaskSchedule
+    from mihomes.models.telegram_chat_binding import TelegramChatBinding
     from mihomes.models.telegram_link import TelegramLink
     from mihomes.models.template import Template, TemplateItem
     from mihomes.models.user import User
@@ -411,6 +412,8 @@ def _entity_classes() -> dict[type, EntityClass]:
         # staff member create *their own*, but nobody reads the table as content — so
         # account-level, and never surfaced to a staff query.
         TelegramLink: account,
+        # Same reasoning for a bound group chat: identity plumbing, read only by the webhook.
+        TelegramChatBinding: account,
 
         Staff: EntityClass.PERSONNEL,
         StaffPTORequest: EntityClass.PERSONNEL,

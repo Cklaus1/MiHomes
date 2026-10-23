@@ -38,6 +38,7 @@ from mihomes.services.gateways.whatsapp.protocol import WhatsAppBridge
 BAILEYS_ENVELOPE_KEYS = {
     "id",
     "timestamp",
+    "channel",
     "jid",
     "isGroup",
     "sender",
@@ -169,23 +170,48 @@ def test_envelope_parity():
     assert msg["text"] == "Boiler is leaking"
     assert msg["propertySlug"] == "belle-estate"
     assert msg["hasMedia"] is False
+    assert msg["channel"] == "whatsapp"
+    # One timestamp format across channels — Meta's epoch string becomes ISO-8601 UTC.
+    assert msg["timestamp"] == "2025-08-29T20:40:00+00:00"
+
+
+def test_the_literal_key_list_is_the_typed_envelope():
+    """The literal above guards against shrinkage; this ties it to `InternalMessage`."""
+    from mihomes.services.gateways.message import ENVELOPE_KEYS
+
+    assert BAILEYS_ENVELOPE_KEYS == ENVELOPE_KEYS
 
 
 def test_the_parity_target_is_the_shape_the_telegram_client_really_produces():
     """The other half of A19: `BAILEYS_ENVELOPE_KEYS` must describe live code.
 
-    A constant in a test file agrees with itself forever. This reads `telegram/client.py`'s
-    normalizer and asserts the same keys appear there, so a transport that changes its envelope
-    fails here rather than drifting away from the other one in silence.
+    A constant in a test file agrees with itself forever. This runs Telegram's shared normalizer
+    (both Telegram transports call it) and compares the keys it actually emits, so a transport
+    that changes its envelope fails here rather than drifting away from the other in silence.
     """
     from mihomes.services.gateways.telegram import client as tg
 
-    source = inspect.getsource(tg.TelegramClient.normalize_update)
-    for key in sorted(BAILEYS_ENVELOPE_KEYS):
-        assert f'"{key}"' in source, (
-            f"{key!r} is asserted as part of the shared envelope but "
-            "TelegramClient.normalize_update no longer produces it"
-        )
+    produced = tg.normalize_message({
+        "update_id": 1,
+        "message": {
+            "message_id": 1, "date": 1756500000, "text": "hi",
+            "from": {"id": 5, "first_name": "A"}, "chat": {"id": -1, "type": "group"},
+        },
+    })
+    assert set(produced) == BAILEYS_ENVELOPE_KEYS
+
+
+def test_a_reply_goes_to_the_sender_not_to_our_own_number():
+    """`jid` is where the responder sends its reply, so it must be the sender's wa_id.
+
+    It used to be `metadata.display_phone_number` — the business's OWN number — so every
+    one-to-one reply would have been addressed to ourselves. Groups are not modelled here: whether
+    the Cloud API tier supports them, and how a group is identified, is still open (U2).
+    """
+    msg = normalize_cloud_message(_cloud_entry(wa_id="15551234567"))
+    assert msg["jid"] == "15551234567"
+    assert msg["jid"] != "15559876543"  # display_phone_number in the fixture
+    assert msg["isGroup"] is False
 
 
 def test_a_media_message_carries_its_caption():

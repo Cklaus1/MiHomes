@@ -109,21 +109,26 @@ def verify_whatsapp(raw_body: bytes, signature_header: str | None, *, app_secret
         raise WebhookVerificationError("signature mismatch")
 
 
-def normalize_telegram_update(raw_body: bytes) -> dict | None:
-    """One Telegram update → the message dict the responders already expect, or `None`.
 
-    The contract is the shape `review_common` consumes and both existing responders produce:
-    `jid` (the chat), `sender`, `senderName`, `text`, `hasMedia`, `mediaPath`, `id`. Producing
-    exactly that here is what lets Step 7's Cloud API adapter be a *swap* rather than a rewrite
-    (A19's envelope parity is the same claim from the other side).
+
+def normalize_telegram_update(raw_body: bytes) -> dict | None:
+    """One verified Telegram webhook body → the internal message envelope, or `None`.
+
+    Parsing is all this adds: the envelope itself comes from `telegram.client.normalize_message`,
+    the same function the poller uses, so the two transports cannot drift again (they had — see
+    its docstring). The shape is the one `review_common` consumes; a missing key is not a
+    degraded envelope but a message the responder silently discards, which G5 learned the hard
+    way.
 
     Returns `None` for an update carrying nothing we act on — an edited message, a poll answer,
-    a `my_chat_member` change. That is not an error: Telegram sends many update kinds and a
-    handler that raised on the unfamiliar ones would turn routine traffic into 500s, which
-    providers retry.
+    a `my_chat_member` change, a member joining. That is not an error: Telegram sends many update
+    kinds and a handler that raised on the unfamiliar ones would turn routine traffic into 500s,
+    which providers retry.
 
     **Called only after verification.** The parse itself is the step N4 orders last.
     """
+    from mihomes.services.gateways.telegram.client import normalize_message
+
     try:
         update = json.loads(raw_body)
     except (json.JSONDecodeError, UnicodeDecodeError):
@@ -132,60 +137,4 @@ def normalize_telegram_update(raw_body: bytes) -> dict | None:
         logger.warning("telegram webhook: verified body did not parse as JSON")
         return None
 
-    if not isinstance(update, dict):
-        return None
-
-    message = update.get("message") or update.get("channel_post")
-    if not isinstance(message, dict):
-        return None
-
-    chat = message.get("chat") or {}
-    sender = message.get("from") or {}
-
-    chat_id = chat.get("id")
-    if chat_id is None:
-        return None
-
-    name_parts = [sender.get("first_name"), sender.get("last_name")]
-    sender_name = " ".join(p for p in name_parts if p) or sender.get("username") or ""
-
-    has_media = bool(
-        message.get("photo") or message.get("document") or message.get("video")
-    )
-
-    chat_type = chat.get("type") or ""
-
-    return {
-        # **The full eleven-key envelope `telegram/client.py:164` produces**, not a subset.
-        #
-        # This was measured the hard way. The first version omitted `propertySlug`, and
-        # `responder.py:208` filters on exactly that key — `[m for m in messages if
-        # m.get("propertySlug") or property_slug]` — so **every** webhook message was dropped
-        # before dispatch with "No linked chat found". The G5 tests still passed, because the
-        # rows they counted were written during *sender resolution* rather than by dispatch:
-        # a criterion satisfied by the wrong mechanism.
-        #
-        # A19's claim is "the same dict", not "a compatible subset", and this is why: a missing
-        # key is not a degraded envelope, it is a message the responder silently discards.
-        "id": str(update.get("update_id") or ""),
-        "timestamp": message.get("date"),
-        # `jid` rather than `chat_id`: the responders' existing contract is WhatsApp's
-        # vocabulary, and D2 makes the adapter the thing that differs, not the envelope.
-        "jid": str(chat_id),
-        "isGroup": chat_type in ("group", "supergroup", "channel"),
-        "sender": str(sender.get("id") or ""),
-        "senderName": sender_name,
-        "senderUsername": sender.get("username") or "",
-        "text": message.get("text") or message.get("caption") or "",
-        "hasMedia": has_media,
-        # Media arrives as a file_id needing a second API call to fetch; the poller does that
-        # today and the webhook does not change it. Left None rather than half-populated.
-        "mediaPath": None,
-        # Filled by the caller from the chat→property map, which is a *scoped* read and so
-        # cannot happen here: this function runs before any account is bound (§5.1). `None`
-        # rather than absent, so the key's presence is not what varies between transports.
-        "propertySlug": None,
-        # `update_id` is what dedup keys on — Telegram guarantees it is unique per update, and
-        # redelivery of one update repeats it, which is exactly A16's question.
-        "update_id": update.get("update_id"),
-    }
+    return normalize_message(update)

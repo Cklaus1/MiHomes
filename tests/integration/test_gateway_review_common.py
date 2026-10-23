@@ -189,25 +189,44 @@ def test_dispatch_unknown_category_skipped_not_crashed(session, prop, capture):
 
 
 # --------------------------------------------------------------------------- #
-# H27 — ai_response rolls back the session on provider failure
+# H27 — an AI failure must leave the session usable WITHOUT discarding the batch
 # --------------------------------------------------------------------------- #
-def test_ai_response_rolls_back_on_failure(session, monkeypatch):
-    calls = {"rollback": 0}
-    real_rollback = session.rollback
-
-    def _tracked_rollback():
-        calls["rollback"] += 1
-        return real_rollback()
-
-    monkeypatch.setattr(session, "rollback", _tracked_rollback)
+# The first H27 fix was a full `session.rollback()`. That kept the session usable, but it also
+# threw away every write already made in the batch: an issue created a moment before its expert
+# reply failed vanished, while `dispatch_items` still counted it and sent "logged ✓". The fix is a
+# SAVEPOINT around the AI call, so only the AI call's own work is undone.
+def test_ai_failure_keeps_writes_made_before_it(session, prop, capture, monkeypatch):
+    from mihomes.models.issue import Issue
 
     def _boom(*a, **k):
         raise RuntimeError("provider exploded")
 
     monkeypatch.setattr("mihomes.services.ai.orchestrator.ask", _boom)
+    adapter, sent = capture
+    items = [{"category": "issue", "title": "Gate motor jammed", "severity": "high"}]
+    result = _dispatch(session, items, adapter, prop.slug)
+
+    assert result["logged"] == 1
+    assert sent and "Gate motor jammed" in sent[0][1]
+    # The reported write is really there — not rolled back behind the confirmation.
+    assert session.query(Issue).filter(Issue.title == "Gate motor jammed").count() == 1
+
+
+def test_ai_failure_inside_the_database_leaves_the_session_usable(session, prop, monkeypatch):
+    """H27's original concern: a failed statement aborts a Postgres transaction."""
+    from sqlalchemy import text
+
+    from mihomes.models.issue import Issue
+
+    def _bad_sql(sess, *a, **k):
+        sess.execute(text("SELECT * FROM no_such_table_h27"))
+
+    monkeypatch.setattr("mihomes.services.ai.orchestrator.ask", _bad_sql)
     out = rc.ai_response(session, "any prompt", role="maintenance", property_slug=None)
     assert out is None
-    assert calls["rollback"] == 1
+    # Not "current transaction is aborted": the savepoint absorbed the failure.
+    assert session.query(Issue).count() >= 0
+    assert session.get(type(prop), prop.id) is not None
 
 
 def test_ai_response_strips_markdown_and_handles_no_response(session, monkeypatch):

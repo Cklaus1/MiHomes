@@ -159,9 +159,15 @@ def sent(monkeypatch):
     """
     captured: list[tuple[str, str]] = []
 
+    # The real constructor signature, not `*a, **k`. The permissive fake is what hid `_reply`
+    # building `TelegramClient()` with no token: the TypeError was swallowed by `_reply`'s
+    # except-all, so unlinked senders never got the link prompt in production.
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:platform-token")
+
     class _FakeClient:
-        def __init__(self, *a, **k):
-            pass
+        def __init__(self, token):
+            assert token, "a client built without a token can never send"
+            self.token = token
 
         def send_message(self, chat_id, text_, **kwargs):
             captured.append((str(chat_id), text_))
@@ -172,7 +178,7 @@ def sent(monkeypatch):
     )
     monkeypatch.setattr(
         "mihomes.services.gateways.telegram.responder._get_client",
-        lambda session: _FakeClient(),
+        lambda session: _FakeClient("123:platform-token"),
     )
     return captured
 
@@ -529,16 +535,26 @@ def test_no_double_transport(web_client_factory, _pg_engine, account_a, wired):
     # Asserted against `ProcessedIdStore` directly rather than by driving `_run_loop`: that
     # function is a closure over a live Telegram client and is not callable in a test, and the
     # store is the actual mechanism either way.
+    # The ids are the ones the POLLER's own normalizer produces for these updates — not literals.
+    # This test used to check `str(update_id)` and have the "poller" record "9600", while the real
+    # poller records "<chat>:<message_id>": one store, two id schemes, and the two transports
+    # could never match a message (it passed against a fiction). Both now share
+    # `normalize_message`, so the poller's id is computed exactly as the poller computes it.
+    from mihomes.services.gateways.telegram.client import normalize_message
+
+    def _poller_id(uid: int, text_: str) -> str:
+        raw = _update(uid, sender_id="424242424", chat_id="-100777", text_=text_)
+        return normalize_message(json.loads(raw))["id"]
+
     with account_context(account_a):
         poller_store = ProcessedIdStore(PROCESSED_IDS_KEY, cap=MAX_PROCESSED_IDS)
-        assert poller_store.contains(str(update_id)), (
+        assert poller_store.contains(_poller_id(update_id, "Leak")), (
             "the poller's store does not know the webhook handled this update — the two "
-            "transports are keyed on different config keys and would both process it (M22)"
+            "transports key on different stores or different ids and would both process it"
         )
 
         # --- and the reverse direction: an id the POLLER records is skipped by the webhook --
-        poller_only = "9600"
-        poller_store.add([poller_only])
+        poller_store.add([_poller_id(9600, "Poller saw this")])
 
     before = _counts(_pg_engine, account_a)
     r2 = client.post(

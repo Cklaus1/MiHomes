@@ -280,7 +280,9 @@ def test_exit_criterion(web_client_factory, _pg_engine, account_a, account_b, tw
 
     with account_context(account_a):
         store = ProcessedIdStore(PROCESSED_IDS_KEY, cap=MAX_PROCESSED_IDS)
-        assert store.contains("77001"), (
+        # "<chat>:<message_id>" — the id both transports derive (`normalize_message`), not the
+        # update_id: the poller has always keyed on the message, and one store needs one scheme.
+        assert store.contains("-100515:4242"), (
             "the shared dedup store does not know the webhook handled this update, so a "
             "running poller would process it again and double-write (A17)"
         )

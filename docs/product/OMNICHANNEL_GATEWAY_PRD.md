@@ -149,7 +149,16 @@ def resolve_identity(from_id: str, channel: str) -> IdentityResult | None:
 
 ### 5.2 Channel Adapters
 
-Each adapter implements a common `ChannelAdapter` Protocol:
+> **As shipped (2026-10-22, `gateways/review_common.py`):** `ChannelAdapter` is a Protocol whose
+> required surface is `label`, `channel` and `send(target, text)`; the per-channel differences
+> (`error_text`, `is_approver`, `reporter_for`, `inventory_target`, `scan_inventory`, `analyze`)
+> are optional hooks with defaults on the `GatewayAdapter` dataclass, because SMS and email have no
+> inventory scans or group approvers. Every responder builds its adapter and calls
+> `review_common.handle_inbound`. Ingestion is the per-transport normalizer returning an
+> `InternalMessage` (§7) rather than an `ingest` method; `deliver`/`OutboundMessage` below remain a
+> design for when templates and the 24h window arrive with the Cloud API and Twilio.
+
+The original design sketch:
 
 ```python
 class ChannelAdapter(Protocol):
@@ -339,24 +348,30 @@ Implemented as an in-memory sliding window with DB persistence for multi-instanc
 
 ## 7. Unified Internal Message Format
 
-Same dict format as current gateways, with an added `channel` field:
+**Shipped 2026-10-22 as `InternalMessage` in `gateways/message.py`** (a TypedDict; `ENVELOPE_KEYS`
+is what the contract tests compare every normalizer against). The keys stay camelCase because that
+is what the live code and the Baileys bridge already emitted — this section follows the code, not
+the reverse. The earlier draft here (snake_case, a `media_id` key) never matched anything that ran.
 
 ```python
-{
-    "id": str,              # gateway-specific message ID
-    "timestamp": str,       # ISO 8601
-    "jid": str,             # E.164 (WhatsApp/Twilio) or chat_id (Telegram)
-    "is_group": bool,
-    "sender": str,          # E.164 or user_id
-    "sender_name": str,
-    "text": str | None,
-    "has_media": bool,
-    "media_id": str | None, # channel-specific media identifier
-    "media_path": str | None,  # resolved local path (after download)
-    "property_slug": str | None,
-    "channel": str,         # 'whatsapp', 'telegram', or 'twilio'
-}
+class InternalMessage(TypedDict):
+    id: str                   # dedup key — stable across redelivery AND across transports
+                              #   (Telegram: "<chat_id>:<message_id>" for poller and webhook alike)
+    timestamp: str            # ISO 8601, UTC — every channel (Meta's epoch string is converted)
+    channel: str              # the app: "telegram" | "whatsapp" | later "sms", "email"
+    jid: str                  # the conversation, i.e. where a reply goes (chat id / sender wa_id)
+    isGroup: bool
+    sender: str               # the channel's user id (Telegram user id, WhatsApp wa_id)
+    senderName: str
+    senderUsername: str       # "" where the channel has no usernames
+    text: str
+    hasMedia: bool
+    mediaPath: str | None     # local file once fetched
+    propertySlug: str | None  # from the chat→property map, filled once the account is bound
 ```
+
+`channel` names the messaging app, not the transport: the Baileys bridge and the Cloud API are two
+transports of `"whatsapp"` and produce the same envelope.
 
 The `channel` field enables channel-aware behavior in the shared responder (e.g., template selection for WhatsApp, inline keyboards for Telegram, voice fallback for Twilio).
 

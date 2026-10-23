@@ -137,10 +137,12 @@ async function startConnection() {
       const record = {
         id: msg.key.id,
         timestamp: new Date(msg.messageTimestamp * 1000).toISOString(),
+        channel: 'whatsapp',
         jid,
         isGroup,
         sender,
         senderName,
+        senderUsername: '', // WhatsApp has no usernames; present so the envelope is one shape
         text,
         hasMedia,
         mediaPath,

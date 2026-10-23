@@ -23,8 +23,15 @@ logger = logging.getLogger("mihomes.telegram")
 
 
 def _get_client(session: Session) -> TelegramClient:
+    """The deployment's bot (`TELEGRAM_BOT_TOKEN`) when set, else the account's configured one.
+
+    The environment token wins because the webhook delivers every account's traffic through one
+    bot; replying with a different account-configured token would answer from a different bot.
+    The config fallback keeps a single-estate local install (the poller) working unchanged.
+    """
     from mihomes.services.config_service import get_config
-    token = get_config(session, "telegram.bot_token")
+    from mihomes.services.gateways.telegram.client import platform_bot_token
+    token = platform_bot_token() or get_config(session, "telegram.bot_token")
     if not token:
         raise TelegramError("telegram.bot_token not configured — run: mihomes config set telegram.bot_token <token>")
     return TelegramClient(token)
@@ -177,102 +184,28 @@ def process_and_respond(
 ) -> dict:
     """Analyze Telegram messages, create issues/tasks, answer questions, handle PTO.
 
-    Delegates all analysis and dispatch to `review_common`; only the client,
-    inventory route, and approver identity are Telegram-specific.
+    Builds Telegram's `ChannelAdapter` and hands off to `review_common.handle_inbound`; only the
+    client, inventory route and approver identity are Telegram-specific. Telegram has no phone
+    numbers, so the reporter is matched by name (the adapter default).
+
+    `analyze` is a lambda over this module's `analyze_messages` so it is looked up at call time —
+    tests patch `telegram.responder.analyze_messages` and `_get_client` by module path.
 
     Returns dict with: logged, replied, errors.
     """
     if not messages:
         return {"replied": 0, "logged": 0, "errors": []}
 
-    from mihomes.services.ai.provider import AIProviderError
+    from mihomes.services.config_service import get_config
     client = _get_client(session)
 
     adapter = rc.GatewayAdapter(
         label="Telegram",
+        channel="telegram",
         send=lambda chat_id, text: client.send_message(chat_id, text),
-    )
-
-    # Pre-check: handle APPROVE/DENY from the approver before AI analysis (H24).
-    messages = rc.handle_approval_messages(
-        session, messages,
-        adapter=adapter,
         is_approver=lambda m: _is_approver(session, m),
+        inventory_target=get_config(session, "telegram.inventory_chat_id"),
+        scan_inventory=lambda s, msgs, prop, target: handle_inventory_scan(s, msgs, prop, target, client),
+        analyze=lambda *a, **k: analyze_messages(*a, **k),
     )
-    if not messages:
-        return {"replied": 0, "logged": 0, "errors": []}
-
-    # M26: a batch can span several chats of the same property. Dispatch each
-    # chat independently so replies land in the chat they came from.
-    groups = rc.group_by_target(
-        [m for m in messages if m.get("propertySlug") or property_slug]
-    )
-    if not groups:
-        return {"replied": 0, "logged": 0, "errors": ["No linked chat found"]}
-
-    from mihomes.services.config_service import get_config
-    inventory_chat_id = get_config(session, "telegram.inventory_chat_id")
-
-    # Telegram has no phone numbers — reporter is matched by name only.
-    def _resolve_reporter(item: dict) -> int | None:
-        return rc.resolve_reporter_by_name(session, item.get("reported_by"))
-
-    totals = {"replied": 0, "logged": 0, "errors": []}
-    for reply_chat_id, chat_msgs in groups.items():
-        # Route inventory chat straight to room scanner
-        if inventory_chat_id and reply_chat_id == str(inventory_chat_id):
-            inv_property = (chat_msgs[0].get("propertySlug") or property_slug
-                            or rc.resolve_default_property(session))
-            r = handle_inventory_scan(session, chat_msgs, inv_property, reply_chat_id, client)
-            totals["replied"] += r.get("replied", 0)
-            totals["logged"] += r.get("logged", 0)
-            totals["errors"].extend(r.get("errors", []))
-            continue
-
-        def _send_error_to_group(detail: str, _cid=reply_chat_id) -> None:
-            # M27: generic message to the group; detail is logged locally only.
-            try:
-                client.send_message(_cid, "Bot error — couldn't process message(s). Please log manually.")
-            except Exception:
-                logger.exception("_send_error_to_group: suppressed exception")
-            logger.error("responder group error (chat %s): %s", _cid, detail)
-
-        try:
-            result = analyze_messages(session, chat_msgs, property_name=property_slug, property_slug=property_slug)
-        except AIProviderError as e:
-            logger.error("AI provider error: %s", e)
-            _send_error_to_group(str(e))
-            totals["errors"].append(f"AI provider error: {e}")
-            continue
-        except Exception as e:
-            logger.error("Unexpected error: %s", e)
-            _send_error_to_group(str(e))
-            totals["errors"].append(f"Unexpected error: {e}")
-            continue
-
-        # M27: sensitive actions only for a group whose every sender is trusted.
-        # SPEC-006 D11/A12. `bound_account()` is the account this session is already scoped
-        # to; passing it explicitly is what lets `dispatch_items` verify that the tenant the
-        # caller believes it resolved is the tenant it is about to write as. The webhook edge
-        # (Step 5) resolves the sender first and binds the session from that.
-        account = rc.bound_account()
-        sender_trusted = bool(chat_msgs) and all(
-            rc.is_trusted_sender(session, m, gateway="telegram", account=account)
-            for m in chat_msgs
-        )
-
-        r = rc.dispatch_items(
-            session, result.get("items", []),
-            account=account,
-            adapter=adapter,
-            reply_target=reply_chat_id,
-            messages=chat_msgs,
-            property_slug=property_slug,
-            resolve_reporter=_resolve_reporter,
-            sender_trusted=sender_trusted,
-        )
-        totals["replied"] += r.get("replied", 0)
-        totals["logged"] += r.get("logged", 0)
-        totals["errors"].extend(r.get("errors", []))
-
-    return totals
+    return rc.handle_inbound(session, messages, adapter=adapter, property_slug=property_slug)

@@ -46,6 +46,8 @@ import logging
 import os
 from typing import Any
 
+from mihomes.services.gateways.message import InternalMessage, iso_utc
+
 logger = logging.getLogger(__name__)
 
 __all__ = ["CloudAPIClient", "CloudAPIError", "GroupsNotSupported", "normalize_cloud_message"]
@@ -223,7 +225,7 @@ class CloudAPIClient:
         return {"message_id": messages[0].get("id", ""), "status": "sent"}
 
 
-def normalize_cloud_message(entry: dict, *, property_slug: str | None = None) -> dict | None:
+def normalize_cloud_message(entry: dict, *, property_slug: str | None = None) -> InternalMessage | None:
     """One Cloud API inbound message → **the same eleven-key dict Baileys produced** (A19).
 
     The contract is `telegram/client.py:164`'s envelope, which both existing responders already
@@ -267,12 +269,16 @@ def normalize_cloud_message(entry: dict, *, property_slug: str | None = None) ->
 
     return {
         "id": msg.get("id") or "",
-        "timestamp": msg.get("timestamp"),
-        # `jid` holds the WhatsApp id. In a group the Cloud API reports the group in
-        # `value.metadata`; per-message it is the sender's wa_id, so a group-capable tier fills
-        # this from metadata and a 1:1 tier from `from` — one key either way (D2).
-        "jid": str((value.get("metadata") or {}).get("display_phone_number") or wa_id),
-        "isGroup": bool((value.get("metadata") or {}).get("group_id")),
+        # Meta sends epoch seconds as a string; the envelope's one format is ISO-8601 UTC.
+        "timestamp": iso_utc(msg.get("timestamp")),
+        "channel": "whatsapp",
+        # `jid` is where the responder replies, so it is the sender's wa_id. It used to read
+        # `metadata.display_phone_number`, which is the business's OWN number — every 1:1 reply
+        # would have gone to ourselves. Group conversations are not modelled until U2 (does the
+        # tier support groups, and what identifies one) is decided; until then every Cloud
+        # message is 1:1.
+        "jid": str(wa_id),
+        "isGroup": False,
         "sender": str(wa_id),
         "senderName": profile.get("name") or "",
         # The Cloud API has no usernames — WhatsApp identity is the phone number. Empty rather

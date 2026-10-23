@@ -27,19 +27,24 @@ in parallel, (5) Twilio SMS then email as further adapters. Design: `docs/produc
   settings `/settings` staff 403). An earlier run on the shared `mihomes_test` hit 1518 deadlock errors from
   another session's concurrent run — use a per-session test DB. New: 7 web tests + 4 staff-403 authz tests.
 
-### Step 2 — Phase 0: one adapter seam, one message type (plan — awaiting user check-in)
-- [ ] `gateways/message.py`: `InternalMessage` TypedDict for the canonical envelope the code already emits
-      (`webhook.py:158-191`, camelCase keys) + a `channel` key. Fix PRD §7 to match the code, not the reverse.
-- [ ] `ChannelAdapter` Protocol (`name`, `normalize(raw) -> list[InternalMessage]`, `send(target, text)`);
-      `GatewayAdapter` becomes the Telegram/WhatsApp-Baileys/WhatsApp-Cloud implementations of it
-- [ ] One shared entry point `review_common.handle_inbound(session, messages, adapter, property_slug)`;
-      the two `process_and_respond` copies become thin callers
-- [ ] BUG: `web/routes/gateways.py:221` `_reply` builds `TelegramClient()` with no token → TypeError swallowed →
-      unlinked senders never get LINK_PROMPT / LINK_SUCCESS. Tests miss it (fake takes `*a, **k`). Needs a
-      platform-level token (`TELEGRAM_BOT_TOKEN` env) since the unscoped path can't read tenant config (U6)
-- [ ] BUG: `review_common.py:372` `ai_response` rolls back the whole batch on AI failure but reports `logged: 1`
-      → SAVEPOINT per item
-- [ ] Contract test: every normalizer returns the same keys (extend A19 to the Protocol)
+### Step 2 — Phase 0: one adapter seam, one message type (branch `worktree-gateway-phase0`)
+- [x] BUG: webhook `_reply` built `TelegramClient()` with no token → link prompts never sent. Now
+      `platform_bot_token()` (`TELEGRAM_BOT_TOKEN` env); scoped client prefers it too (U6 still open)
+- [x] BUG: `ai_response` full rollback discarded the batch's earlier writes while confirming "logged ✓"
+      → SAVEPOINT around the AI call
+- [x] BUG (found): webhook normalizer kept member joins/leaves + bot messages; dedup id was `update_id` vs the
+      poller's `chat:message_id` (A17 could never match); epoch vs ISO timestamp → one `normalize_message`
+- [x] BUG (found): Cloud API `jid` was our own `display_phone_number` → replies to ourselves; now sender `wa_id`
+- [x] `gateways/message.py`: `InternalMessage` TypedDict (12 keys incl. `channel`), ISO-8601 UTC timestamps;
+      Baileys bridge record aligned; PRD §7 rewritten to match the code
+- [x] `ChannelAdapter` Protocol (required: label, channel, send; optional hooks) + `review_common.handle_inbound`;
+      both `process_and_respond` are now adapter builders. PRD §5.2 note added
+- [ ] FOUND, not fixed (out of scope): gateway issue photos are copied to public `/static/uploads/`
+      (`review_common._create_issue_with_photos`) — the cross-tenant path removed elsewhere (a7e2bd2)
+- Review: gateway set 165 → 190 passing (new: token, normalize, handle_inbound, H27 outcome tests); existing
+  tests changed only where they encoded a bug (permissive client fake, H27 mechanism test, A17/e2e
+  hard-coded `update_id`, source-grep parity test)
+
 
 ### Step 3 — Telegram end to end on evo-dev (needs user decisions + deploy)
 - [ ] DECISION U3: public ingress. evo-dev is Tailscale **Serve** (tailnet-only) — Telegram can't reach it.

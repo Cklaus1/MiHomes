@@ -89,6 +89,7 @@ from mihomes.models.asset import Asset, PriceEntry  # noqa: E402, F401
 from mihomes.models.audit_log import AuditLog  # noqa: E402, F401
 from mihomes.models.book import Book  # noqa: E402, F401
 from mihomes.models.budget import Budget, Transaction  # noqa: E402, F401
+from mihomes.models.chat_message import ChatMessage  # noqa: E402, F401
 from mihomes.models.configuration import Configuration  # noqa: E402, F401
 from mihomes.models.consumable import Consumable, ConsumablePriceEntry  # noqa: E402, F401
 from mihomes.models.contract import Contract  # noqa: E402, F401

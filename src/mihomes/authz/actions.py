@@ -284,6 +284,7 @@ def _entity_classes() -> dict[type, EntityClass]:
     from mihomes.models.audit_log import AuditLog
     from mihomes.models.book import Book
     from mihomes.models.budget import Budget, Transaction
+    from mihomes.models.chat_message import ChatMessage
     from mihomes.models.configuration import Configuration
     from mihomes.models.consumable import Consumable, ConsumablePriceEntry
     from mihomes.models.contract import Contract
@@ -414,6 +415,9 @@ def _entity_classes() -> dict[type, EntityClass]:
         TelegramLink: account,
         # Same reasoning for a bound group chat: identity plumbing, read only by the webhook.
         TelegramChatBinding: account,
+        # A bound group's chat log (Conversations page): owner/admin reading via `audit.view`.
+        # Staff are in the group already; the app does not re-show it to them.
+        ChatMessage: account,
 
         Staff: EntityClass.PERSONNEL,
         StaffPTORequest: EntityClass.PERSONNEL,

@@ -298,6 +298,7 @@ def wired(_pg_engine, account_a, sent):
     for table in (
         *WATCHED_TABLES,
         "audit_log",
+        "chat_messages",
         "telegram_chat_bindings",
         "telegram_links",
         "memberships",
@@ -810,6 +811,14 @@ def test_linkchat_binds_and_an_unlinked_member_is_logged_without_a_prompt(
     _say(client, 9902, "123123123", "The pool gate latch is broken")  # no link, no login
     assert _counts(_pg_engine, account_a)["issues"] == before["issues"] + 1
     assert not any("recognise" in t for _c, t in sent), "a bound group must never prompt"
+
+    # Conversations page, on the production role: the staff message and the bot's reply are stored.
+    with _pg_engine.connect() as conn:
+        rows = conn.execute(text(
+            "SELECT direction, text FROM chat_messages WHERE account_id = :a AND chat_id = :c "
+            "ORDER BY sent_at"), {"a": account_a, "c": GROUP}).all()
+    assert ("in", "The pool gate latch is broken") in [tuple(r) for r in rows]
+    assert any(r.direction == "out" for r in rows)
 
 
 def test_an_unlinked_member_is_untrusted(

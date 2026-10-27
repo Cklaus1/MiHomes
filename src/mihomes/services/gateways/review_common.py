@@ -853,6 +853,41 @@ def _assert_account_matches_session(session: Session, account) -> None:
 # --------------------------------------------------------------------------- #
 # Inbound — the one entry point every channel's responder calls
 # --------------------------------------------------------------------------- #
+def _with_conversation_log(
+    session: Session, messages: list[dict], adapter: ChannelAdapter, property_slug: str | None
+) -> ChannelAdapter:
+    """Record the inbound group messages; return an adapter whose `send` also records replies.
+
+    Replies are recorded only into group conversations present in this batch, so a reply into a
+    private chat is never stored. An adapter that is not a dataclass is returned unwrapped (its
+    replies go unrecorded) rather than guessed at.
+    """
+    import dataclasses
+
+    from mihomes.services.gateways import conversation_log as log
+
+    groups: dict[str, str | None] = {}
+    for m in messages:
+        log.record_inbound(session, m, property_slug=property_slug)
+        if m.get("isGroup") and m.get("jid"):
+            groups[str(m["jid"])] = m.get("propertySlug") or property_slug
+
+    if not groups or not dataclasses.is_dataclass(adapter):
+        return adapter
+
+    inner = adapter.send
+
+    def send(target: str, text: str) -> None:
+        inner(target, text)  # sending is what matters; record only once it succeeded
+        if str(target) in groups:
+            log.record_outbound(
+                session, channel=adapter.channel, chat_id=str(target), text=text,
+                label=adapter.label, property_slug=groups[str(target)],
+            )
+
+    return dataclasses.replace(adapter, send=send)
+
+
 def handle_inbound(
     session: Session,
     messages: list[dict],
@@ -877,6 +912,10 @@ def handle_inbound(
         return totals
 
     from mihomes.services.ai.provider import AIProviderError
+
+    # Conversations page: log the group conversation before anything can filter or fail it, and
+    # log the bot's replies into those groups. Fail-safe — see `conversation_log`.
+    adapter = _with_conversation_log(session, messages, adapter, property_slug)
 
     if adapter.is_approver is not None:
         messages = handle_approval_messages(

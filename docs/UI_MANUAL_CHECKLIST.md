@@ -94,6 +94,7 @@ static tests do cover them directly.
 | `settings/_danger.html` | (included in /settings and /settings/connections) | — | ☐ | ☐ | ☐ |
 | `settings/_notice.html` | (included in /settings and /settings/connections) | — | ☐ | ☐ | ☐ |
 | `settings/_personal.html` | (included in /settings and /settings/connections) | — | ☐ | ☐ | ☐ |
+| `settings/_telegram_link.html` | (Telegram card in /settings and /settings/connections) | — | ☐ | ☐ | ☐ |
 | `settings/connections.html` | /settings/connections (staff) | — | ☐ | ☐ | ☐ |
 | `settings/index.html` | /settings | 54 | ☐ | ☐ | ☐ |
 | `signup.html` | /signup | 87 | ☐ | ☐ | ☐ |

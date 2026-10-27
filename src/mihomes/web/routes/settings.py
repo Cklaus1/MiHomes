@@ -361,7 +361,15 @@ def telegram_link_code(request: Request, principal=require_authenticated(),
     code = issue_link_token(
         db, principal.account_id, principal.membership_id, gateway="telegram"
     )
-    shown = {"link_code": code, "link_ttl_minutes": DEFAULT_TTL_MINUTES}
+    import time
+
+    shown = {
+        "link_code": code,
+        "link_ttl_minutes": DEFAULT_TTL_MINUTES,
+        # For the card's status poll (`telegram_link_status`) and the refresh-safe address bar.
+        "link_issued": int(time.time()),
+        "settings_home": _home_for(principal),
+    }
     if principal.role in ("owner", "admin"):
         return templates.TemplateResponse(
             request, "settings/index.html", _page_context(db, principal, **shown)
@@ -369,6 +377,40 @@ def telegram_link_code(request: Request, principal=require_authenticated(),
     return templates.TemplateResponse(
         request, "settings/connections.html", _connections_context(db, principal, **shown)
     )
+
+
+@router.get("/settings/connections/telegram/status")
+@declares(_PROFILE_ACTION, Access.ACCOUNT)
+def telegram_link_status(request: Request, known: int = 0, issued: int = 0,
+                         principal=require_authenticated(), db: Session = Depends(get_db)):
+    """What the Telegram card polls while a link code is on screen.
+
+    * **204** while nothing has changed — HTMX leaves the card (and the code) as it is.
+    * The card in its linked state once your own link count exceeds `known`, the count when the
+      code was shown — the bot has redeemed it.
+    * **286** (HTMX's "stop polling") with an expired notice once the code's lifetime has passed,
+      so an abandoned tab stops asking.
+
+    Reads only `principal.membership_id`'s links (R2), like every route in this section.
+    """
+    import time
+
+    from fastapi import Response
+
+    from mihomes.services.gateways.linking import DEFAULT_TTL_MINUTES
+
+    links = _own_telegram_links(db, principal)
+    if len(links) > known:
+        return templates.TemplateResponse(
+            request, "settings/_telegram_link.html",
+            {"telegram_links": links, "just_linked": True},
+        )
+    if issued and time.time() > issued + DEFAULT_TTL_MINUTES * 60:
+        return templates.TemplateResponse(
+            request, "settings/_telegram_link.html",
+            {"telegram_links": links, "code_expired": True}, status_code=286,
+        )
+    return Response(status_code=204)
 
 
 @router.post("/settings/connections/telegram/{link_id}/unlink")

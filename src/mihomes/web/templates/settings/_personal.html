@@ -8,47 +8,13 @@
     updates by message. Each link is yours alone — linking never gives anyone else access.</p>
 
   {# Telegram #}
-  <div class="border rounded p-3 mb-3">
-    <div class="flex flex-wrap items-baseline justify-between gap-2">
-      <span class="font-medium">Telegram</span>
-      {% if telegram_links %}
-        <span class="text-sm text-green-700">Linked</span>
-      {% else %}
-        <span class="text-sm text-gray-500">Not linked</span>
-      {% endif %}
-    </div>
-
-    {% for link in telegram_links %}
-      <div class="mt-2 flex flex-wrap items-center justify-between gap-2 text-sm">
-        <span class="text-gray-600">Telegram account {{ link.telegram_user_id }}
-          <span class="text-gray-500">— linked {{ link.created_at.strftime("%b %d, %Y") if link.created_at else "" }}</span></span>
-        <form method="post" action="/settings/connections/telegram/{{ link.id }}/unlink"
-              onsubmit="return confirm('Unlink this Telegram account? Messages from it will no longer reach your estate.')">
-          <button class="text-sm text-red-700 underline">Unlink</button>
-        </form>
-      </div>
-    {% endfor %}
-
-    {# The raw code exists only in this response — `issue_link_token` stores its hash — so the
-       copy says plainly that it is not shown again. #}
-    {% if link_code %}
-      <div class="mt-3 rounded border border-green-300 bg-green-50 px-3 py-3" data-testid="link-code">
-        <p class="text-sm text-green-900 font-medium">Your link code</p>
-        <p class="mt-1 font-mono text-2xl tracking-widest text-green-900">{{ link_code }}</p>
-        <p class="mt-2 text-sm text-green-800">Open the MiHomes bot in Telegram and send:</p>
-        <input readonly value="/link {{ link_code }}" onclick="this.select()"
-               class="mt-1 w-full border border-green-300 rounded px-2 py-1 font-mono text-sm bg-white" />
-        <p class="mt-2 text-xs text-green-800">It works once and expires in
-          {{ link_ttl_minutes }} minutes. It isn't shown again — get a new one if you need it.</p>
-      </div>
-    {% else %}
-      <form method="post" action="/settings/connections/telegram/code" class="mt-3">
-        <button class="border rounded px-3 py-1 text-sm">
-          {% if telegram_links %}Link another Telegram account{% else %}Get a link code{% endif %}
-        </button>
-      </form>
-    {% endif %}
-  </div>
+  {% include "settings/_telegram_link.html" %}
+  {% if link_code %}
+  {# This page is the response to "Get a link code" (a POST). Without this, refreshing it re-sends
+     the POST and mints a fresh code even after you have linked. Point the address bar at the
+     settings page instead, so a refresh simply reloads it. #}
+  <script>history.replaceState(null, "", "{{ settings_home }}#connections");</script>
+  {% endif %}
 
   {# WhatsApp — pairing is not available yet, so status only. #}
   <div class="border rounded p-3">

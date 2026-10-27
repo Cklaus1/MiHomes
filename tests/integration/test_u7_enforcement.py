@@ -461,6 +461,9 @@ class TestModelsWithNoPropertyLinkageAreDenied:
             # like `TelegramLink` — read only by the webhook's bootstrap lookup — so staff are
             # denied it outright; binding and unbinding are owner/admin actions in the chat.
             "TelegramChatBinding",
+            # A bound group's stored conversation (0026): owners/admins read it on the
+            # Conversations page; staff are in the group already and are denied the log.
+            "ChatMessage",
             "Account",
             # SPEC-004 §4.2 — the AI usage meter, and this gate is doing its job by demanding
             # the addition be acknowledged rather than absorbed.

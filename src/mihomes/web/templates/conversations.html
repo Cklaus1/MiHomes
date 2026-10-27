@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}Conversations — MiHomes{% endblock %}
+{% block heading %}Conversations{% endblock %}
+{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">Group chats linked to your estate</p>{% endblock %}
+
+{% block content %}
+
+{% if conversations %}
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+  <!-- Conversation list -->
+  <nav aria-label="Conversations" class="bg-white rounded-xl border border-gray-200 overflow-hidden lg:col-span-1 self-start">
+    <ul class="divide-y divide-gray-100">
+      {% for c in conversations %}
+      {% set active = selected and c.channel == selected.channel and c.chat_id == selected.chat_id %}
+      <li>
+        <a href="/conversations/?channel={{ c.channel|urlencode }}&amp;chat={{ c.chat_id|urlencode }}"
+           {% if active %}aria-current="true"{% endif %}
+           class="block px-4 py-3 hover:bg-gray-50 {{ 'bg-gray-50' if active else '' }}">
+          <div class="text-sm font-medium text-gray-900 truncate">{{ c.label }}</div>
+          <div class="text-xs text-gray-500 mt-0.5">
+            {{ c.count }} message{{ 's' if c.count != 1 else '' }} · last {{ c.last_at.strftime('%b %d, %H:%M') }} UTC
+          </div>
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+  </nav>
+
+  <!-- Open conversation -->
+  <section class="bg-white rounded-xl border border-gray-200 lg:col-span-2 flex flex-col" aria-label="{{ selected.label }}">
+    <header class="px-4 py-3 border-b border-gray-100">
+      <h2 class="text-sm font-semibold text-gray-900">{{ selected.label }}</h2>
+      <p class="text-xs text-gray-500">Read-only. Messages people send in the group appear here, with the bot's replies.</p>
+    </header>
+    <div class="p-4 max-h-[70vh] overflow-y-auto"
+         hx-get="/conversations/messages?channel={{ selected.channel|urlencode }}&amp;chat={{ selected.chat_id|urlencode }}"
+         hx-trigger="every 30s" hx-swap="innerHTML">
+      {% with channel=selected.channel, chat=selected.chat_id %}
+      {% include "partials/conversation_messages.html" %}
+      {% endwith %}
+    </div>
+  </section>
+
+</div>
+{% else %}
+<div class="bg-white rounded-xl border border-dashed border-gray-300 p-10 sm:p-12 text-center">
+  <div class="text-3xl mb-3" aria-hidden="true">💬</div>
+  <div class="text-gray-800 font-medium">No conversations yet</div>
+  <p class="text-gray-500 text-sm mt-1 max-w-md mx-auto">
+    When your household group chat is linked to MiHomes, its messages — and the bot's replies — show up here.
+    To link a Telegram group, link yourself under Settings → Connections, then send <code>/linkchat</code> in the group.
+  </p>
+</div>
+{% endif %}
+
+{% endblock %}

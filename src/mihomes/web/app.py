@@ -19,6 +19,7 @@ from mihomes.web.routes import (
     assets,
     books,
     budget,
+    conversations,
     dashboard,
     documents,
     documents_download,  # noqa: E402
@@ -198,6 +199,7 @@ def create_app() -> FastAPI:
     app.include_router(weather_route.router, prefix="/weather")
     app.include_router(library_route.router, prefix="/library")
     app.include_router(playbooks_route.router, prefix="/playbooks")
+    app.include_router(conversations.router, prefix="/conversations")
     app.include_router(inventory_route.router, prefix="/inventory")
     app.include_router(calendar_route.router, prefix="/calendar")
 

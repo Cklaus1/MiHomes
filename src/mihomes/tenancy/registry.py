@@ -173,6 +173,8 @@ TENANT_TABLES = frozenset({
     # A Telegram group bound to one account by `/linkchat` (group binding, 2026-10-23), so staff
     # without logins can report through a household group.
     "telegram_chat_bindings",
+    # A bound group's stored messages, read by owners/admins on the Conversations page (0026).
+    "chat_messages",
     # --- identity, added by Step 1 --------------------------------------
     "invites",
     "membership_property_scopes",

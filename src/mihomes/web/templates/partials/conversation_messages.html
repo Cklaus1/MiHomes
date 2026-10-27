@@ -1,0 +1,21 @@
+{# One conversation's messages, oldest first. Expects: messages. Text is autoescaped — it comes from
+   anyone in the group, so it must never be marked safe. #}
+{% if messages %}
+<ol class="space-y-3">
+  {% for m in messages %}
+  {% set out = m.direction == 'out' %}
+  <li class="flex {{ 'justify-end' if out else 'justify-start' }}">
+    <div class="max-w-[85%] rounded-xl px-3 py-2 text-sm {{ 'bg-brand-50 border border-brand-100' if out else 'bg-gray-50 border border-gray-100' }}">
+      <div class="text-xs font-medium {{ 'text-brand-700' if out else 'text-gray-700' }}">
+        {{ m.sender_name or 'Unknown' }}
+        <span class="font-normal text-gray-400">· {{ m.sent_at.strftime('%b %d, %H:%M') }}</span>
+      </div>
+      {% if m.has_media %}<div class="text-xs text-gray-500 mt-0.5">📷 photo</div>{% endif %}
+      {% if m.text %}<p class="mt-0.5 text-gray-800 whitespace-pre-line break-words">{{ m.text }}</p>{% endif %}
+    </div>
+  </li>
+  {% endfor %}
+</ol>
+{% else %}
+<p class="text-sm text-gray-500">No messages in this conversation yet.</p>
+{% endif %}

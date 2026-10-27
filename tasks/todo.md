@@ -58,6 +58,20 @@ in parallel, (5) Twilio SMS then email as further adapters. Design: `docs/produc
 - [ ] Deploy (user runs it): env vars, migrations 0024+0025, stop poller, Funnel, set-webhook, `/link` yourself,
       `/linkchat` in Belle, one fresh message → logged once
 
+### Step 3b — Conversations page (2026-10-27, while Tailscale fixes Funnel DNS; branch `worktree-conversations`)
+Owners/admins read a bound group's chat in the app. Channel-agnostic: recorded in `handle_inbound`.
+- [x] `chat_messages` tenant table (0026): channel, chat_id, message_id, direction (in/out), sender, sender_name,
+      text, has_media, sent_at, property_slug; UNIQUE (account_id, channel, chat_id, message_id); index leads account_id
+- [x] Record in `handle_inbound`: inbound group messages at the top (before approval/property filter) + bot replies
+      via a wrapped `adapter.send` (group targets only). Never DMs, never `/link …` text, never mediaPath.
+      Each write in its own SAVEPOINT, failures logged and ignored; ON CONFLICT DO NOTHING
+- [x] `/conversations` (list of chats) + `/conversations/{channel}/{chat_id}` panel, `audit.view` (owner/admin),
+      sidebar item hidden for staff, 30s HTMX poll on the open chat only, escaped text, empty state
+- [x] `/linkchat` reply tells the group owners/admins can read its messages in MiHomes
+- [x] Registry 54→55, u7 no-linkage, isolation; tests: record rules, failure isolation, webhook app-role probe, 403, XSS
+- [ ] Known gap (not fixing): inventory-scan replies bypass the adapter and are not recorded
+- [ ] Deploy needs the user's go-ahead (migration 0026)
+
 ### Step 4 — WhatsApp Cloud API (user-only, start now)
 - [ ] Meta Business verification, WABA, phone number, permanent system-user token, webhook verify token
 - [ ] DECISION U2: Cloud API group support — Belle is a group; if groups unavailable, choose a routing key

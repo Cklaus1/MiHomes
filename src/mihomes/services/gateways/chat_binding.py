@@ -40,7 +40,10 @@ _MANAGER_ROLES = ("owner", "admin")
 #: `/linkchat` or `/linkchat@SomeBot` — Telegram appends the bot name when a group has several bots.
 _COMMAND = re.compile(r"^/(linkchat|unlinkchat)(?:@\w+)?\s*$", re.IGNORECASE)
 
-LINKED = "This group is now linked to your estate. Messages here will be logged."
+LINKED = (
+    "This group is now linked to your estate. Messages here will be logged, and the estate's "
+    "owners and admins can read this group's conversation in MiHomes."
+)
 UNLINKED = "This group is no longer linked. Messages here won't be logged."
 NOT_A_GROUP = "/linkchat only works in a group chat."
 LINK_YOURSELF_FIRST = "Link yourself first: send me /link <code> in a direct message, then try again."

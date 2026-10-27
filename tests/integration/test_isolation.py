@@ -85,7 +85,9 @@ from mihomes.tenancy.registry import ASSOCIATION_TABLES, GLOBAL_TABLES, TENANT_T
 # `telegram_chat_bindings` (0025, 2026-10-23) -> 54: a Telegram group bound to one account by
 # /linkchat, so staff without logins can report through a household group. `UNIQUE (chat_id)`
 # across accounts (one group, one estate) — hence `_value_for`'s per-account unique integers.
-EXPECTED_TENANT_TABLE_COUNT = 54
+# `chat_messages` (0026, 2026-10-27) -> 55: a bound group's stored conversation, read by owners
+# and admins on the Conversations page.
+EXPECTED_TENANT_TABLE_COUNT = 55
 
 
 # --------------------------------------------------------------------------------------

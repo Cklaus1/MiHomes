@@ -310,6 +310,44 @@ class TestMessengerConnections:
         ).scalars().all()
         assert code not in hashes
 
+    def test_the_code_page_is_refresh_safe_and_polls_for_the_link(self, web_client_as):
+        """Refreshing the code page used to re-POST and mint a fresh code after linking."""
+        client = web_client_as("owner")
+        body = client.post("/settings/connections/telegram/code").text
+        assert 'history.replaceState(null, "", "/settings#connections")' in body
+        assert 'hx-get="/settings/connections/telegram/status?known=0&amp;issued=' in body
+        assert 'hx-trigger="every 3s"' in body
+
+    def test_status_is_204_until_the_bot_links_you_then_shows_linked(self, web_client_as):
+        import uuid
+
+        from sqlalchemy import text
+
+        client = web_client_as("owner")
+        assert client.get("/settings/connections/telegram/status?known=0").status_code == 204
+
+        web_client_as.connection.execute(
+            text("INSERT INTO telegram_links (id, account_id, membership_id, telegram_user_id) "
+                 "SELECT :i, account_id, id, 818181818 FROM memberships WHERE id = :m"),
+            {"i": uuid.uuid4(), "m": client.membership_id},
+        )
+        linked = client.get("/settings/connections/telegram/status?known=0")
+        assert linked.status_code == 200
+        assert "Telegram is connected" in linked.text
+        assert "hx-trigger" not in linked.text, "the linked card must stop polling"
+        assert "linked " in linked.text and "818181818" in linked.text
+
+        # A normal reload after linking offers no new code, only a secondary "link another".
+        page = client.get("/settings").text
+        assert "Get a link code" not in page
+        assert "Link another Telegram account" in page
+
+    def test_status_stops_polling_once_the_code_expires(self, web_client_as):
+        client = web_client_as("owner")
+        r = client.get("/settings/connections/telegram/status?known=0&issued=1")
+        assert r.status_code == 286
+        assert "expired" in r.text
+
     def test_unlinking_someone_elses_link_is_a_404(self, web_client_as):
         import uuid
 

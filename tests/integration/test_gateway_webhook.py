@@ -920,3 +920,56 @@ def test_parse_chat_command(text_, expected):
     from mihomes.services.gateways.chat_binding import parse_chat_command
 
     assert parse_chat_command(text_) == expected
+
+
+# ------------------------------------------------------------------------------------- #
+# Fast acknowledgement — Telegram gets its 200 before the slow AI work runs
+# ------------------------------------------------------------------------------------- #
+def test_dispatch_runs_after_the_response_off_the_event_loop(
+    web_client_factory, _pg_engine, account_a, wired, monkeypatch
+):
+    """Processing ran inline in this `async def`, so Telegram waited for the AI (~70s on
+    evo-dev, past its ~60s timeout → redelivery) and the event loop was blocked meanwhile."""
+    import threading
+
+    from mihomes.web.routes import gateways as route
+
+    seen = {}
+    real = route._dispatch
+
+    def _spy(account_id, message):
+        seen["thread"] = threading.current_thread().name
+        return real(account_id, message)
+
+    monkeypatch.setattr(route, "_dispatch", _spy)
+    client = web_client_factory()
+    before = _counts(_pg_engine, account_a)
+    r = client.post("/webhooks/telegram",
+                    content=_update(9701, sender_id="424242424", chat_id="-100777", text_="Ack test"),
+                    headers={SECRET_HEADER: SECRET})
+    assert r.status_code == 200
+    assert "thread" in seen, "dispatch never ran"
+    assert seen["thread"] != "MainThread" and "AnyIO worker" in seen["thread"], seen
+    assert _counts(_pg_engine, account_a)["issues"] == before["issues"] + 1
+
+
+def test_a_retry_during_processing_is_not_processed_twice(
+    web_client_factory, _pg_engine, account_a, wired, monkeypatch
+):
+    """The id is claimed BEFORE processing: a redelivery that arrives while (or after) the first
+    attempt is working — or failed — is skipped, never processed into a duplicate."""
+    calls = []
+
+    def _boom(session, messages, property_slug=None):
+        calls.append(messages[0]["id"])
+        raise RuntimeError("AI provider exploded mid-processing")
+
+    monkeypatch.setattr("mihomes.services.gateways.telegram.responder.process_and_respond", _boom)
+    client = web_client_factory()
+    body = _update(9702, sender_id="424242424", chat_id="-100777", text_="Retry test")
+    for _ in range(2):
+        try:
+            client.post("/webhooks/telegram", content=body, headers={SECRET_HEADER: SECRET})
+        except RuntimeError:
+            pass  # a TestClient may re-raise the background task's error; Telegram never sees it
+    assert calls == ["-100777:9702"], calls

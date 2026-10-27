@@ -51,7 +51,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Request, Response
 
 from mihomes.services.gateways.identity import (
     AmbiguousSender,
@@ -78,8 +78,14 @@ LINK_PROMPT = (
 
 
 @router.post("/webhooks/telegram")
-async def telegram_webhook(request: Request) -> Response:
+async def telegram_webhook(request: Request, background: BackgroundTasks) -> Response:
     """Verify, normalize, resolve, scope, dispatch. **No `Depends(get_db)`.**
+
+    **Dispatch runs after the response** (`BackgroundTasks`, in a worker thread). Telegram waits
+    about 60 seconds for the 200 and then redelivers; AI analysis alone took ~70s on evo-dev, so
+    answering only after processing turned every slow message into a retry — and, running sync
+    work inside this `async def`, blocked the event loop for the whole site meanwhile. The fast
+    steps (verify, resolve, /link, /linkchat) still answer inline.
 
     The injected `get_db` binds tenant context from the request's principal, and there is no
     principal here — establishing the tenant is steps 3 and 4's job. Opening the session
@@ -146,7 +152,7 @@ async def telegram_webhook(request: Request) -> Response:
         return Response(status_code=200)
 
     # --- 4 & 5. scope to the account, then dispatch --------------------------------------
-    _dispatch(account_id, message)
+    background.add_task(_dispatch, account_id, message)
     return Response(status_code=200)
 
 
@@ -306,6 +312,13 @@ def _dispatch(account_id, message: dict) -> None:
             if update_id and store.contains(update_id):
                 logger.info("telegram webhook: update %s already processed", update_id)
                 return
+            # **Claim before processing, not after.** AI analysis can take minutes; when the id
+            # was recorded only at the end, a Telegram retry arriving mid-processing found it
+            # unclaimed and processed the message a second time (duplicate issues). The store
+            # commits on its own session, so the claim holds even if processing below fails —
+            # trading a lost message (logged) for never a duplicate, since Telegram has its 200.
+            if update_id:
+                store.add([update_id])
 
             from mihomes.services.gateways.telegram.responder import process_and_respond
 
@@ -319,10 +332,11 @@ def _dispatch(account_id, message: dict) -> None:
             # path returns "No linked chat found" and writes nothing. Measured — see the
             # envelope comment in `gateways/webhook.py`.
             slug = _property_for_chat(session, message["jid"])
-            process_and_respond(session, [message], property_slug=slug)
-
-            if update_id:
-                store.add([update_id])
+            try:
+                process_and_respond(session, [message], property_slug=slug)
+            except Exception:
+                logger.exception("telegram webhook: processing update %s failed", update_id)
+                raise
 
 
 __all__ = ["LINK_PROMPT", "router", "telegram_webhook"]

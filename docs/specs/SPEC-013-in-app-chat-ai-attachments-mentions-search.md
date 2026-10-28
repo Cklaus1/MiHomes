@@ -45,6 +45,15 @@ case, and nothing calls it:** `grep -rn screen_financial_answer src/` finds only
 This spec does not fix Telegram (§10). It adds a hook, `answer_scope`, that the native channel
 uses (D6–D8), and leaves Telegram free to adopt it later.
 
+> **Update 2026-10-28 — landed ahead of this spec.** The `answer_scope` hook (D6) and the
+> storage-backed issue photos (D10) shipped as a standalone Telegram security fix
+> (`services/gateways/answer_scope.py`; Telegram and WhatsApp adapters use it). Two differences
+> from the text below: the hook is called `answer_scope(session, text, property_slug, messages, *,
+> money_gate)` — `messages` lets a gateway judge its audience, `money_gate=False` for the expert
+> note — and `uploads_dir()` is gone. `"issue"` was also added to `document.VALID_ENTITY_TYPES`
+> (every issue-photo attach had been raising). The native channel's `_answer_scope` (D7) adopts
+> the same signature.
+
 ### 0.2 — Passing a photo to the AI as-is would publish it at an unauthenticated URL
 
 `_create_issue_with_photos` copies each `mediaPath` into `uploads_dir()` and records the file as

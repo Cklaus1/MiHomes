@@ -20,7 +20,7 @@ import logging
 import mimetypes
 import os
 import re
-import uuid
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -47,6 +47,13 @@ logger = logging.getLogger("mihomes.gateways")
 #: Builds the reporter matcher for one conversation's messages: item -> staff id or None.
 ReporterFor = Callable[[Session, list[dict]], Callable[[dict], "int | None"]]
 
+#: Narrows what an AI *answer* may draw on to the people who will read it (SPEC-013 D6).
+#: Called as `answer_scope(session, text, property_slug, messages, money_gate=bool)` and entered
+#: around `ai_response` / `issue_expert_reply` only — never around the write path, which must keep
+#: seeing every Staff row for reporter/assignee lookups. The context manager yields replacement
+#: text (refuse / redirect) or `None` to let the answer run inside whatever restriction it bound.
+AnswerScope = Callable[..., "AbstractContextManager[str | None]"]
+
 
 class ChannelAdapter(Protocol):
     """The seam a messaging channel plugs into (OMNICHANNEL_GATEWAY_PRD §5.2).
@@ -69,6 +76,7 @@ class ChannelAdapter(Protocol):
     inventory_target: str | None                      # a conversation routed to scan_inventory
     scan_inventory: Callable[[Session, list[dict], str | None, str], dict] | None
     analyze: Callable[..., dict] | None               # None = `analyze_messages`
+    answer_scope: AnswerScope | None                  # None = answers unrestricted (CLI, tests)
 
 
 DEFAULT_ERROR_TEXT = "Bot error — couldn't process message(s). Please log manually."
@@ -91,6 +99,7 @@ class GatewayAdapter:
     inventory_target: str | None = None
     scan_inventory: Callable[[Session, list[dict], str | None, str], dict] | None = None
     analyze: Callable[..., dict] | None = None
+    answer_scope: AnswerScope | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -257,20 +266,6 @@ SYSTEM_PROMPT = (
 # --------------------------------------------------------------------------- #
 # Small shared helpers — each folds in a defect that had diverged per-gateway
 # --------------------------------------------------------------------------- #
-def uploads_dir() -> Path:
-    """Return the real web uploads directory, anchored in the mihomes package.
-
-    H26: the two responders computed this with different `__file__.parents[N]`
-    depths. WhatsApp's `parents[4]` pointed at a `src/web/static/uploads` that
-    does not exist, so issue photos were silently written into the void. This
-    file lives at `src/mihomes/services/gateways/review_common.py`, so
-    `parents[2]` is `src/mihomes/` for both gateways.
-    """
-    path = Path(__file__).resolve().parents[2] / "web" / "static" / "uploads"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
 def parse_event_date(timestamp_str: str | None) -> date | None:
     """Parse an AI-extracted timestamp/date string into a date, or None.
 
@@ -378,6 +373,15 @@ def resolve_room(session: Session, room_name: str | None, prop_slug: str | None)
         if room_lower in space.name.lower() or space.name.lower() in room_lower:
             return space.slug
     return None
+
+
+def _answer_scope(adapter, session: Session, text: str, property_slug: str | None,
+                  messages: list[dict], *, money_gate: bool) -> AbstractContextManager[str | None]:
+    """The adapter's `answer_scope`, or a no-op for adapters that have none."""
+    hook = getattr(adapter, "answer_scope", None)
+    if hook is None:
+        return nullcontext(None)
+    return hook(session, text, property_slug, messages, money_gate=money_gate)
 
 
 def ai_response(session: Session, prompt: str, role: str, property_slug: str | None) -> str | None:
@@ -1054,7 +1058,13 @@ def dispatch_items(
         # --- Questions ---
         if category == "question":
             question_text = item.get("description") or title
-            answer = ai_response(session, question_text, role="estate_manager", property_slug=prop or property_slug)
+            with _answer_scope(adapter, session, question_text, prop or property_slug, messages,
+                               money_gate=True) as replacement:
+                answer = (
+                    replacement if replacement is not None else
+                    ai_response(session, question_text, role="estate_manager",
+                                property_slug=prop or property_slug)
+                )
             if answer:
                 try:
                     send(reply_target, answer)
@@ -1400,7 +1410,12 @@ def dispatch_items(
             continue
 
         if category == "issue":
-            expert_note = issue_expert_reply(session, title, item.get("description"), prop)
+            # The expert note is advice about this issue, not an answer to a money question, so it
+            # skips the money gate — but it still runs inside the audience's restriction.
+            with _answer_scope(adapter, session, title, prop, messages,
+                               money_gate=False) as replacement:
+                expert_note = None if replacement is not None else issue_expert_reply(
+                    session, title, item.get("description"), prop)
             confirmation = f'"{title}" logged ✓\n\n{expert_note}' if expert_note else f'"{title}" logged ✓'
         else:
             confirmation = f'"{title}" logged ✓'
@@ -1440,8 +1455,11 @@ def _create_issue_with_photos(session, item, prop, title, messages, resolve_repo
         space_id_or_slug=room_slug,
     )
 
-    dest_dir = uploads_dir()
-    import shutil
+    # Into tenant-keyed storage, served only by the authorising `/documents/file/<key>` route —
+    # NOT `uploads_dir()`, which is inside the unauthenticated `/static` mount: a photo there was
+    # readable by anyone with its URL, no login, no account check (SPEC-013 D10).
+    from mihomes.storage import build_key, get_storage
+
     for idx, msg in enumerate(messages):
         media_path = msg.get("mediaPath")
         if not media_path or not os.path.isfile(media_path):
@@ -1451,12 +1469,12 @@ def _create_issue_with_photos(session, item, prop, title, messages, resolve_repo
             if not mime.startswith("image/"):
                 continue
             ext = Path(media_path).suffix.lower() or ".jpg"
-            fname = f"{uuid.uuid4().hex}{ext}"
-            shutil.copy2(media_path, dest_dir / fname)
+            key = build_key(issue.account_id, "documents", f"photo{ext}")
+            get_storage().put(key, Path(media_path).read_bytes(), content_type=mime)
             create_document(
                 session,
                 title=f"Photo {idx + 1} — {title}",
-                file_path=f"/static/uploads/{fname}",
+                file_path=key,
                 document_type=DocumentType.OTHER,
                 entity_type="issue",
                 entity_id=issue.id,

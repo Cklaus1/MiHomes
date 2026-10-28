@@ -14,6 +14,10 @@ from mihomes.services.update_helpers import safe_update
 VALID_ENTITY_TYPES = {
     "property", "asset", "vendor", "work_order", "contract",
     "insurance", "event", "staff", "space",
+    # Issue photos/docs: the issue page's Photos & Docs tab and gateway issue photos both attach
+    # here, and `query_scope._document_parents` already scopes "issue" by the issue's property.
+    # It was missing from this list, so every such attach raised (and the gateway path swallowed it).
+    "issue",
 }
 
 

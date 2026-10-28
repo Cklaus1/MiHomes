@@ -93,15 +93,39 @@ def test_parse_event_date_garbage_and_none():
 
 
 # --------------------------------------------------------------------------- #
-# H26 — uploads dir resolves to the real package directory for BOTH gateways
+# Issue photos go to tenant storage, never the public /static mount (SPEC-013 D10)
 # --------------------------------------------------------------------------- #
-def test_uploads_dir_is_real_package_path():
-    p = rc.uploads_dir()
-    assert p.parts[-3:] == ("web", "static", "uploads")
-    # Anchored inside the installed mihomes package, not a phantom src/web.
-    assert "mihomes" in p.parts
-    # It exists (helper creates it) and is a directory.
-    assert p.is_dir()
+def test_issue_photos_are_stored_privately(session, prop, capture, tmp_path, monkeypatch):
+    """H26 fixed WHERE the copy landed; the copy itself was the leak. `web/static/uploads` is
+    inside the unauthenticated `/static` mount, so a gateway photo was readable by anyone with
+    its URL. Photos now go to tenant-keyed storage, served only by `/documents/file/<key>`."""
+    from pathlib import Path
+
+    from mihomes.models.document import Document
+    from mihomes.storage import get_storage, key_account, reset_storage
+
+    monkeypatch.delenv("STORAGE_PROVIDER", raising=False)
+    reset_storage()
+    storage = get_storage(refresh=True, override_root=tmp_path / "objects")
+    public = Path(rc.__file__).resolve().parents[2] / "web" / "static" / "uploads"
+    before = set(public.iterdir()) if public.exists() else set()
+    try:
+        photo = tmp_path / "leak.jpg"
+        photo.write_bytes(b"\xff\xd8\xff fake jpeg")
+        adapter, _sent = capture
+        msg = {"id": "1", "jid": "-1", "isGroup": True, "sender": "1", "senderName": "A",
+               "text": "", "hasMedia": True, "mediaPath": str(photo), "timestamp": ""}
+        _dispatch(session, [{"category": "issue", "title": "Cracked tile", "severity": "low",
+                             "property_slug": prop.slug}], adapter, prop.slug, messages=[msg])
+
+        (doc,) = session.query(Document).filter(Document.entity_type == "issue").all()
+        assert not doc.file_path.startswith("/static/"), doc.file_path
+        assert key_account(doc.file_path) == str(doc.account_id)
+        assert storage.get(doc.file_path) == b"\xff\xd8\xff fake jpeg"
+        assert (set(public.iterdir()) if public.exists() else set()) == before, \
+            "nothing may be written into the public /static/uploads"
+    finally:
+        reset_storage()
 
 
 # --------------------------------------------------------------------------- #

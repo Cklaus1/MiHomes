@@ -87,3 +87,23 @@ def test_delete_refuses_a_document_from_another_record(client, storage):
     assert resp.status_code == 200
     with client._SessionLocal() as s:
         assert doc_svc.list_documents(s, entity_type="staff") == []
+
+
+def test_issue_photos_tab_upload_works(client, storage):
+    """`"issue"` was missing from VALID_ENTITY_TYPES, so this upload raised on create_document."""
+    from mihomes.services import issue as issue_svc
+    from mihomes.services import property as prop_svc
+
+    with client._SessionLocal() as s:
+        prop = prop_svc.list_properties(s)[0]
+        slug = issue_svc.create_issue(s, "Cracked tile", prop.slug).slug
+        s.commit()
+    resp = client.post(
+        f"/issues/{slug}/documents",
+        data={"title": "Tile photo", "doc_type": "photo"},
+        files={"file": ("tile.png", b"\x89PNG fake", "image/png")},
+    )
+    assert resp.status_code == 200, resp.text
+    assert "Tile photo" in resp.text
+    with client._SessionLocal() as s:
+        assert len(doc_svc.list_documents(s, entity_type="issue")) == 1

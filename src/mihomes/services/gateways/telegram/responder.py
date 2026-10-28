@@ -16,6 +16,7 @@ import os
 from sqlalchemy.orm import Session
 
 from mihomes.services.gateways import review_common as rc
+from mihomes.services.gateways.answer_scope import answer_scope_for
 from mihomes.services.gateways.telegram.client import TelegramClient, TelegramError
 from mihomes.services.gateways.telegram.review import analyze_messages
 
@@ -207,5 +208,6 @@ def process_and_respond(
         inventory_target=get_config(session, "telegram.inventory_chat_id"),
         scan_inventory=lambda s, msgs, prop, target: handle_inventory_scan(s, msgs, prop, target, client),
         analyze=lambda *a, **k: analyze_messages(*a, **k),
+        answer_scope=answer_scope_for("telegram"),
     )
     return rc.handle_inbound(session, messages, adapter=adapter, property_slug=property_slug)

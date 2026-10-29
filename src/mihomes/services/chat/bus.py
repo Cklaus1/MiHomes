@@ -81,35 +81,53 @@ class ChatBus:
 BUS = ChatBus()
 
 
-async def start_listener(dsn: str, bus: ChatBus = BUS) -> None:
-    """D17: LISTEN on the chat channel and re-publish locally. Reconnects with backoff (1→30 s).
+def _listen_forever(dsn: str, bus: ChatBus, stop: threading.Event) -> None:
+    """The blocking LISTEN loop, on its own thread with synchronous psycopg.
 
-    Needs a **direct** Postgres connection: LISTEN does not survive PgBouncer's transaction mode.
+    A thread rather than `psycopg.AsyncConnection`, because async psycopg refuses Windows'
+    default Proactor loop — and `publish` is already thread-safe, so nothing else changes.
+    Reconnects with backoff (1→30 s) until `stop` is set.
     """
     import psycopg
 
     from mihomes.services.chat.events import NOTIFY_CHANNEL
 
+    url = dsn.replace("postgresql+psycopg://", "postgresql://")
     delay = 1.0
-    while True:
+    while not stop.is_set():
         try:
-            conn = await psycopg.AsyncConnection.connect(dsn.replace("postgresql+psycopg://",
-                                                                     "postgresql://"),
-                                                         autocommit=True)
-            async with conn:
-                await conn.execute(f"LISTEN {NOTIFY_CHANNEL}")
+            with psycopg.connect(url, autocommit=True) as conn:
+                conn.execute(f"LISTEN {NOTIFY_CHANNEL}")
                 delay = 1.0
-                async for note in conn.notifies():
-                    try:
-                        data = json.loads(note.payload)
-                        account = data.pop("a")
-                        bus.publish(account, data)
-                    except Exception:
-                        logger.exception("chat listener: bad notification")
-        except asyncio.CancelledError:
-            raise
+                while not stop.is_set():
+                    for note in conn.notifies(timeout=1.0):
+                        try:
+                            data = json.loads(note.payload)
+                            account = data.pop("a")
+                            bus.publish(account, data)
+                        except Exception:
+                            logger.exception("chat listener: bad notification")
         except Exception:
+            if stop.is_set():
+                return
             logger.warning("chat listener: connection failed; retrying in %.0fs", delay,
                            exc_info=True)
-            await asyncio.sleep(delay)
+            stop.wait(delay)
             delay = min(delay * 2, 30.0)
+
+
+async def start_listener(dsn: str, bus: ChatBus = BUS) -> None:
+    """D17: LISTEN on the chat channel and re-publish locally, until cancelled.
+
+    Needs a **direct** Postgres connection: LISTEN does not survive PgBouncer's transaction mode.
+    """
+    stop = threading.Event()
+    thread = threading.Thread(target=_listen_forever, args=(dsn, bus, stop),
+                              name="chat-listener", daemon=True)
+    thread.start()
+    try:
+        while thread.is_alive():
+            await asyncio.sleep(0.5)
+    finally:
+        stop.set()
+        await asyncio.to_thread(thread.join, 5)

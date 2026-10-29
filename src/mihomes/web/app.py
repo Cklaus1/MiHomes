@@ -1,5 +1,6 @@
 """MiHomes Web — FastAPI app factory."""
 
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
@@ -95,6 +96,29 @@ def render_marketing_page(request: Request) -> str:
     return render_page("index.html", {"utm": utm, **MARKETING_LINKS})
 
 
+@asynccontextmanager
+async def _chat_listener_lifespan(app: FastAPI):
+    """SPEC-012 D17: with `REALTIME_DATABASE_URL` set, LISTEN for chat events from other
+    processes and re-publish them on this one's bus. Unset (evo-dev: one uvicorn process), chat
+    uses the in-process bus and nothing starts here."""
+    import asyncio
+    import os
+
+    dsn = os.environ.get("REALTIME_DATABASE_URL", "").strip()
+    task = None
+    if dsn:
+        from mihomes.services.chat.bus import start_listener
+
+        task = asyncio.create_task(start_listener(dsn))
+    try:
+        yield
+    finally:
+        if task is not None:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+
+
 def create_app() -> FastAPI:
     # `enforce_declared_action` is where SPEC-003's 142 route declarations become enforcement
     # (§6 Step 7). Applied app-wide rather than per-route so there is exactly one place to
@@ -109,6 +133,7 @@ def create_app() -> FastAPI:
         docs_url=None,
         redoc_url=None,
         dependencies=[Depends(enforce_declared_action)],
+        lifespan=_chat_listener_lifespan,
     )
 
     # Reject cross-site state-changing requests and non-loopback Host headers

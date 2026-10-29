@@ -827,3 +827,9 @@ Review this at the start of each session.
   Use `data-*` + a delegated listener (pattern: `data-preview-*` in app.js).
 - **Static template tests are not a live walk.** Every one of the above passed the static suite;
   a 375px browser walk found the collapsed header and the shell-scroll bug in minutes.
+
+## Lint scope (2026-10-29)
+- **Never run `ruff check --fix` on a directory.** `src/mihomes` has ~40 files with pre-existing
+  autofixable findings; a directory-wide `--fix` silently rewrote all of them inside an unrelated
+  feature change. Lint and fix only the files you touched (the pre-commit hook already does this
+  for staged files). If it happens: `git status`, then restore only the files outside your change.

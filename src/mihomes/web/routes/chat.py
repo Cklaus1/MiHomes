@@ -27,6 +27,7 @@ from mihomes.models.membership import Membership
 from mihomes.services.chat import ai_bridge, reads
 from mihomes.services.chat import attachments as attachment_svc
 from mihomes.services.chat import conversations as conv
+from mihomes.services.chat import mentions as mention_svc
 from mihomes.services.chat import posts as post_svc
 from mihomes.services.chat import reactions as reaction_svc
 from mihomes.services.chat.access import (
@@ -91,12 +92,14 @@ def chat_index(request: Request, principal: RequestPrincipal = require_authentic
 
 @router.get("/c/{conversation_id}")
 @declares("chat.use", Access.ACCOUNT)
-def chat_conversation(request: Request, conversation_id: uuid.UUID,
+def chat_conversation(request: Request, conversation_id: uuid.UUID, at: int | None = None,
                       principal: RequestPrincipal = require_authenticated(),
                       db: Session = Depends(get_db)):
+    """`?at=<seq>` (a search hit) loads that post's neighbourhood instead of the latest page."""
     me = _me(db, principal)
     conversation = require_visible(db, me, conversation_id)
-    posts = post_svc.history(db, conversation.id)
+    posts = (post_svc.history_around(db, conversation.id, at) if at is not None
+             else post_svc.history(db, conversation.id))
     return templates.TemplateResponse(request, "chat/conversation.html", {
         **_page_context(db, me),
         "selected_id": conversation.id,
@@ -109,6 +112,7 @@ def chat_conversation(request: Request, conversation_id: uuid.UUID,
         "last_event": _last_event_cursor(db, visible_conversation_ids(db, me)),
         "emojis": reaction_svc.EMOJI_ALLOWLIST,
         "is_dm": conversation.kind == KIND_DM,
+        "jump_seq": at,
     })
 
 
@@ -146,6 +150,7 @@ def chat_create_post(request: Request, conversation_id: uuid.UUID,
                      background: BackgroundTasks,
                      body: str = Form(""), reply_to_id: str = Form(""),
                      client_token: str = Form(""),
+                     mention_ids: list[str] = Form(default=[]),
                      files: list[UploadFile] = File(default=[]),
                      principal: RequestPrincipal = require_authenticated(),
                      db: Session = Depends(get_db)):
@@ -169,10 +174,15 @@ def chat_create_post(request: Request, conversation_id: uuid.UUID,
                                     allow_empty=bool(uploads),
                                     client_token=_uuid_or_none(client_token))
         created = post.seq >= seq_before   # a client_token replay returns an older post
-        if created and uploads:
-            attachment_svc.attach(db, post, uploads)
-        elif uploads:
+        if not created:
             _discard(uploads)              # the replayed post already has its files
+        else:
+            if uploads:
+                attachment_svc.attach(db, post, uploads)
+            if post.body:
+                hints = [h for h in (_uuid_or_none(x) for x in mention_ids) if h]
+                mention_svc.record_mentions(
+                    db, post, mention_svc.resolve_mentions(db, conversation, post.body, hints))
         db.commit()   # before the task: dispatch re-reads the post in its own session (A10)
     except Exception:
         db.rollback()
@@ -299,6 +309,39 @@ def chat_unread_badge(request: Request, principal: RequestPrincipal = require_au
                       db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "partials/chat/_unread_badge.html", {
         "count": reads.total_unread(db, _me(db, principal)),
+    })
+
+
+@router.get("/search", response_class=HTMLResponse)
+@declares("chat.use", Access.ACCOUNT)
+def chat_search(request: Request, q: str = "", cursor: str | None = None,
+                principal: RequestPrincipal = require_authenticated(),
+                db: Session = Depends(get_db)):
+    """Full page, or just the results for an HTMX request. Visible, live posts only (A26)."""
+    from mihomes.services.chat.render import tokenize_body
+    from mihomes.services.chat.search import search_posts
+
+    me = _me(db, principal)
+    page = search_posts(db, me, q, cursor=cursor)
+    titles = {r.id: r.title for r in conv.list_for(db, me)}
+    hits = [{"hit": h, "title": titles.get(h.conversation_id, "Chat"),
+             "tokens": tokenize_body(h.snippet)} for h in page.hits]
+    ctx = {"q": q, "hits": hits, "next_cursor": page.next_cursor}
+    if request.headers.get("HX-Request"):
+        return templates.TemplateResponse(request, "partials/chat/_search_results.html", ctx)
+    return templates.TemplateResponse(request, "chat/search.html", {**ctx, "page": "chat"})
+
+
+@router.get("/c/{conversation_id}/mentionable", response_class=HTMLResponse)
+@declares("chat.use", Access.ACCOUNT)
+def chat_mentionable(request: Request, conversation_id: uuid.UUID, q: str = "",
+                     principal: RequestPrincipal = require_authenticated(),
+                     db: Session = Depends(get_db)):
+    """The @-picker: only people who can see this conversation (A23)."""
+    me = _me(db, principal)
+    conversation = require_visible(db, me, conversation_id)
+    return templates.TemplateResponse(request, "partials/chat/_mentionable.html", {
+        "people": mention_svc.mentionable(db, conversation, q=q[:60], exclude=me.id),
     })
 
 

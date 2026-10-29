@@ -176,6 +176,16 @@ def delete_post(session: Session, post: ChatPost, *, actor: Membership) -> ChatP
     return post
 
 
+def history_around(session: Session, conversation_id: uuid.UUID, seq: int,
+                   radius: int = 25) -> list[ChatPost]:
+    """Posts `seq - radius … seq + radius`, oldest first (SPEC-013: a search hit's context).
+    The caller must already hold `require_visible` for this conversation."""
+    return list(session.execute(
+        select(ChatPost).where(ChatPost.conversation_id == conversation_id,
+                               ChatPost.seq.between(seq - radius, seq + radius))
+        .order_by(ChatPost.seq)).scalars())
+
+
 def history(session: Session, conversation_id: uuid.UUID, *, before_seq: int | None = None,
             limit: int = PAGE_SIZE) -> list[ChatPost]:
     """The latest `limit` posts (before `before_seq` if given), returned oldest-first.

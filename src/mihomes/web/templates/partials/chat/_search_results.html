@@ -1,0 +1,28 @@
+{# Chat search results. Expects: q, hits ({hit, title, tokens}), next_cursor. Snippets are
+   tokens from the renderer — highlights are <mark> around autoescaped text, never |safe (D15). #}
+{% if hits %}
+<ul class="divide-y divide-gray-100">
+  {% for r in hits %}
+  <li>
+    <a href="/chat/c/{{ r.hit.conversation_id }}?at={{ r.hit.seq }}"
+       class="block px-4 py-3 hover:bg-gray-50">
+      <div class="text-xs text-gray-500">{{ r.title }} · {{ r.hit.created_at.strftime('%b %d, %H:%M') }}</div>
+      <p class="mt-0.5 text-sm text-gray-800 break-words">
+        {%- for t in r.tokens -%}
+          {%- if t.kind == 'hit' -%}<mark>{{ t.text }}</mark>{%- else -%}{{ t.text }}{%- endif -%}
+        {%- endfor -%}
+      </p>
+    </a>
+  </li>
+  {% endfor %}
+  {% if next_cursor %}
+  <li class="text-center py-2">
+    <button type="button" hx-get="/chat/search?q={{ q|urlencode }}&amp;cursor={{ next_cursor|urlencode }}"
+            hx-target="closest li" hx-swap="outerHTML"
+            class="min-h-[36px] px-3 rounded-md text-xs text-gray-600 hover:bg-gray-100">More results</button>
+  </li>
+  {% endif %}
+</ul>
+{% elif q %}
+<p class="px-4 py-6 text-sm text-gray-500 text-center">No messages match “{{ q }}”.</p>
+{% endif %}

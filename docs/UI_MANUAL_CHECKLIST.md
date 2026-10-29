@@ -68,6 +68,7 @@ static tests do cover them directly.
 | `conversations.html` | /conversations/ | — | ☐ | ☐ | ☐ |
 | `chat/index.html` | /chat/ | — | ☐ | ☐ | ☐ |
 | `chat/conversation.html` | /chat/c/{id} | — | ☐ | ☐ | ☐ |
+| `chat/search.html` | /chat/search | — | ☐ | ☐ | ☐ |
 | `dashboard.html` | / | 346 | ☐ | ☐ | ☐ |
 | `documents.html` | /documents/ | 415 | ☐ | ☐ | ☐ |
 | `error.html` | — | 65 | ☐ | ☐ | ☐ |

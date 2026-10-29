@@ -2,7 +2,8 @@
    Body text is drawn token by token and autoescaped (D18): the tokenizer only says where a link
    is; this template builds the <a>, and `|safe` is never applied to what a member typed.
    The `id` is what chat.js swaps when an event names this post (D8). #}
-<li id="post-{{ v.id }}" data-seq="{{ v.post.seq }}" data-author="{{ v.post.author_membership_id or 'bot' }}"
+<li id="post-{{ v.id }}" data-seq="{{ v.post.seq }}"
+    {% if jump_seq is defined and jump_seq == v.post.seq %}data-chat-jump{% endif %} data-author="{{ v.post.author_membership_id or 'bot' }}"
     class="group flex {{ 'justify-end' if v.is_mine else 'justify-start' }}">
   <div class="max-w-[85%] min-w-0">
     <div class="rounded-xl px-3 py-2 text-sm
@@ -46,6 +47,10 @@
         {%- for t in v.tokens -%}
           {%- if t.kind == 'link' -%}
             <a href="{{ t.href }}" target="_blank" rel="noopener noreferrer nofollow" class="underline text-brand-700 break-all">{{ t.text }}</a>
+          {%- elif t.kind == 'mention' -%}
+            <span class="font-medium text-brand-700 bg-brand-50 rounded px-0.5">{{ t.text }}</span>
+          {%- elif t.kind == 'hit' -%}
+            <mark>{{ t.text }}</mark>
           {%- else -%}
             {{ t.text }}
           {%- endif -%}

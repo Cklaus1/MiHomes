@@ -86,7 +86,10 @@
     }
   });
 
-  scrollToBottom();
+  // A search hit (?at=) scrolls to that post instead of the newest.
+  var jump = list.querySelector("[data-chat-jump]");
+  if (jump) { jump.scrollIntoView({ block: "center" }); jump.style.outline = "2px solid #93c5fd"; jump.style.borderRadius = "0.75rem"; }
+  else scrollToBottom();
 
   // ---- realtime (SPEC-012 §5.5) ---------------------------------------------
   // Events carry ids only (D8). For a post we re-fetch its server-rendered partial, which re-runs

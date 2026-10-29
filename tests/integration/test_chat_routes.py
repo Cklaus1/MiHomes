@@ -162,6 +162,7 @@ def _payloads(general_seq: int) -> dict[tuple[str, str], dict]:
         ("POST", "/chat/posts/{post_id}/delete"): {},
         ("POST", "/chat/posts/{post_id}/react"): {"data": {"emoji": "👍"}},
         ("GET", "/chat/file/{attachment_id}"): {},
+        ("GET", "/chat/c/{conversation_id}/mentionable"): {"params": {"q": ""}},
     }
 
 

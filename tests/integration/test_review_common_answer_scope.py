@@ -67,10 +67,11 @@ def test_refusal_replaces_answer(session, monkeypatch):
 
 def test_mihomes_channel_writes_no_conversation_log(session):
     """D2/A3 seam — the native channel is never recorded into chat_messages."""
-    adapter = GatewayAdapter(label="MiHomes chat", channel="mihomes", send=lambda t, x: None)
-    wrapped = review_common._with_conversation_log(
-        session, [{"jid": "c1", "isGroup": True, "text": "hello", "sender": "x"}], adapter, None)
-    assert wrapped is adapter
     from mihomes.models.chat_message import ChatMessage
 
-    assert session.query(ChatMessage).count() == 0
+    jid = f"native-{uuid.uuid4().hex}"
+    adapter = GatewayAdapter(label="MiHomes chat", channel="mihomes", send=lambda t, x: None)
+    wrapped = review_common._with_conversation_log(
+        session, [{"jid": jid, "isGroup": True, "text": "hello", "sender": "x"}], adapter, None)
+    assert wrapped is adapter
+    assert session.query(ChatMessage).filter(ChatMessage.chat_id == jid).count() == 0

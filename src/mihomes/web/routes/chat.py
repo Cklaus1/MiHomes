@@ -11,6 +11,7 @@ lock `create_post` takes (D7) and fires the after-commit publish, both before th
 
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 
@@ -44,6 +45,7 @@ from mihomes.web.deps import RequestPrincipal, get_db, require_authenticated, te
 from mihomes.web.forms import store_validated_upload_sync
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 TYPING_THROTTLE_S = 3.0
 _last_typing: dict[tuple[uuid.UUID, uuid.UUID], float] = {}
@@ -368,8 +370,8 @@ def _discard(uploads) -> None:
     for u in uploads:
         try:
             get_storage().delete(u.key)
-        except Exception:  # pragma: no cover - best effort
-            pass
+        except Exception:  # pragma: no cover - best effort, but never silent (N15)
+            logger.exception("chat upload: could not delete orphaned object %s", u.key)
 
 
 def _uuid_or_none(value: str | None) -> uuid.UUID | None:

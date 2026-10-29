@@ -14,7 +14,7 @@ from __future__ import annotations
 import time
 import uuid
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -24,10 +24,10 @@ from mihomes.authz.actions import Access
 from mihomes.authz.declare import declares
 from mihomes.models.chat_native import KIND_DM, ChatConversation, ChatEvent, ChatPost
 from mihomes.models.membership import Membership
+from mihomes.services.chat import ai_bridge, reads
 from mihomes.services.chat import conversations as conv
 from mihomes.services.chat import posts as post_svc
 from mihomes.services.chat import reactions as reaction_svc
-from mihomes.services.chat import reads
 from mihomes.services.chat.access import (
     ChatInvalid,
     post_for,
@@ -140,16 +140,21 @@ def chat_post(request: Request, post_id: uuid.UUID,
 @router.post("/c/{conversation_id}/posts", response_class=HTMLResponse)
 @declares("chat.use", Access.ACCOUNT)
 def chat_create_post(request: Request, conversation_id: uuid.UUID,
+                     background: BackgroundTasks,
                      body: str = Form(""), reply_to_id: str = Form(""),
                      client_token: str = Form(""),
                      principal: RequestPrincipal = require_authenticated(),
                      db: Session = Depends(get_db)):
     me = _me(db, principal)
     conversation = require_visible(db, me, conversation_id)
+    seq_before = conversation.next_seq
     post = post_svc.create_post(db, conversation, author=me, body=body,
                                 reply_to_id=_uuid_or_none(reply_to_id),
                                 client_token=_uuid_or_none(client_token))
-    db.commit()
+    created = post.seq >= seq_before   # a client_token replay returns an older post
+    db.commit()   # before the task: dispatch re-reads the post in its own session (SPEC-013 A10)
+    if created and ai_bridge.should_dispatch(conversation, post):
+        background.add_task(ai_bridge.dispatch, principal.account_id, conversation.id, post.id)
     return _render_post(request, db, me, post)
 
 

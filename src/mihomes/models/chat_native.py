@@ -42,11 +42,30 @@ def _uuid_pk():
 
 def _fk(target: str, *, nullable: bool, ondelete: str | None = "CASCADE"):
     return mapped_column(PGUUID(as_uuid=True), ForeignKey(target, ondelete=ondelete),
-                         nullable=nullable, index=True)
+                         nullable=nullable)
 
 
 def _created():
     return mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+#: Every secondary index on a chat table, as `(account_id, column)` — the migration builds the
+#: same set from this dict. Under RLS each query carries `account_id = current_account`, so an
+#: index must lead with it (`test_tenant_indexes.py`); a bare FK index would recheck per row.
+CHAT_ACCOUNT_INDEXES: dict[str, tuple[str, ...]] = {
+    "chat_conversations": ("property_id",),
+    "chat_participants": ("membership_id",),
+    "chat_posts": ("conversation_id", "author_membership_id", "reply_to_id"),
+    "chat_reactions": ("post_id", "membership_id"),
+    "chat_attachments": ("post_id",),
+    "chat_mentions": ("post_id", "membership_id"),
+    "chat_events": ("conversation_id", "post_id", "actor_membership_id", "created_at"),
+}
+
+
+def _account_indexes(table: str) -> tuple[Index, ...]:
+    return tuple(Index(f"ix_{table}_account_{col}", "account_id", col)
+                 for col in CHAT_ACCOUNT_INDEXES[table])
 
 
 class ChatConversation(Base, TenantOwned):
@@ -76,6 +95,7 @@ class ChatConversation(Base, TenantOwned):
               postgresql_where=text("kind = 'property'")),
         Index("uq_chat_conversations_dm", "account_id", "dm_key", unique=True,
               postgresql_where=text("kind = 'dm'")),
+        *_account_indexes("chat_conversations"),
     )
 
 
@@ -91,13 +111,14 @@ class ChatParticipant(Base, TenantOwned):
         PGUUID(as_uuid=True), ForeignKey("chat_conversations.id", ondelete="CASCADE"),
         primary_key=True)
     membership_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("memberships.id", ondelete="CASCADE"), primary_key=True,
-        index=True)
+        PGUUID(as_uuid=True), ForeignKey("memberships.id", ondelete="CASCADE"), primary_key=True)
     last_read_seq: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0,
                                                server_default="0")
     muted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False,
                                         server_default="false")
     joined_at: Mapped[datetime] = _created()
+
+    __table_args__ = _account_indexes("chat_participants")
 
 
 class ChatPost(Base, TenantOwned):
@@ -132,8 +153,10 @@ class ChatPost(Base, TenantOwned):
         CheckConstraint("deleted_at IS NULL OR body = ''", name="ck_chat_posts_deleted_blank"),
         UniqueConstraint("conversation_id", "seq", name="uq_chat_posts_seq"),  # also history index
         Index("ix_chat_posts_search_tsv", "search_tsv", postgresql_using="gin"),
-        Index("uq_chat_posts_client_token", "conversation_id", "client_token", unique=True,
+        Index("uq_chat_posts_client_token", "account_id", "conversation_id", "client_token",
+              unique=True,
               postgresql_where=text("client_token IS NOT NULL")),
+        *_account_indexes("chat_posts"),
     )
 
 
@@ -145,7 +168,8 @@ class ChatReaction(Base, TenantOwned):
     emoji: Mapped[str] = mapped_column(String(16), nullable=False)   # allowlist in the service (D11)
     created_at: Mapped[datetime] = _created()
 
-    __table_args__ = (UniqueConstraint("post_id", "membership_id", "emoji", name="uq_chat_reactions"),)
+    __table_args__ = (UniqueConstraint("post_id", "membership_id", "emoji", name="uq_chat_reactions"),
+                      *_account_indexes("chat_reactions"))
 
 
 class ChatAttachment(Base, TenantOwned):
@@ -160,7 +184,8 @@ class ChatAttachment(Base, TenantOwned):
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
     created_at: Mapped[datetime] = _created()
 
-    __table_args__ = (CheckConstraint("size_bytes >= 0", name="ck_chat_attachments_size"),)
+    __table_args__ = (CheckConstraint("size_bytes >= 0", name="ck_chat_attachments_size"),
+                      *_account_indexes("chat_attachments"))
 
 
 class ChatMention(Base, TenantOwned):
@@ -173,7 +198,8 @@ class ChatMention(Base, TenantOwned):
     notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = _created()
 
-    __table_args__ = (UniqueConstraint("post_id", "membership_id", name="uq_chat_mentions"),)
+    __table_args__ = (UniqueConstraint("post_id", "membership_id", name="uq_chat_mentions"),
+                      *_account_indexes("chat_mentions"))
 
 
 class ChatEvent(Base, TenantOwned):
@@ -189,4 +215,6 @@ class ChatEvent(Base, TenantOwned):
     post_id: Mapped[uuid.UUID | None] = _fk("chat_posts.id", nullable=True)
     actor_membership_id: Mapped[uuid.UUID | None] = _fk("memberships.id", nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False,
-                                                 server_default=func.now(), index=True)
+                                                 server_default=func.now())
+
+    __table_args__ = _account_indexes("chat_events")

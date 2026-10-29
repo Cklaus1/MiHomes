@@ -42,6 +42,12 @@ EXPECTED_NON_LEADING = {
         "carries account_id, RLS still applies, and UNIQUE (account_id, telegram_user_id) keeps "
         "one link per sender per account."
     ),
+    "ix_chat_posts_search_tsv": (
+        "SPEC-012/013 full-text search. A GIN index over a tsvector cannot take a uuid column "
+        "without the btree_gin extension, which the deployment does not install. Every search "
+        "query also filters to the caller's visible conversation ids (services.chat.access), and "
+        "RLS still applies, so the account recheck runs only on rows the text already matched."
+    ),
 }
 
 

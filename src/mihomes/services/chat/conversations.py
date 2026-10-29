@@ -12,7 +12,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -60,7 +60,7 @@ def _insert_once(session: Session, *, kind: str, index_elements: list[str],
         pg_insert(ChatConversation.__table__)
         .values(**row)
         .on_conflict_do_nothing(index_elements=index_elements,
-                                index_where=text(f"kind = '{kind}'"))
+                                index_where=ChatConversation.__table__.c.kind == kind)
     )
     created = session.execute(stmt).rowcount == 1
     query = select(ChatConversation).where(ChatConversation.account_id == account_id,

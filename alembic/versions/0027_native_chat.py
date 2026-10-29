@@ -92,7 +92,8 @@ def upgrade() -> None:
     )
     op.create_index("ix_chat_posts_search_tsv", "chat_posts", ["search_tsv"],
                     postgresql_using="gin")
-    op.create_index("uq_chat_posts_client_token", "chat_posts", ["conversation_id", "client_token"],
+    op.create_index("uq_chat_posts_client_token", "chat_posts",
+                    ["account_id", "conversation_id", "client_token"],
                     unique=True, postgresql_where=sa.text("client_token IS NOT NULL"))
 
     op.create_table(
@@ -140,19 +141,22 @@ def upgrade() -> None:
         _now(),
     )
 
-    # One index per `index=True` column in the models, named op.f("ix_<table>_<column>").
+    # Secondary indexes lead with account_id: under RLS every query carries the account predicate
+    # (`test_tenant_indexes.py`). Mirrors `chat_native.CHAT_ACCOUNT_INDEXES` — inlined, because a
+    # migration must not change when a model later does.
+    for table in TABLES:
+        op.create_index(op.f(f"ix_{table}_account_id"), table, ["account_id"])
     for table, cols in {
-        "chat_conversations": ["account_id", "property_id"],
-        "chat_participants": ["account_id", "membership_id"],
-        "chat_posts": ["account_id", "conversation_id", "author_membership_id", "reply_to_id"],
-        "chat_reactions": ["account_id", "post_id", "membership_id"],
-        "chat_attachments": ["account_id", "post_id"],
-        "chat_mentions": ["account_id", "post_id", "membership_id"],
-        "chat_events": ["account_id", "conversation_id", "post_id", "actor_membership_id",
-                        "created_at"],
+        "chat_conversations": ("property_id",),
+        "chat_participants": ("membership_id",),
+        "chat_posts": ("conversation_id", "author_membership_id", "reply_to_id"),
+        "chat_reactions": ("post_id", "membership_id"),
+        "chat_attachments": ("post_id",),
+        "chat_mentions": ("post_id", "membership_id"),
+        "chat_events": ("conversation_id", "post_id", "actor_membership_id", "created_at"),
     }.items():
         for col in cols:
-            op.create_index(op.f(f"ix_{table}_{col}"), table, [col])
+            op.create_index(f"ix_{table}_account_{col}", table, ["account_id", col])
 
     if op.get_bind().dialect.name == "postgresql":
         from mihomes.models import Base

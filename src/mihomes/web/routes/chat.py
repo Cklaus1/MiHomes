@@ -14,7 +14,7 @@ from __future__ import annotations
 import time
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Form, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -25,11 +25,13 @@ from mihomes.authz.declare import declares
 from mihomes.models.chat_native import KIND_DM, ChatConversation, ChatEvent, ChatPost
 from mihomes.models.membership import Membership
 from mihomes.services.chat import ai_bridge, reads
+from mihomes.services.chat import attachments as attachment_svc
 from mihomes.services.chat import conversations as conv
 from mihomes.services.chat import posts as post_svc
 from mihomes.services.chat import reactions as reaction_svc
 from mihomes.services.chat.access import (
     ChatInvalid,
+    ChatNotFound,
     post_for,
     require_visible,
     visible_conversation_ids,
@@ -38,6 +40,7 @@ from mihomes.services.chat.bus import BUS
 from mihomes.services.chat.render import post_views
 from mihomes.services.chat.stream import stream_events
 from mihomes.web.deps import RequestPrincipal, get_db, require_authenticated, templates
+from mihomes.web.forms import store_validated_upload_sync
 
 router = APIRouter()
 
@@ -143,16 +146,38 @@ def chat_create_post(request: Request, conversation_id: uuid.UUID,
                      background: BackgroundTasks,
                      body: str = Form(""), reply_to_id: str = Form(""),
                      client_token: str = Form(""),
+                     files: list[UploadFile] = File(default=[]),
                      principal: RequestPrincipal = require_authenticated(),
                      db: Session = Depends(get_db)):
+    """SPEC-013 §5.4 order: visibility first (nothing is stored for a non-member), then the files,
+    then the post — and if anything after storing fails, the stored objects are deleted again."""
     me = _me(db, principal)
     conversation = require_visible(db, me, conversation_id)
-    seq_before = conversation.next_seq
-    post = post_svc.create_post(db, conversation, author=me, body=body,
-                                reply_to_id=_uuid_or_none(reply_to_id),
-                                client_token=_uuid_or_none(client_token))
-    created = post.seq >= seq_before   # a client_token replay returns an older post
-    db.commit()   # before the task: dispatch re-reads the post in its own session (SPEC-013 A10)
+    real = [f for f in files if getattr(f, "filename", "")]
+    if len(real) > attachment_svc.MAX_FILES_PER_POST:
+        raise ChatInvalid(f"Attach at most {attachment_svc.MAX_FILES_PER_POST} files per message.")
+    uploads = []
+    try:
+        for f in real:
+            try:
+                uploads.append(store_validated_upload_sync(f, category="chat"))
+            except ValueError as exc:
+                raise ChatInvalid(str(exc)) from exc
+        seq_before = conversation.next_seq
+        post = post_svc.create_post(db, conversation, author=me, body=body,
+                                    reply_to_id=_uuid_or_none(reply_to_id),
+                                    allow_empty=bool(uploads),
+                                    client_token=_uuid_or_none(client_token))
+        created = post.seq >= seq_before   # a client_token replay returns an older post
+        if created and uploads:
+            attachment_svc.attach(db, post, uploads)
+        elif uploads:
+            _discard(uploads)              # the replayed post already has its files
+        db.commit()   # before the task: dispatch re-reads the post in its own session (A10)
+    except Exception:
+        db.rollback()
+        _discard(uploads)
+        raise
     if created and ai_bridge.should_dispatch(conversation, post):
         background.add_task(ai_bridge.dispatch, principal.account_id, conversation.id, post.id)
     return _render_post(request, db, me, post)
@@ -275,6 +300,33 @@ def chat_unread_badge(request: Request, principal: RequestPrincipal = require_au
     return templates.TemplateResponse(request, "partials/chat/_unread_badge.html", {
         "count": reads.total_unread(db, _me(db, principal)),
     })
+
+
+@router.get("/file/{attachment_id}")
+@declares("chat.use", Access.ACCOUNT)
+def chat_file(attachment_id: uuid.UUID, principal: RequestPrincipal = require_authenticated(),
+              db: Session = Depends(get_db)) -> Response:
+    """SPEC-013 D12: 404 for every refusal; always proxied, never a presigned redirect."""
+    from mihomes.storage import ObjectNotFound, get_storage
+
+    att = attachment_svc.load_for_download(db, _me(db, principal), attachment_id)
+    try:
+        data = get_storage().get(att.storage_key)
+    except ObjectNotFound as exc:
+        raise ChatNotFound(str(attachment_id)) from exc
+    return Response(content=data, media_type=att.content_type,
+                    headers=attachment_svc.download_headers(att))
+
+
+def _discard(uploads) -> None:
+    """Delete stored objects that will not be recorded — no orphans (§5.4 step 4)."""
+    from mihomes.storage import get_storage
+
+    for u in uploads:
+        try:
+            get_storage().delete(u.key)
+        except Exception:  # pragma: no cover - best effort
+            pass
 
 
 def _uuid_or_none(value: str | None) -> uuid.UUID | None:

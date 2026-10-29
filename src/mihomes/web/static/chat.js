@@ -28,8 +28,23 @@
     // Enter sends; Shift+Enter is a new line.
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
-      if (body.value.trim()) htmx.trigger(composer, "submit");
+      if (body.value.trim() || fileInput.files.length) htmx.trigger(composer, "submit");
     }
+  });
+
+  // Attachments: show what was picked; the server validates type, size and count.
+  var fileInput = composer.querySelector("[data-chat-files]");
+  var fileNames = composer.querySelector("[data-chat-file-names]");
+  fileInput.addEventListener("change", function () {
+    var names = Array.prototype.map.call(fileInput.files, function (f) { return f.name; });
+    fileNames.textContent = names.length ? "Attached: " + names.join(", ") : "";
+    fileNames.hidden = !names.length;
+  });
+  composer.addEventListener("htmx:afterRequest", function (e) {
+    if (e.detail.successful) { fileNames.textContent = ""; fileNames.hidden = true; }
+  });
+  composer.addEventListener("submit", function (e) {
+    if (!body.value.trim() && !fileInput.files.length) e.preventDefault();
   });
 
   // ---- replies --------------------------------------------------------------

@@ -22,6 +22,23 @@
       </div>
       {% endif %}
 
+      {% if v.attachments %}
+      <div class="mt-1.5 flex flex-wrap gap-2">
+        {% for a in v.attachments %}
+        {% if a.content_type.startswith('image/') %}
+        <a href="/chat/file/{{ a.id }}" target="_blank" rel="noopener" class="block">
+          <img src="/chat/file/{{ a.id }}" alt="{{ a.filename }}" loading="lazy"
+               class="max-h-48 max-w-full rounded-lg border border-gray-200 object-cover">
+        </a>
+        {% else %}
+        <a href="/chat/file/{{ a.id }}" class="inline-flex items-center gap-1.5 min-h-[36px] px-2.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-700 hover:bg-gray-50">
+          <span aria-hidden="true">📄</span><span class="truncate max-w-[12rem]">{{ a.filename }}</span>
+        </a>
+        {% endif %}
+        {% endfor %}
+      </div>
+      {% endif %}
+
       {% if v.deleted %}
       <p class="mt-0.5 text-gray-400 italic">This message was deleted.</p>
       {% elif v.tokens %}

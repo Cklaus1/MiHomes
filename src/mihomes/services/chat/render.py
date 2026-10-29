@@ -77,6 +77,7 @@ class PostView:
     reactions: list[ReactionCount] = field(default_factory=list)
     reply_author: str | None = None
     reply_snippet: str | None = None   # None + reply_author set → the parent was deleted
+    attachments: list = field(default_factory=list)   # ChatAttachment rows (SPEC-013)
 
     @property
     def id(self) -> uuid.UUID:
@@ -127,6 +128,9 @@ def post_views(session: Session, viewer: Membership, conversation: ChatConversat
 
     moderator = (viewer.role in ("owner", "admin") and viewer.status == "active"
                  and conversation.kind != KIND_DM)
+    from mihomes.services.chat.attachments import attachments_for
+
+    files = attachments_for(session, post_ids)
     views = []
     for p in posts:
         is_bot = p.author_kind == AUTHOR_BOT
@@ -141,6 +145,7 @@ def post_views(session: Session, viewer: Membership, conversation: ChatConversat
             can_delete=live and (is_mine or moderator),
             tokens=tokenize_body(p.body) if live else [],
             reactions=[ReactionCount(e, n, mine) for e, (n, mine) in counts[p.id].items()],
+            attachments=files.get(p.id, []) if live else [],
         )
         parent = parents.get(p.reply_to_id) if p.reply_to_id else None
         if parent is not None:

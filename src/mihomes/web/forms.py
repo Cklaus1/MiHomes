@@ -1,5 +1,6 @@
 """Helpers for parsing/validating web form input."""
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from mihomes.services.ai.file_processor import Attachment, process_upload
@@ -22,7 +23,58 @@ DOCUMENT_CONTENT_TYPES = {
 MAX_DOCUMENT_BYTES = 25_000_000  # 25 MB — invoices/contracts are small
 
 
-def _store_bytes(data: bytes, filename: str, *, content_type: str | None = None) -> str:
+#: The content type a stored file is served with, derived from its validated extension — never
+#: from the client's `Content-Type` header (SPEC-013 D11).
+EXTENSION_TYPES = {
+    ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+    ".gif": "image/gif", ".webp": "image/webp", ".pdf": "application/pdf",
+}
+
+
+@dataclass(frozen=True)
+class StoredUpload:
+    key: str            # tenant-prefixed storage key
+    filename: str       # basename of the client's name, <=255 chars, display only
+    content_type: str   # EXTENSION_TYPES[suffix]
+    size: int
+
+
+def _validated(filename: str | None, data: bytes, max_bytes: int) -> tuple[str, str]:
+    """(display filename, content type) for an acceptable upload, else ValueError."""
+    if not filename:
+        raise ValueError("Please choose a file to upload.")
+    name = Path(filename.replace("\\", "/")).name[:255] or "file"
+    content_type = EXTENSION_TYPES.get(Path(name).suffix.lower())
+    if content_type is None:
+        raise ValueError(f"“{name}” isn’t an allowed type. Attach a JPG, PNG, GIF, WebP, or PDF.")
+    if not data:
+        raise ValueError(f"“{name}” is empty.")
+    if len(data) > max_bytes:
+        raise ValueError(f"“{name}” is larger than {max_bytes // 1_000_000} MB.")
+    return name, content_type
+
+
+def store_validated_upload_sync(file, *, category: str,
+                                max_bytes: int = MAX_DOCUMENT_BYTES) -> StoredUpload:
+    """SPEC-013 D11, for sync routes (`UploadFile.file`): validate, store under `category`, and
+    return what a caller needs to record it. Reads at most `max_bytes + 1` bytes."""
+    data = file.file.read(max_bytes + 1)
+    name, content_type = _validated(getattr(file, "filename", None), data, max_bytes)
+    key = _store_bytes(data, name, content_type=content_type, category=category)
+    return StoredUpload(key=key, filename=name, content_type=content_type, size=len(data))
+
+
+async def store_validated_upload(file, *, category: str,
+                                 max_bytes: int = MAX_DOCUMENT_BYTES) -> StoredUpload:
+    """The async form of `store_validated_upload_sync`."""
+    data = await file.read(max_bytes + 1)
+    name, content_type = _validated(getattr(file, "filename", None), data, max_bytes)
+    key = _store_bytes(data, name, content_type=content_type, category=category)
+    return StoredUpload(key=key, filename=name, content_type=content_type, size=len(data))
+
+
+def _store_bytes(data: bytes, filename: str, *, content_type: str | None = None,
+                 category: str = "documents") -> str:
     """Put `data` in storage under a tenant-prefixed key and return the key (G11 · A14).
 
     The one place the web layer writes an object, so the key shape and the tenant prefix have a
@@ -32,7 +84,7 @@ def _store_bytes(data: bytes, filename: str, *, content_type: str | None = None)
     from mihomes.storage import build_key, get_storage
     from mihomes.tenancy import require_account
 
-    key = build_key(require_account(), "documents", filename)
+    key = build_key(require_account(), category, filename)
     get_storage().put(key, data, content_type=content_type)
     return key
 

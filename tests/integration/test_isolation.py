@@ -87,7 +87,9 @@ from mihomes.tenancy.registry import ASSOCIATION_TABLES, GLOBAL_TABLES, TENANT_T
 # across accounts (one group, one estate) — hence `_value_for`'s per-account unique integers.
 # `chat_messages` (0026, 2026-10-27) -> 55: a bound group's stored conversation, read by owners
 # and admins on the Conversations page.
-EXPECTED_TENANT_TABLE_COUNT = 55
+# SPEC-012 `0027_native_chat` (2026-10-29) -> 62: the seven native chat tables, ACCOUNT_SHARED —
+# RLS isolates accounts and `services.chat.access` decides visibility within one.
+EXPECTED_TENANT_TABLE_COUNT = 62
 
 
 # --------------------------------------------------------------------------------------

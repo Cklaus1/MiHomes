@@ -151,7 +151,12 @@ def test_upgrade_then_downgrade_is_clean(scratch_db):
     # so there is no account context to scope to — the carve-out `users` and `sessions` hold.
     # No new enum. 0017 also alters `users` (google_sub nullable, two new columns) and adds a
     # partial unique index, none of which move these counts.
-    assert len(first["tables"]) == 57, first["tables"]
+    # 2026-10-29: this literal stopped at 57 while five tenant tables landed without moving it
+    # (0020 task_completions, 0022 playbooks, 0023 playbook_checks, 0025 telegram_chat_bindings,
+    # 0026 chat_messages) — it read 62 at head, measured, before SPEC-012. SPEC-012's
+    # `0027_native_chat` adds seven (chat_conversations, _participants, _posts, _reactions,
+    # _attachments, _mentions, _events) -> 69, measured on a scratch DB, not added up. No enums.
+    assert len(first["tables"]) == 69, first["tables"]
     assert len(first["enums"]) == 22
     assert first["guard_fns"] == ["mihomes_assert_account_matches_parent"]
 

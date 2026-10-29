@@ -165,6 +165,13 @@ MATRIX: dict[str, ActionSpec] = {
     "ai.use":              _spec("ai.use",              18, _A, _A, _S, _COLL),
     "export.data":         _spec("export.data",         19, _A, _A, _D, _ACCT),
     "gateway.link_self":   _spec("gateway.link_self",   20, _A, _A, _A, _ACCT, rule="R2"),
+    # SPEC-012 D2 — row 20 split: in-app chat. Every logged-in role chats; ACCOUNT because a
+    # conversation is not a property operation. The narrowing is in the mechanism, not the grant
+    # (the `staff.view_own` / `playbook.manage` shape): `services.chat.access` alone decides which
+    # conversations a member sees — estate chat, their scoped properties' chats, their own DMs.
+    "chat.use":            _spec("chat.use",            20, _A, _A, _A, _ACCT,
+                                 rule="2026-10-28: which conversations a member sees is decided in "
+                                      "services.chat.access, never by this grant"),
 }
 
 

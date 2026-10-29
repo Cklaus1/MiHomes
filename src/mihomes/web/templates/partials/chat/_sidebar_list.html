@@ -1,6 +1,11 @@
 {# The conversation list. Expects: rows (ConversationRow, visible only), selected_id,
    dm_candidates. Titles come from the visible set (conversations.list_for), never a bare query. #}
 <nav aria-label="Conversations" id="chat-sidebar" class="bg-white rounded-xl border border-gray-200 overflow-hidden self-start">
+  <form method="get" action="/chat/search" class="p-3 border-b border-gray-100">
+    <label for="chat-sidebar-search" class="sr-only">Search messages</label>
+    <input id="chat-sidebar-search" type="search" name="q" maxlength="200" placeholder="Search messages…"
+           class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+  </form>
   {% set ns = namespace(section='') %}
   <ul class="divide-y divide-gray-100">
     {% for r in rows %}

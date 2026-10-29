@@ -159,6 +159,18 @@
     typingTimer = setTimeout(function () { typingEl.textContent = ""; }, 4000);
   }
 
+  // "MiHomes is thinking…" (SPEC-013 D17). Transient events are never replayed, so a reconnect
+  // during a 70–110 s AI call could miss ai.done: each entry also expires on its own after 180 s.
+  var thinkingEl = document.getElementById("chat-thinking");
+  var thinking = {};
+  function setThinking(postId, on) {
+    if (!postId) return;
+    clearTimeout(thinking[postId]);
+    if (on) thinking[postId] = setTimeout(function () { setThinking(postId, false); }, 180000);
+    else delete thinking[postId];
+    if (thinkingEl) thinkingEl.hidden = Object.keys(thinking).length === 0;
+  }
+
   function handle(type, data) {
     if (data.id != null) {
       if (seen.has(data.id)) return;
@@ -181,6 +193,12 @@
       case "typing":
         if (here) showTyping(data.name || "Someone");
         break;
+      case "ai.thinking":
+        if (here) setThinking(data.p, true);
+        break;
+      case "ai.done":
+        if (here) setThinking(data.p, false);
+        break;
       case "resync":
         location.reload();
         break;
@@ -193,7 +211,7 @@
 
   var source = new EventSource("/chat/stream?after=" + encodeURIComponent(root.dataset.lastEvent || "0"));
   ["post.created", "post.edited", "post.deleted", "reaction.changed", "read.changed",
-   "conversation.created", "typing", "resync", "revoked"].forEach(function (type) {
+   "conversation.created", "typing", "resync", "revoked", "ai.thinking", "ai.done"].forEach(function (type) {
     source.addEventListener(type, function (e) {
       var data;
       try { data = JSON.parse(e.data); } catch (_) { return; }
@@ -213,6 +231,49 @@
     if (now - lastTypingSent < 3000 || !body.value.trim()) return;
     lastTypingSent = now;
     htmx.ajax("POST", "/chat/c/" + conversationId + "/typing", { swap: "none" });
+  });
+
+  // ---- @mentions -------------------------------------------------------------
+  // Typing "@" + letters asks the server who in THIS chat matches; picking one inserts the plain
+  // name and adds a hidden mention_ids hint. The server re-checks both (SPEC-013 D14).
+  var picker = document.getElementById("chat-mention-picker");
+  var pickerTimer = null;
+  function mentionQuery() {
+    var upto = body.value.slice(0, body.selectionStart);
+    var m = /(?:^|\s)@([^\s@]{0,30})$/.exec(upto);
+    return m ? m[1] : null;
+  }
+  function closePicker() { if (picker) { picker.hidden = true; picker.textContent = ""; } }
+  body.addEventListener("input", function () {
+    if (!picker) return;
+    var q = mentionQuery();
+    clearTimeout(pickerTimer);
+    if (q === null) { closePicker(); return; }
+    pickerTimer = setTimeout(function () {
+      htmx.ajax("GET", "/chat/c/" + conversationId + "/mentionable?q=" + encodeURIComponent(q),
+                { target: picker, swap: "innerHTML" }).then(function () { picker.hidden = false; });
+    }, 150);
+  });
+  document.addEventListener("click", function (e) {
+    var opt = e.target.closest("[data-chat-mention-id]");
+    if (!opt) { if (picker && !picker.contains(e.target)) closePicker(); return; }
+    var name = opt.dataset.chatMentionName;
+    var caret = body.selectionStart;
+    // A function replacement: a name like "$&" must not be read as a replacement pattern.
+    var before = body.value.slice(0, caret).replace(/@([^\s@]{0,30})$/,
+                                                    function () { return "@" + name + " "; });
+    body.value = before + body.value.slice(caret);
+    body.focus();
+    body.setSelectionRange(before.length, before.length);
+    var hint = document.createElement("input");
+    hint.type = "hidden"; hint.name = "mention_ids"; hint.value = opt.dataset.chatMentionId;
+    hint.setAttribute("data-chat-mention-hint", "");
+    composer.appendChild(hint);
+    closePicker();
+  });
+  composer.addEventListener("htmx:afterRequest", function (e) {
+    if (!e.detail.successful) return;
+    composer.querySelectorAll("[data-chat-mention-hint]").forEach(function (n) { n.remove(); });
   });
 
   window.MiHomesChat = {

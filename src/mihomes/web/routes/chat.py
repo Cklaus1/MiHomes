@@ -15,10 +15,11 @@ import time
 import uuid
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from mihomes.auth.sessions import SESSION_COOKIE
 from mihomes.authz.actions import Access
 from mihomes.authz.declare import declares
 from mihomes.models.chat_native import KIND_DM, ChatConversation, ChatEvent, ChatPost
@@ -35,6 +36,7 @@ from mihomes.services.chat.access import (
 )
 from mihomes.services.chat.bus import BUS
 from mihomes.services.chat.render import post_views
+from mihomes.services.chat.stream import stream_events
 from mihomes.web.deps import RequestPrincipal, get_db, require_authenticated, templates
 
 router = APIRouter()
@@ -191,8 +193,9 @@ def chat_mark_read(conversation_id: uuid.UUID, seq: int = Form(...),
                    principal: RequestPrincipal = require_authenticated(),
                    db: Session = Depends(get_db)):
     me = _me(db, principal)
-    require_visible(db, me, conversation_id)
-    reads.mark_read(db, me, conversation_id, seq)
+    conversation = require_visible(db, me, conversation_id)
+    # Never past the newest post, or a later post would arrive already "read".
+    reads.mark_read(db, me, conversation_id, min(seq, conversation.next_seq - 1))
     db.commit()
     return Response(status_code=204, headers={"HX-Trigger": "chat-read"})
 
@@ -208,6 +211,8 @@ def chat_typing(conversation_id: uuid.UUID,
     key = (me.id, conversation_id)
     now = time.monotonic()
     if now - _last_typing.get(key, 0.0) >= TYPING_THROTTLE_S:
+        if len(_last_typing) > 10_000:   # bounded: stale entries are worthless after 3 s
+            _last_typing.clear()
         _last_typing[key] = now
         name = conv.member_name(db, me)
         BUS.publish(me.account_id, {"type": "typing", "c": str(conversation_id),
@@ -230,6 +235,32 @@ def chat_open_dm(request: Request, membership_id: str = Form(...),
     if request.headers.get("HX-Request"):
         return Response(status_code=204, headers={"HX-Redirect": url})
     return RedirectResponse(url, status_code=303)
+
+
+@router.get("/stream")
+@declares("chat.use", Access.ACCOUNT)
+def chat_stream(request: Request, after: int | None = None,
+                principal: RequestPrincipal = require_authenticated(),
+                db: Session = Depends(get_db)) -> StreamingResponse:
+    """Server-sent events for this tab (D8, D9).
+
+    A sync `def`, so the gate's DB work already ran in the threadpool. **The injected session is
+    released here, before the body starts:** `get_db` exits on the request stack, after the body —
+    which for a stream is never, so without this every open tab would pin a pooled connection idle
+    in transaction (§0.2, A16). `get_db`'s later commit on a closed Session acquires nothing.
+    """
+    header = request.headers.get("last-event-id")
+    after_cursor = int(header) if header and header.isdigit() else after
+    db.commit()
+    db.close()
+    return StreamingResponse(
+        stream_events(account_id=principal.account_id, user_id=principal.user_id,
+                      membership_id=principal.membership_id,
+                      session_cookie=request.cookies.get(SESSION_COOKIE),
+                      after_cursor=after_cursor),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/unread-badge", response_class=HTMLResponse)

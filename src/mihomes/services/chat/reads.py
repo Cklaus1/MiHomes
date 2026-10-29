@@ -15,7 +15,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from mihomes.models.chat_native import ChatParticipant, ChatPost
+from mihomes.models.chat_native import KIND_DM, ChatConversation, ChatParticipant, ChatPost
 from mihomes.models.membership import Membership
 
 __all__ = ["last_read_seq", "mark_read", "total_unread", "unread_counts"]
@@ -30,8 +30,13 @@ def last_read_seq(session: Session, membership_id: uuid.UUID, conversation_id: u
 
 
 def mark_read(session: Session, membership: Membership, conversation_id: uuid.UUID,
-              seq: int) -> bool:
-    """Advance the cursor to `seq` (never backwards). Emits `read.changed` only if it advanced."""
+              seq: int, *, announce: bool = True) -> bool:
+    """Advance the cursor to `seq` (never backwards). True if it advanced.
+
+    `read.changed` goes out only for a **DM** (D13: "Seen" is a DM-only signal; in a group it
+    would be "seen by 7 of 9", presence by another name), and only when `announce` — an author's
+    cursor moving past their own new post is not news to anyone.
+    """
     before = last_read_seq(session, membership.id, conversation_id)
     if seq <= before:
         return False
@@ -45,10 +50,14 @@ def mark_read(session: Session, membership: Membership, conversation_id: uuid.UU
                                              stmt.excluded.last_read_seq)},
     )
     session.execute(stmt)
-    from mihomes.services.chat.events import emit
+    if announce:
+        kind = session.execute(select(ChatConversation.kind)
+                               .where(ChatConversation.id == conversation_id)).scalar()
+        if kind == KIND_DM:
+            from mihomes.services.chat.events import emit
 
-    emit(session, conversation_id=conversation_id, type="read.changed",
-         actor_membership_id=membership.id)
+            emit(session, conversation_id=conversation_id, type="read.changed",
+                 actor_membership_id=membership.id)
     return True
 
 

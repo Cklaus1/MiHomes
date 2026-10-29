@@ -120,7 +120,8 @@ def create_post(session: Session, conversation: ChatConversation, *, author: Mem
     session.add(post)
     session.flush()
     if author is not None:
-        mark_read(session, author, conversation.id, post.seq)  # your own post is never unread
+        # Your own post is never unread; post.created already tells everyone it exists.
+        mark_read(session, author, conversation.id, post.seq, announce=False)
     emit(session, conversation_id=conversation.id, type="post.created", post_id=post.id,
          actor_membership_id=author.id if author else None)
     return post

@@ -1,0 +1,91 @@
+{# One chat post. Expects: v (render.PostView), conversation, emojis.
+   Body text is drawn token by token and autoescaped (D18): the tokenizer only says where a link
+   is; this template builds the <a>, and `|safe` is never applied to what a member typed.
+   The `id` is what chat.js swaps when an event names this post (D8). #}
+<li id="post-{{ v.id }}" data-seq="{{ v.post.seq }}" data-author="{{ v.post.author_membership_id or 'bot' }}"
+    class="group flex {{ 'justify-end' if v.is_mine else 'justify-start' }}">
+  <div class="max-w-[85%] min-w-0">
+    <div class="rounded-xl px-3 py-2 text-sm
+                {% if v.deleted %}bg-white border border-dashed border-gray-200
+                {% elif v.is_mine %}bg-brand-50 border border-brand-100
+                {% elif v.is_bot %}bg-amber-50 border border-amber-100
+                {% else %}bg-gray-50 border border-gray-100{% endif %}">
+      <div class="text-xs font-medium {{ 'text-brand-700' if v.is_mine else 'text-gray-700' }}">
+        {{ v.author_name }}{% if v.is_bot %} <span class="font-normal text-amber-700">· assistant</span>{% endif %}
+        <span class="font-normal text-gray-400">· <time datetime="{{ v.post.created_at.isoformat() }}">{{ v.post.created_at.strftime('%b %d, %H:%M') }}</time>{% if v.post.edited_at and not v.deleted %} · edited{% endif %}</span>
+      </div>
+
+      {% if v.reply_author %}
+      <div class="mt-1 border-l-2 border-gray-300 pl-2 text-xs text-gray-500">
+        <span class="font-medium">{{ v.reply_author }}</span>:
+        {% if v.reply_snippet is not none %}{{ v.reply_snippet }}{% else %}<em>message deleted</em>{% endif %}
+      </div>
+      {% endif %}
+
+      {% if v.deleted %}
+      <p class="mt-0.5 text-gray-400 italic">This message was deleted.</p>
+      {% elif v.tokens %}
+      <p class="mt-0.5 text-gray-800 whitespace-pre-wrap break-words">
+        {%- for t in v.tokens -%}
+          {%- if t.kind == 'link' -%}
+            <a href="{{ t.href }}" target="_blank" rel="noopener noreferrer nofollow" class="underline text-brand-700 break-all">{{ t.text }}</a>
+          {%- else -%}
+            {{ t.text }}
+          {%- endif -%}
+        {%- endfor -%}
+      </p>
+      {% endif %}
+    </div>
+
+    {% if not v.deleted %}
+    <div class="mt-1 flex flex-wrap items-center gap-1 {{ 'justify-end' if v.is_mine else '' }}">
+      {% for r in v.reactions %}
+      <button type="button"
+              hx-post="/chat/posts/{{ v.id }}/react" hx-vals='{"emoji": "{{ r.emoji }}"}'
+              hx-target="#post-{{ v.id }}" hx-swap="outerHTML"
+              aria-pressed="{{ 'true' if r.mine else 'false' }}"
+              aria-label="{{ r.emoji }} {{ r.count }}"
+              class="inline-flex items-center gap-1 min-h-[28px] px-2 rounded-full border text-xs
+                     {{ 'border-brand-300 bg-brand-50 text-brand-800' if r.mine else 'border-gray-200 bg-white text-gray-700' }}">
+        <span aria-hidden="true">{{ r.emoji }}</span>{{ r.count }}
+      </button>
+      {% endfor %}
+
+      <details class="relative">
+        <summary class="list-none cursor-pointer min-h-[28px] px-2 inline-flex items-center rounded-full text-xs text-gray-500 hover:bg-gray-100" aria-label="Add a reaction">☺+</summary>
+        <div class="absolute z-10 mt-1 {{ 'right-0' if v.is_mine else 'left-0' }} flex gap-1 p-1 bg-white border border-gray-200 rounded-lg shadow">
+          {% for e in emojis %}
+          <button type="button"
+                  hx-post="/chat/posts/{{ v.id }}/react" hx-vals='{"emoji": "{{ e }}"}'
+                  hx-target="#post-{{ v.id }}" hx-swap="outerHTML"
+                  class="w-8 h-8 rounded hover:bg-gray-100" aria-label="React {{ e }}">{{ e }}</button>
+          {% endfor %}
+        </div>
+      </details>
+
+      <button type="button" data-chat-reply="{{ v.id }}" data-chat-reply-name="{{ v.author_name }}"
+              class="min-h-[28px] px-2 rounded-full text-xs text-gray-500 hover:bg-gray-100">Reply</button>
+
+      {% if v.can_edit %}
+      <details class="relative">
+        <summary class="list-none cursor-pointer min-h-[28px] px-2 inline-flex items-center rounded-full text-xs text-gray-500 hover:bg-gray-100">Edit</summary>
+        <form hx-post="/chat/posts/{{ v.id }}/edit" hx-target="#post-{{ v.id }}" hx-swap="outerHTML"
+              class="absolute z-10 mt-1 {{ 'right-0' if v.is_mine else 'left-0' }} w-72 max-w-[80vw] p-2 bg-white border border-gray-200 rounded-lg shadow space-y-2">
+          <label class="sr-only" for="edit-{{ v.id }}">Edit message</label>
+          <textarea id="edit-{{ v.id }}" name="body" rows="3" maxlength="4000" required
+                    class="w-full rounded-md border border-gray-300 px-2 py-1 text-sm">{{ v.post.body }}</textarea>
+          <button type="submit" class="px-3 py-1.5 rounded-md bg-brand-600 text-white text-xs font-medium">Save</button>
+        </form>
+      </details>
+      {% endif %}
+
+      {% if v.can_delete %}
+      <button type="button"
+              hx-post="/chat/posts/{{ v.id }}/delete" hx-target="#post-{{ v.id }}" hx-swap="outerHTML"
+              hx-confirm="Delete this message for everyone?"
+              class="min-h-[28px] px-2 rounded-full text-xs text-gray-500 hover:bg-red-50 hover:text-red-700">Delete</button>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+</li>

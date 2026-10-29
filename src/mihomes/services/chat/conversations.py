@@ -146,6 +146,11 @@ def _other_member_names(session: Session, me: Membership,
     return {r.conversation_id: (r.name or r.email) for r in rows}
 
 
+def member_name(session: Session, membership: Membership) -> str:
+    user = session.get(User, membership.user_id)
+    return (user.name or user.email.split("@")[0]) if user else "Someone"
+
+
 def title_for(session: Session, me: Membership, conversation: ChatConversation) -> str:
     if conversation.title:
         return conversation.title

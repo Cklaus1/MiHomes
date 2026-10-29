@@ -1,0 +1,14 @@
+{# A run of posts, oldest first. Expects: views, conversation, emojis; optionally has_older +
+   oldest_seq, which put a "Load older" button ahead of the run that swaps itself for the page
+   before it. #}
+{% if has_older %}
+<li id="chat-load-older" class="text-center">
+  <button type="button"
+          hx-get="/chat/c/{{ conversation.id }}/posts?before={{ oldest_seq }}"
+          hx-target="#chat-load-older" hx-swap="outerHTML"
+          class="min-h-[36px] px-3 rounded-md text-xs text-gray-600 hover:bg-gray-100">Load older messages</button>
+</li>
+{% endif %}
+{% for v in views %}
+{% include "partials/chat/_post.html" %}
+{% endfor %}

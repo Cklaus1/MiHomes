@@ -1,0 +1,248 @@
+"""In-app chat pages (SPEC-012 §5.5).
+
+Every route declares `chat.use` on `ACCOUNT`, which every role holds (D2) — so the grant decides
+nothing about *which* conversations a member reaches. That is `services.chat.access` alone (D3):
+each route taking a `conversation_id` calls `require_visible`, each taking a `post_id` calls
+`post_for`, and both answer 404 for anything outside the viewer's set (A27).
+
+**Mutating routes commit before rendering (D10).** The commit releases the per-conversation row
+lock `create_post` takes (D7) and fires the after-commit publish, both before the response leaves.
+"""
+
+from __future__ import annotations
+
+import time
+import uuid
+
+from fastapi import APIRouter, Depends, Form, Request
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from mihomes.authz.actions import Access
+from mihomes.authz.declare import declares
+from mihomes.models.chat_native import KIND_DM, ChatConversation, ChatEvent, ChatPost
+from mihomes.models.membership import Membership
+from mihomes.services.chat import conversations as conv
+from mihomes.services.chat import posts as post_svc
+from mihomes.services.chat import reactions as reaction_svc
+from mihomes.services.chat import reads
+from mihomes.services.chat.access import (
+    ChatInvalid,
+    post_for,
+    require_visible,
+    visible_conversation_ids,
+)
+from mihomes.services.chat.bus import BUS
+from mihomes.services.chat.render import post_views
+from mihomes.web.deps import RequestPrincipal, get_db, require_authenticated, templates
+
+router = APIRouter()
+
+TYPING_THROTTLE_S = 3.0
+_last_typing: dict[tuple[uuid.UUID, uuid.UUID], float] = {}
+
+
+def _me(db: Session, principal: RequestPrincipal) -> Membership:
+    return db.get(Membership, principal.membership_id)
+
+
+def _render_post(request: Request, db: Session, me: Membership, post: ChatPost):
+    conversation = db.get(ChatConversation, post.conversation_id)
+    return templates.TemplateResponse(request, "partials/chat/_post.html", {
+        "v": post_views(db, me, conversation, [post])[0],
+        "conversation": conversation,
+        "emojis": reaction_svc.EMOJI_ALLOWLIST,
+    })
+
+
+def _last_event_cursor(db: Session, visible: set[uuid.UUID]) -> int:
+    """The newest event cursor in the viewer's conversations — the stream resumes after it."""
+    if not visible:
+        return 0
+    return db.execute(select(func.max(ChatEvent.cursor))
+                      .where(ChatEvent.conversation_id.in_(visible))).scalar() or 0
+
+
+def _page_context(db: Session, me: Membership) -> dict:
+    return {
+        "page": "chat",
+        "rows": conv.list_for(db, me),
+        "dm_candidates": conv.dm_candidates(db, me),
+    }
+
+
+@router.get("/")
+@declares("chat.use", Access.ACCOUNT)
+def chat_index(request: Request, principal: RequestPrincipal = require_authenticated(),
+               db: Session = Depends(get_db)):
+    me = _me(db, principal)
+    conv.ensure_group_conversations(db, me)
+    db.commit()
+    return templates.TemplateResponse(request, "chat/index.html", {
+        **_page_context(db, me), "selected_id": None,
+    })
+
+
+@router.get("/c/{conversation_id}")
+@declares("chat.use", Access.ACCOUNT)
+def chat_conversation(request: Request, conversation_id: uuid.UUID,
+                      principal: RequestPrincipal = require_authenticated(),
+                      db: Session = Depends(get_db)):
+    me = _me(db, principal)
+    conversation = require_visible(db, me, conversation_id)
+    posts = post_svc.history(db, conversation.id)
+    return templates.TemplateResponse(request, "chat/conversation.html", {
+        **_page_context(db, me),
+        "selected_id": conversation.id,
+        "conversation": conversation,
+        "title": conv.title_for(db, me, conversation),
+        "views": post_views(db, me, conversation, posts),
+        "has_older": bool(posts) and posts[0].seq > 1,
+        "oldest_seq": posts[0].seq if posts else None,
+        "newest_seq": posts[-1].seq if posts else 0,
+        "last_event": _last_event_cursor(db, visible_conversation_ids(db, me)),
+        "emojis": reaction_svc.EMOJI_ALLOWLIST,
+        "is_dm": conversation.kind == KIND_DM,
+    })
+
+
+@router.get("/c/{conversation_id}/posts", response_class=HTMLResponse)
+@declares("chat.use", Access.ACCOUNT)
+def chat_older_posts(request: Request, conversation_id: uuid.UUID, before: int | None = None,
+                     principal: RequestPrincipal = require_authenticated(),
+                     db: Session = Depends(get_db)):
+    """An older page, oldest-first, headed by its own "Load older" button when there is more."""
+    me = _me(db, principal)
+    conversation = require_visible(db, me, conversation_id)
+    posts = post_svc.history(db, conversation.id, before_seq=before)
+    return templates.TemplateResponse(request, "partials/chat/_post_list.html", {
+        "views": post_views(db, me, conversation, posts),
+        "conversation": conversation,
+        "emojis": reaction_svc.EMOJI_ALLOWLIST,
+        "has_older": bool(posts) and posts[0].seq > 1,
+        "oldest_seq": posts[0].seq if posts else None,
+    })
+
+
+@router.get("/posts/{post_id}", response_class=HTMLResponse)
+@declares("chat.use", Access.ACCOUNT)
+def chat_post(request: Request, post_id: uuid.UUID,
+              principal: RequestPrincipal = require_authenticated(),
+              db: Session = Depends(get_db)):
+    """One post — what chat.js re-fetches when an event names it (D8)."""
+    me = _me(db, principal)
+    return _render_post(request, db, me, post_for(db, me, post_id))
+
+
+@router.post("/c/{conversation_id}/posts", response_class=HTMLResponse)
+@declares("chat.use", Access.ACCOUNT)
+def chat_create_post(request: Request, conversation_id: uuid.UUID,
+                     body: str = Form(""), reply_to_id: str = Form(""),
+                     client_token: str = Form(""),
+                     principal: RequestPrincipal = require_authenticated(),
+                     db: Session = Depends(get_db)):
+    me = _me(db, principal)
+    conversation = require_visible(db, me, conversation_id)
+    post = post_svc.create_post(db, conversation, author=me, body=body,
+                                reply_to_id=_uuid_or_none(reply_to_id),
+                                client_token=_uuid_or_none(client_token))
+    db.commit()
+    return _render_post(request, db, me, post)
+
+
+@router.post("/posts/{post_id}/edit", response_class=HTMLResponse)
+@declares("chat.use", Access.ACCOUNT)
+def chat_edit_post(request: Request, post_id: uuid.UUID, body: str = Form(""),
+                   principal: RequestPrincipal = require_authenticated(),
+                   db: Session = Depends(get_db)):
+    me = _me(db, principal)
+    post = post_svc.edit_post(db, post_for(db, me, post_id), actor=me, body=body)
+    db.commit()
+    return _render_post(request, db, me, post)
+
+
+@router.post("/posts/{post_id}/delete", response_class=HTMLResponse)
+@declares("chat.use", Access.ACCOUNT)
+def chat_delete_post(request: Request, post_id: uuid.UUID,
+                     principal: RequestPrincipal = require_authenticated(),
+                     db: Session = Depends(get_db)):
+    me = _me(db, principal)
+    post = post_svc.delete_post(db, post_for(db, me, post_id), actor=me)
+    db.commit()
+    return _render_post(request, db, me, post)
+
+
+@router.post("/posts/{post_id}/react", response_class=HTMLResponse)
+@declares("chat.use", Access.ACCOUNT)
+def chat_react(request: Request, post_id: uuid.UUID, emoji: str = Form(...),
+               principal: RequestPrincipal = require_authenticated(),
+               db: Session = Depends(get_db)):
+    me = _me(db, principal)
+    post = post_for(db, me, post_id)
+    reaction_svc.toggle_reaction(db, post, actor=me, emoji=emoji)
+    db.commit()
+    return _render_post(request, db, me, post)
+
+
+@router.post("/c/{conversation_id}/read")
+@declares("chat.use", Access.ACCOUNT)
+def chat_mark_read(conversation_id: uuid.UUID, seq: int = Form(...),
+                   principal: RequestPrincipal = require_authenticated(),
+                   db: Session = Depends(get_db)):
+    me = _me(db, principal)
+    require_visible(db, me, conversation_id)
+    reads.mark_read(db, me, conversation_id, seq)
+    db.commit()
+    return Response(status_code=204, headers={"HX-Trigger": "chat-read"})
+
+
+@router.post("/c/{conversation_id}/typing")
+@declares("chat.use", Access.ACCOUNT)
+def chat_typing(conversation_id: uuid.UUID,
+                principal: RequestPrincipal = require_authenticated(),
+                db: Session = Depends(get_db)):
+    """Memory only (D15): no row, no cursor; at most one per (member, conversation) per 3 s."""
+    me = _me(db, principal)
+    require_visible(db, me, conversation_id)
+    key = (me.id, conversation_id)
+    now = time.monotonic()
+    if now - _last_typing.get(key, 0.0) >= TYPING_THROTTLE_S:
+        _last_typing[key] = now
+        name = conv.member_name(db, me)
+        BUS.publish(me.account_id, {"type": "typing", "c": str(conversation_id),
+                                    "m": str(me.id), "name": name})
+    return Response(status_code=204)
+
+
+@router.post("/dm")
+@declares("chat.use", Access.ACCOUNT)
+def chat_open_dm(request: Request, membership_id: str = Form(...),
+                 principal: RequestPrincipal = require_authenticated(),
+                 db: Session = Depends(get_db)):
+    me = _me(db, principal)
+    other = _uuid_or_none(membership_id)
+    if other is None:
+        raise ChatInvalid("Choose someone to message.")
+    conversation = conv.get_or_create_dm(db, me, other)
+    db.commit()
+    url = f"/chat/c/{conversation.id}"
+    if request.headers.get("HX-Request"):
+        return Response(status_code=204, headers={"HX-Redirect": url})
+    return RedirectResponse(url, status_code=303)
+
+
+@router.get("/unread-badge", response_class=HTMLResponse)
+@declares("chat.use", Access.ACCOUNT)
+def chat_unread_badge(request: Request, principal: RequestPrincipal = require_authenticated(),
+                      db: Session = Depends(get_db)):
+    return templates.TemplateResponse(request, "partials/chat/_unread_badge.html", {
+        "count": reads.total_unread(db, _me(db, principal)),
+    })
+
+
+def _uuid_or_none(value: str | None) -> uuid.UUID | None:
+    try:
+        return uuid.UUID(value) if value else None
+    except ValueError as exc:
+        raise ChatInvalid("That link is broken.") from exc

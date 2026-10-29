@@ -10,6 +10,7 @@ from fastapi.templating import Jinja2Templates
 
 from mihomes.auth.session_flow import safe_next as _safe_next
 from mihomes.config import ensure_dirs
+from mihomes.services.chat.access import ChatForbidden, ChatInvalid, ChatNotFound
 from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
 from mihomes.web.deps import enforce_declared_action
 from mihomes.web.errors import RequestIdMiddleware, register_error_handlers
@@ -19,6 +20,7 @@ from mihomes.web.routes import (
     assets,
     books,
     budget,
+    chat,
     conversations,
     dashboard,
     documents,
@@ -200,6 +202,7 @@ def create_app() -> FastAPI:
     app.include_router(library_route.router, prefix="/library")
     app.include_router(playbooks_route.router, prefix="/playbooks")
     app.include_router(conversations.router, prefix="/conversations")
+    app.include_router(chat.router, prefix="/chat")
     app.include_router(inventory_route.router, prefix="/inventory")
     app.include_router(calendar_route.router, prefix="/calendar")
 
@@ -212,6 +215,20 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(AmbiguousIdentifierError)
     async def _ambiguous_identifier(request: Request, exc: AmbiguousIdentifierError):
+        return PlainTextResponse(str(exc), status_code=400)
+
+    # SPEC-012: chat refusals. Not-visible is a 404 with no body content — a conversation you
+    # cannot see does not exist for you (A27); the other two carry a user-facing sentence.
+    @app.exception_handler(ChatNotFound)
+    async def _chat_not_found(request: Request, exc: ChatNotFound):
+        return PlainTextResponse("Not found", status_code=404)
+
+    @app.exception_handler(ChatForbidden)
+    async def _chat_forbidden(request: Request, exc: ChatForbidden):
+        return PlainTextResponse(str(exc), status_code=403)
+
+    @app.exception_handler(ChatInvalid)
+    async def _chat_invalid(request: Request, exc: ChatInvalid):
         return PlainTextResponse(str(exc), status_code=400)
 
     # SPEC-005 Step 15 — the catch-all handler and `/healthz` (A31).

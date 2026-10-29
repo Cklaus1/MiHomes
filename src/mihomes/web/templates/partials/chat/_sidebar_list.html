@@ -1,0 +1,45 @@
+{# The conversation list. Expects: rows (ConversationRow, visible only), selected_id,
+   dm_candidates. Titles come from the visible set (conversations.list_for), never a bare query. #}
+<nav aria-label="Conversations" id="chat-sidebar" class="bg-white rounded-xl border border-gray-200 overflow-hidden self-start">
+  {% set ns = namespace(section='') %}
+  <ul class="divide-y divide-gray-100">
+    {% for r in rows %}
+    {% set section = 'Direct messages' if r.kind == 'dm' else 'Group chats' %}
+    {% if section != ns.section %}
+    {% set ns.section = section %}
+    <li class="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-500">{{ section }}</li>
+    {% endif %}
+    {% set active = selected_id and r.id == selected_id %}
+    <li>
+      <a href="/chat/c/{{ r.id }}" id="chat-row-{{ r.id }}"
+         {% if active %}aria-current="page"{% endif %}
+         class="flex items-center gap-2 px-4 py-3 hover:bg-gray-50 {{ 'bg-gray-50' if active else '' }}">
+        {# The open conversation is being read as this renders; don't badge it. #}
+        {% set unread = r.unread if not active else 0 %}
+        <span class="flex-1 min-w-0 text-sm {{ 'font-semibold text-gray-900' if unread else 'text-gray-800' }} truncate">
+          {% if r.kind == 'estate' %}# {% elif r.kind == 'property' %}🏠 {% endif %}{{ r.title }}
+        </span>
+        {% if unread %}
+        <span data-chat-unread class="inline-flex items-center justify-center min-w-[20px] h-5 px-1 text-xs font-bold bg-brand-600 text-white rounded-full">{{ unread if unread < 100 else '99+' }}</span>
+        {% endif %}
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+
+  {% if dm_candidates %}
+  <form method="post" action="/chat/dm" class="border-t border-gray-100 p-3 space-y-2">
+    <label for="chat-dm-pick" class="block text-xs font-medium text-gray-600">Message someone</label>
+    <div class="flex gap-2">
+      <select id="chat-dm-pick" name="membership_id" required
+              class="flex-1 min-w-0 rounded-md border border-gray-300 px-2 py-2 text-sm">
+        <option value="">Choose a person…</option>
+        {% for m in dm_candidates %}
+        <option value="{{ m.membership_id }}">{{ m.name or m.email.split('@')[0] }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="min-h-[40px] px-3 rounded-md bg-gray-800 text-white text-sm">Open</button>
+    </div>
+  </form>
+  {% endif %}
+</nav>

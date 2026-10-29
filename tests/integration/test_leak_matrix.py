@@ -149,7 +149,8 @@ CLASS_MECHANISM = {
     # `task.manage` to list and run, `automation.manage` to create and delete.
     EntityClass.ACCOUNT_SHARED: (
         "NO ROW FILTER BY DESIGN — query_scope.UNFILTERED_CLASSES; access is a verb distinction "
-        "carried by the route declarations (task.manage to run, automation.manage to manage)"
+        "carried by the route declarations (task.manage to run, automation.manage to manage), or "
+        "for chat (SPEC-012) a participant rule in services.chat.access.visible_conversation_ids"
     ),
 }
 

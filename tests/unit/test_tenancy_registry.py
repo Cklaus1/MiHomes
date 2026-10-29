@@ -273,7 +273,9 @@ def test_registry_size_is_asserted_explicitly():
     #
     # `chat_messages` (0026, 2026-10-27) -> 55: a bound group's conversation, read by owners and
     # admins on the Conversations page.
-    assert len(TENANT_TABLES) == 55, (
-        f"expected 55 tenant-owned tables, registry has {len(TENANT_TABLES)} — "
+    #
+    # SPEC-012 `0027_native_chat` (2026-10-29) -> 62: seven native in-app chat tables.
+    assert len(TENANT_TABLES) == 62, (
+        f"expected 62 tenant-owned tables, registry has {len(TENANT_TABLES)} — "
         "if a table was legitimately added or removed, update this number and say why"
     )

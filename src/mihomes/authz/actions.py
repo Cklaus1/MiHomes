@@ -165,6 +165,13 @@ MATRIX: dict[str, ActionSpec] = {
     "ai.use":              _spec("ai.use",              18, _A, _A, _S, _COLL),
     "export.data":         _spec("export.data",         19, _A, _A, _D, _ACCT),
     "gateway.link_self":   _spec("gateway.link_self",   20, _A, _A, _A, _ACCT, rule="R2"),
+    # SPEC-012 D2 — row 20 split: in-app chat. Every logged-in role chats; ACCOUNT because a
+    # conversation is not a property operation. The narrowing is in the mechanism, not the grant
+    # (the `staff.view_own` / `playbook.manage` shape): `services.chat.access` alone decides which
+    # conversations a member sees — estate chat, their scoped properties' chats, their own DMs.
+    "chat.use":            _spec("chat.use",            20, _A, _A, _A, _ACCT,
+                                 rule="2026-10-28: which conversations a member sees is decided in "
+                                      "services.chat.access, never by this grant"),
 }
 
 
@@ -285,6 +292,15 @@ def _entity_classes() -> dict[type, EntityClass]:
     from mihomes.models.book import Book
     from mihomes.models.budget import Budget, Transaction
     from mihomes.models.chat_message import ChatMessage
+    from mihomes.models.chat_native import (
+        ChatAttachment,
+        ChatConversation,
+        ChatEvent,
+        ChatMention,
+        ChatParticipant,
+        ChatPost,
+        ChatReaction,
+    )
     from mihomes.models.configuration import Configuration
     from mihomes.models.consumable import Consumable, ConsumablePriceEntry
     from mihomes.models.contract import Contract
@@ -400,6 +416,16 @@ def _entity_classes() -> dict[type, EntityClass]:
         # The shared ticks on a playbook: same class as the playbook, anyone who can open it
         # can tick; only editors reset them (verb rules, not row visibility).
         PlaybookCheck: EntityClass.ACCOUNT_SHARED,
+        # Native in-app chat (SPEC-012 D5): every role chats, so not ACCOUNT_LEVEL ("✗ for staff").
+        # No row filter by design — a participant rule cannot be a column filter. Visibility is
+        # `services.chat.access.visible_conversation_ids`, the one function every read calls.
+        ChatConversation: EntityClass.ACCOUNT_SHARED,
+        ChatParticipant: EntityClass.ACCOUNT_SHARED,
+        ChatPost: EntityClass.ACCOUNT_SHARED,
+        ChatReaction: EntityClass.ACCOUNT_SHARED,
+        ChatAttachment: EntityClass.ACCOUNT_SHARED,
+        ChatMention: EntityClass.ACCOUNT_SHARED,
+        ChatEvent: EntityClass.ACCOUNT_SHARED,
         AIConversation: account,
         AuditLog: account,
         Account: account,

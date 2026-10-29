@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} — Chat — MiHomes{% endblock %}
+{% block heading %}{{ title }}{% endblock %}
+{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">
+  {% if is_dm %}Direct message — only the two of you can see it
+  {% elif conversation.kind == 'estate' %}Everyone in the estate
+  {% else %}Everyone who works at this home{% endif %}
+</p>{% endblock %}
+
+{% block content %}
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+  {# Below lg the list gives the screen to the conversation; "All chats" goes back to it. #}
+  <div class="hidden lg:block lg:col-span-1">
+    {% include "partials/chat/_sidebar_list.html" %}
+  </div>
+
+  <section class="lg:col-span-2 bg-white rounded-xl border border-gray-200 flex flex-col min-h-[60vh]"
+           aria-label="{{ title }}"
+           id="chat-conversation"
+           data-conversation="{{ conversation.id }}"
+           data-last-event="{{ last_event }}"
+           data-newest-seq="{{ newest_seq }}">
+    <div class="lg:hidden px-4 py-2 border-b border-gray-100">
+      <a href="/chat/" class="inline-flex items-center min-h-[36px] text-sm text-brand-700">← All chats</a>
+    </div>
+
+    <div id="chat-scroll" class="flex-1 p-4 max-h-[65vh] overflow-y-auto">
+      {% if views %}
+      <ol id="chat-posts" class="space-y-3">
+        {% include "partials/chat/_post_list.html" %}
+      </ol>
+      {% else %}
+      <ol id="chat-posts" class="space-y-3"></ol>
+      <p id="chat-empty" class="text-sm text-gray-500 text-center py-8">No messages yet. Say hello.</p>
+      {% endif %}
+      <p id="chat-typing" class="text-xs text-gray-500 h-4 mt-2" aria-live="polite"></p>
+    </div>
+
+    {% if newest_seq %}
+    <div hidden hx-post="/chat/c/{{ conversation.id }}/read" hx-vals='{"seq": "{{ newest_seq }}"}'
+         hx-trigger="load" hx-swap="none"></div>
+    {% endif %}
+
+    {% include "partials/chat/_composer.html" %}
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/chat.js" defer></script>
+{% endblock %}

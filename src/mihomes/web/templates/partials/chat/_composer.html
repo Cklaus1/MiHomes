@@ -1,0 +1,23 @@
+{# The message box. Expects: conversation.
+   `client_token` makes a double-submit one post (SPEC-013 P4); chat.js refreshes it after each
+   send. The reply chip is filled by chat.js when a post's "Reply" is pressed. #}
+<form id="chat-composer"
+      hx-post="/chat/c/{{ conversation.id }}/posts"
+      hx-target="#chat-posts" hx-swap="beforeend"
+      hx-on::after-request="if(event.detail.successful){ this.reset(); this.querySelector('[name=client_token]').value = crypto.randomUUID ? crypto.randomUUID() : ''; var c = document.getElementById('chat-reply-chip'); if (c) c.hidden = true; }"
+      class="border-t border-gray-100 p-3 space-y-2">
+  <input type="hidden" name="client_token" value="">
+  <input type="hidden" name="reply_to_id" value="">
+  <div id="chat-reply-chip" hidden class="flex items-center justify-between gap-2 text-xs text-gray-600 bg-gray-50 rounded-md px-2 py-1">
+    <span>Replying to <span data-chat-reply-label class="font-medium"></span></span>
+    <button type="button" data-chat-reply-cancel class="px-2 py-1 rounded hover:bg-gray-200" aria-label="Cancel reply">✕</button>
+  </div>
+  <div class="flex items-end gap-2">
+    <label for="chat-body" class="sr-only">Message</label>
+    <textarea id="chat-body" name="body" rows="2" maxlength="4000" required
+              placeholder="Write a message…"
+              class="flex-1 min-w-0 rounded-lg border border-gray-300 px-3 py-2 text-sm resize-y"></textarea>
+    <button type="submit"
+            class="min-h-[44px] px-4 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700">Send</button>
+  </div>
+</form>

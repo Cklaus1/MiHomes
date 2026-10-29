@@ -33,7 +33,8 @@ def test_a_conversation_renders_with_the_bots_reply(client):
     assert "Pool pump is loud" in r.text
     assert "MiHomes (Telegram)" in r.text
     assert 'hx-trigger="every 30s"' in r.text
-    assert 'href="/conversations/"' in r.text  # sidebar item, visible to an owner
+    # SPEC-012 D20: the page is reachable by URL but no longer in the sidebar.
+    assert 'href="/conversations/"' not in r.text
 
 
 def test_hostile_text_is_escaped(client):

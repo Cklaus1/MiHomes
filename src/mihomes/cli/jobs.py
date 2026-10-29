@@ -94,6 +94,11 @@ SCHEDULE: dict[str, tuple[str, str]] = {
         "The card-less trial's ONLY clock (F3). Daily, early, so an expiry is acted on the day "
         "it happens rather than up to a week late.",
     ),
+    "chat-prune-events": (
+        "17 4 * * *",
+        "Chat events are only a catch-up log for reconnecting tabs (SPEC-012), kept 7 days. "
+        "Daily and off-peak; a missed night just keeps one more day of rows.",
+    ),
     "reconcile": (
         "0 3 * * *",
         "The backstop for a dropped webhook (BILLING §6). Nightly and off-peak: it re-fetches "
@@ -345,6 +350,30 @@ def _as_html(text: str) -> str:
     return "\n".join(
         f'<p style="margin:0 0 16px;">{escape(p)}</p>' for p in paragraphs
     )
+
+
+@app.command("chat-prune-events")
+def chat_prune_events() -> None:
+    """Delete in-app chat events older than 7 days, account by account (SPEC-012 A30).
+
+    `chat_events` exists only so a reconnecting tab can catch up (`services.chat.stream`); a tab
+    asking for something older than the window is told to reload. Posts are untouched.
+
+    Per account, under that account's context, so RLS scopes each delete — on the app role an
+    unbound delete would remove nothing and report success.
+    """
+    from mihomes.services.chat.events import prune_events
+
+    removed = failed = 0
+    for account_id, _ in _all_accounts():
+        try:
+            with _account_session(account_id) as (session, _account):
+                removed += prune_events(session)
+                session.commit()
+        except Exception:
+            failed += 1
+            logger.exception("chat-prune-events: failed for account %s", account_id)
+    rprint(f"Chat events: removed {removed} older than 7 days; {failed} account(s) failed.")
 
 
 @app.command("reconcile")

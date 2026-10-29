@@ -66,6 +66,8 @@ static tests do cover them directly.
 | `budget.html` | /budget/ | 700 | ☐ | ☐ | ☐ |
 | `calendar.html` | /calendar/ | 423 | ☐ | ☐ | ☐ |
 | `conversations.html` | /conversations/ | — | ☐ | ☐ | ☐ |
+| `chat/index.html` | /chat/ | — | ☐ | ☐ | ☐ |
+| `chat/conversation.html` | /chat/c/{id} | — | ☐ | ☐ | ☐ |
 | `dashboard.html` | / | 346 | ☐ | ☐ | ☐ |
 | `documents.html` | /documents/ | 415 | ☐ | ☐ | ☐ |
 | `error.html` | — | 65 | ☐ | ☐ | ☐ |

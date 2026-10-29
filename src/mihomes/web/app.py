@@ -1,5 +1,6 @@
 """MiHomes Web — FastAPI app factory."""
 
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
@@ -10,6 +11,7 @@ from fastapi.templating import Jinja2Templates
 
 from mihomes.auth.session_flow import safe_next as _safe_next
 from mihomes.config import ensure_dirs
+from mihomes.services.chat.access import ChatForbidden, ChatInvalid, ChatNotFound
 from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
 from mihomes.web.deps import enforce_declared_action
 from mihomes.web.errors import RequestIdMiddleware, register_error_handlers
@@ -19,6 +21,7 @@ from mihomes.web.routes import (
     assets,
     books,
     budget,
+    chat,
     conversations,
     dashboard,
     documents,
@@ -93,6 +96,29 @@ def render_marketing_page(request: Request) -> str:
     return render_page("index.html", {"utm": utm, **MARKETING_LINKS})
 
 
+@asynccontextmanager
+async def _chat_listener_lifespan(app: FastAPI):
+    """SPEC-012 D17: with `REALTIME_DATABASE_URL` set, LISTEN for chat events from other
+    processes and re-publish them on this one's bus. Unset (evo-dev: one uvicorn process), chat
+    uses the in-process bus and nothing starts here."""
+    import asyncio
+    import os
+
+    dsn = os.environ.get("REALTIME_DATABASE_URL", "").strip()
+    task = None
+    if dsn:
+        from mihomes.services.chat.bus import start_listener
+
+        task = asyncio.create_task(start_listener(dsn))
+    try:
+        yield
+    finally:
+        if task is not None:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+
+
 def create_app() -> FastAPI:
     # `enforce_declared_action` is where SPEC-003's 142 route declarations become enforcement
     # (§6 Step 7). Applied app-wide rather than per-route so there is exactly one place to
@@ -107,6 +133,7 @@ def create_app() -> FastAPI:
         docs_url=None,
         redoc_url=None,
         dependencies=[Depends(enforce_declared_action)],
+        lifespan=_chat_listener_lifespan,
     )
 
     # Reject cross-site state-changing requests and non-loopback Host headers
@@ -200,6 +227,7 @@ def create_app() -> FastAPI:
     app.include_router(library_route.router, prefix="/library")
     app.include_router(playbooks_route.router, prefix="/playbooks")
     app.include_router(conversations.router, prefix="/conversations")
+    app.include_router(chat.router, prefix="/chat")
     app.include_router(inventory_route.router, prefix="/inventory")
     app.include_router(calendar_route.router, prefix="/calendar")
 
@@ -212,6 +240,20 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(AmbiguousIdentifierError)
     async def _ambiguous_identifier(request: Request, exc: AmbiguousIdentifierError):
+        return PlainTextResponse(str(exc), status_code=400)
+
+    # SPEC-012: chat refusals. Not-visible is a 404 with no body content — a conversation you
+    # cannot see does not exist for you (A27); the other two carry a user-facing sentence.
+    @app.exception_handler(ChatNotFound)
+    async def _chat_not_found(request: Request, exc: ChatNotFound):
+        return PlainTextResponse("Not found", status_code=404)
+
+    @app.exception_handler(ChatForbidden)
+    async def _chat_forbidden(request: Request, exc: ChatForbidden):
+        return PlainTextResponse(str(exc), status_code=403)
+
+    @app.exception_handler(ChatInvalid)
+    async def _chat_invalid(request: Request, exc: ChatInvalid):
         return PlainTextResponse(str(exc), status_code=400)
 
     # SPEC-005 Step 15 — the catch-all handler and `/healthz` (A31).

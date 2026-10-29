@@ -175,6 +175,15 @@ TENANT_TABLES = frozenset({
     "telegram_chat_bindings",
     # A bound group's stored messages, read by owners/admins on the Conversations page (0026).
     "chat_messages",
+    # --- native in-app chat, SPEC-012 (0027) ------------------------------
+    # ACCOUNT_SHARED: RLS isolates accounts; `services.chat.access` decides visibility.
+    "chat_conversations",
+    "chat_participants",
+    "chat_posts",
+    "chat_reactions",
+    "chat_attachments",
+    "chat_mentions",
+    "chat_events",
     # --- identity, added by Step 1 --------------------------------------
     "invites",
     "membership_property_scopes",

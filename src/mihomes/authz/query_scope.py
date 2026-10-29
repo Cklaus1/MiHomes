@@ -236,7 +236,10 @@ UNFILTERED_CLASSES: dict[EntityClass, str] = {
         "leave staff a `/run` endpoint whose targets they cannot see. The rule here is a **verb** "
         "distinction (run, never manage), enforced by the route declarations `task.manage` and "
         "`automation.manage`; a query layer can only express row visibility, so it is the wrong "
-        "layer for it. See SPEC-003 U6."
+        "layer for it. See SPEC-003 U6. **Or** a participant rule enforced in one service: native "
+        "chat (SPEC-012) lets every role in, and `services.chat.access.visible_conversation_ids` "
+        "alone decides which conversations a member sees (estate, scoped properties, own DMs) — "
+        "\"participant of this DM\" is not something a column filter can express."
     ),
 }
 

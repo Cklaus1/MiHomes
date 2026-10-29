@@ -4,6 +4,8 @@
 <form id="chat-composer"
       hx-post="/chat/c/{{ conversation.id }}/posts"
       hx-target="#chat-posts" hx-swap="beforeend"
+      hx-encoding="multipart/form-data"
+      hx-disabled-elt="find button[type=submit]"
       hx-on::after-request="if(event.detail.successful){ this.reset(); this.querySelector('[name=client_token]').value = crypto.randomUUID ? crypto.randomUUID() : ''; var c = document.getElementById('chat-reply-chip'); if (c) c.hidden = true; }"
       class="border-t border-gray-100 p-3 space-y-2">
   <input type="hidden" name="client_token" value="">
@@ -12,9 +14,19 @@
     <span>Replying to <span data-chat-reply-label class="font-medium"></span></span>
     <button type="button" data-chat-reply-cancel class="px-2 py-1 rounded hover:bg-gray-200" aria-label="Cancel reply">✕</button>
   </div>
+  <p data-chat-file-names hidden class="text-xs text-gray-600"></p>
+  <div id="chat-mention-picker" hidden
+       class="max-h-56 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-sm"></div>
   <div class="flex items-end gap-2">
     <label for="chat-body" class="sr-only">Message</label>
-    <textarea id="chat-body" name="body" rows="2" maxlength="4000" required
+    <label class="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 cursor-pointer"
+           title="Attach photos or PDFs (up to 5)">
+      <span class="sr-only">Attach photos or PDFs</span>
+      <span aria-hidden="true">📎</span>
+      <input type="file" name="files" multiple accept="image/jpeg,image/png,image/gif,image/webp,application/pdf"
+             class="sr-only" data-chat-files>
+    </label>
+    <textarea id="chat-body" name="body" rows="2" maxlength="4000"
               placeholder="Write a message…"
               class="flex-1 min-w-0 rounded-lg border border-gray-300 px-3 py-2 text-sm resize-y"></textarea>
     <button type="submit"

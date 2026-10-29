@@ -24,25 +24,31 @@ from mihomes.models.chat_native import AUTHOR_BOT, KIND_DM, ChatConversation, Ch
 from mihomes.models.membership import Membership
 from mihomes.models.user import User
 
-__all__ = ["BOT_NAME", "PostView", "Token", "post_views", "tokenize_body"]
+__all__ = ["BOT_NAME", "HIT_START", "HIT_STOP", "PostView", "Segment", "Token", "post_views",
+           "tokenize_body"]
 
 BOT_NAME = "MiHomes"
-_LINK = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
+#: Search-highlight sentinels (SPEC-013 D15): `ts_headline` marks hits with these, never with HTML.
+HIT_START, HIT_STOP = "\x02", "\x03"
+_LINK = re.compile(r"https?://[^\s<>\"'\x02\x03]+", re.IGNORECASE)
 _TRAILING = ".,;:!?)]}'\""
 _SNIPPET = 80
 
 
 @dataclass(frozen=True)
 class Token:
-    kind: str           # "text" | "link"
+    kind: str           # "text" | "link" | "mention" | "hit"
     text: str
-    href: str | None = None
+    href: str | None = None   # only for "link"; always http(s)
 
 
-def tokenize_body(body: str) -> list[Token]:
+Segment = Token   # SPEC-013's name for the same type
+
+
+def _links(text: str) -> list[Token]:
     tokens: list[Token] = []
     pos = 0
-    for match in _LINK.finditer(body):
+    for match in _LINK.finditer(text):
         url = match.group(0)
         stripped = url.rstrip(_TRAILING)
         # Keep a closing paren that belongs to the URL, e.g. a Wikipedia link.
@@ -50,12 +56,45 @@ def tokenize_body(body: str) -> list[Token]:
                 and url[len(stripped)] == ")":
             stripped += ")"
         if match.start() > pos:
-            tokens.append(Token("text", body[pos:match.start()]))
+            tokens.append(Token("text", text[pos:match.start()]))
         tokens.append(Token("link", stripped, stripped))
         pos = match.start() + len(stripped)
-    if pos < len(body):
-        tokens.append(Token("text", body[pos:]))
+    if pos < len(text):
+        tokens.append(Token("text", text[pos:]))
     return tokens
+
+
+def _mentions(text: str, names: list[str]) -> list[Token]:
+    if not names:
+        return [Token("text", text)]
+    # Longest first, so "@Maria Lopez" wins over "@Maria".
+    pattern = re.compile(r"(?<!\w)@(" + "|".join(re.escape(n) for n in names) + r")(?!\w)",
+                         re.IGNORECASE)
+    tokens: list[Token] = []
+    pos = 0
+    for match in pattern.finditer(text):
+        if match.start() > pos:
+            tokens.append(Token("text", text[pos:match.start()]))
+        tokens.append(Token("mention", match.group(0)))
+        pos = match.end()
+    if pos < len(text):
+        tokens.append(Token("text", text[pos:]))
+    return tokens
+
+
+def tokenize_body(body: str, *, mention_names: Iterable[str] = ()) -> list[Token]:
+    """Split user text into tokens; never markup. The defaults keep SPEC-012 callers unchanged."""
+    names = sorted({n for n in mention_names if n}, key=len, reverse=True)
+    out: list[Token] = []
+    for i, part in enumerate(re.split(f"[{HIT_START}{HIT_STOP}]", body or "")):
+        if not part:
+            continue
+        if i % 2 == 1:                       # between a START and a STOP
+            out.append(Token("hit", part))
+            continue
+        for tok in _links(part):
+            out.extend(_mentions(tok.text, names) if tok.kind == "text" else [tok])
+    return out
 
 
 @dataclass
@@ -77,6 +116,7 @@ class PostView:
     reactions: list[ReactionCount] = field(default_factory=list)
     reply_author: str | None = None
     reply_snippet: str | None = None   # None + reply_author set → the parent was deleted
+    attachments: list = field(default_factory=list)   # ChatAttachment rows (SPEC-013)
 
     @property
     def id(self) -> uuid.UUID:
@@ -127,6 +167,11 @@ def post_views(session: Session, viewer: Membership, conversation: ChatConversat
 
     moderator = (viewer.role in ("owner", "admin") and viewer.status == "active"
                  and conversation.kind != KIND_DM)
+    from mihomes.services.chat.attachments import attachments_for
+    from mihomes.services.chat.mentions import mention_names_for
+
+    files = attachments_for(session, post_ids)
+    mentioned = mention_names_for(session, post_ids)
     views = []
     for p in posts:
         is_bot = p.author_kind == AUTHOR_BOT
@@ -139,8 +184,10 @@ def post_views(session: Session, viewer: Membership, conversation: ChatConversat
             is_mine=is_mine,
             can_edit=live and is_mine,
             can_delete=live and (is_mine or moderator),
-            tokens=tokenize_body(p.body) if live else [],
+            tokens=(tokenize_body(p.body, mention_names=mentioned.get(p.id, ()))
+                    if live else []),
             reactions=[ReactionCount(e, n, mine) for e, (n, mine) in counts[p.id].items()],
+            attachments=files.get(p.id, []) if live else [],
         )
         parent = parents.get(p.reply_to_id) if p.reply_to_id else None
         if parent is not None:

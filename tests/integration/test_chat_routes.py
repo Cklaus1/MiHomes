@@ -11,7 +11,7 @@ import uuid
 from sqlalchemy import text
 
 from mihomes.authz.declare import ACCESS_ATTR, ACTION_ATTR
-from mihomes.models.chat_native import ChatConversation, ChatPost
+from mihomes.models.chat_native import ChatAttachment, ChatConversation, ChatPost
 from mihomes.models.membership import Membership
 from mihomes.services.chat import conversations as conv
 from mihomes.services.chat import posts
@@ -19,7 +19,7 @@ from tests.integration.chat_helpers import app_client, app_session, estate
 
 __all__ = ["app_client", "estate"]  # re-exported pytest fixtures (see chat_helpers)
 
-_ID_PARAMS = ("{conversation_id}", "{post_id}")
+_ID_PARAMS = ("{conversation_id}", "{post_id}", "{attachment_id}")
 
 
 def _groups(app_engine, e) -> dict[str, uuid.UUID]:
@@ -161,6 +161,8 @@ def _payloads(general_seq: int) -> dict[tuple[str, str], dict]:
         ("POST", "/chat/posts/{post_id}/edit"): {"data": {"body": "edited by intruder"}},
         ("POST", "/chat/posts/{post_id}/delete"): {},
         ("POST", "/chat/posts/{post_id}/react"): {"data": {"emoji": "👍"}},
+        ("GET", "/chat/file/{attachment_id}"): {},
+        ("GET", "/chat/c/{conversation_id}/mentionable"): {"params": {"q": ""}},
     }
 
 
@@ -172,6 +174,15 @@ def test_every_id_route_enforces_visibility(app_client, app_engine, estate):
     c = _groups(app_engine, e)
     secret = "Belle's alarm code is 4417"
     post_id = _post(app_engine, e, c["belle"], e.owner, secret)
+    with app_session(app_engine, e.account_id) as s:   # a Belle attachment (SPEC-013)
+        from mihomes.storage import build_key
+
+        att = ChatAttachment(account_id=e.account_id, post_id=post_id,
+                             storage_key=build_key(e.account_id, "chat", "x.png"),
+                             filename="Belle-plan.png", content_type="image/png", size_bytes=1)
+        s.add(att)
+        s.commit()
+        att_id = att.id
 
     derived = {
         (method, route.path)
@@ -187,7 +198,8 @@ def test_every_id_route_enforces_visibility(app_client, app_engine, estate):
     intruder = app_client(e.account_id, e.staff_blue)
     for (method, path), kwargs in sorted(table.items()):
         url = (path.replace("{conversation_id}", str(c["belle"]))
-                   .replace("{post_id}", str(post_id)))
+                   .replace("{post_id}", str(post_id))
+                   .replace("{attachment_id}", str(att_id)))
         r = intruder.request(method, url, **kwargs)
         assert r.status_code == 404, (method, path, r.status_code, r.text[:200])
         assert secret not in r.text and "Belle" not in r.text, (method, path)

@@ -2,7 +2,8 @@
    Body text is drawn token by token and autoescaped (D18): the tokenizer only says where a link
    is; this template builds the <a>, and `|safe` is never applied to what a member typed.
    The `id` is what chat.js swaps when an event names this post (D8). #}
-<li id="post-{{ v.id }}" data-seq="{{ v.post.seq }}" data-author="{{ v.post.author_membership_id or 'bot' }}"
+<li id="post-{{ v.id }}" data-seq="{{ v.post.seq }}"
+    {% if jump_seq is defined and jump_seq == v.post.seq %}data-chat-jump{% endif %} data-author="{{ v.post.author_membership_id or 'bot' }}"
     class="group flex {{ 'justify-end' if v.is_mine else 'justify-start' }}">
   <div class="max-w-[85%] min-w-0">
     <div class="rounded-xl px-3 py-2 text-sm
@@ -22,6 +23,23 @@
       </div>
       {% endif %}
 
+      {% if v.attachments %}
+      <div class="mt-1.5 flex flex-wrap gap-2">
+        {% for a in v.attachments %}
+        {% if a.content_type.startswith('image/') %}
+        <a href="/chat/file/{{ a.id }}" target="_blank" rel="noopener" class="block">
+          <img src="/chat/file/{{ a.id }}" alt="{{ a.filename }}" loading="lazy"
+               class="max-h-48 max-w-full rounded-lg border border-gray-200 object-cover">
+        </a>
+        {% else %}
+        <a href="/chat/file/{{ a.id }}" class="inline-flex items-center gap-1.5 min-h-[36px] px-2.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-700 hover:bg-gray-50">
+          <span aria-hidden="true">📄</span><span class="truncate max-w-[12rem]">{{ a.filename }}</span>
+        </a>
+        {% endif %}
+        {% endfor %}
+      </div>
+      {% endif %}
+
       {% if v.deleted %}
       <p class="mt-0.5 text-gray-400 italic">This message was deleted.</p>
       {% elif v.tokens %}
@@ -29,6 +47,10 @@
         {%- for t in v.tokens -%}
           {%- if t.kind == 'link' -%}
             <a href="{{ t.href }}" target="_blank" rel="noopener noreferrer nofollow" class="underline text-brand-700 break-all">{{ t.text }}</a>
+          {%- elif t.kind == 'mention' -%}
+            <span class="font-medium text-brand-700 bg-brand-50 rounded px-0.5">{{ t.text }}</span>
+          {%- elif t.kind == 'hit' -%}
+            <mark>{{ t.text }}</mark>
           {%- else -%}
             {{ t.text }}
           {%- endif -%}

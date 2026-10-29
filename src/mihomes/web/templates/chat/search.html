@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block title %}Search chat — MiHomes{% endblock %}
+{% block heading %}Search chat{% endblock %}
+{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">Messages in the chats you can see</p>{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl space-y-4">
+  <form method="get" action="/chat/search" class="flex gap-2"
+        hx-get="/chat/search" hx-target="#chat-search-results" hx-push-url="true">
+    <label for="chat-search-q" class="sr-only">Search messages</label>
+    <input id="chat-search-q" type="search" name="q" value="{{ q }}" maxlength="200" autofocus
+           placeholder="Search messages…"
+           class="flex-1 min-w-0 rounded-lg border border-gray-300 px-3 py-2 text-sm">
+    <button type="submit" class="min-h-[44px] px-4 rounded-lg bg-gray-800 text-white text-sm">Search</button>
+  </form>
+  <div id="chat-search-results" class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    {% include "partials/chat/_search_results.html" %}
+  </div>
+  <a href="/chat/" class="inline-flex items-center min-h-[36px] text-sm text-brand-700">← Back to chat</a>
+</div>
+{% endblock %}

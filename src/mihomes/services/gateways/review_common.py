@@ -758,6 +758,12 @@ def is_trusted_sender(
     if not raw_sender:
         return False
 
+    # SPEC-013 D9: in-app chat. The sender is a membership id the server wrote, so trust comes from
+    # that row alone — before the allowlist, which would be a second, drift-prone way to grant it.
+    if gateway == "mihomes":
+        return trusted_membership(session, raw_sender,
+                                  account if account is not None else bound_account())
+
     allow = get_config(session, f"{gateway}.sender_allowlist") or ""
     allow_ids = {a.strip() for a in allow.split(",") if a.strip()}
 
@@ -788,6 +794,33 @@ def is_trusted_sender(
         return True
     approver_id = get_config(session, "telegram.pto_approver_id")
     return bool(approver_id) and raw_sender == str(approver_id).strip()
+
+
+def trusted_membership(session: Session, sender, account) -> bool:
+    """SPEC-013 D9. True iff `sender` is an active owner/admin membership of `account`.
+
+    Anything unparsable, an unbound account, a revoked membership or another account's membership
+    is False — fail closed.
+    """
+    import uuid
+
+    from sqlalchemy import select
+
+    from mihomes.models.membership import Membership
+
+    try:
+        membership_id = uuid.UUID(str(sender))
+    except ValueError:
+        return False
+    account_id = getattr(account, "id", account)
+    if account_id is None:
+        return False
+    m = Membership.__table__.c
+    role = session.execute(
+        select(m.role).where(m.id == membership_id, m.account_id == account_id,
+                             m.status == "active")
+    ).scalar_one_or_none()
+    return role in ("owner", "admin")
 
 
 def bound_account():
@@ -866,6 +899,9 @@ def _with_conversation_log(
     private chat is never stored. An adapter that is not a dataclass is returned unwrapped (its
     replies go unrecorded) rather than guessed at.
     """
+    if getattr(adapter, "channel", "") == "mihomes":
+        return adapter  # SPEC-013: native posts are their own record; chat_messages is the gateway log
+
     import dataclasses
 
     from mihomes.services.gateways import conversation_log as log

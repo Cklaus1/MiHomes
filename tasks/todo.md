@@ -906,7 +906,7 @@ password and a Google identity. A new "Sign-in methods" section on the personal 
 SPEC-010 U2/N7 note; `GOOGLE-OAUTH.md`; tests for every refusal; build:css + stamp; full
 suite vs the 8 known failures; deploy only with user go-ahead
 
-## Per-user Google Calendar sync (2026-10-30) — PLAN; design approved, build not started
+## Per-user Google Calendar sync (2026-10-30) — BUILT (622dd67), not deployed
 
 **Decided by user 2026-10-30:** sync everything the person can see (staff: scoped properties
 only) · separate "MiHomes — <estate>" calendar · one-way MiHomes → Google · remove the
@@ -940,18 +940,17 @@ their calendar up to date with the estate's appointments and tasks.
 - Retire the machine-wide token path from the web app (Calendar page stops reading it)
 
 **Steps**
-- [ ] 0029 migration: `calendar_connections`, `calendar_event_links` (+ RLS, registry count)
-- [ ] OAuth: `POST /settings/calendar/google/connect` (CSRF) → callback
-      `/settings/calendar/google/callback`; stores encrypted refresh token; creates the calendar
-- [ ] Provider built from a connection (token, calendar id) instead of the token file
-- [ ] Sync service: upsert/delete per connection for appointments + tasks in scope
-- [ ] Hooks on appointment/task create/edit/delete/complete; reconcile job + SCHEDULE entry
-- [ ] Settings → "Calendar" card: connect, status, last sync, Sync now, Disconnect
+- [x] 0029 migration: `calendar_connections`, `calendar_event_links` (+ RLS, registry count)
+- [x] OAuth: `POST /settings/calendar/google/connect` (CSRF) → callback
+      (reuses `/auth/google/callback` via intent — no new redirect URI); encrypted refresh token
+- [x] Provider built from a connection (token, calendar id) instead of the token file
+- [x] Sync service: upsert/delete per connection for appointments + tasks in scope
+- [x] Hooks on appointment/task create/edit/delete/complete; reconcile job + SCHEDULE entry
+- [x] Settings → "Calendar" card: connect, status, last sync, Sync now, Disconnect
       (revokes token; optionally deletes the MiHomes calendar)
-- [ ] Remove live machine-wide Google reads from the Calendar page; CLI keeps file path or is retired
-- [ ] Google Console: enable Calendar API, add scope, add redirect URI
-      `https://evo-dev.tail6765ef.ts.net/settings/calendar/google/callback`
-- [ ] Tests: token encrypted at rest, per-user isolation (A's events never in B's calendar,
+- [x] Remove live machine-wide Google reads from the Calendar page; CLI keeps file path or is retired
+- [ ] Google Console: enable Calendar API, add scope `calendar.app.created` (no new redirect URI)
+- [x] Tests: token encrypted at rest, per-user isolation (A's events never in B's calendar,
       staff only get properties in scope), update/delete propagate, revoked token, CSRF;
       fake provider — no live Google in tests
 - [ ] Live test on evo-dev with a test-user Google account

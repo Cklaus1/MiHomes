@@ -291,6 +291,7 @@ def _entity_classes() -> dict[type, EntityClass]:
     from mihomes.models.audit_log import AuditLog
     from mihomes.models.book import Book
     from mihomes.models.budget import Budget, Transaction
+    from mihomes.models.calendar_connection import CalendarConnection, CalendarEventLink
     from mihomes.models.chat_message import ChatMessage
     from mihomes.models.chat_native import (
         ChatAttachment,
@@ -431,6 +432,10 @@ def _entity_classes() -> dict[type, EntityClass]:
         # ACCOUNT_LEVEL would deny staff their OWN preferences and devices.
         PushSubscription: EntityClass.ACCOUNT_SHARED,
         ChatNotifyPref: EntityClass.ACCOUNT_SHARED,
+        # Per-person Google Calendar (0029): own-row only, enforced in the route
+        # (`principal.membership_id`); every role connects their own calendar.
+        CalendarConnection: EntityClass.ACCOUNT_SHARED,
+        CalendarEventLink: EntityClass.ACCOUNT_SHARED,
         AIConversation: account,
         AuditLog: account,
         Account: account,

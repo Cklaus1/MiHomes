@@ -61,3 +61,34 @@ signed in still refuses an address that has a password-only account, and says to
 the password and connect Google from Settings. Linking there, rather than in the sign-in flow,
 is what stops pre-hijacking: someone who registered your address with a password first cannot
 have your later Google sign-in merge into their account.
+
+## Google Calendar (per person, 2026-10-30)
+
+Settings → **Google Calendar** lets each member connect their own Google Calendar. MiHomes
+creates a calendar named "MiHomes — <estate>" in that Google account and keeps the estate's
+appointments and tasks on it (one-way; owners/admins get every property, staff their scoped
+ones). Code: `services/personal_calendar/`.
+
+**Console setup (once), in the same project as sign-in:**
+
+1. **APIs & Services → Library → Google Calendar API → Enable.**
+2. **OAuth consent screen → Data access → Add or remove scopes**: add
+   `https://www.googleapis.com/auth/calendar.app.created` ("Make secondary Google calendars, and
+   see, create, change, and delete events on them"). It covers only calendars MiHomes creates —
+   nothing else in the person's calendar.
+3. No new redirect URI: the flow reuses `…/auth/google/callback`.
+
+Calendar scopes are **sensitive**. While the app is in Testing, only listed test users can
+connect, and Google shows an "unverified app" warning they must click through. Publishing to
+everyone requires Google's verification review.
+
+**Running it:** a save queues a background sync for that estate (in the web process). The
+backstop is `mihomes jobs calendar-sync` every 15 minutes — not installed on evo-dev (no cron),
+so a failed sync waits for the next save or "Sync now". `MIHOMES_BASE_URL` sets the "Open in
+MiHomes" link in each event.
+
+| Symptom in Settings | Cause |
+|---|---|
+| "Google didn't grant calendar access" | The calendar box was unticked on Google's screen |
+| "Needs reconnecting" | Access was removed in the Google account, or the token expired |
+| Last error "Google was busy" | Rate limited; the next sync continues where it stopped |

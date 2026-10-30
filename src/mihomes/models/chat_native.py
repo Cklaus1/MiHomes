@@ -117,6 +117,9 @@ class ChatParticipant(Base, TenantOwned):
     muted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False,
                                         server_default="false")
     joined_at: Mapped[datetime] = _created()
+    # SPEC-014 D2 (0028): the highest DM seq this member has been pushed about.
+    last_notified_seq: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0,
+                                                   server_default="0")
 
     __table_args__ = _account_indexes("chat_participants")
 

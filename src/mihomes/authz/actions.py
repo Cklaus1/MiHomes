@@ -301,6 +301,7 @@ def _entity_classes() -> dict[type, EntityClass]:
         ChatPost,
         ChatReaction,
     )
+    from mihomes.models.chat_notify import ChatNotifyPref, PushSubscription
     from mihomes.models.configuration import Configuration
     from mihomes.models.consumable import Consumable, ConsumablePriceEntry
     from mihomes.models.contract import Contract
@@ -426,6 +427,10 @@ def _entity_classes() -> dict[type, EntityClass]:
         ChatAttachment: EntityClass.ACCOUNT_SHARED,
         ChatMention: EntityClass.ACCOUNT_SHARED,
         ChatEvent: EntityClass.ACCOUNT_SHARED,
+        # SPEC-014: own-row only, enforced in the service (`membership_id == principal's`).
+        # ACCOUNT_LEVEL would deny staff their OWN preferences and devices.
+        PushSubscription: EntityClass.ACCOUNT_SHARED,
+        ChatNotifyPref: EntityClass.ACCOUNT_SHARED,
         AIConversation: account,
         AuditLog: account,
         Account: account,

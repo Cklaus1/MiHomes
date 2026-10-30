@@ -99,6 +99,7 @@ from mihomes.models.chat_native import (  # noqa: E402, F401
     ChatPost,
     ChatReaction,
 )
+from mihomes.models.chat_notify import ChatNotifyPref, PushSubscription  # noqa: E402, F401
 from mihomes.models.configuration import Configuration  # noqa: E402, F401
 from mihomes.models.consumable import Consumable, ConsumablePriceEntry  # noqa: E402, F401
 from mihomes.models.contract import Contract  # noqa: E402, F401

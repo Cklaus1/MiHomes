@@ -125,6 +125,13 @@ def get_provider(
 
     with get_session() as session:
         account = session.get(Account, account_id)
+        # Detach BEFORE the block commits: the commit would expire every loaded attribute, and the
+        # meter's later `account.plan` read would then try to refresh a detached instance and raise
+        # DetachedInstanceError — which the wrapper swallows (fail open), so every metered AI call
+        # went uncounted and uncapped (seen on evo-dev from 2026-10-15). Expunged, the values
+        # loaded here simply stay readable.
+        if account is not None:
+            session.expunge(account)
 
     return MeteredProvider(
         provider, session_factory=get_session, account=account, entry_point=entry_point,

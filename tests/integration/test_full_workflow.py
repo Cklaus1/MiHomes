@@ -94,15 +94,24 @@ class TestTaskRecurrence:
         assert t.schedule is not None
         assert t.schedule.next_due == date(2026, 7, 1)
 
-        completed, _ = complete_task(session, str(t.id), notes="Done")
-        assert completed.status == TaskStatus.COMPLETED
+        # The repeating-task contract (services/task.complete_task): the SAME row resets in place —
+        # pending again, due date rolled forward on its quarterly rhythm to the first date after
+        # the estate's today — and the completion is recorded in task_completions. (This test used
+        # to expect a closed task plus a new row due 2026-07-01; that model was replaced, and the
+        # hard-coded date also stopped being "after today" once today passed it.)
+        from mihomes.models.task import TaskCompletion
+        from mihomes.services.config_service import estate_today
 
-        next_task = session.query(Task).filter(
-            Task.property_id == p.id, Task.status == TaskStatus.PENDING
-        ).first()
-        assert next_task is not None
-        assert next_task.due_date == date(2026, 7, 1)
-        assert next_task.schedule.frequency == RecurrenceFrequency.QUARTERLY
+        completed, next_task = complete_task(session, str(t.id), notes="Done")
+        assert next_task is completed and completed.id == t.id
+        assert completed.status == TaskStatus.PENDING
+        due = completed.due_date
+        assert due > estate_today(session)
+        assert due.day == 1 and due.month in (1, 4, 7, 10)          # still on the quarter
+        assert completed.schedule.frequency == RecurrenceFrequency.QUARTERLY
+        assert session.query(Task).filter(Task.property_id == p.id).count() == 1
+        done = session.query(TaskCompletion).filter(TaskCompletion.task_id == t.id).all()
+        assert len(done) == 1 and done[0].due_date == date(2026, 4, 1) and done[0].notes == "Done"
 
     def test_seasonal_spring_fall(self, session):
         from mihomes.services.task import complete_task, create_task

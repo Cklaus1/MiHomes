@@ -159,13 +159,25 @@ class TestOwnerOnly:
         response = web_client_as("owner").get("/billing")
         assert response.status_code == 200
 
-    def test_plan_page_has_one_interval_switch_and_one_button_per_plan(self, web_client_as):
+    def test_plan_page_has_one_interval_switch_and_one_button_per_plan(
+        self, web_client_as, _pg_engine, account_a
+    ):
         """One Monthly/Yearly switch for the page; each upgrade card is one form whose interval
-        the switch rewrites. Both switch values must be ones the route accepts."""
+        the switch rewrites. Both switch values must be ones the route accepts.
+
+        Run as a **Free** account: the shared fixture provisions `estate` (the top plan), and with
+        nothing left to buy the page correctly shows no switch at all."""
+        from sqlalchemy import text as _text
+
         from mihomes.web.routes.billing import SELLABLE_INTERVALS
 
+        with _pg_engine.begin() as conn:
+            conn.execute(_text("UPDATE accounts SET plan = 'free', subscription_status = NULL "
+                               "WHERE id = :a"), {"a": account_a})
         html = web_client_as("owner").get("/billing").text
-        assert html.count("data-billing-switch") == 1
+        # Count the element, not the string: the page's own script names the attribute in its
+        # `querySelector("[data-billing-switch]")`.
+        assert html.count("data-billing-switch data-start") == 1
         for interval in SELLABLE_INTERVALS:
             assert f'data-interval="{interval}"' in html
         for plan in ("pro", "estate"):
@@ -312,6 +324,7 @@ class TestPaymentMethod:
         from mihomes.services.billing.service import start_payment_method_setup
 
         account, provider = billable_account, FakeProvider()
+        account.plan = "free"   # the shared fixture provisions `estate`; this test is about Free
         for _ in range(2):
             start_payment_method_setup(session, account, return_url="http://localhost/billing",
                                        provider=provider)
@@ -327,6 +340,7 @@ class TestPlanChange:
         from mihomes.services.billing.service import start_plan_change
 
         account = session.get(Account, account_a)
+        account.plan = "pro"    # a paying Pro account; the shared fixture provisions `estate`
         account.stripe_customer_id, account.stripe_subscription_id = "cus_1", "sub_1"
         account.subscription_status = "active"
         provider = FakeProvider()
@@ -338,14 +352,17 @@ class TestPlanChange:
                                           "plan": "estate", "interval": "annual"}]
         assert account.plan != "estate", "the webhook grants the plan, not this call (D1)"
 
-    @pytest.mark.parametrize("status", [None, "canceled"])
-    def test_change_refuses_without_a_live_subscription(self, session, account_a, status):
+    # A Free account has no subscription at all; an ended one keeps its id with an ended status.
+    # (This used to pair a subscription id with status None — a state the webhook never writes,
+    # since it sets both together — and expected a refusal the code was never meant to give.)
+    @pytest.mark.parametrize("sub_id,status", [(None, None), ("sub_1", "canceled")])
+    def test_change_refuses_without_a_live_subscription(self, session, account_a, sub_id, status):
         """Free or ended accounts buy through checkout; there is nothing to change."""
         from mihomes.services.billing.provider import BillingProviderError
         from mihomes.services.billing.service import start_plan_change
 
         account = session.get(Account, account_a)
-        account.stripe_customer_id, account.stripe_subscription_id = "cus_1", "sub_1"
+        account.stripe_customer_id, account.stripe_subscription_id = "cus_1", sub_id
         account.subscription_status = status
         provider = FakeProvider()
 

@@ -897,11 +897,18 @@ class TestMembersSection:
         ).status_code == 404
 
     def test_staff_never_reach_any_member_route(self, web_client_as):
-        """Rows 10-13 are all `DENY` for staff, applied by the dependency before the body runs."""
+        """Rows 10-13 are all `DENY` for staff, applied by the dependency before the body runs.
+
+        The settings PAGE is the exception by design: since the sidebar shows Settings to every
+        role, a staff member is redirected to their own page (/settings/connections) rather
+        than shown a 403. That page carries no member management; every write below still 403s.
+        """
         client = web_client_as("staff", scoped_to=[])
         target = uuid.uuid4()
 
-        assert client.get("/settings").status_code == 403
+        page = client.get("/settings", follow_redirects=False)
+        assert page.status_code == 303 and page.headers["location"] == "/settings/connections"
+        assert "/settings/members/" not in client.get("/settings/connections").text
         assert client.post(
             "/settings/members/invite", data={"email": "x@example.com", "role": "admin"}
         ).status_code == 403

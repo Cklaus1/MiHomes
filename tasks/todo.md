@@ -905,3 +905,53 @@ password and a Google identity. A new "Sign-in methods" section on the personal 
 **Housekeeping:** `PasswordAccountExists` message → "…then connect Google in Settings";
 SPEC-010 U2/N7 note; `GOOGLE-OAUTH.md`; tests for every refusal; build:css + stamp; full
 suite vs the 8 known failures; deploy only with user go-ahead
+
+## Per-user Google Calendar sync (2026-10-30) — PLAN, awaiting approval
+
+**Today:** one machine-wide token (`~/.mihomes/google_token.json`, desktop OAuth flow) syncs
+the `primary` calendar for every estate. Push only on appointment *create* (never updates or
+deletes); pull creates tasks/occupancy by title-matching; the Calendar page calls Google live on
+every render and **shows that one calendar to every estate**. Google sign-in grants no calendar
+access (scopes `openid email profile`).
+
+**Target:** each person connects *their own* Google Calendar from Settings; MiHomes keeps
+their calendar up to date with the estate's appointments and tasks.
+
+**Design (recommended defaults — questions below)**
+- Separate consent from sign-in: "Connect Google Calendar" in Settings → Google's calendar
+  screen (offline access, `login_hint`); any Google account, not necessarily the sign-in one
+- Write to a **dedicated "MiHomes — <estate>" calendar** the app creates, not `primary`:
+  nothing mixes with personal events, and Disconnect can delete the whole calendar cleanly
+- **Push only** (MiHomes → Google). A personal calendar must not create estate records
+- Creates, **updates and deletes** follow edits (today's push never updates)
+- Event ids per person: new table `calendar_event_links` (connection, entity type/id,
+  google event id) — the single `gcal_event_id` column can't hold one id per person
+- Token storage: new `calendar_connections` (user, account, Google email, calendar id,
+  Fernet-encrypted refresh token via `crypto.encrypt`, status, last sync, last error); RLS
+- Sync triggers: best-effort push on save (never blocks the save) + `mihomes jobs
+  calendar-sync` reconcile (catches failures, initial backfill) — needs cron on evo-dev,
+  which has none (owner OK needed)
+- Revoked access (user removed it in Google): mark connection "needs reconnect", show in
+  Settings, stop retrying
+- Retire the machine-wide token path from the web app (Calendar page stops reading it)
+
+**Steps**
+- [ ] 0029 migration: `calendar_connections`, `calendar_event_links` (+ RLS, registry count)
+- [ ] OAuth: `POST /settings/calendar/google/connect` (CSRF) → callback
+      `/settings/calendar/google/callback`; stores encrypted refresh token; creates the calendar
+- [ ] Provider built from a connection (token, calendar id) instead of the token file
+- [ ] Sync service: upsert/delete per connection for appointments + tasks in scope
+- [ ] Hooks on appointment/task create/edit/delete/complete; reconcile job + SCHEDULE entry
+- [ ] Settings → "Calendar" card: connect, status, last sync, Sync now, Disconnect
+      (revokes token; optionally deletes the MiHomes calendar)
+- [ ] Remove live machine-wide Google reads from the Calendar page; CLI keeps file path or is retired
+- [ ] Google Console: enable Calendar API, add scope, add redirect URI
+      `https://evo-dev.tail6765ef.ts.net/settings/calendar/google/callback`
+- [ ] Tests: token encrypted at rest, per-user isolation (A's events never in B's calendar,
+      staff only get properties in scope), update/delete propagate, revoked token, CSRF;
+      fake provider — no live Google in tests
+- [ ] Live test on evo-dev with a test-user Google account
+
+**Known limits:** calendar scopes are *sensitive* — beyond Console test users (max 100) Google
+requires app verification (weeks). Tasks are assigned to `staff`, not to users, so "only my
+tasks" needs a staff↔member link that doesn't exist yet.

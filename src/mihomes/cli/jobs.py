@@ -370,12 +370,19 @@ def chat_notify() -> None:
     from mihomes.db import get_session
     from mihomes.services.chat.notify import run_chat_notify
     from mihomes.services.chat.push import sender_from_env
-    from mihomes.services.email.provider import get_email_provider
     from mihomes.services.email.service import EmailService
+
+    class _QueueOnly:
+        """This job only enqueues (N7) — `drain-outbox` is the one path to a provider. Building
+        the real provider here made every account fail on a server with no email key
+        configured (evo-dev, 2026-10-30), taking push and the markers down with it."""
+
+        def send(self, *a, **k):
+            raise RuntimeError("chat-notify never sends mail directly; drain-outbox does")
 
     result = run_chat_notify(
         get_session, push_sender=sender_from_env(),
-        email_factory=lambda s: EmailService(get_email_provider(), session=s),
+        email_factory=lambda s: EmailService(_QueueOnly(), session=s),
         now=datetime.now(UTC))
     rprint(f"Chat notify: {result.accounts} account(s); {result.pushes} push payload(s), "
            f"{result.pushes_sent} delivered; {result.digests} digest(s) queued; "

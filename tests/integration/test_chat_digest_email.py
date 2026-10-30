@@ -102,7 +102,10 @@ def test_job_twice_is_noop(app_engine, _pg_engine, estate, monkeypatch):
     e = estate
     r = rooms(app_engine, e)
     post(app_engine, _pg_engine, e, r["dm"], e.owner, "cli", age=OLD)
-    monkeypatch.setenv("EMAIL_PROVIDER", "console")
+    # As on evo-dev: no email provider configured at all. The job only enqueues, so it must
+    # still succeed (it failed every account here before 2026-10-30).
+    monkeypatch.delenv("EMAIL_PROVIDER", raising=False)
+    monkeypatch.delenv("RESEND_API_KEY", raising=False)
     prev = db._engine, db._SessionLocal
     db._engine, db._SessionLocal = app_engine, None
     try:

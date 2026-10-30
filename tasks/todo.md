@@ -906,7 +906,7 @@ password and a Google identity. A new "Sign-in methods" section on the personal 
 SPEC-010 U2/N7 note; `GOOGLE-OAUTH.md`; tests for every refusal; build:css + stamp; full
 suite vs the 8 known failures; deploy only with user go-ahead
 
-## Per-user Google Calendar sync (2026-10-30) — BUILT (622dd67), not deployed
+## Per-user Google Calendar sync (2026-10-30) — DEPLOYED to evo-dev 5a66262 (0029), awaiting Console + live test
 
 **Decided by user 2026-10-30:** sync everything the person can see (staff: scoped properties
 only) · separate "MiHomes — <estate>" calendar · one-way MiHomes → Google · remove the

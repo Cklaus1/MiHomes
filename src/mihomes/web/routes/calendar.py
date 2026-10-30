@@ -1,7 +1,7 @@
 """Calendar routes — appointments and property events in a monthly view."""
 
 import logging
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, time, timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -110,45 +110,11 @@ def _ctx(db: Session, month_date: date, property_id: str | None = None) -> dict:
                 day_events.setdefault(d, []).append(e)
             d = d + timedelta(days=1)
 
-    # Pull live Google Calendar events — sync times back + show external events
+    # The page used to read one machine-wide Google calendar here, live, and show it to EVERY
+    # estate (and write its times back into appointments during a GET). Retired 2026-10-30:
+    # each person now connects their own calendar from Settings, and MiHomes writes to it —
+    # it never reads it. `day_gcal` stays empty so the template needs no change.
     day_gcal: dict[date, list] = {}
-    from mihomes.services.calendar_sync import _get_provider, is_google_auth_available
-    if is_google_auth_available():
-        try:
-            provider = _get_provider()
-            start_dt = datetime(month_start.year, month_start.month, month_start.day, tzinfo=timezone.utc)
-            end_dt = datetime(month_end.year, month_end.month, month_end.day, 23, 59, tzinfo=timezone.utc)
-            raw = provider.list_events(start_dt, end_dt)
-
-            # Index appointments by gcal_event_id for fast lookup
-            appts_by_gcal_id = {a.gcal_event_id: a for a in appointments if a.gcal_event_id}
-
-            for ev in raw:
-                ev_id = ev.get("id", "")
-                ev_start = ev.get("start")
-                ev_end = ev.get("end") or ev_start
-                if not ev_start:
-                    continue
-
-                if ev.get("title", "").startswith("[MiHomes]"):
-                    # Our appointment — sync time back if Google's copy changed
-                    if ev_id in appts_by_gcal_id:
-                        appt = appts_by_gcal_id[ev_id]
-                        gcal_time = ev_start.time() if isinstance(ev_start, datetime) else None
-                        if gcal_time and gcal_time != appt.start_time:
-                            appt_svc.update_appointment(db, appt.id, start_time=gcal_time)
-                            appt.start_time = gcal_time  # update in-memory for this render
-                    continue
-
-                # External event — show on calendar
-                d = ev_start.date() if isinstance(ev_start, datetime) else ev_start
-                end_d = ev_end.date() if isinstance(ev_end, datetime) else ev_end
-                while d <= end_d and d <= month_end:
-                    if d >= month_start:
-                        day_gcal.setdefault(d, []).append(ev)
-                    d += timedelta(days=1)
-        except Exception:
-            logger.exception("_ctx: suppressed exception")
 
     # Build holiday map for the displayed month (spanning year boundary if needed)
     all_holidays = _us_holidays(month_start.year)

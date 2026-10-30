@@ -104,6 +104,11 @@ SCHEDULE: dict[str, tuple[str, str]] = {
         "Chat events are only a catch-up log for reconnecting tabs (SPEC-012), kept 7 days. "
         "Daily and off-peak; a missed night just keeps one more day of rows.",
     ),
+    "calendar-sync": (
+        "*/15 * * * *",
+        "The backstop for per-person Google Calendars: saves already queue a sync, so this only "
+        "catches failures (Google busy, a crashed worker) and changes made outside the web app.",
+    ),
     "reconcile": (
         "0 3 * * *",
         "The backstop for a dropped webhook (BILLING §6). Nightly and off-peak: it re-fetches "
@@ -387,6 +392,38 @@ def chat_notify() -> None:
     rprint(f"Chat notify: {result.accounts} account(s); {result.pushes} push payload(s), "
            f"{result.pushes_sent} delivered; {result.digests} digest(s) queued; "
            f"{len(result.errors)} account(s) failed.")
+
+
+@app.command("calendar-sync")
+def calendar_sync() -> None:
+    """Bring every connected Google Calendar in line with its estate (2026-10-30).
+
+    Per account, under that account's context: the sync refuses to run unbound, because under
+    RLS an unbound read sees nothing and would delete every event. Safe to overlap with the
+    save-triggered syncs — each connection is taken under a lease.
+    """
+    from sqlalchemy import select
+
+    from mihomes.db import get_session
+    from mihomes.models.calendar_connection import CalendarConnection
+    from mihomes.services.personal_calendar.sync import sync_account
+    from mihomes.tenancy import account_context
+
+    accounts = _all_accounts()
+    synced = failed = 0
+    for account_id, _slug in accounts:
+        try:
+            with account_context(account_id):
+                with get_session() as s:
+                    if not s.execute(select(CalendarConnection.id).limit(1)).first():
+                        continue
+                results = sync_account(get_session)
+            synced += len(results)
+            failed += sum(1 for r in results if r.status in ("error", "reconnect"))
+        except Exception:  # noqa: BLE001 — one account must not stop the rest
+            logger.exception("calendar-sync: account %s failed", account_id)
+            failed += 1
+    rprint(f"Calendar sync: {synced} connection(s) synced, {failed} with problems.")
 
 
 @app.command("chat-prune-events")

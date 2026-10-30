@@ -46,6 +46,10 @@ from mihomes.tenancy import account_context
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 
+# Never let a test start a calendar-sync worker thread: it would open its own session on the
+# application database, outside the test's rolled-back transaction.
+os.environ.setdefault("MIHOMES_CALENDAR_AUTOSYNC", "0")
+
 # For test MODULES that want to declare the dependency explicitly via
 # `pytestmark = needs_postgres`. It cannot decorate a fixture — pytest rejects marks
 # on fixtures ("Marks applied to fixtures have no effect", PytestRemovedIn9Warning).

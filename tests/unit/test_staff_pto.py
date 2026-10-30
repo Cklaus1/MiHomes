@@ -97,8 +97,7 @@ class TestApprovePTO:
     def test_approve_sets_status(self, session):
         staff = _make_staff(session)
         req = create_pto_request(session, staff.slug, ["2026-05-01"])
-        with patch("mihomes.services.staff_pto._sync_to_calendar"):
-            approved = approve_pto(session, req.id, decided_by="admin")
+        approved = approve_pto(session, req.id, decided_by="admin")
         assert approved.status == PTOStatus.APPROVED
         assert approved.decided_by == "admin"
         assert approved.decided_at is not None
@@ -112,13 +111,10 @@ class TestApprovePTO:
         # it and re-firing calendar sync would double-book the leave.
         staff = _make_staff(session)
         req = create_pto_request(session, staff.slug, ["2026-05-01"])
-        with patch("mihomes.services.staff_pto._sync_to_calendar") as sync:
-            approve_pto(session, req.id, decided_by="admin")
-            assert sync.call_count == 1
-            with pytest.raises(ValueError, match="not pending"):
-                approve_pto(session, req.id, decided_by="admin2")
-            # guard must fire before any re-sync
-            assert sync.call_count == 1
+        # (The machine-wide calendar push this also guarded was retired 2026-10-30.)
+        approve_pto(session, req.id, decided_by="admin")
+        with pytest.raises(ValueError, match="not pending"):
+            approve_pto(session, req.id, decided_by="admin2")
         assert req.decided_by == "admin"
 
 
@@ -180,8 +176,7 @@ class TestListPTORequests:
         staff = _make_staff(session)
         req1 = create_pto_request(session, staff.slug, ["2026-05-01"])
         req2 = create_pto_request(session, staff.slug, ["2026-06-01"])
-        with patch("mihomes.services.staff_pto._sync_to_calendar"):
-            approve_pto(session, req1.id)
+        approve_pto(session, req1.id)
         pending = list_pto_requests(session, status=PTOStatus.PENDING)
         assert len(pending) == 1
         assert pending[0].id == req2.id
@@ -194,8 +189,7 @@ class TestGetPTOBalance:
     def test_counts_approved_days(self, session):
         staff = _make_staff(session)
         req = create_pto_request(session, staff.slug, ["2026-05-01", "2026-05-02"])
-        with patch("mihomes.services.staff_pto._sync_to_calendar"):
-            approve_pto(session, req.id)
+        approve_pto(session, req.id)
         balance = get_pto_balance(session, staff.slug)
         assert balance["approved_days"] == 2
         assert balance["pending_days"] == 0

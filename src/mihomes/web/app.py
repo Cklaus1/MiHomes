@@ -121,6 +121,12 @@ async def _chat_listener_lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    # Per-person Google Calendar: queue a sync after any appointment/task save commits
+    # (`services/personal_calendar/trigger.py`). Idempotent; off when MIHOMES_CALENDAR_AUTOSYNC=0.
+    from mihomes.services.personal_calendar import trigger as calendar_trigger
+
+    calendar_trigger.install()
+
     # `enforce_declared_action` is where SPEC-003's 142 route declarations become enforcement
     # (§6 Step 7). Applied app-wide rather than per-route so there is exactly one place to
     # forget — and Step 4's harness guarantees every route carries a declaration for it to read.

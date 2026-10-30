@@ -158,7 +158,9 @@ def test_upgrade_then_downgrade_is_clean(scratch_db):
     # _attachments, _mentions, _events) -> 69, measured on a scratch DB, not added up. No enums.
     # SPEC-014 `0028_chat_notifications` adds two (push_subscriptions, chat_notify_prefs) -> 71,
     # measured on a scratch DB. No enums.
-    assert len(first["tables"]) == 71, first["tables"]
+    # `0029_calendar_connections` (2026-10-30) adds two (calendar_connections,
+    # calendar_event_links) -> 73. No enums.
+    assert len(first["tables"]) == 73, first["tables"]
     assert len(first["enums"]) == 22
     assert first["guard_fns"] == ["mihomes_assert_account_matches_parent"]
 

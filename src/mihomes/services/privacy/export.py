@@ -75,6 +75,16 @@ class ExportBundle:
         return sum(len(rows) for rows in self.tables.values())
 
 
+#: Columns replaced by a marker in the bundle. A Google refresh token is a standing credential
+#: to someone's Google account — encrypted at rest, but an export is a file that gets forwarded,
+#: and nothing the account owner could do with the ciphertext needs it. Kept as a key, so the
+#: row still shows a calendar was connected.
+REDACTED_COLUMNS: dict[str, frozenset[str]] = {
+    "calendar_connections": frozenset({"refresh_token"}),
+}
+REDACTED = "[redacted]"
+
+
 def exportable_tables() -> list[str]:
     """Every account-scoped table, from the registry.
 
@@ -155,8 +165,11 @@ def build_export(session: Session, account_id) -> ExportBundle:
                 select(table).where(table.c.account_id == account_id)
             ).mappings().all()
 
+        redact = REDACTED_COLUMNS.get(table_name, frozenset())
         bundle.tables[table_name] = [
-            {key: _serialize(value) for key, value in dict(row).items()} for row in rows
+            {key: REDACTED if key in redact else _serialize(value)
+             for key, value in dict(row).items()}
+            for row in rows
         ]
 
     bundle.documents = _document_references(session)

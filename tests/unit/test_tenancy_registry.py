@@ -277,7 +277,10 @@ def test_registry_size_is_asserted_explicitly():
     # SPEC-012 `0027_native_chat` (2026-10-29) -> 62: seven native in-app chat tables.
     #
     # SPEC-014 `0028_chat_notifications` (2026-10-30) -> 64: push_subscriptions, chat_notify_prefs.
-    assert len(TENANT_TABLES) == 64, (
-        f"expected 64 tenant-owned tables, registry has {len(TENANT_TABLES)} — "
+    #
+    # Per-person Google Calendar sync `0029_calendar_connections` (2026-10-30) -> 66:
+    # calendar_connections, calendar_event_links.
+    assert len(TENANT_TABLES) == 66, (
+        f"expected 66 tenant-owned tables, registry has {len(TENANT_TABLES)} — "
         "if a table was legitimately added or removed, update this number and say why"
     )

@@ -90,7 +90,9 @@ from mihomes.tenancy.registry import ASSOCIATION_TABLES, GLOBAL_TABLES, TENANT_T
 # SPEC-012 `0027_native_chat` (2026-10-29) -> 62: the seven native chat tables, ACCOUNT_SHARED —
 # RLS isolates accounts and `services.chat.access` decides visibility within one.
 # SPEC-014 `0028_chat_notifications` (2026-10-30) -> 64: push_subscriptions, chat_notify_prefs.
-EXPECTED_TENANT_TABLE_COUNT = 64
+# Per-person Google Calendar sync `0029_calendar_connections` (2026-10-30) -> 66:
+# calendar_connections, calendar_event_links.
+EXPECTED_TENANT_TABLE_COUNT = 66
 
 
 # --------------------------------------------------------------------------------------

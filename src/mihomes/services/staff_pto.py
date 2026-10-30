@@ -90,7 +90,8 @@ def approve_pto(
     req.decided_at = datetime.now(timezone.utc)
     req.decided_by = decided_by
     session.flush()
-    _sync_to_calendar(req)
+    # No Google push: it wrote every estate's PTO into one machine-wide calendar. Retired with
+    # the per-person calendars (2026-10-30), which cover appointments and tasks.
     return req
 
 
@@ -154,33 +155,6 @@ def get_pto_balance(session: Session, staff_id_or_slug: str) -> dict:
         "pending_days": pending_days,
         "requests": requests,
     }
-
-
-def _sync_to_calendar(req: StaffPTORequest) -> None:
-    """Push approved PTO to Google Calendar as an all-day event."""
-    import logging
-    log = logging.getLogger("mihomes.staff_pto")
-    try:
-        from mihomes.services.calendar_sync import _get_provider, is_google_auth_available
-        if not is_google_auth_available():
-            return
-        from datetime import date, datetime, timezone
-        provider = _get_provider()
-        dates = sorted(req.dates or [])
-        if not dates:
-            return
-        staff_name = req.staff.name if req.staff else "Staff"
-        title = f"[MiHomes] PTO — {staff_name}"
-        for d in dates:
-            try:
-                dt = date.fromisoformat(d)
-                start = datetime(dt.year, dt.month, dt.day, 0, 0, tzinfo=timezone.utc)
-                end = datetime(dt.year, dt.month, dt.day, 23, 59, tzinfo=timezone.utc)
-                provider.create_event(title=title, start=start, end=end)
-            except Exception as e:
-                log.warning("Failed to sync PTO date %s to calendar: %s", d, e)
-    except Exception as e:
-        log.warning("PTO calendar sync failed: %s", e)
 
 
 def notify_approver(session: Session, req: StaffPTORequest) -> bool:

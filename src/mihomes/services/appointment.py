@@ -40,8 +40,8 @@ def create_appointment(
     session.flush()
     record_change(session, "appointment", appt.id, "create", snapshot_instance(appt))
 
-    from mihomes.services.calendar_sync import push_appointment_to_google
-    push_appointment_to_google(appt, session)
+    # No push here any more: the machine-wide calendar pushed every estate into one Google
+    # calendar. Per-person calendars sync after commit (`personal_calendar/trigger.py`).
 
     return appt
 

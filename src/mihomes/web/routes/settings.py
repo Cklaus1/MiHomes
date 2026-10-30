@@ -113,6 +113,7 @@ def _page_context(db: Session, principal, **extra):
         # Owner and admin see their own Messenger connections here too (settings/_personal.html).
         "telegram_links": _own_telegram_links(db, principal),
         "sign_in": _sign_in_context(db, user),
+        "calendar": _calendar_context(db, principal),
         # The Staff invite option is shown disabled with a Pro badge when the plan lacks it,
         # rather than offered and then refused by the paywall after the form is filled in.
         "staff_invites_entitled": _staff_invites_entitled(account),
@@ -173,6 +174,20 @@ def _pending_deletion(db: Session, account_id):
         )
         .order_by(AccountDeletionRequest.requested_at)
     ).scalars().first()
+
+
+def _calendar_context(db: Session, principal, request: Request | None = None) -> dict:
+    """The "Google Calendar" card: this member's own connection in this estate, if any."""
+    from mihomes.services.personal_calendar import connect
+
+    conn = connect.own_connection(db, principal.membership_id)
+    query = request.query_params if request is not None else {}
+    return {
+        "configured": connect.configured(),
+        "connection": conn,
+        "notice": connect.NOTICES.get(query.get("calendar", "")),
+        "error": connect.ERRORS.get(query.get("calendar_error", "")),
+    }
 
 
 def _sign_in_context(db: Session, user, request: Request | None = None, *,
@@ -236,6 +251,7 @@ def index(request: Request, principal=require_authenticated(),
             db, principal,
             notice=_notice(request),
             sign_in=_sign_in_context(db, db.get(_user_model(), principal.user_id), request),
+            calendar=_calendar_context(db, principal, request),
         ),
     )
 
@@ -316,6 +332,7 @@ def _connections_context(db: Session, principal, **extra):
         "telegram_links": _own_telegram_links(db, principal),
         "can_change_email": user is not None and user.password_hash is not None,
         "sign_in": _sign_in_context(db, user),
+        "calendar": _calendar_context(db, principal),
         # Staff with a second account switch here too; the switcher used to live on /team,
         # which staff could not open.
         "accounts": available_accounts(db, principal.user_id),
@@ -341,6 +358,7 @@ def connections(request: Request, principal=require_authenticated(),
             db, principal,
             notice=_notice(request),
             sign_in=_sign_in_context(db, db.get(_user_model(), principal.user_id), request),
+            calendar=_calendar_context(db, principal, request),
         ),
     )
 
@@ -932,3 +950,59 @@ def change_password_route(
         change="Your password was changed", settings_url=_settings_url(request, principal),
     )
     return response
+
+
+# ── Google Calendar — every role, own membership only (2026-10-30) ──────────────
+#
+# Connecting starts in `routes/auth.py` (it shares the Google callback). These two act on
+# `principal.membership_id`'s connection and nothing in the request can name another.
+
+
+def _calendar_redirect(principal, *, notice: str | None = None, error: str | None = None):
+    from urllib.parse import urlencode
+
+    query = urlencode({"calendar": notice} if notice else {"calendar_error": error})
+    return RedirectResponse(f"{_home_for(principal)}?{query}#calendar", status_code=303)
+
+
+@router.post("/settings/calendar/sync")
+@declares(_PROFILE_ACTION, Access.ACCOUNT)
+def calendar_sync_now(request: Request, csrf_token: str = Form(""),
+                      principal=require_authenticated(), db: Session = Depends(get_db)):
+    """Queue a sync of this member's calendar. Runs in the background — never on this request,
+    which would hold the page (and its database transaction) for as long as Google takes."""
+    from mihomes.services.personal_calendar import connect, trigger
+
+    _require_csrf(request, csrf_token)
+    conn = connect.own_connection(db, principal.membership_id)
+    if conn is None:
+        return _calendar_redirect(principal, error="not_connected")
+    if conn.status != "active":
+        return _calendar_redirect(principal, error="needs_reconnect")
+    trigger.request_sync(principal.account_id)
+    return _calendar_redirect(principal, notice="sync_started")
+
+
+@router.post("/settings/calendar/disconnect")
+@declares(_PROFILE_ACTION, Access.ACCOUNT)
+def calendar_disconnect(request: Request, csrf_token: str = Form(""),
+                        delete_calendar: str = Form(""),
+                        principal=require_authenticated(), db: Session = Depends(get_db)):
+    """Stop syncing, forget the token, and (if ticked) remove the MiHomes calendar from Google.
+
+    The row goes first and is committed before Google is called, so a slow or failing Google
+    can't leave the connection half-removed — and a sync already running finds no connection
+    and stops.
+    """
+    from mihomes.crypto import decrypt
+    from mihomes.services.personal_calendar import connect
+
+    _require_csrf(request, csrf_token)
+    conn = connect.own_connection(db, principal.membership_id)
+    if conn is None:
+        return _calendar_redirect(principal, error="not_connected")
+    token, calendar_id = decrypt(conn.refresh_token), conn.calendar_id
+    db.delete(conn)
+    db.commit()
+    connect.forget_in_google(token, calendar_id, delete_calendar=bool(delete_calendar))
+    return _calendar_redirect(principal, notice="disconnected")

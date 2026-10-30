@@ -127,14 +127,17 @@ def start(request: Request):
     return _begin(request, intent=None)
 
 
-def _begin(request: Request, *, intent: str | None) -> RedirectResponse:
+def _begin(request: Request, *, intent: str | None, url_for=None) -> RedirectResponse:
     """PKCE challenge + anti-forgery state, both parked in `httpOnly` cookies.
 
     The verifier is kept in an `httpOnly` cookie rather than server state so the flow needs no
     storage for an unauthenticated visitor — and `httpOnly` matters here: a verifier readable by
     script would let an XSS bug complete someone else's sign-in.
 
-    `intent` marks a Settings flow (`link:<user id>` or `reauth:<user id>`). A plain sign-in
+    `url_for(state=, code_challenge=)` builds the Google URL; the default is sign-in's. The
+    calendar connection passes its own (different scope, offline access).
+
+    `intent` marks a Settings flow (`link:`, `reauth:` or `calendar:`). A plain sign-in
     **deletes** any leftover one, or an abandoned "Connect Google" would turn the next ordinary
     sign-in on this browser into a link attempt.
     """
@@ -147,7 +150,7 @@ def _begin(request: Request, *, intent: str | None) -> RedirectResponse:
     )
 
     response = RedirectResponse(
-        _provider().authorization_url(state=state, code_challenge=challenge),
+        (url_for or _provider().authorization_url)(state=state, code_challenge=challenge),
         # 303 from a POST (Settings), 307 from the GET — a 307 would re-POST to Google.
         status_code=303 if intent else 307,
     )
@@ -194,6 +197,12 @@ def callback(request: Request, code: str = "", state: str = "", db: DbSession = 
         raise HTTPException(status_code=400, detail="Invalid or expired sign-in request.")
     if not code or not verifier:
         raise HTTPException(status_code=400, detail="Invalid or expired sign-in request.")
+
+    # The calendar connection exchanges the code itself: it needs the refresh token, which the
+    # sign-in exchange below deliberately throws away.
+    intent = request.cookies.get(_INTENT_COOKIE)
+    if intent and intent.startswith("calendar:"):
+        return _clear_flow(_finish_calendar(db, request, intent, code, verifier))
 
     provider = _provider()
     try:
@@ -285,6 +294,88 @@ def _finish_settings_flow(db: DbSession, request: Request, intent: str, claims):
         settings_url=f"{str(request.base_url).rstrip('/')}{home}",
     )
     return back("signin", "google_connected")
+
+
+# ── Google Calendar connection (2026-10-30) ─────────────────────────────────
+
+
+def _calendar_finish():
+    """Indirection so tests can substitute the code exchange without patching HTTP."""
+    from mihomes.services.personal_calendar.connect import finish
+
+    return finish
+
+
+@router.post("/settings/calendar/google/connect")
+def calendar_connect(request: Request, csrf_token: str = Form(""),
+                     db: DbSession = Depends(get_db)):
+    """Start Google's calendar consent for the signed-in member of the current estate.
+
+    Bound to user **and** account: the callback must arrive on a session for the same person in
+    the same estate, so a flow started in one estate can't attach a calendar to another.
+    """
+    from mihomes.services.personal_calendar import connect
+
+    if not tokens_match(request.cookies.get(CSRF_COOKIE), csrf_token):
+        raise HTTPException(status_code=403, detail="Invalid CSRF token.")
+    session = lookup_session(db, request.cookies.get(SESSION_COOKIE))
+    if session is None or session.account_id is None:
+        return RedirectResponse("/login", status_code=303)
+    if not connect.configured():
+        return RedirectResponse(_calendar_home(session.role, error="not_configured"),
+                                status_code=303)
+    user = db.get(User, session.user_id)
+    hint = user.email if user else None
+    return _begin(
+        request,
+        intent=f"calendar:{session.user_id}:{session.account_id}",
+        url_for=lambda **kw: connect.authorization_url(login_hint=hint, **kw),
+    )
+
+
+def _calendar_home(role: str | None, *, notice: str | None = None,
+                   error: str | None = None) -> str:
+    home = "/settings" if role in ("owner", "admin") else "/settings/connections"
+    query = urlencode({"calendar": notice} if notice else {"calendar_error": error})
+    return f"{home}?{query}#calendar"
+
+
+def _finish_calendar(db: DbSession, request: Request, intent: str, code: str, verifier: str):
+    from sqlalchemy import select
+
+    from mihomes.models.membership import Membership
+    from mihomes.services.personal_calendar import trigger
+    from mihomes.services.personal_calendar.connect import CalendarConnectError
+    from mihomes.tenancy import account_context
+    from mihomes.tenancy.connection import bind_account_guc
+
+    _, _, rest = intent.partition(":")
+    intent_user, _, intent_account = rest.partition(":")
+    session = lookup_session(db, request.cookies.get(SESSION_COOKIE))
+    if (session is None or str(session.user_id) != intent_user
+            or str(session.account_id) != intent_account):
+        return RedirectResponse("/login", status_code=303)
+
+    with account_context(session.account_id):
+        bind_account_guc(db, session.account_id)
+        membership = db.execute(select(Membership).where(
+            Membership.user_id == session.user_id,
+            Membership.account_id == session.account_id,
+            Membership.status == "active")).scalar_one_or_none()
+        if membership is None:
+            return RedirectResponse("/login", status_code=303)
+        try:
+            _calendar_finish()(db, membership_id=membership.id, code=code, verifier=verifier)
+        except CalendarConnectError as exc:
+            db.rollback()
+            return RedirectResponse(_calendar_home(session.role, error=exc.code), status_code=303)
+        db.commit()
+
+    # The first sync (creating the calendar, adding every event) runs in the background: a busy
+    # estate is hundreds of Google calls, too slow to hold the browser on this redirect.
+    if trigger.enabled():
+        trigger.request_sync(session.account_id)
+    return RedirectResponse(_calendar_home(session.role, notice="connected"), status_code=303)
 
 
 @router.post("/signout")

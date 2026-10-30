@@ -45,6 +45,10 @@ dependencies = [
     # dropped it, or an authlib release that stopped needing it, would take `mihomes config` with
     # it. Declared because we import it directly.
     "cryptography>=42",
+    # SPEC-014 D14 — chat web push. Pulls cryptography>=47 (installed 50.0.2 on 2026-10-30; the
+    # SPEC-010 password/KDF and crypto tests were re-run on it), aiohttp, http-ece and py-vapid.
+    # Imported lazily in services/chat/push.py, so a missing VAPID config only turns push off.
+    "pywebpush>=2.5",
     # SPEC-004 Phase 3 — the billing adapter. Confined to `services/billing/stripe_provider.py`
     # by D2: nothing else in the tree imports it, which is what makes the provider swappable and
     # lets `FakeBillingProvider` cover every criterion without a live Stripe account.

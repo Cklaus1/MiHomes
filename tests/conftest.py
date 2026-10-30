@@ -529,3 +529,14 @@ def session_b(_pg_engine, account_b):
             sess.close()
             transaction.rollback()
             connection.close()
+
+
+@pytest.fixture(autouse=True)
+def _reset_chat_limits():
+    """SPEC-014: the chat rate limiters and stream counters are process-global, so one test's
+    posts must not count against the next test's members."""
+    from mihomes.services.chat import ratelimit
+
+    ratelimit.POSTS.reset()
+    ratelimit.REACTIONS.reset()
+    yield

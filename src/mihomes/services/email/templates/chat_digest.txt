@@ -1,0 +1,11 @@
+Hi,
+
+You have {{ total }} unread message{{ '' if total == 1 else 's' }} in {{ estate }}:
+{% for c in conversations %}
+- {{ c.title }}: {{ c.count }}
+{%- endfor %}
+
+Open chat: {{ chat_url }}
+
+To change or stop these emails, use chat notification settings: {{ settings_url }}
+The unsubscribe link stops all non-essential MiHomes email, not just chat.

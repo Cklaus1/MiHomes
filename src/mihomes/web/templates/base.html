@@ -19,6 +19,10 @@
        `npm run build:css` after editing a template, or A13 turns red. -->
   <link rel="stylesheet" href="/static/app.css" />
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
+  {# SPEC-014: installable app (needed for iPhone push) — manifest and service worker at the root. #}
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png" />
+  <meta name="theme-color" content="#2563eb" />
   <script src="/static/htmx.min.js"></script>
   <!-- Error/success toasts, pending state, shared modal behaviour. In <head>, not inline below:
        body swaps re-run inline scripts, which would register every listener again. -->

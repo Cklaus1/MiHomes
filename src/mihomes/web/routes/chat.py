@@ -12,11 +12,18 @@ lock `create_post` takes (D7) and fires the after-commit publish, both before th
 from __future__ import annotations
 
 import logging
+import math
 import time
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.responses import (
+    HTMLResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -25,7 +32,7 @@ from mihomes.authz.actions import Access
 from mihomes.authz.declare import declares
 from mihomes.models.chat_native import KIND_DM, ChatConversation, ChatEvent, ChatPost
 from mihomes.models.membership import Membership
-from mihomes.services.chat import ai_bridge, reads
+from mihomes.services.chat import ai_bridge, ratelimit, reads, streams
 from mihomes.services.chat import attachments as attachment_svc
 from mihomes.services.chat import conversations as conv
 from mihomes.services.chat import mentions as mention_svc
@@ -53,6 +60,16 @@ _last_typing: dict[tuple[uuid.UUID, uuid.UUID], float] = {}
 
 def _me(db: Session, principal: RequestPrincipal) -> Membership:
     return db.get(Membership, principal.membership_id)
+
+
+def _throttled(limiter, me: Membership) -> Response | None:
+    """SPEC-014 D8: a 429 with Retry-After, plain text, **no partial and no HX-Trigger** — htmx
+    does not swap a 4xx, and the composer clears only on success, so the typed text survives."""
+    wait = limiter.hit(str(me.id))
+    if wait is None:
+        return None
+    return PlainTextResponse("You're sending messages quickly — wait a few seconds.",
+                             status_code=429, headers={"Retry-After": str(math.ceil(wait))})
 
 
 def _render_post(request: Request, db: Session, me: Membership, post: ChatPost):
@@ -160,6 +177,11 @@ def chat_create_post(request: Request, conversation_id: uuid.UUID,
     then the post — and if anything after storing fails, the stored objects are deleted again."""
     me = _me(db, principal)
     conversation = require_visible(db, me, conversation_id)
+    if len(body.strip()) > post_svc.MAX_MEMBER_BODY:     # SPEC-014 A31: before anything is stored
+        return PlainTextResponse(f"Messages are limited to {post_svc.MAX_MEMBER_BODY} characters.",
+                                 status_code=422)
+    if (limited := _throttled(ratelimit.POSTS, me)) is not None:
+        return limited
     real = [f for f in files if getattr(f, "filename", "")]
     if len(real) > attachment_svc.MAX_FILES_PER_POST:
         raise ChatInvalid(f"Attach at most {attachment_svc.MAX_FILES_PER_POST} files per message.")
@@ -201,7 +223,10 @@ def chat_edit_post(request: Request, post_id: uuid.UUID, body: str = Form(""),
                    principal: RequestPrincipal = require_authenticated(),
                    db: Session = Depends(get_db)):
     me = _me(db, principal)
-    post = post_svc.edit_post(db, post_for(db, me, post_id), actor=me, body=body)
+    target = post_for(db, me, post_id)
+    if (limited := _throttled(ratelimit.POSTS, me)) is not None:
+        return limited
+    post = post_svc.edit_post(db, target, actor=me, body=body)
     db.commit()
     return _render_post(request, db, me, post)
 
@@ -224,6 +249,8 @@ def chat_react(request: Request, post_id: uuid.UUID, emoji: str = Form(...),
                db: Session = Depends(get_db)):
     me = _me(db, principal)
     post = post_for(db, me, post_id)
+    if (limited := _throttled(ratelimit.REACTIONS, me)) is not None:
+        return limited
     reaction_svc.toggle_reaction(db, post, actor=me, emoji=emoji)
     db.commit()
     return _render_post(request, db, me, post)
@@ -295,11 +322,25 @@ def chat_stream(request: Request, after: int | None = None,
     after_cursor = int(header) if header and header.isdigit() else after
     db.commit()
     db.close()
+    # SPEC-014 D9: at most 6 streams per member and 200 per process; over either, 429 before
+    # anything opens. The slot is held for the generator's life and released in its `finally`.
+    member = principal.membership_id
+    if not streams.acquire(member):
+        return PlainTextResponse("Too many chat tabs are open — close one and reload.",
+                                 status_code=429, headers={"Retry-After": "30"})
+
+    async def held():
+        try:
+            async for chunk in stream_events(account_id=principal.account_id,
+                                             user_id=principal.user_id, membership_id=member,
+                                             session_cookie=request.cookies.get(SESSION_COOKIE),
+                                             after_cursor=after_cursor):
+                yield chunk
+        finally:
+            streams.release(member)
+
     return StreamingResponse(
-        stream_events(account_id=principal.account_id, user_id=principal.user_id,
-                      membership_id=principal.membership_id,
-                      session_cookie=request.cookies.get(SESSION_COOKIE),
-                      after_cursor=after_cursor),
+        held(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -332,6 +373,124 @@ def chat_search(request: Request, q: str = "", cursor: str | None = None,
     if request.headers.get("HX-Request"):
         return templates.TemplateResponse(request, "partials/chat/_search_results.html", ctx)
     return templates.TemplateResponse(request, "chat/search.html", {**ctx, "page": "chat"})
+
+
+# --- SPEC-014: notification preferences and push devices ------------------------------------
+# Every route below reads `principal.membership_id` and accepts no membership id from the request
+# (the `gateway.link_self` shape): there is no way to name another member's row.
+
+_MUTE_HOURS = (0, 1, 8, 24)
+
+
+def _prefs(db: Session, me: Membership):
+    from mihomes.models.chat_notify import ChatNotifyPref
+
+    return db.execute(select(ChatNotifyPref).where(
+        ChatNotifyPref.membership_id == me.id)).scalar_one_or_none()
+
+
+@router.get("/notifications", response_class=HTMLResponse)
+@declares("chat.use", Access.ACCOUNT)
+def chat_notifications(request: Request, saved: bool = False,
+                       principal: RequestPrincipal = require_authenticated(),
+                       db: Session = Depends(get_db)):
+    import os
+    from datetime import UTC, datetime
+
+    prefs = _prefs(db, _me(db, principal))
+    muted = prefs is not None and prefs.muted_until is not None \
+        and prefs.muted_until > datetime.now(UTC)
+    return templates.TemplateResponse(request, "partials/chat/_notifications.html", {
+        "email_digest": prefs.email_digest if prefs else True,
+        "push": prefs.push if prefs else True,
+        "muted_until": prefs.muted_until if muted else None,
+        "vapid_public_key": os.environ.get("VAPID_PUBLIC_KEY", ""),
+        "saved": saved,
+    })
+
+
+@router.post("/notifications", response_class=HTMLResponse)
+@declares("chat.use", Access.ACCOUNT)
+def chat_save_notifications(request: Request, email_digest: str = Form(""),
+                            push: str = Form(""), mute_hours: int = Form(0),
+                            principal: RequestPrincipal = require_authenticated(),
+                            db: Session = Depends(get_db)):
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from mihomes.ids import new_id
+    from mihomes.models.chat_notify import ChatNotifyPref
+
+    if mute_hours not in _MUTE_HOURS:
+        raise ChatInvalid("Choose how long to mute.")
+    me = _me(db, principal)
+    values = {"email_digest": bool(email_digest), "push": bool(push),
+              "muted_until": (datetime.now(UTC) + timedelta(hours=mute_hours))
+              if mute_hours else None}
+    stmt = pg_insert(ChatNotifyPref.__table__).values(
+        id=new_id(), account_id=me.account_id, membership_id=me.id, **values)
+    db.execute(stmt.on_conflict_do_update(index_elements=["account_id", "membership_id"],
+                                          set_=values))
+    db.commit()
+    return chat_notifications(request, saved=True, principal=principal, db=db)
+
+
+@router.post("/push/subscribe")
+@declares("chat.use", Access.ACCOUNT)
+async def chat_push_subscribe(request: Request,
+                              principal: RequestPrincipal = require_authenticated(),
+                              db: Session = Depends(get_db)):
+    """Body: the browser's `PushSubscription.toJSON()`. 204, or 422 on a disallowed push service
+    or malformed keys (D6) — and no row is written."""
+    from starlette.concurrency import run_in_threadpool
+
+    from mihomes.services.chat import push as push_svc
+
+    try:
+        data = await request.json()
+        endpoint = str(data["endpoint"])
+        keys = data.get("keys") or {}
+        p256dh, auth = str(keys["p256dh"]), str(keys["auth"])
+    except (ValueError, KeyError, TypeError):
+        return PlainTextResponse("That isn't a push subscription.", status_code=422)
+
+    def save():
+        push_svc.subscribe(db, account_id=principal.account_id,
+                           membership_id=principal.membership_id, endpoint=endpoint,
+                           p256dh=p256dh, auth=auth,
+                           user_agent=request.headers.get("user-agent"))
+        db.commit()
+
+    try:
+        await run_in_threadpool(save)
+    except ValueError as exc:
+        logger.info("chat push: subscription refused: %s", exc)
+        return PlainTextResponse(str(exc), status_code=422)
+    return Response(status_code=204)
+
+
+@router.post("/push/unsubscribe")
+@declares("chat.use", Access.ACCOUNT)
+async def chat_push_unsubscribe(request: Request,
+                                principal: RequestPrincipal = require_authenticated(),
+                                db: Session = Depends(get_db)):
+    """Removes only the caller's own row for that endpoint. 204 whether or not one matched."""
+    from starlette.concurrency import run_in_threadpool
+
+    from mihomes.services.chat import push as push_svc
+
+    try:
+        endpoint = str((await request.json())["endpoint"])
+    except (ValueError, KeyError, TypeError):
+        return PlainTextResponse("Missing endpoint.", status_code=422)
+
+    def remove():
+        push_svc.unsubscribe(db, membership_id=principal.membership_id, endpoint=endpoint)
+        db.commit()
+
+    await run_in_threadpool(remove)
+    return Response(status_code=204)
 
 
 @router.get("/c/{conversation_id}/mentionable", response_class=HTMLResponse)

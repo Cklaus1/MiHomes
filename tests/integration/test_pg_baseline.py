@@ -156,7 +156,9 @@ def test_upgrade_then_downgrade_is_clean(scratch_db):
     # 0026 chat_messages) — it read 62 at head, measured, before SPEC-012. SPEC-012's
     # `0027_native_chat` adds seven (chat_conversations, _participants, _posts, _reactions,
     # _attachments, _mentions, _events) -> 69, measured on a scratch DB, not added up. No enums.
-    assert len(first["tables"]) == 69, first["tables"]
+    # SPEC-014 `0028_chat_notifications` adds two (push_subscriptions, chat_notify_prefs) -> 71,
+    # measured on a scratch DB. No enums.
+    assert len(first["tables"]) == 71, first["tables"]
     assert len(first["enums"]) == 22
     assert first["guard_fns"] == ["mihomes_assert_account_matches_parent"]
 

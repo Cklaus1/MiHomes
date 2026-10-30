@@ -184,6 +184,8 @@ TENANT_TABLES = frozenset({
     "chat_attachments",
     "chat_mentions",
     "chat_events",
+    "push_subscriptions",   # SPEC-014 0028
+    "chat_notify_prefs",
     # --- identity, added by Step 1 --------------------------------------
     "invites",
     "membership_property_scopes",

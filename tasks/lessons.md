@@ -833,3 +833,9 @@ Review this at the start of each session.
   autofixable findings; a directory-wide `--fix` silently rewrote all of them inside an unrelated
   feature change. Lint and fix only the files you touched (the pre-commit hook already does this
   for staged files). If it happens: `git status`, then restore only the files outside your change.
+
+## Commit messages from a file (2026-10-30)
+- **Never chain `cat > msg.txt <<EOF` with other commands.** The worktree guard refused the whole
+  compound command, the message file kept its previous content, and the next `git commit -F`
+  pushed a commit labelled with the *previous* step (76076e0). Write the message with the Write
+  tool, then commit, then `git log -1` and read the subject before pushing.

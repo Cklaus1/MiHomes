@@ -89,7 +89,8 @@ from mihomes.tenancy.registry import ASSOCIATION_TABLES, GLOBAL_TABLES, TENANT_T
 # and admins on the Conversations page.
 # SPEC-012 `0027_native_chat` (2026-10-29) -> 62: the seven native chat tables, ACCOUNT_SHARED —
 # RLS isolates accounts and `services.chat.access` decides visibility within one.
-EXPECTED_TENANT_TABLE_COUNT = 62
+# SPEC-014 `0028_chat_notifications` (2026-10-30) -> 64: push_subscriptions, chat_notify_prefs.
+EXPECTED_TENANT_TABLE_COUNT = 64
 
 
 # --------------------------------------------------------------------------------------

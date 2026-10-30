@@ -426,6 +426,23 @@ class EmailService:
 
     # ── SPEC-005 §6 Step 13 — the weekly digest ───────────────────────────────
 
+    def send_chat_digest(self, to: str, *, estate: str, conversations: list[dict],
+                         total: int, chat_url: str, settings_url: str) -> None:
+        """Unread chat while away (SPEC-014 D3). `conversations` = [{"title", "count"}] only —
+        **no sender names and no message text**: this copy leaves the tenant boundary and outlives
+        a revocation. DMs arrive pre-aggregated as one "Direct messages" row.
+
+        Lifecycle: suppressible, with RFC 8058 headers at drain. The body's first link is the
+        in-app setting, because the email's global unsubscribe silences more than chat.
+        """
+        self._send(
+            to,
+            "chat_digest",
+            {"estate": estate, "conversations": conversations, "total": total,
+             "chat_url": chat_url, "settings_url": settings_url},
+            klass="lifecycle",
+        )
+
     def send_weekly_digest(self, to: str, *, digest_html: str,
                            period: str | None = None) -> None:
         """The scheduled estate digest — Estate's `weekly_ai_report` key (D16).

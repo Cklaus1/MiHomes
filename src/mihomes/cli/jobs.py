@@ -94,6 +94,11 @@ SCHEDULE: dict[str, tuple[str, str]] = {
         "The card-less trial's ONLY clock (F3). Daily, early, so an expiry is acted on the day "
         "it happens rather than up to a week late.",
     ),
+    "chat-notify": (
+        "*/5 * * * *",
+        "SPEC-014: a post is due once it has sat unread ten minutes, so a 5-minute sweep "
+        "keeps push within 15. Digests only enqueue; drain-outbox must run at the same cadence.",
+    ),
     "chat-prune-events": (
         "17 4 * * *",
         "Chat events are only a catch-up log for reconnecting tabs (SPEC-012), kept 7 days. "
@@ -350,6 +355,31 @@ def _as_html(text: str) -> str:
     return "\n".join(
         f'<p style="margin:0 0 16px;">{escape(p)}</p>' for p in paragraphs
     )
+
+
+@app.command("chat-notify")
+def chat_notify() -> None:
+    """Push and email-digest members about chat they left unread for 10+ minutes (SPEC-014).
+
+    Enqueues digests only — `drain-outbox` delivers them (N7). Push is off, with digests still
+    sent, until VAPID_PRIVATE_KEY and VAPID_SUBJECT are set. Safe to overlap: each account is
+    taken under an advisory lock, and markers make a second run a no-op.
+    """
+    from datetime import UTC, datetime
+
+    from mihomes.db import get_session
+    from mihomes.services.chat.notify import run_chat_notify
+    from mihomes.services.chat.push import sender_from_env
+    from mihomes.services.email.provider import get_email_provider
+    from mihomes.services.email.service import EmailService
+
+    result = run_chat_notify(
+        get_session, push_sender=sender_from_env(),
+        email_factory=lambda s: EmailService(get_email_provider(), session=s),
+        now=datetime.now(UTC))
+    rprint(f"Chat notify: {result.accounts} account(s); {result.pushes} push payload(s), "
+           f"{result.pushes_sent} delivered; {result.digests} digest(s) queued; "
+           f"{len(result.errors)} account(s) failed.")
 
 
 @app.command("chat-prune-events")

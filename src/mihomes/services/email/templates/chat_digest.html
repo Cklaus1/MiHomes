@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{# SPEC-014 D3: counts and conversation titles only — never a sender name or message text. This
+   copy leaves the tenant boundary and outlives the reader's access. #}
+{% block subject %}{{ total }} unread message{{ '' if total == 1 else 's' }} in {{ estate }}{% endblock %}
+
+{% block content %}
+  <p style="margin:0 0 16px;">Hi,</p>
+
+  <p style="margin:0 0 16px;">
+    You have {{ total }} unread message{{ '' if total == 1 else 's' }} in <strong>{{ estate }}</strong>:
+  </p>
+
+  <ul style="margin:0 0 24px;padding-left:20px;">
+    {% for c in conversations %}
+    <li style="margin:0 0 4px;">{{ c.title }} — {{ c.count }}</li>
+    {% endfor %}
+  </ul>
+
+  <p style="margin:0 0 24px;">
+    <a href="{{ chat_url }}" style="color:#2563eb;">Open chat</a>
+  </p>
+
+  <p style="margin:0;font-size:14px;color:#6b6b66;">
+    To change or stop these emails, use
+    <a href="{{ settings_url }}" style="color:#6b6b66;">chat notification settings</a>.
+    The unsubscribe link below stops all non-essential MiHomes email, not just chat.
+  </p>
+{% endblock %}

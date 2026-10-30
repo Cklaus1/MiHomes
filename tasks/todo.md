@@ -906,7 +906,11 @@ password and a Google identity. A new "Sign-in methods" section on the personal 
 SPEC-010 U2/N7 note; `GOOGLE-OAUTH.md`; tests for every refusal; build:css + stamp; full
 suite vs the 8 known failures; deploy only with user go-ahead
 
-## Per-user Google Calendar sync (2026-10-30) — PLAN, awaiting approval
+## Per-user Google Calendar sync (2026-10-30) — PLAN; design approved, build not started
+
+**Decided by user 2026-10-30:** sync everything the person can see (staff: scoped properties
+only) · separate "MiHomes — <estate>" calendar · one-way MiHomes → Google · remove the
+machine-wide calendar from the Calendar page.
 
 **Today:** one machine-wide token (`~/.mihomes/google_token.json`, desktop OAuth flow) syncs
 the `primary` calendar for every estate. Push only on appointment *create* (never updates or
@@ -917,7 +921,7 @@ access (scopes `openid email profile`).
 **Target:** each person connects *their own* Google Calendar from Settings; MiHomes keeps
 their calendar up to date with the estate's appointments and tasks.
 
-**Design (recommended defaults — questions below)**
+**Design**
 - Separate consent from sign-in: "Connect Google Calendar" in Settings → Google's calendar
   screen (offline access, `login_hint`); any Google account, not necessarily the sign-in one
 - Write to a **dedicated "MiHomes — <estate>" calendar** the app creates, not `primary`:

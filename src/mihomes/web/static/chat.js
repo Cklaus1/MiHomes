@@ -203,25 +203,47 @@
         location.reload();
         break;
       case "revoked":
-        source.close();
+        closeStream();
         location.href = "/";
         break;
     }
   }
 
-  var source = new EventSource("/chat/stream?after=" + encodeURIComponent(root.dataset.lastEvent || "0"));
-  ["post.created", "post.edited", "post.deleted", "reaction.changed", "read.changed",
-   "conversation.created", "typing", "resync", "revoked", "ai.thinking", "ai.done"].forEach(function (type) {
-    source.addEventListener(type, function (e) {
-      var data;
-      try { data = JSON.parse(e.data); } catch (_) { return; }
-      handle(type, data);
+  // The stream. SPEC-014 D9: a tab hidden for 60 s closes its stream (browsers allow 6
+  // connections per host, and the server caps 6 streams per member); it reopens from the last
+  // event id it saw when the tab is visible again, so nothing is missed.
+  var lastEventId = root.dataset.lastEvent || "0";
+  var source = null;
+  var hideTimer = null;
+  var EVENT_TYPES = ["post.created", "post.edited", "post.deleted", "reaction.changed",
+                     "read.changed", "conversation.created", "typing", "resync", "revoked",
+                     "ai.thinking", "ai.done"];
+  function openStream() {
+    if (source) return;
+    source = new EventSource("/chat/stream?after=" + encodeURIComponent(lastEventId));
+    EVENT_TYPES.forEach(function (type) {
+      source.addEventListener(type, function (e) {
+        if (e.lastEventId) lastEventId = e.lastEventId;
+        var data;
+        try { data = JSON.parse(e.data); } catch (_) { return; }
+        handle(type, data);
+      });
     });
-  });
-  window.addEventListener("pagehide", function () { source.close(); });
+  }
+  function closeStream() {
+    if (source) { source.close(); source = null; }
+  }
+  openStream();
+  window.addEventListener("pagehide", closeStream);
 
   document.addEventListener("visibilitychange", function () {
-    if (document.visibilityState === "visible") markRead(newestSeq);
+    if (document.visibilityState === "visible") {
+      clearTimeout(hideTimer);
+      openStream();
+      markRead(newestSeq);
+    } else {
+      hideTimer = setTimeout(closeStream, 60000);
+    }
   });
 
   // Typing: at most one POST per 3 s (the server throttles too).

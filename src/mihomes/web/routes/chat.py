@@ -12,6 +12,7 @@ lock `create_post` takes (D7) and fires the after-commit publish, both before th
 from __future__ import annotations
 
 import logging
+import math
 import time
 import uuid
 
@@ -31,7 +32,7 @@ from mihomes.authz.actions import Access
 from mihomes.authz.declare import declares
 from mihomes.models.chat_native import KIND_DM, ChatConversation, ChatEvent, ChatPost
 from mihomes.models.membership import Membership
-from mihomes.services.chat import ai_bridge, reads
+from mihomes.services.chat import ai_bridge, ratelimit, reads, streams
 from mihomes.services.chat import attachments as attachment_svc
 from mihomes.services.chat import conversations as conv
 from mihomes.services.chat import mentions as mention_svc
@@ -59,6 +60,16 @@ _last_typing: dict[tuple[uuid.UUID, uuid.UUID], float] = {}
 
 def _me(db: Session, principal: RequestPrincipal) -> Membership:
     return db.get(Membership, principal.membership_id)
+
+
+def _throttled(limiter, me: Membership) -> Response | None:
+    """SPEC-014 D8: a 429 with Retry-After, plain text, **no partial and no HX-Trigger** — htmx
+    does not swap a 4xx, and the composer clears only on success, so the typed text survives."""
+    wait = limiter.hit(str(me.id))
+    if wait is None:
+        return None
+    return PlainTextResponse("You're sending messages quickly — wait a few seconds.",
+                             status_code=429, headers={"Retry-After": str(math.ceil(wait))})
 
 
 def _render_post(request: Request, db: Session, me: Membership, post: ChatPost):
@@ -166,6 +177,11 @@ def chat_create_post(request: Request, conversation_id: uuid.UUID,
     then the post — and if anything after storing fails, the stored objects are deleted again."""
     me = _me(db, principal)
     conversation = require_visible(db, me, conversation_id)
+    if len(body.strip()) > post_svc.MAX_MEMBER_BODY:     # SPEC-014 A31: before anything is stored
+        return PlainTextResponse(f"Messages are limited to {post_svc.MAX_MEMBER_BODY} characters.",
+                                 status_code=422)
+    if (limited := _throttled(ratelimit.POSTS, me)) is not None:
+        return limited
     real = [f for f in files if getattr(f, "filename", "")]
     if len(real) > attachment_svc.MAX_FILES_PER_POST:
         raise ChatInvalid(f"Attach at most {attachment_svc.MAX_FILES_PER_POST} files per message.")
@@ -207,7 +223,10 @@ def chat_edit_post(request: Request, post_id: uuid.UUID, body: str = Form(""),
                    principal: RequestPrincipal = require_authenticated(),
                    db: Session = Depends(get_db)):
     me = _me(db, principal)
-    post = post_svc.edit_post(db, post_for(db, me, post_id), actor=me, body=body)
+    target = post_for(db, me, post_id)
+    if (limited := _throttled(ratelimit.POSTS, me)) is not None:
+        return limited
+    post = post_svc.edit_post(db, target, actor=me, body=body)
     db.commit()
     return _render_post(request, db, me, post)
 
@@ -230,6 +249,8 @@ def chat_react(request: Request, post_id: uuid.UUID, emoji: str = Form(...),
                db: Session = Depends(get_db)):
     me = _me(db, principal)
     post = post_for(db, me, post_id)
+    if (limited := _throttled(ratelimit.REACTIONS, me)) is not None:
+        return limited
     reaction_svc.toggle_reaction(db, post, actor=me, emoji=emoji)
     db.commit()
     return _render_post(request, db, me, post)
@@ -301,11 +322,25 @@ def chat_stream(request: Request, after: int | None = None,
     after_cursor = int(header) if header and header.isdigit() else after
     db.commit()
     db.close()
+    # SPEC-014 D9: at most 6 streams per member and 200 per process; over either, 429 before
+    # anything opens. The slot is held for the generator's life and released in its `finally`.
+    member = principal.membership_id
+    if not streams.acquire(member):
+        return PlainTextResponse("Too many chat tabs are open — close one and reload.",
+                                 status_code=429, headers={"Retry-After": "30"})
+
+    async def held():
+        try:
+            async for chunk in stream_events(account_id=principal.account_id,
+                                             user_id=principal.user_id, membership_id=member,
+                                             session_cookie=request.cookies.get(SESSION_COOKIE),
+                                             after_cursor=after_cursor):
+                yield chunk
+        finally:
+            streams.release(member)
+
     return StreamingResponse(
-        stream_events(account_id=principal.account_id, user_id=principal.user_id,
-                      membership_id=principal.membership_id,
-                      session_cookie=request.cookies.get(SESSION_COOKIE),
-                      after_cursor=after_cursor),
+        held(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

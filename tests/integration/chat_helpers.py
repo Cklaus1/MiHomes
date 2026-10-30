@@ -113,17 +113,23 @@ def sign_in(_pg_engine, account_id, membership_id) -> str:
 
 
 @pytest.fixture
-def app_client(_pg_engine, app_engine):
+def app_client(_pg_engine, app_engine, monkeypatch):
     """`app_client(account_id, membership_id) -> TestClient` — the real app, the real `get_db`,
     on the **non-superuser** role. `web_client_as`/`web_client_factory` override `get_db` with a
     `postgres` connection, which bypasses RLS: an [app] criterion run through them is a false green.
+
+    **The AI hand-off is off by default.** A group post schedules `ai_bridge.dispatch`, which
+    would otherwise call the real AI provider over the network from the test suite (it did, until
+    2026-10-30). Tests about the AI patch `dispatch` or `analyze_messages` themselves.
     """
     from fastapi.testclient import TestClient
 
     from mihomes import db
     from mihomes.auth.sessions import SESSION_COOKIE
+    from mihomes.services.chat import ai_bridge
     from mihomes.web.app import create_app
 
+    monkeypatch.setattr(ai_bridge, "dispatch", lambda *a, **k: None)
     prev = db._engine, db._SessionLocal
     db._engine, db._SessionLocal = app_engine, None
     with db.get_session() as probe:   # the guard on the guard: requests really run without bypass

@@ -95,11 +95,16 @@ class GoogleCalendarClient:
             raise ReconnectNeeded("Google refused the access token")
         if resp.status_code == 409:
             raise EventExists(path)
-        if resp.status_code == 429 or resp.status_code >= 500 or (
-            resp.status_code == 403 and "ateLimit" in resp.text
-        ):
+        if resp.status_code == 429 or resp.status_code >= 500:
             raise GoogleBusy(f"{method} {path}: {resp.status_code}")
         if resp.status_code == 403:
+            reason = _reason(resp)
+            if reason in _BUSY_REASONS:
+                raise GoogleBusy(f"{method} {path}: {reason}")
+            if reason == "accessNotConfigured":
+                # The operator's setup, not the person's access: reconnecting cannot fix it.
+                raise GoogleError("The Google Calendar API isn't enabled for this app in "
+                                  "Google Cloud Console.")
             # The calendar scope was un-ticked on the consent screen, or removed since.
             raise ReconnectNeeded("Google denied calendar access")
         if resp.status_code in (404, 410):
@@ -145,6 +150,19 @@ class GoogleCalendarClient:
 
 class _NotFound(GoogleError):
     pass
+
+
+#: 403 reasons that mean "slow down", not "no access". `quotaExceeded` is Calendar's usage
+#: limit, which a big first sync can hit.
+_BUSY_REASONS = {"rateLimitExceeded", "userRateLimitExceeded", "quotaExceeded"}
+
+
+def _reason(resp) -> str | None:
+    try:
+        errors = resp.json().get("error", {}).get("errors") or []
+        return errors[0].get("reason") if errors else None
+    except (ValueError, AttributeError):
+        return None
 
 
 def _q(value: str) -> str:

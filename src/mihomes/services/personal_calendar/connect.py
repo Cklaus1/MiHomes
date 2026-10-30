@@ -157,3 +157,26 @@ def forget_in_google(refresh_token: str, calendar_id: str | None, *, delete_cale
         except Exception:  # noqa: BLE001 — the local disconnect has already happened
             log.exception("could not delete the MiHomes calendar in Google")
     google_client.revoke(refresh_token)
+
+
+def forget_account(session, account_id) -> int:
+    """Account purge: remove every member's MiHomes calendar from Google and revoke the tokens.
+
+    Purge deletes the rows directly, so without this each member keeps a calendar of the
+    estate's appointments and addresses, and nothing would be left that could remove it. Runs
+    before the rows go; best effort per connection, because an erasure must not stall on Google.
+    """
+    import logging
+
+    from mihomes.crypto import decrypt
+
+    log = logging.getLogger(__name__)
+    rows = session.execute(
+        select(CalendarConnection.refresh_token, CalendarConnection.calendar_id)
+        .where(CalendarConnection.account_id == account_id)).all()
+    for token, calendar_id in rows:
+        try:
+            forget_in_google(decrypt(token), calendar_id, delete_calendar=True)
+        except Exception:  # noqa: BLE001 - logged; the purge continues
+            log.exception("purge: could not remove a member's Google calendar")
+    return len(rows)

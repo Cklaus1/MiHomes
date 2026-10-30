@@ -27,6 +27,16 @@ CSRF = "csrf-cal"
 
 
 @pytest.fixture(autouse=True)
+def revoked(monkeypatch):
+    """No test may reach Google's revoke endpoint; record what would have been revoked."""
+    from mihomes.services.personal_calendar import google_client
+
+    calls = []
+    monkeypatch.setattr(google_client, "revoke", calls.append)
+    return calls
+
+
+@pytest.fixture(autouse=True)
 def _keys(monkeypatch):
     from mihomes import crypto
 
@@ -56,6 +66,7 @@ class FakeGoogle:
 
     def delete_calendar(self, cid):
         self.calendars.pop(cid, None)
+        self.events = {k: v for k, v in self.events.items() if k[0] != cid}
 
     def put_event(self, cid, eid, body):
         if cid not in self.calendars:
@@ -203,7 +214,7 @@ def test_staff_only_get_the_properties_they_can_see(world):
     assert set(fake.bodies()) == {"Task: Paint shed"}
 
 
-def test_narrowing_scope_or_revoking_removes_events(world):
+def test_narrowing_scope_or_revoking_removes_events(world, revoked):
     fake = FakeGoogle()
     staff = world.make("staff", scoped_to=[world.props["main"], world.props["cottage"]])
     cid = _connect(world, staff.membership_id)
@@ -216,8 +227,11 @@ def test_narrowing_scope_or_revoking_removes_events(world):
     assert set(fake.bodies()) == {"Task: Paint shed"}
     world.conn.execute(text("update memberships set status = 'revoked' where id = :m"),
                        {"m": staff.membership_id})
-    _sync(world, cid, fake)
-    assert fake.events == {}, "a revoked member's calendar still shows estate events"
+    assert _sync(world, cid, fake).status == "removed"
+    assert revoked == ["rt-1"]
+    assert fake.events == {} and fake.calendars == {}, "a removed member kept the calendar"
+    assert world.conn.execute(text("select count(*) from calendar_connections where id = :i"),
+                              {"i": cid}).scalar() == 0, "a removed member's token was kept"
 
 
 def test_items_that_age_out_of_the_window_keep_their_event(world):
@@ -455,3 +469,63 @@ def test_a_committed_save_queues_its_account_and_a_rollback_does_not(world, monk
             s.flush()
             raise RuntimeError("abort")
     assert calls == []
+
+
+def test_nothing_changed_means_no_call_to_google_at_all(world):
+    """Every save in the estate queues a sync; an idle one must not even refresh the token."""
+    fake = FakeGoogle()
+    cid = _connect(world, world.owner.membership_id)
+    _sync(world, cid, fake)
+    _sync(world, cid, fake)
+    assert fake.tokens == ["rt-1"]
+
+
+def test_purge_removes_every_members_calendar_from_google(world, monkeypatch):
+    from mihomes.services.personal_calendar import connect as connect_mod
+
+    calls = []
+    monkeypatch.setattr(connect_mod, "forget_in_google",
+                        lambda token, cal, *, delete_calendar: calls.append((token, cal,
+                                                                             delete_calendar)))
+    _connect(world, world.owner.membership_id, token="rt-p", calendar_id="cal-p")
+    with account_context(world.account), world.factory() as s:
+        assert connect_mod.forget_account(s, world.account) == 1
+    assert calls == [("rt-p", "cal-p", True)]
+
+
+# ── Google's 403s mean different things ──────────────────────────────────────
+
+def _client_answering(status, reason=None):
+    import httpx
+
+    from mihomes.services.personal_calendar.google_client import GoogleCalendarClient
+
+    def handler(request):
+        if request.url.host == "oauth2.googleapis.com":
+            return httpx.Response(200, json={"access_token": "at"})
+        body = {"error": {"errors": [{"reason": reason}]}} if reason else {}
+        return httpx.Response(status, json=body)
+
+    return GoogleCalendarClient("rt", pace=0, http=httpx.Client(transport=httpx.MockTransport(handler)))
+
+
+@pytest.mark.parametrize("reason", ["rateLimitExceeded", "userRateLimitExceeded", "quotaExceeded"])
+def test_403_rate_and_quota_limits_are_busy_not_reconnect(reason):
+    from mihomes.services.personal_calendar.google_client import GoogleBusy
+
+    with pytest.raises(GoogleBusy):
+        _client_answering(403, reason).create_calendar("x", "UTC")
+
+
+def test_403_api_not_enabled_is_a_setup_error_not_reconnect():
+    from mihomes.services.personal_calendar.google_client import GoogleError, ReconnectNeeded
+
+    with pytest.raises(GoogleError) as info:
+        _client_answering(403, "accessNotConfigured").create_calendar("x", "UTC")
+    assert not isinstance(info.value, ReconnectNeeded)
+    assert "isn't enabled" in str(info.value)
+
+
+def test_403_permission_denied_asks_to_reconnect():
+    with pytest.raises(ReconnectNeeded):
+        _client_answering(403, "forbidden").create_calendar("x", "UTC")

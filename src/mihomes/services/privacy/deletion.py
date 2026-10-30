@@ -287,6 +287,13 @@ def purge(
         "objects": _delete_storage_objects(session, account_id),
     }
 
+    # Members' Google calendars hold copies of the estate's appointments and addresses, and the
+    # rows below are the only way to reach them, so they are removed from Google first.
+    from mihomes.services.personal_calendar.connect import forget_account
+
+    manifest["_google_calendars"] = {"disposition": DELETE,
+                                     "connections": forget_account(session, account_id)}
+
     # Children before parents: `sorted_tables` is topological, so reversing it deletes the
     # dependent rows first and no FK is violated on the way down.
     for table_name in reversed(

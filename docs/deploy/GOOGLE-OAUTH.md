@@ -82,6 +82,12 @@ Calendar scopes are **sensitive**. While the app is in Testing, only listed test
 connect, and Google shows an "unverified app" warning they must click through. Publishing to
 everyone requires Google's verification review.
 
+**Testing mode expires calendar access every 7 days.** For an External app in *Testing*, Google
+expires refresh tokens after 7 days unless the only scopes are name/email/profile — which is why
+sign-in is unaffected and the calendar is. Each connection then shows "Needs reconnecting".
+Switching the publishing status to **In production** stops the expiry; until Google verifies
+the app, people see an "unverified app" screen and at most 100 users can grant the scope.
+
 **Running it:** a save queues a background sync for that estate (in the web process). The
 backstop is `mihomes jobs calendar-sync` every 15 minutes — not installed on evo-dev (no cron),
 so a failed sync waits for the next save or "Sync now". `MIHOMES_BASE_URL` sets the "Open in

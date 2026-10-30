@@ -62,7 +62,7 @@ _OPEN_TASK = (TaskStatus.PENDING, TaskStatus.IN_PROGRESS)
 
 @dataclass
 class SyncResult:
-    status: str = "ok"  # ok | busy | skipped | reconnect | error
+    status: str = "ok"  # ok | busy | skipped | removed | reconnect | error
     written: int = 0
     deleted: int = 0
     unchanged: int = 0
@@ -78,6 +78,7 @@ class _Plan:
     desired: dict[tuple[str, uuid.UUID], tuple[dict, str]] = field(default_factory=dict)
     links: dict[tuple[str, uuid.UUID], tuple[str, str]] = field(default_factory=dict)
     to_delete: list[tuple[str, uuid.UUID]] = field(default_factory=list)
+    member_active: bool = True
 
 
 def event_id_for(connection_id, entity_type: str, entity_id) -> str:
@@ -184,6 +185,7 @@ def _plan(session_factory, connection_id) -> _Plan | None:
             # carrying on would compute "nothing visible" and delete every event.
             raise RuntimeError("calendar sync: membership not readable; refusing to run")
         visible = scoped_property_ids(s, membership)
+        member_active = membership.status == "active"
         today = estate_today(s)
         tz = estate_zone(s).key
         account = s.get(Account, conn.account_id)
@@ -193,6 +195,7 @@ def _plan(session_factory, connection_id) -> _Plan | None:
             calendar_name=f"MiHomes — {account.name if account else 'Estate'}",
             time_zone=tz,
             desired=_desired(s, visible, today, tz),
+            member_active=member_active,
         )
         for link in s.execute(select(CalendarEventLink).where(
                 CalendarEventLink.connection_id == connection_id)).scalars():
@@ -240,12 +243,43 @@ def _reset_calendar(session_factory, connection_id, calendar_id: str | None) -> 
         s.commit()
 
 
+def _remove_for_departed_member(session_factory, connection_id, plan: _Plan,
+                                client_factory) -> None:
+    """The member was removed from the estate: take the calendar away, not just its events.
+
+    Emptying it would leave a credential to their Google account in our database and an empty
+    "MiHomes - <estate>" calendar in theirs. Delete the calendar, revoke the token, drop the
+    connection: Disconnect's order, without anyone having to click it.
+    """
+    from mihomes.services.personal_calendar.connect import forget_in_google
+
+    with session_factory() as s:
+        conn = s.get(CalendarConnection, connection_id)
+        if conn is not None:
+            s.delete(conn)
+        s.commit()
+    forget_in_google(plan.refresh_token, plan.calendar_id, delete_calendar=True,
+                     client_factory=client_factory)
+
+
 def _one_pass(session_factory, connection_id, client_factory, result: SyncResult,
               *, recreated: bool = False) -> bool:
     """Returns False when the connection is no longer syncable (gone / inactive)."""
     plan = _plan(session_factory, connection_id)
     if plan is None:
         return False
+    if not plan.member_active:
+        _remove_for_departed_member(session_factory, connection_id, plan, client_factory)
+        result.status = "removed"
+        return False
+
+    changes = [k for k, (_, fp) in plan.desired.items()
+               if plan.links.get(k, (None, None))[1] != fp]
+    if plan.calendar_id is not None and not changes and not plan.to_delete:
+        # Nothing to do, and no token refresh either. Every save in the estate queues a sync,
+        # so this is the common case and should cost database reads only.
+        result.unchanged += len(plan.desired)
+        return True
     client = client_factory(plan.refresh_token)
 
     if plan.calendar_id is None:
@@ -314,7 +348,8 @@ def sync_connection(session_factory, connection_id, *, client_factory=None,
         for _ in range(MAX_PASSES):
             started = datetime.now(UTC)
             if not _one_pass(session_factory, connection_id, client_factory, result):
-                result.status = "skipped"
+                if result.status == "ok":
+                    result.status = "skipped"
                 break
             with session_factory() as s:
                 conn = s.get(CalendarConnection, connection_id)

@@ -34,16 +34,32 @@ answer 403, not 410, so rows are not cleaned up automatically). If you ever rota
 ## 3. Cron — two lines, both required (U1)
 
 evo-dev currently has **no cron installed** (`crontab: command not found`). Installing it needs the
-server owner's OK. Then, with the same env-file loading the deploy script uses:
+server owner's OK. Jobs must load `web.env` the way `deploy.sh` does — with `mapfile`, **not**
+`$(… | xargs)`, which splits values containing spaces and is known to break on this file. Cron runs
+`/bin/sh` (no `mapfile`, no `<( )`), so put the loading in one small bash wrapper:
+
+```bash
+cat > ~/.mihomes/run/job.sh <<'SH'
+#!/usr/bin/env bash
+# Usage: job.sh <mihomes jobs subcommand>. Runs it with exactly web.env's environment.
+set -euo pipefail
+cd ~/MiHomes
+mapfile -t E < <(grep -v '^\s*$' ~/.mihomes/run/web.env)
+exec env -i "${E[@]}" .venv/bin/mihomes jobs "$1"
+SH
+chmod 700 ~/.mihomes/run/job.sh
+```
+
+Then the crontab:
 
 ```
-*/5 * * * *  cd ~/MiHomes && env -i $(grep -v '^\s*$' ~/.mihomes/run/web.env | xargs) .venv/bin/mihomes jobs chat-notify  >> ~/.mihomes/run/cron.log 2>&1
-*/5 * * * *  cd ~/MiHomes && env -i $(grep -v '^\s*$' ~/.mihomes/run/web.env | xargs) .venv/bin/mihomes jobs drain-outbox >> ~/.mihomes/run/cron.log 2>&1
-17 4 * * *   cd ~/MiHomes && env -i $(grep -v '^\s*$' ~/.mihomes/run/web.env | xargs) .venv/bin/mihomes jobs chat-prune-events >> ~/.mihomes/run/cron.log 2>&1
+*/5 * * * *  ~/.mihomes/run/job.sh chat-notify       >> ~/.mihomes/run/cron.log 2>&1
+*/5 * * * *  ~/.mihomes/run/job.sh drain-outbox      >> ~/.mihomes/run/cron.log 2>&1
+17 4 * * *   ~/.mihomes/run/job.sh chat-prune-events >> ~/.mihomes/run/cron.log 2>&1
 ```
 
-Without `drain-outbox`, digests queue forever. (Values containing spaces need the `mapfile`
-form from `deploy.sh` instead of `xargs`.)
+Without `drain-outbox`, digests queue forever. Test the wrapper by hand once
+(`~/.mihomes/run/job.sh chat-notify`) before trusting cron with it.
 
 ## 4. Checks after deploy
 

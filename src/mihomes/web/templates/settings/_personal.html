@@ -26,6 +26,14 @@
   </div>
 </section>
 
+{# ── Chat notifications (SPEC-014 D13) — a loaded partial under `chat.use`, so both settings
+   pages' context builders stay unchanged and staff can reach it. #}
+<section id="chat-notifications" class="mb-10 scroll-mt-4"
+         hx-get="/chat/notifications" hx-trigger="load" hx-swap="innerHTML">
+  <h2 class="text-lg font-medium mb-1">Chat notifications</h2>
+  <p class="text-sm text-gray-500">Loading…</p>
+</section>
+
 {# ── Your profile ───────────────────────────────────────────────────────── #}
 <section id="profile" class="mb-10 scroll-mt-4">
   <h2 class="text-lg font-medium mb-1">Your profile</h2>

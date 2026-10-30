@@ -82,8 +82,9 @@
     {# Stated plainly: these save, but nothing sends notifications yet. A preference that looks
        live and does nothing reads as a bug the first time an alert doesn't arrive. #}
     <p class="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-      Your choices are saved now. Notifications themselves aren't being sent yet — they'll
-      follow these settings once they are.</p>
+      Your choices are saved now. Estate alert notifications aren't being sent yet — they'll
+      follow these settings once they are. Chat notifications are set under
+      <a href="#chat-notifications" class="underline">Chat notifications</a> below.</p>
     {% set chosen_events = (settings['notifications.events'] or '').split(',') %}
     <form method="post" action="/settings" class="space-y-3">
       <div>

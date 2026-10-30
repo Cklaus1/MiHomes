@@ -79,6 +79,13 @@ PERMANENT_ALLOWLIST: dict[str, str] = {
         "that is authenticated by nothing, which is why it returns nothing: a status string, no "
         "DSN, no version, no counts. Everything it says is public because anyone can ask."
     ),
+    "mihomes.web.routes.pwa": (
+        "SPEC-014 D12. `/sw.js` and `/manifest.webmanifest` must sit at the site root (a service "
+        "worker's scope is capped at its script's directory, so `/static/sw.js` could never control "
+        "`/chat/`) and must be fetchable without cookies (a manifest fetch carries none by "
+        "default, so one behind authentication breaks install). Both are fixed files with no "
+        "input and no tenant data — the `/healthz` argument."
+    ),
 }
 
 #: How each permanently-allowlisted module authenticates instead of a declared action.
@@ -134,6 +141,10 @@ ALLOWLIST_MECHANISMS: dict[str, str] = {
     "mihomes.web.errors": (
         "nothing, deliberately — and the route is safe to leave open because it reads no input "
         "and returns no data: one of two fixed strings, chosen by whether `SELECT 1` succeeds"
+    ),
+    "mihomes.web.routes.pwa": (
+        "nothing — fixed bytes, no input, no data: the service worker script and the manifest, "
+        "the same files for every visitor"
     ),
 }
 

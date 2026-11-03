@@ -139,3 +139,36 @@ def test_no_workload_takes_an_account():
     for command in jobs_app.registered_commands:
         params = set(inspect.signature(command.callback).parameters)
         assert "account" not in params, f"{command.name} must not take --account"
+
+
+def test_installable_crontab_schedules_every_workload():
+    """`mihomes cron crontab` is what install-cron.sh puts in the crontab (2026-11-03).
+
+    Same derivation rule as `cron setup`: every registered workload, at its SCHEDULE cadence,
+    through the runner — and nothing that binds a single tenant.
+    """
+    from typer.testing import CliRunner
+
+    from mihomes.cli import app as root
+    from mihomes.cli.cron import BACKUP_CADENCE, BLOCK_BEGIN, BLOCK_END
+
+    runner = "/home/op/Mi Homes/scripts/ops/run-job.sh"
+    result = CliRunner().invoke(
+        root, ["cron", "crontab", "--runner", runner, "--backup", "/srv/pg-backup.sh"]
+    )
+    assert result.exit_code == 0, result.output
+    lines = result.output.splitlines()
+
+    assert lines[0] == BLOCK_BEGIN and lines[-1] == BLOCK_END
+    for name in _registered():
+        expression, _ = SCHEDULE[name]
+        assert f"{expression} bash '{runner}' jobs {name}" in lines, name
+    assert f"{BACKUP_CADENCE} bash /srv/pg-backup.sh" in lines
+    assert not any("--format brief" in line for line in lines), "single-tenant helper leaked in"
+    assert len(lines) == len(SCHEDULE) + 3
+
+
+def test_alerts_is_a_scheduled_workload():
+    """The web Alerts page has no other source of alerts; dropping this line empties it."""
+    assert "alerts" in _registered()
+    assert "alerts" in SCHEDULE

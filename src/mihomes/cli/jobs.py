@@ -109,6 +109,12 @@ SCHEDULE: dict[str, tuple[str, str]] = {
         "The backstop for per-person Google Calendars: saves already queue a sync, so this only "
         "catches failures (Google busy, a crashed worker) and changes made outside the web app.",
     ),
+    "alerts": (
+        "23 * * * *",
+        "The web Alerts page only lists alerts; nothing else creates them. Hourly so a "
+        "critical issue or an out-of-stock item surfaces the same morning, and a completed "
+        "task's alert clears within the hour. Off the hour to stay clear of the other sweeps.",
+    ),
     "reconcile": (
         "0 3 * * *",
         "The backstop for a dropped webhook (BILLING §6). Nightly and off-peak: it re-fetches "
@@ -448,6 +454,34 @@ def chat_prune_events() -> None:
             failed += 1
             logger.exception("chat-prune-events: failed for account %s", account_id)
     rprint(f"Chat events: removed {removed} older than 7 days; {failed} account(s) failed.")
+
+
+@app.command("alerts")
+def alerts() -> None:
+    """Raise and clear estate alerts, account by account (2026-11-03).
+
+    Overdue tasks, critical issues left open, low stock, and contracts, insurance and warranties
+    expiring within 30 days. Until this job existed only the CLI `mihomes alerts` generated them,
+    so the web Alerts page stayed empty. Cleared alerts are resolved first, so finishing a task
+    removes its alert rather than leaving it to be dismissed by hand.
+
+    Idempotent: each generator skips a source that already has an open alert, and a resolved
+    alert stays resolved. Per account under its own context, because an unbound read under RLS
+    sees no rows and would report success having checked nothing.
+    """
+    from mihomes.services.alerts import generate_alerts, resolve_cleared_alerts
+
+    raised = cleared = failed = 0
+    for account_id, _ in _all_accounts():
+        try:
+            with _account_session(account_id) as (session, _account):
+                cleared += resolve_cleared_alerts(session)
+                raised += generate_alerts(session)
+                session.commit()
+        except Exception:
+            failed += 1
+            logger.exception("alerts: failed for account %s", account_id)
+    rprint(f"Alerts: {raised} raised, {cleared} cleared; {failed} account(s) failed.")
 
 
 @app.command("reconcile")

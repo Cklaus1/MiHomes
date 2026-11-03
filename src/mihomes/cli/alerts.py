@@ -21,6 +21,7 @@ def show_alerts(
         return
 
     with get_session() as session:
+        alert_svc.resolve_cleared_alerts(session)
         alert_svc.generate_alerts(session)
         alerts = alert_svc.list_alerts(session)
 
@@ -60,6 +61,7 @@ def list_alerts(
 ):
     """List all pending alerts (alias for running 'alerts' with no subcommand)."""
     with get_session() as session:
+        alert_svc.resolve_cleared_alerts(session)
         alert_svc.generate_alerts(session)
         alerts = alert_svc.list_alerts(session)
 

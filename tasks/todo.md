@@ -1,5 +1,50 @@
 # MiHomes — Project State & Next Actions
 
+## ACTIVE: Ops — DB backups, job scheduler, scheduled alerts (2026-11-03, branch `ops-scheduler-backups`)
+
+Why: evo-dev lost its DB on 2026-11-02 (no automated dumps); the rebuild wiped cron, so none of
+the 9 `jobs` workloads run; `generate_alerts` is CLI-only, so the web Alerts page never fills.
+Constraint: evo-dev is a Docker container, no systemd, only `/home` survives a rebuild; Claude may
+not deploy there — the user runs the commands.
+
+- [x] `mihomes jobs alerts` — per-account sweep of `generate_alerts` (tasks, issues, inventory,
+      expirations); hourly in `SCHEDULE`; covered by the idempotence + enumeration gates
+- [x] Alerts auto-resolve when their cause is gone (task completed/cancelled/no longer overdue,
+      issue resolved/verified) — today only low-inventory does, so a scheduled run would leave
+      finished work flagged forever
+- [x] `mihomes cron crontab --runner PATH` — plain crontab rendered from `SCHEDULE` (+ nightly DB
+      backup), so the installed crontab can never drift from the manifest
+- [x] `scripts/ops/run-job.sh` — loads `~/.mihomes/run/web.env` safely (mapfile, not `env $(cat)`),
+      `flock` per job, logs to `~/.mihomes/logs/jobs/<name>.log`
+- [x] `scripts/ops/pg-backup.sh` — nightly `pg_dump -Fc` as `postgres` + `pg_dumpall --globals-only`;
+      kept only if the TOC has data for core tables; warns if <½ previous; 14-day rotation; `LATEST`
+- [x] `scripts/ops/install-cron.sh` — idempotent: installs/starts cron if missing, installs the
+      crontab; safe to call from `boot.sh` so a restart re-arms it
+- [x] `scripts/Pull-MiHomesBackup.ps1` — laptop pulls newest dump off-box (evo-dev's disk is the
+      only copy otherwise)
+- [x] Runbook `docs/deploy/OPS-SCHEDULER-BACKUPS.md` + tests
+- [ ] User: merge into harness, deploy on evo-dev (runbook §0–§3), add the boot.sh line,
+      register the laptop pull task
+- Review:
+  - Tests: 193 passed on a private DB. The 2 failures in `test_jobs.py` (trial-sweep, sqlite
+    "no such table: accounts") also fail on unchanged harness HEAD. Full suite not run.
+  - `pg-backup.sh` restore-tested on laptop `mihomes_dev`: dump, restore to scratch, row counts
+    match on all 60 tables. A DB without the app tables FAILs and keeps nothing.
+  - `install-cron.sh` and `run-job.sh` tested in Git Bash with stubbed sudo, crontab and flock:
+    idempotent, keeps foreign lines, crontab untouched on failure. The real apt install and cron
+    daemon are untested (evo-dev only).
+  - `jobs alerts` on a scratch copy of dev data: 4 raised, then 0 on the second run.
+  - Found while testing:
+    - A missing `flock` would have read as "lock held" and skipped every job silently. It now FAILs.
+    - Merging stderr into the generated crontab broke the BEGIN/END guard. stderr is now captured
+      separately.
+  - Dropped the legacy `mihomes alerts --format brief` line from `cron setup`: it binds one tenant
+    and would double-run with `jobs alerts`.
+  - Open:
+    - Expiry alerts do not clear when a renewal date moves out.
+    - Recurring task generation is still CLI-only.
+    - There is no crash supervision for the app process.
+
 ## ACTIVE: Omnichannel gateway — retire telegram-bot, then Phase 0 → Telegram → WhatsApp → SMS/email (2026-10-22)
 
 Order agreed with the user: (1) reconcile + retire `telegram-bot`, (2) Phase 0 shared seam,

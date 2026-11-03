@@ -17,6 +17,7 @@ from mihomes.services.alerts import (
     acknowledge_alert,
     generate_alerts,
     list_alerts,
+    resolve_cleared_alerts,
     snooze_alert,
 )
 
@@ -332,3 +333,72 @@ class TestGenerateAlerts:
         # generate_expiration_alerts also returns 0
         count = generate_alerts(session)
         assert count == 0
+
+
+class TestResolveClearedAlerts:
+    """Scheduled alerts must also clear, or finished work stays flagged (2026-11-03)."""
+
+    def _status(self, session, source_id):
+        return session.query(Alert).filter(Alert.source_entity_id == source_id).one().status
+
+    def test_completed_task_alert_resolves(self, session, prop):
+        task = _make_overdue_task(session, prop, "Fix Gate")
+        _check_overdue_tasks(session)
+        task.status = TaskStatus.COMPLETED
+        session.flush()
+        assert resolve_cleared_alerts(session) == 1
+        assert self._status(session, task.id) == AlertStatus.RESOLVED
+
+    def test_rescheduled_task_alert_resolves(self, session, prop):
+        task = _make_overdue_task(session, prop, "Paint Fence")
+        _check_overdue_tasks(session)
+        task.due_date = date.today() + timedelta(days=3)
+        session.flush()
+        assert resolve_cleared_alerts(session) == 1
+
+    def test_deleted_task_alert_resolves(self, session, prop):
+        task = _make_overdue_task(session, prop, "Gone Task")
+        _check_overdue_tasks(session)
+        task_id = task.id
+        session.delete(task)
+        session.flush()
+        assert resolve_cleared_alerts(session) == 1
+        assert self._status(session, task_id) == AlertStatus.RESOLVED
+
+    def test_still_overdue_task_alert_stays_open(self, session, prop):
+        task = _make_overdue_task(session, prop, "Still Late")
+        _check_overdue_tasks(session)
+        assert resolve_cleared_alerts(session) == 0
+        assert self._status(session, task.id) == AlertStatus.GENERATED
+
+    def test_snoozed_alert_resolves_when_task_done(self, session, prop):
+        task = _make_overdue_task(session, prop, "Snoozed Task")
+        _check_overdue_tasks(session)
+        alert = session.query(Alert).filter(Alert.source_entity_id == task.id).one()
+        snooze_alert(session, alert.id, days=7)
+        task.status = TaskStatus.CANCELLED
+        session.flush()
+        assert resolve_cleared_alerts(session) == 1
+
+    def test_resolved_issue_alert_resolves(self, session, prop):
+        issue = _make_old_issue(session, prop, "Roof Leak")
+        _check_critical_issues(session)
+        issue.status = IssueStatus.RESOLVED
+        session.flush()
+        assert resolve_cleared_alerts(session) == 1
+        assert self._status(session, issue.id) == AlertStatus.RESOLVED
+
+    def test_open_issue_alert_stays_open(self, session, prop):
+        issue = _make_old_issue(session, prop, "Boiler Noise")
+        _check_critical_issues(session)
+        assert resolve_cleared_alerts(session) == 0
+        assert self._status(session, issue.id) == AlertStatus.GENERATED
+
+    def test_second_run_changes_nothing(self, session, prop):
+        task = _make_overdue_task(session, prop, "Twice Task")
+        _check_overdue_tasks(session)
+        task.status = TaskStatus.COMPLETED
+        session.flush()
+        assert resolve_cleared_alerts(session) == 1
+        assert resolve_cleared_alerts(session) == 0
+        assert _check_overdue_tasks(session) == 0

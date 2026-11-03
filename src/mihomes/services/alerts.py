@@ -22,6 +22,59 @@ def generate_alerts(session: Session) -> int:
     return count
 
 
+def resolve_cleared_alerts(session: Session) -> int:
+    """Resolve overdue-task and unresolved-issue alerts whose cause is gone. Returns the count.
+
+    The generators only ever *open* these alerts, so before `jobs alerts` ran them on a schedule
+    a completed task stayed flagged until someone dismissed it by hand. Cleared means the source
+    row was deleted, or it no longer meets the condition that raised the alert. Acknowledged and
+    snoozed alerts are resolved too: the problem they were about no longer exists.
+    (Low-inventory alerts already clear themselves on restock in `_check_low_inventory`.)
+    """
+    today = date.today()
+    resolved = 0
+
+    def _open(alert_type: str) -> list[Alert]:
+        return session.query(Alert).filter(
+            Alert.alert_type == alert_type,
+            Alert.status != AlertStatus.RESOLVED,
+        ).all()
+
+    task_alerts = _open("overdue_task")
+    if task_alerts:
+        tasks = {t.id: t for t in session.query(Task).filter(
+            Task.id.in_({a.source_entity_id for a in task_alerts})
+        )}
+        for alert in task_alerts:
+            task = tasks.get(alert.source_entity_id)
+            if (
+                task is None
+                or task.status in (TaskStatus.COMPLETED, TaskStatus.CANCELLED)
+                or task.due_date is None
+                or task.due_date >= today
+            ):
+                alert.status = AlertStatus.RESOLVED
+                resolved += 1
+
+    issue_alerts = _open("unresolved_issue")
+    if issue_alerts:
+        issues = {i.id: i for i in session.query(Issue).filter(
+            Issue.id.in_({a.source_entity_id for a in issue_alerts})
+        )}
+        for alert in issue_alerts:
+            issue = issues.get(alert.source_entity_id)
+            if (
+                issue is None
+                or issue.status in (IssueStatus.RESOLVED, IssueStatus.VERIFIED)
+                or issue.severity not in (IssueSeverity.CRITICAL, IssueSeverity.HIGH)
+            ):
+                alert.status = AlertStatus.RESOLVED
+                resolved += 1
+
+    session.flush()
+    return resolved
+
+
 def _check_overdue_tasks(session: Session) -> int:
     """Create alerts for overdue tasks."""
     overdue = session.query(Task).filter(

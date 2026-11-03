@@ -24,14 +24,13 @@ git push origin worktree-spec-build-harness
 
 ## 1. On evo-dev (`ssh millena@evo-dev` from PowerShell)
 
-```bash
-cd ~/MiHomes && git pull --ff-only origin worktree-spec-build-harness
-```
-No migration and no new dependencies.
-
-Restart the app so the web process has the new code (alert auto-resolve):
-```bash
-sudo -n ~/.mihomes/run/boot.sh
+Deploy the usual way. The deploy script does the pull, deps, a pre-deploy dump, migrations (none
+in this change), and a real restart. A bare `boot.sh` does **not** restart a running app: it
+sees the process and starts nothing, so the old code keeps serving.
+```powershell
+# from the laptop, PowerShell
+scp C:\Users\MillenaLim\mihomes-deploy\deploy.sh millena@evo-dev:/tmp/deploy.sh
+ssh millena@evo-dev "bash /tmp/deploy.sh"
 ```
 
 Take a backup now; don't wait for 02:30:

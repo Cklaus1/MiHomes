@@ -23,7 +23,7 @@ not deploy there — the user runs the commands.
 - [x] `scripts/Pull-MiHomesBackup.ps1` — laptop pulls newest dump off-box (evo-dev's disk is the
       only copy otherwise)
 - [x] Runbook `docs/deploy/OPS-SCHEDULER-BACKUPS.md` + tests
-- [ ] User: merge into harness, deploy on evo-dev (runbook §0–§3), add the boot.sh line,
+- [x] DEPLOYED 2026-11-03 20:18 UTC (08e70dd): first dump 811 KB + laptop pull OK; pre-flight clean (0 expiries, 0 reconcile drift, 0 calendar connections); first app-role alerts run 73 raised, then 0; cron installed + 11 lines; boot.sh hook inserted after pg_isready. Merge, deploy, boot.sh line,
       register the laptop pull task
 - Review:
   - Tests: 282 passed on a private DB (alerts, jobs, cron, dunning, weekly digest, phase-4 migration, web alert tests). The 2 failures in `test_jobs.py` (trial-sweep, sqlite

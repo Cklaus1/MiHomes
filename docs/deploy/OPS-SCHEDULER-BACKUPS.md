@@ -39,6 +39,44 @@ bash ~/MiHomes/scripts/ops/pg-backup.sh; tail -3 ~/.mihomes/logs/jobs/pg-backup.
 ```
 Expect `ok: <bytes>; 1 dump(s) kept`. A `FAIL:` line means nothing was kept.
 
+### Pre-flight: read before arming cron
+
+No job has run since the rebuild. Two of them can **change an account's plan**:
+- `trial-sweep` moves an expired trial to Free.
+- `reconcile` copies Stripe's state over local drift.
+
+`calendar-sync` writes to connected Google Calendars every 15 minutes. Look first; every command
+here is read-only:
+
+```bash
+sudo -n -u postgres psql -d mihomes \
+  -c "select slug, plan, subscription_status, trial_ends_at, stripe_customer_id is not null as stripe, deactivated_at from accounts order by slug" \
+  -c "select count(*) as calendar_connections from calendar_connections"
+for j in trial-sweep reconcile dunning drips weekly-digest; do
+  bash ~/MiHomes/scripts/ops/run-job.sh jobs $j --dry-run
+  tail -3 ~/.mihomes/logs/jobs/jobs-$j---dry-run.log
+done
+```
+Stop and decide before going on if:
+- Belle (`default`) shows `trialing` with a past `trial_ends_at`;
+- `trial-sweep` would expire an account you use;
+- `reconcile` reports drift you didn't expect.
+
+### First alerts run — the first one under the app role and RLS
+
+Every local test ran as the `postgres` superuser, which bypasses row-level security. This run is
+the real check:
+```bash
+sudo -n -u postgres psql -d mihomes -Atc "select count(*) from tasks where due_date < current_date and status not in ('COMPLETED','CANCELLED')"
+bash ~/MiHomes/scripts/ops/run-job.sh jobs alerts; tail -3 ~/.mihomes/logs/jobs/jobs-alerts.log
+```
+Expect `Alerts: N raised, 0 cleared; 0 account(s) failed`, with N at least the overdue count
+above, plus open high/critical issues and low stock. **If the overdue count is above 0 and the
+job says `0 raised`, RLS is hiding rows. Stop and don't arm cron.** A second run must say
+`0 raised`.
+
+### Arm cron
+
 Install and start cron, and write the crontab:
 ```bash
 bash ~/MiHomes/scripts/ops/install-cron.sh
@@ -65,21 +103,31 @@ Expected noise: `drain-outbox` logs `RESEND_API_KEY is not set` until an email p
 configured. Queued mail is **not** lost. The account's transaction rolls back and the mail stays
 queued.
 
+**That queue grows.** Drips, weekly digests and chat digests keep queuing with nowhere to go. The
+day `RESEND_API_KEY` is set, weeks of stale mail would leave within 5 minutes. Review or purge the
+outbox *before* configuring a provider.
+
 ## 3. Laptop: pull the backups off the box
 
-Run it once by hand from the repo, in PowerShell:
+Copy the script next to `deploy.sh`. The main checkout is on stale `main`, and worktrees get
+removed, so neither is a stable path for a scheduled task. Then run it once and schedule it, in
+PowerShell:
 ```powershell
-.\scripts\Pull-MiHomesBackup.ps1
+Copy-Item .claude\worktrees\ops-scheduler\scripts\Pull-MiHomesBackup.ps1 C:\Users\MillenaLim\mihomes-deploy\
+C:\Users\MillenaLim\mihomes-deploy\Pull-MiHomesBackup.ps1
+$a = New-ScheduledTaskAction -Execute powershell.exe -Argument '-NoProfile -ExecutionPolicy Bypass -File C:\Users\MillenaLim\mihomes-deploy\Pull-MiHomesBackup.ps1'
+Register-ScheduledTask -TaskName 'MiHomes backup pull' -Action $a -Trigger (New-ScheduledTaskTrigger -Daily -At 9am) -Settings (New-ScheduledTaskSettingsSet -StartWhenAvailable)
 ```
-Dumps land in `%USERPROFILE%\MiHomes-backups`, and the newest 30 are kept. To run it daily,
-register the scheduled task shown in the script's header. If the laptop is asleep at that time,
-the task runs on the next wake.
+Dumps land in `%USERPROFILE%\MiHomes-backups`, and the newest 30 are kept. If the laptop is
+asleep at 9am, the task runs on the next wake.
 
 ## What users will see
 
 - **The first `jobs alerts` run makes a burst.** It raises every currently overdue task, every
   high or critical issue open for 3+ days, every low-stock item, and anything expiring within 30
   days. Nothing is sent to Telegram or by email; alerts only appear in the web app.
+- **Resolve means "dealt with".** A resolved alert is not raised again until its task, issue or
+  stock item changes. An overdue task that is missed again on a new due date gets a fresh alert.
 - **Overdue tasks show twice on the dashboard**, under "Overdue Tasks" and again under "Active
   Alerts". The fix is in the UI/UX follow-up (one "Today" list).
 

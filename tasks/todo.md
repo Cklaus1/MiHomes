@@ -26,7 +26,7 @@ not deploy there — the user runs the commands.
 - [ ] User: merge into harness, deploy on evo-dev (runbook §0–§3), add the boot.sh line,
       register the laptop pull task
 - Review:
-  - Tests: 193 passed on a private DB. The 2 failures in `test_jobs.py` (trial-sweep, sqlite
+  - Tests: 282 passed on a private DB (alerts, jobs, cron, dunning, weekly digest, phase-4 migration, web alert tests). The 2 failures in `test_jobs.py` (trial-sweep, sqlite
     "no such table: accounts") also fail on unchanged harness HEAD. Full suite not run.
   - `pg-backup.sh` restore-tested on laptop `mihomes_dev`: dump, restore to scratch, row counts
     match on all 60 tables. A DB without the app tables FAILs and keeps nothing.
@@ -38,6 +38,8 @@ not deploy there — the user runs the commands.
     - A missing `flock` would have read as "lock held" and skipped every job silently. It now FAILs.
     - Merging stderr into the generated crontab broke the BEGIN/END guard. stderr is now captured
       separately.
+  - Resolve means "dealt with": a resolved alert is not re-raised until its source changes (`_already_alerted`). Before this, the web Resolve button would have been undone at the next hourly run. Overdue tasks are scoped to the current due date, so a missed new date still alerts.
+  - Runbook has a read-only pre-flight before arming cron (trial-sweep/reconcile can change plans) and a first app-role `jobs alerts` run with a stop condition (all local runs were superuser and bypassed RLS).
   - Dropped the legacy `mihomes alerts --format brief` line from `cron setup`: it binds one tenant
     and would double-run with `jobs alerts`.
   - Open:

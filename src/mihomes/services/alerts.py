@@ -22,6 +22,45 @@ def generate_alerts(session: Session) -> int:
     return count
 
 
+def _utc_naive(dt: datetime | None) -> datetime | None:
+    """Comparable form of a timestamp: the columns are naive UTC once read back, but an object
+    still in the session can hold the aware value its Python default produced."""
+    if dt is None or dt.tzinfo is None:
+        return dt
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _already_alerted(
+    session: Session, alert_type: str, source_type: str, source, *, occurrence_after: date | None = None
+) -> bool:
+    """Whether `source` must not get a new `alert_type` alert.
+
+    True while an alert is open. Also true when one was resolved **after the source last
+    changed**: Resolve in the web app means "dealt with", so the hourly `jobs alerts` must not
+    raise the same thing again at the next :23. The source changing (a task reopened, an issue
+    re-escalated, stock edited) makes it eligible again.
+
+    `occurrence_after` scopes that to the current occurrence for overdue tasks: an alert created
+    on or before the task's current due date belonged to an earlier due date, so moving the due
+    date out and missing it again still raises a fresh alert.
+    """
+    changed = _utc_naive(source.updated_at or source.created_at)
+    alerts = session.query(Alert).filter(
+        Alert.source_entity_type == source_type,
+        Alert.source_entity_id == source.id,
+        Alert.alert_type == alert_type,
+    ).all()
+    for alert in alerts:
+        if alert.status != AlertStatus.RESOLVED:
+            return True
+        if occurrence_after is not None and _utc_naive(alert.created_at).date() <= occurrence_after:
+            continue
+        resolved_at = _utc_naive(alert.updated_at or alert.created_at)
+        if changed is None or resolved_at >= changed:
+            return True
+    return False
+
+
 def resolve_cleared_alerts(session: Session) -> int:
     """Resolve overdue-task and unresolved-issue alerts whose cause is gone. Returns the count.
 
@@ -84,14 +123,7 @@ def _check_overdue_tasks(session: Session) -> int:
 
     count = 0
     for task in overdue:
-        # Check if alert already exists for this task
-        existing = session.query(Alert).filter(
-            Alert.source_entity_type == "task",
-            Alert.source_entity_id == task.id,
-            Alert.alert_type == "overdue_task",
-            Alert.status != AlertStatus.RESOLVED,
-        ).first()
-        if existing:
+        if _already_alerted(session, "overdue_task", "task", task, occurrence_after=task.due_date):
             continue
 
         days_overdue = (date.today() - task.due_date).days
@@ -123,13 +155,7 @@ def _check_critical_issues(session: Session) -> int:
 
     count = 0
     for issue in issues:
-        existing = session.query(Alert).filter(
-            Alert.source_entity_type == "issue",
-            Alert.source_entity_id == issue.id,
-            Alert.alert_type == "unresolved_issue",
-            Alert.status != AlertStatus.RESOLVED,
-        ).first()
-        if existing:
+        if _already_alerted(session, "unresolved_issue", "issue", issue):
             continue
 
         alert = Alert(
@@ -157,13 +183,7 @@ def _check_low_inventory(session: Session) -> int:
 
     count = 0
     for item in items:
-        existing = session.query(Alert).filter(
-            Alert.source_entity_type == "consumable",
-            Alert.source_entity_id == item.id,
-            Alert.alert_type == "low_inventory",
-            Alert.status != AlertStatus.RESOLVED,
-        ).first()
-        if existing:
+        if _already_alerted(session, "low_inventory", "consumable", item):
             continue
 
         severity = AlertSeverity.HIGH if item.status == ConsumableStatus.OUT else AlertSeverity.MEDIUM

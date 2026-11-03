@@ -402,3 +402,66 @@ class TestResolveClearedAlerts:
         assert resolve_cleared_alerts(session) == 1
         assert resolve_cleared_alerts(session) == 0
         assert _check_overdue_tasks(session) == 0
+
+
+class TestResolvedStaysResolved:
+    """Resolve in the web app means "dealt with": the hourly job must not raise it again until
+    the source changes (2026-11-03)."""
+
+    _T0 = datetime(2026, 1, 1, 12, 0)
+
+    def _alert(self, session, source_id):
+        return session.query(Alert).filter(Alert.source_entity_id == source_id).one()
+
+    def _resolve_by_hand(self, session, alert, at):
+        alert.status = AlertStatus.RESOLVED
+        alert.updated_at = at
+        session.flush()
+
+    def test_hand_resolved_overdue_task_is_not_raised_again(self, session, prop):
+        task = _make_overdue_task(session, prop, "Hand Resolved")
+        task.updated_at = self._T0
+        _check_overdue_tasks(session)
+        self._resolve_by_hand(session, self._alert(session, task.id), self._T0 + timedelta(hours=1))
+        assert _check_overdue_tasks(session) == 0
+
+    def test_task_changed_after_resolve_is_raised_again(self, session, prop):
+        task = _make_overdue_task(session, prop, "Reopened Task")
+        _check_overdue_tasks(session)
+        self._resolve_by_hand(session, self._alert(session, task.id), self._T0)
+        task.updated_at = self._T0 + timedelta(hours=1)  # e.g. completed, then reopened
+        session.flush()
+        assert _check_overdue_tasks(session) == 1
+
+    def test_missed_again_after_due_date_moved_is_raised(self, session, prop):
+        task = _make_overdue_task(session, prop, "Moved Twice", days_overdue=10)
+        _check_overdue_tasks(session)
+        alert = self._alert(session, task.id)
+        alert.created_at = datetime.combine(date.today() - timedelta(days=9), datetime.min.time())
+        # due date moved out (task changes first), the sweep clears the alert afterwards...
+        task.due_date = date.today() - timedelta(days=2)  # ...and the new date is missed too
+        task.updated_at = self._T0
+        self._resolve_by_hand(session, alert, self._T0 + timedelta(hours=1))
+        assert _check_overdue_tasks(session) == 1
+
+    def test_hand_resolved_issue_is_not_raised_again(self, session, prop):
+        issue = _make_old_issue(session, prop, "Hand Resolved Issue")
+        issue.updated_at = self._T0
+        _check_critical_issues(session)
+        self._resolve_by_hand(session, self._alert(session, issue.id), self._T0 + timedelta(hours=1))
+        assert _check_critical_issues(session) == 0
+
+    def test_issue_changed_after_resolve_is_raised_again(self, session, prop):
+        issue = _make_old_issue(session, prop, "Re-escalated Issue")
+        _check_critical_issues(session)
+        self._resolve_by_hand(session, self._alert(session, issue.id), self._T0)
+        issue.updated_at = self._T0 + timedelta(hours=1)
+        session.flush()
+        assert _check_critical_issues(session) == 1
+
+    def test_aware_and_naive_timestamps_compare(self, session, prop):
+        task = _make_overdue_task(session, prop, "Mixed Zones")
+        task.updated_at = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+        _check_overdue_tasks(session)
+        self._resolve_by_hand(session, self._alert(session, task.id), self._T0 + timedelta(hours=1))
+        assert _check_overdue_tasks(session) == 0

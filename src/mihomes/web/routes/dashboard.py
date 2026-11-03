@@ -25,6 +25,9 @@ _SEVERITY_RANK = {
     IssueSeverity.CRITICAL: 0, IssueSeverity.HIGH: 1, IssueSeverity.MEDIUM: 2, IssueSeverity.LOW: 3,
 }
 
+#: Alert types whose subject already has its own dashboard card.
+_SHOWN_AS_OWN_CARD = frozenset({"overdue_task"})
+
 
 # The portfolio overview is a collection view: it has no single target property, and for staff it
 # must render *their* properties rather than 403 (N5). `property.view` is row 1 of the matrix,
@@ -39,7 +42,13 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     health_scores = compute_all_health_scores(db, property_ids) if property_ids else {}
     overdue = task_svc.get_overdue_tasks(db)
     upcoming = task_svc.get_upcoming_tasks(db, days=7)
-    all_alerts = alert_svc.list_alerts(db, status=AlertStatus.GENERATED)
+    # Overdue tasks have their own card and tile, so their alerts are left out of the dashboard's
+    # Active Alerts. Since `jobs alerts` runs hourly, every overdue task also has an alert, and
+    # the dashboard listed each one twice. The Alerts page still lists them, to dismiss or snooze.
+    all_alerts = [
+        a for a in alert_svc.list_alerts(db, status=AlertStatus.GENERATED)
+        if a.alert_type not in _SHOWN_AS_OWN_CARD
+    ]
 
     active_work_orders = (
         db.query(WorkOrder)

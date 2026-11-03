@@ -271,3 +271,25 @@ def test_dashboard_rows_link_to_records(client):
     assert 'href="/issues/?new=1"' in html and 'href="/tasks/?new=1"' in html
     # Due This Week shows the real count, not the 10-row cap.
     assert ">12<" in html.replace(" ", "").replace("\n", "")
+
+
+def test_dashboard_does_not_list_an_overdue_task_twice(client):
+    """Once `jobs alerts` runs hourly, every overdue task also has an `overdue_task` alert. The
+    dashboard shows it under Overdue Tasks only; other alerts still show (2026-11-03)."""
+    from mihomes.models.alert import Alert
+    from mihomes.services.alerts import generate_alerts
+
+    pid = _prop_id(client)
+    with client._SessionLocal() as s:
+        task_svc.create_task(s, "Clean gutters", pid, due_date=date.today() - timedelta(days=4))
+        s.add(Alert(alert_type="expiring_contract", message="Contract with Orkin expires in 9 days"))
+        s.flush()
+        generate_alerts(s)
+        s.commit()
+        assert s.query(Alert).filter(Alert.alert_type == "overdue_task").count() == 1
+
+    html = client.get("/").text
+    assert html.count("Clean gutters") == 1, "the overdue task appears in more than one card"
+    assert "days overdue" not in html
+    assert "Contract with Orkin expires in 9 days" in html
+    assert "· 1 active alert<" in html

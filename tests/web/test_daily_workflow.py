@@ -290,6 +290,27 @@ def test_dashboard_does_not_list_an_overdue_task_twice(client):
 
     html = client.get("/").text
     assert html.count("Clean gutters") == 1, "the overdue task appears in more than one card"
-    assert "days overdue" not in html
+    assert "(due: " not in html, "the overdue_task alert message is still on the dashboard"
     assert "Contract with Orkin expires in 9 days" in html
     assert "· 1 active alert<" in html
+
+
+def test_dashboard_today_card_lists_todays_appointment_and_overdue_task(client):
+    """The Today card replaces Overdue Tasks: dated items only, ranked, each linking out."""
+    from mihomes.models.appointment import Appointment
+
+    pid = _prop_id(client)
+    today = date.today()
+    with client._SessionLocal() as s:
+        task = task_svc.create_task(s, "Service boiler", pid, due_date=today - timedelta(days=3))
+        s.add(Appointment(title="Pool tech", property_id=pid, date=today))
+        s.commit()
+        tid = task.id
+    html = client.get("/").text
+    assert 'id="today-heading"' in html
+    assert "Pool tech" in html and "Service boiler" in html
+    assert html.index("Pool tech") < html.index("Service boiler"), "Presence ranks above Economy"
+    assert "3 days overdue" in html
+    assert f'href="/tasks/?open={tid}"' in html
+    assert f'href="/calendar/?month={today:%Y-%m}"' in html
+    assert ">Overdue Tasks</h2>" not in html, "the old card would list the task a second time"

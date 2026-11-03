@@ -121,39 +121,43 @@
 {% set row_link = 'flex items-start justify-between gap-3 px-5 py-3 hover:bg-gray-50 transition-colors' %}
 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
 
-  <!-- Overdue tasks -->
-  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <!-- Today: everything dated today or already late, ranked Safety → Presence → Asset → Economy.
+       Overdue tasks live here only; undated issues stay in Open Issues. -->
+  <section class="md:col-span-2 bg-white rounded-xl border border-gray-200 overflow-hidden" aria-labelledby="today-heading">
     <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
-      <h2 class="text-sm font-semibold text-gray-700">Overdue Tasks</h2>
-      <a href="/tasks/?overdue=true" class="text-xs text-brand-600 hover:text-brand-700">View all →</a>
+      <h2 id="today-heading" class="text-sm font-semibold text-gray-700">Today <span class="ml-1 text-xs font-normal text-gray-500">{{ today_date.strftime('%A, %b %d') if today_date else '' }}</span></h2>
+      <a href="/calendar/" class="text-xs text-brand-600 hover:text-brand-700">Calendar →</a>
     </div>
-    {% if overdue_tasks %}
+    {% if today_items %}
     <ul class="divide-y divide-gray-50">
-      {% for task in overdue_tasks[:5] %}
+      {% for item in today_items %}
       <li>
-        <a href="/tasks/?open={{ task.id }}" class="{{ row_link }} items-center">
+        <a href="{{ item.link }}" class="{{ row_link }} items-center">
           <div class="min-w-0">
-            <div class="text-sm font-medium text-gray-900 truncate">{{ task.title }}</div>
+            <div class="text-sm font-medium text-gray-900 truncate">{{ item.title }}</div>
             <div class="text-xs text-gray-500 mt-0.5">
-              {% if task.property %}{{ task.property.name }}{% endif %}
-              {% if task.due_date %} · <span class="text-red-600">Due {{ task.due_date.strftime('%b %d') }}</span>{% endif %}
+              {{ {'task': 'Task', 'appointment': 'Appointment', 'event': 'Event'}[item.kind] }}{% if item.property_name %} · {{ item.property_name }}{% endif %}
+              · <span class="{{ 'text-red-600' if item.late else 'text-gray-700' }}">{{ item.when }}</span>
             </div>
           </div>
           <span class="flex-shrink-0 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
-            {% if task.priority.value == 'urgent' %}bg-red-100 text-red-700
-            {% elif task.priority.value == 'high' %}bg-orange-100 text-orange-700
-            {% elif task.priority.value == 'medium' %}bg-amber-100 text-amber-700
+            {% if item.space == 'Safety' %}bg-red-100 text-red-700
+            {% elif item.space == 'Presence' %}bg-blue-100 text-blue-700
+            {% elif item.space == 'Asset' %}bg-orange-100 text-orange-700
             {% else %}bg-gray-100 text-gray-600{% endif %}">
-            {{ task.priority.value.title() }}
+            {{ item.space }}
           </span>
         </a>
       </li>
       {% endfor %}
     </ul>
-    {% else %}
-    <div class="px-5 py-6 text-center text-sm text-gray-400">No overdue tasks 🎉</div>
+    {% if today_more %}
+    <a href="/tasks/" class="block px-5 py-2 border-t border-gray-100 text-xs text-brand-600 hover:text-brand-700">+ {{ today_more }} more →</a>
     {% endif %}
-  </div>
+    {% else %}
+    <div class="px-5 py-6 text-center text-sm text-gray-500">Nothing due today and nothing overdue 🎉</div>
+    {% endif %}
+  </section>
 
   <!-- Open issues, worst first -->
   <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">

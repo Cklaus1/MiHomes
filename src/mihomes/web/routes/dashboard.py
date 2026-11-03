@@ -1,5 +1,7 @@
 """Dashboard — portfolio overview."""
 
+from datetime import date
+
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
@@ -16,6 +18,7 @@ from mihomes.services import onboarding_service as onboarding
 from mihomes.services import property as prop_svc
 from mihomes.services import task as task_svc
 from mihomes.services.health_score import compute_all_health_scores
+from mihomes.services.today import today_items
 from mihomes.tenancy import current_account
 from mihomes.web.deps import get_db, templates
 
@@ -25,8 +28,11 @@ _SEVERITY_RANK = {
     IssueSeverity.CRITICAL: 0, IssueSeverity.HIGH: 1, IssueSeverity.MEDIUM: 2, IssueSeverity.LOW: 3,
 }
 
-#: Alert types whose subject already has its own dashboard card.
+#: Alert types whose subject already has its own dashboard card (overdue tasks are in Today).
 _SHOWN_AS_OWN_CARD = frozenset({"overdue_task"})
+
+#: Rows in the Today card; the rest are behind its "more" link.
+_TODAY_ROWS = 8
 
 
 # The portfolio overview is a collection view: it has no single target property, and for staff it
@@ -41,6 +47,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     property_ids = [p.id for p in properties]
     health_scores = compute_all_health_scores(db, property_ids) if property_ids else {}
     overdue = task_svc.get_overdue_tasks(db)
+    today = today_items(db)
     upcoming = task_svc.get_upcoming_tasks(db, days=7)
     # Overdue tasks have their own card and tile, so their alerts are left out of the dashboard's
     # Active Alerts. Since `jobs alerts` runs hourly, every overdue task also has an alert, and
@@ -85,6 +92,9 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             "properties": properties,
             "health_scores": health_scores,
             "overdue_tasks": overdue,
+            "today_date": date.today(),
+            "today_items": today[:_TODAY_ROWS],
+            "today_more": max(0, len(today) - _TODAY_ROWS),
             "upcoming_tasks": upcoming[:10],
             # The tile shows the true count; the list above is capped.
             "upcoming_count": len(upcoming),

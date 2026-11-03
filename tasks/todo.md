@@ -1,5 +1,23 @@
 # MiHomes — Project State & Next Actions
 
+## Dashboard Today list (2026-11-03, branch `dashboard-today`)
+- [x] `services/today.py`: today's appointments and events, plus tasks due today or overdue, in one
+      list ranked by SPACE:
+      - Safety: tasks in a safety category.
+      - Presence: appointments and events.
+      - Asset: urgent and high-priority tasks.
+      - Economy: everything else.
+      Most overdue first within a group.
+- [x] Replaces the Overdue Tasks card, full width. The Overdue Tasks tile stays. Issues stay in Open
+      Issues, since they are undated. Shows 8 rows, then "+N more".
+- [x] Tests: `tests/unit/test_today.py` (ranking, labels, exclusions) and a web test for the card.
+      The CSS was rebuilt and re-stamped (`md:col-span-2` was not in `app.css`).
+- Not done:
+  - Chat mentions and unread DMs (chat has its own badge).
+  - Compliance items (contract and insurance expiries are still in Alerts).
+  - Appointments link to the calendar month, not the record (the calendar has no `?open=`).
+  - No live 375px walk.
+
 ## ACTIVE: Ops — DB backups, job scheduler, scheduled alerts (2026-11-03, branch `ops-scheduler-backups`)
 
 Why: evo-dev lost its DB on 2026-11-02 (no automated dumps); the rebuild wiped cron, so none of

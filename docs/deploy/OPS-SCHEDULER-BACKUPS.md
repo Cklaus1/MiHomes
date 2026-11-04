@@ -162,3 +162,26 @@ Tested 2026-11-03 on the laptop:
 - **Cron install:** with stubbed `sudo`, `crontab` and `flock`, the installer is idempotent, keeps
   foreign crontab lines, and leaves the crontab untouched on failure.
 - **Not tested:** the real apt install and the cron daemon. Those only exist on evo-dev.
+
+## Crash restart (2026-11-04)
+
+`scripts/ops/keepalive.sh` runs every minute from the same crontab block. It checks three things:
+
+- **Postgres** (`pg_isready`): started at once if it is down.
+- **The app**: does `http://127.0.0.1:5000/login` answer within 10 s? A hung app counts as down.
+  After two failed checks in a row, the app is killed if it is still running, then started the
+  same way `boot.sh` starts it. A deploy restarts the app in seconds, so the watchdog never
+  races `deploy.sh`.
+- **The Stripe sandbox listener**: restarted if it isn't running, but only when
+  `~/.local/bin/stripe` and `STRIPE_SECRET_KEY` both exist.
+
+Where to look:
+- Restarts are logged in `~/.mihomes/logs/jobs/keepalive.log`. Quiet runs write nothing.
+- `~/.mihomes/run/web.log` is appended to, not truncated, so the crash trace stays above the
+  `=== … restarted by scripts/ops/keepalive.sh ===` marker.
+
+It's installed by the next deploy: `boot.sh` runs `install-cron.sh`, which adds the line. To
+prove it works, stop the app, wait up to two minutes, and it comes back:
+```bash
+pkill -f '[b]in/mihomes-dev'; sleep 150; tail -3 ~/.mihomes/logs/jobs/keepalive.log
+```

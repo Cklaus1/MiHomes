@@ -154,7 +154,8 @@ def test_installable_crontab_schedules_every_workload():
 
     runner = "/home/op/Mi Homes/scripts/ops/run-job.sh"
     result = CliRunner().invoke(
-        root, ["cron", "crontab", "--runner", runner, "--backup", "/srv/pg-backup.sh"]
+        root, ["cron", "crontab", "--runner", runner, "--backup", "/srv/pg-backup.sh",
+               "--keepalive", "/srv/keepalive.sh"]
     )
     assert result.exit_code == 0, result.output
     lines = result.output.splitlines()
@@ -165,7 +166,8 @@ def test_installable_crontab_schedules_every_workload():
         assert f"{expression} bash '{runner}' jobs {name}" in lines, name
     assert f"{BACKUP_CADENCE} bash /srv/pg-backup.sh" in lines
     assert not any("--format brief" in line for line in lines), "single-tenant helper leaked in"
-    assert len(lines) == len(SCHEDULE) + 3
+    assert "* * * * * bash /srv/keepalive.sh" in lines, "crash restart runs every minute"
+    assert len(lines) == len(SCHEDULE) + 4
 
 
 def test_alerts_is_a_scheduled_workload():

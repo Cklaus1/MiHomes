@@ -31,9 +31,10 @@ fi
 load_env
 runner="$MIHOMES_REPO/scripts/ops/run-job.sh"
 backup="$MIHOMES_REPO/scripts/ops/pg-backup.sh"
+keepalive="$MIHOMES_REPO/scripts/ops/keepalive.sh"
 errfile="$(mktemp)"
 trap 'rm -f "$errfile"' EXIT
-if ! block="$(env -i "${E[@]}" "$MIHOMES_BIN" cron crontab --runner "$runner" --backup "$backup" 2> "$errfile")"; then
+if ! block="$(env -i "${E[@]}" "$MIHOMES_BIN" cron crontab --runner "$runner" --backup "$backup" --keepalive "$keepalive" 2> "$errfile")"; then
     echo "'mihomes cron crontab' failed — crontab left unchanged:" >&2
     echo "$block" >&2
     cat "$errfile" >&2

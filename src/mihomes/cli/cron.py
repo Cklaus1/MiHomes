@@ -73,7 +73,10 @@ BLOCK_END = "# END MiHomes"
 BACKUP_CADENCE = "30 2 * * *"
 
 
-def render_crontab(runner: str, backup: str | None = None) -> str:
+KEEPALIVE_CADENCE = "* * * * *"
+
+
+def render_crontab(runner: str, backup: str | None = None, keepalive: str | None = None) -> str:
     """The installable crontab block: every `SCHEDULE` workload, plus the nightly DB dump.
 
     Rendered from `SCHEDULE` like `cron setup`, so the installed crontab cannot drift from the
@@ -89,6 +92,9 @@ def render_crontab(runner: str, backup: str | None = None) -> str:
         lines.append(f"{expression} {run} jobs {name}")
     if backup:
         lines.append(f"{BACKUP_CADENCE} bash {shlex.quote(backup)}")
+    if keepalive:
+        # Crash restart: cheap when all is well (one local HTTP request), so every minute.
+        lines.append(f"{KEEPALIVE_CADENCE} bash {shlex.quote(keepalive)}")
     lines.append(BLOCK_END)
     return "\n".join(lines) + "\n"
 
@@ -103,6 +109,9 @@ def cron_crontab(
     backup: str | None = typer.Option(
         None, "--backup", help="Database backup script to run nightly (scripts/ops/pg-backup.sh)."
     ),
+    keepalive: str | None = typer.Option(
+        None, "--keepalive", help="Crash-restart script to run every minute (scripts/ops/keepalive.sh)."
+    ),
 ):
     """Print an installable crontab block (plain text) for every scheduled job."""
-    typer.echo(render_crontab(runner, backup), nl=False)
+    typer.echo(render_crontab(runner, backup, keepalive), nl=False)

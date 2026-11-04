@@ -839,3 +839,12 @@ Review this at the start of each session.
   compound command, the message file kept its previous content, and the next `git commit -F`
   pushed a commit labelled with the *previous* step (76076e0). Write the message with the Write
   tool, then commit, then `git log -1` and read the subject before pushing.
+
+## Personal lists and internal vocabulary (2026-11-04)
+- **A list framed as "what needs *me*" must filter by the viewer.** The first Today list showed every
+  task in the estate, including ones assigned to the gardener and the housekeeper; the user caught
+  it on first look. Before building any per-person view, check `assignee_id` (→ `Staff.user_id` →
+  `current_user`) and decide what unassigned items mean for owners vs staff.
+- **Don't surface internal frameworks as UI labels.** SPACE ("Economy", "Presence") is how the AI
+  advisor ranks; to a user "Economy" read as money. Use it to *order* if useful, but tag rows with
+  vocabulary the user already has in the data (the task's own priority).

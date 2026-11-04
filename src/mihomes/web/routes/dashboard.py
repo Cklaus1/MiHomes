@@ -19,7 +19,7 @@ from mihomes.services import property as prop_svc
 from mihomes.services import task as task_svc
 from mihomes.services.health_score import compute_all_health_scores
 from mihomes.services.today import today_items
-from mihomes.tenancy import current_account
+from mihomes.tenancy import current_account, current_user
 from mihomes.web.deps import get_db, templates
 
 router = APIRouter()
@@ -47,7 +47,9 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     property_ids = [p.id for p in properties]
     health_scores = compute_all_health_scores(db, property_ids) if property_ids else {}
     overdue = task_svc.get_overdue_tasks(db)
-    today = today_items(db)
+    # Only the viewer's own tasks (plus unassigned ones for owners/admins); see services/today.py.
+    is_manager = current_role.get() in ("owner", "admin")
+    today = today_items(db, user_id=current_user.get(None), include_unassigned=is_manager)
     upcoming = task_svc.get_upcoming_tasks(db, days=7)
     # Overdue tasks have their own card and tile, so their alerts are left out of the dashboard's
     # Active Alerts. Since `jobs alerts` runs hourly, every overdue task also has an alert, and
@@ -80,7 +82,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     # The "Getting started" card is for whoever sets the estate up. Staff see a property-scoped
     # slice of the account, so its counts would be wrong for them — and it is not their job.
     getting_started = None
-    if current_role.get() in ("owner", "admin"):
+    if is_manager:
         getting_started = onboarding.checklist(db, current_account.get())
 
     return templates.TemplateResponse(

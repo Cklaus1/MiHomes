@@ -30,7 +30,7 @@ def _task(session, prop, title, *, due, priority=TaskPriority.MEDIUM, category=N
 
 
 def _titles(session):
-    return [i.title for i in today_items(session, TODAY)]
+    return [i.title for i in today_items(session, TODAY, user_id=None, include_unassigned=True)]
 
 
 def test_ranked_safety_presence_asset_economy(session, prop):
@@ -42,7 +42,7 @@ def test_ranked_safety_presence_asset_economy(session, prop):
           category=TaskCategory.FIRE_SAFETY)
     session.flush()
 
-    items = today_items(session, TODAY)
+    items = today_items(session, TODAY, user_id=None, include_unassigned=True)
     assert [i.title for i in items] == ["Test smoke alarms", "Plumber visit", "Fix roof", "Water plants"]
     assert [i.space for i in items] == ["Safety", "Presence", "Asset", "Economy"]
     assert items[1].when == "Today 10:30"
@@ -58,7 +58,7 @@ def test_most_overdue_first_within_a_group(session, prop):
 
 def test_links_open_the_record(session, prop):
     task = _task(session, prop, "Linked", due=TODAY)
-    (item,) = today_items(session, TODAY)
+    (item,) = today_items(session, TODAY, user_id=None, include_unassigned=True)
     assert item.link == f"/tasks/?open={task.id}"
     assert item.property_name == "Today House"
 
@@ -83,6 +83,58 @@ def test_multi_day_event_shows_which_day(session, prop):
                       event_date=TODAY - timedelta(days=1), end_date=TODAY + timedelta(days=1),
                       status=EventStatus.CONFIRMED))
     session.flush()
-    (item,) = today_items(session, TODAY)
+    (item,) = today_items(session, TODAY, user_id=None, include_unassigned=True)
     assert (item.kind, item.space, item.when) == ("event", "Presence", "Day 2 of 3")
     assert item.link == f"/calendar/?month={TODAY:%Y-%m}"
+
+
+# ── Only the viewer's tasks (2026-11-04) ─────────────────────────────────────
+
+
+@pytest.fixture
+def people(session):
+    """A viewer with a staff record, and a gardener with no login."""
+    import uuid
+
+    from mihomes.models.staff import Staff
+    from mihomes.models.user import User
+
+    me = User(email=f"me-{uuid.uuid4().hex[:6]}@example.com", name="Me")
+    session.add(me)
+    session.flush()
+    mine = Staff(name="Me", slug=f"me-{uuid.uuid4().hex[:6]}", user_id=me.id)
+    gardener = Staff(name="Gardener", slug=f"gardener-{uuid.uuid4().hex[:6]}")
+    session.add_all([mine, gardener])
+    session.flush()
+    return me, mine, gardener
+
+
+def _for(session, user_id, *, manager):
+    return [i.title for i in today_items(session, TODAY, user_id=user_id, include_unassigned=manager)]
+
+
+def test_a_task_assigned_to_someone_else_is_not_on_my_list(session, prop, people):
+    me, mine, gardener = people
+    _task(session, prop, "Mow lawn", due=TODAY, assignee_id=gardener.id)
+    _task(session, prop, "Call insurer", due=TODAY, assignee_id=mine.id)
+    assert _for(session, me.id, manager=True) == ["Call insurer"]
+
+
+def test_unassigned_tasks_are_the_managers(session, prop, people):
+    me, _mine, _gardener = people
+    _task(session, prop, "Nobody's job", due=TODAY)
+    assert _for(session, me.id, manager=True) == ["Nobody's job"]
+    assert _for(session, me.id, manager=False) == []
+
+
+def test_calendar_items_are_for_everyone(session, prop, people):
+    me, _mine, _gardener = people
+    session.add(Appointment(title="Window cleaners", property_id=prop.id, date=TODAY))
+    session.flush()
+    assert _for(session, me.id, manager=False) == ["Window cleaners"]
+
+
+def test_rows_carry_the_task_priority(session, prop):
+    _task(session, prop, "Urgent one", due=TODAY, priority=TaskPriority.URGENT)
+    (item,) = today_items(session, TODAY, user_id=None, include_unassigned=True)
+    assert item.priority == "urgent"

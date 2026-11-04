@@ -314,3 +314,23 @@ def test_dashboard_today_card_lists_todays_appointment_and_overdue_task(client):
     assert f'href="/tasks/?open={tid}"' in html
     assert f'href="/calendar/?month={today:%Y-%m}"' in html
     assert ">Overdue Tasks</h2>" not in html, "the old card would list the task a second time"
+
+
+def test_dashboard_today_shows_only_my_tasks_with_their_priority(client):
+    """Today lists the viewer's tasks with a priority tag, not someone else's (2026-11-04)."""
+    pid = _prop_id(client)
+    today = date.today()
+    with client._SessionLocal() as s:
+        gardener = staff_svc.create_staff(s, "Gardener Bob")
+        task_svc.create_task(s, "Rake leaves", pid, due_date=today, assignee_id_or_slug=gardener.slug)
+        task_svc.create_task(s, "Renew permit", pid, due_date=today,
+                             priority=task_svc.TaskPriority.URGENT)
+        s.commit()
+    html = client.get("/").text
+    today_card = html[html.index('id="today-heading"'):html.index("<!-- Open issues")]
+    import re
+
+    assert "Renew permit" in today_card
+    assert re.search(r">\s*Urgent\s*</span>", today_card), "the task's priority is the tag"
+    assert "Rake leaves" not in today_card, "a task assigned to the gardener is not the owner's"
+    assert "Economy" not in today_card and "Presence" not in today_card

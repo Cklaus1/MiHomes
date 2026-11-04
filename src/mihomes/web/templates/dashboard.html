@@ -121,7 +121,8 @@
 {% set row_link = 'flex items-start justify-between gap-3 px-5 py-3 hover:bg-gray-50 transition-colors' %}
 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
 
-  <!-- Today: everything dated today or already late, ranked Safety → Presence → Asset → Economy.
+  <!-- Today: the viewer's own tasks due today or late, plus today's appointments and events.
+       Ordered safety tasks → calendar → urgent/high → the rest; the tag shows the task's priority.
        Overdue tasks live here only; undated issues stay in Open Issues. -->
   <section class="md:col-span-2 bg-white rounded-xl border border-gray-200 overflow-hidden" aria-labelledby="today-heading">
     <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
@@ -136,16 +137,16 @@
           <div class="min-w-0">
             <div class="text-sm font-medium text-gray-900 truncate">{{ item.title }}</div>
             <div class="text-xs text-gray-500 mt-0.5">
-              {{ {'task': 'Task', 'appointment': 'Appointment', 'event': 'Event'}[item.kind] }}{% if item.property_name %} · {{ item.property_name }}{% endif %}
-              · <span class="{{ 'text-red-600' if item.late else 'text-gray-700' }}">{{ item.when }}</span>
+              {% if item.property_name %}{{ item.property_name }} · {% endif %}<span class="{{ 'text-red-600' if item.late else 'text-gray-700' }}">{{ item.when }}</span>
             </div>
           </div>
           <span class="flex-shrink-0 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
-            {% if item.space == 'Safety' %}bg-red-100 text-red-700
-            {% elif item.space == 'Presence' %}bg-blue-100 text-blue-700
-            {% elif item.space == 'Asset' %}bg-orange-100 text-orange-700
+            {% if item.kind != 'task' %}bg-blue-100 text-blue-700
+            {% elif item.priority == 'urgent' %}bg-red-100 text-red-700
+            {% elif item.priority == 'high' %}bg-orange-100 text-orange-700
+            {% elif item.priority == 'medium' %}bg-amber-100 text-amber-700
             {% else %}bg-gray-100 text-gray-600{% endif %}">
-            {{ item.space }}
+            {{ (item.priority or 'medium').title() if item.kind == 'task' else item.kind.title() }}
           </span>
         </a>
       </li>
@@ -155,7 +156,7 @@
     <a href="/tasks/" class="block px-5 py-2 border-t border-gray-100 text-xs text-brand-600 hover:text-brand-700">+ {{ today_more }} more →</a>
     {% endif %}
     {% else %}
-    <div class="px-5 py-6 text-center text-sm text-gray-500">Nothing due today and nothing overdue 🎉</div>
+    <div class="px-5 py-6 text-center text-sm text-gray-500">Nothing on your list today 🎉</div>
     {% endif %}
   </section>
 

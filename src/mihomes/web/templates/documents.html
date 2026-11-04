@@ -314,7 +314,7 @@
           </div>
           <div class="bg-gray-50 rounded-xl p-3">
             <div class="text-xs text-gray-500 mb-0.5">Added</div>
-            <div class="text-sm font-medium text-gray-800">{{ doc.created_at.strftime('%b %d, %Y') if doc.created_at else '—' }}</div>
+            <div class="text-sm font-medium text-gray-800">{{ doc.created_at|localtime('%b %d, %Y') if doc.created_at else '—' }}</div>
           </div>
           <div class="bg-gray-50 rounded-xl p-3">
             {% set kind = doc.file_path | doc_kind %}

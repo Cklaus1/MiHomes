@@ -40,7 +40,7 @@
             Snoozed until {{ alert.snoozed_until.strftime('%b %d') }}
           </span>
           {% endif %}
-          <span class="text-xs text-gray-500 ml-auto">{{ alert.created_at.strftime('%b %d, %Y') if alert.created_at else '' }}</span>
+          <span class="text-xs text-gray-500 ml-auto">{{ alert.created_at|localtime('%b %d, %Y') if alert.created_at else '' }}</span>
         </div>
         <div class="mt-1 text-sm font-medium text-gray-900">{{ alert.message }}</div>
         <div class="mt-1 text-xs text-gray-600 capitalize">Status: {{ alert.status.value }}</div>

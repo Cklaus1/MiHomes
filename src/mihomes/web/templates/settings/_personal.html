@@ -71,7 +71,7 @@
       <p class="mt-1 text-sm text-gray-600">{{ conn.google_email }}
         <span class="text-gray-400">— calendar “MiHomes — {{ account.name if account else '' }}”</span></p>
       <p class="mt-1 text-xs text-gray-500">
-        {% if conn.last_synced_at %}Last synced {{ conn.last_synced_at.strftime("%b %d, %Y %H:%M UTC") }}
+        {% if conn.last_synced_at %}Last synced {{ conn.last_synced_at|localtime("%b %d, %Y %H:%M") }}
         {% else %}Not synced yet{% endif %}</p>
       {% if conn.last_error %}
         <p class="mt-1 text-xs text-red-700">{{ conn.last_error }}</p>
@@ -217,7 +217,7 @@
       <span class="font-medium">Email and password</span>
       {% if sign_in.has_password %}
         <span class="text-sm text-green-700">Set{% if sign_in.password_set_at %}
-          <span class="text-gray-500">— {{ sign_in.password_set_at.strftime("%b %d, %Y") }}</span>{% endif %}</span>
+          <span class="text-gray-500">— {{ sign_in.password_set_at|localtime("%b %d, %Y") }}</span>{% endif %}</span>
       {% else %}
         <span class="text-sm text-gray-500">Not set</span>
       {% endif %}

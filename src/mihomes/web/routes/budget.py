@@ -17,6 +17,7 @@ from mihomes.services import note as note_svc
 from mihomes.services import property as prop_svc
 from mihomes.services import recurring as recurring_svc
 from mihomes.services import vendor as vendor_svc
+from mihomes.services.localtime import today as local_today
 from mihomes.services.parsing import parse_money
 from mihomes.web.deps import get_db, templates, with_toast
 
@@ -102,7 +103,7 @@ def _ctx(
     txn_date_to: str | None = None,
 ) -> dict:
     properties = prop_svc.list_properties(db)
-    today = date.today()
+    today = local_today()
     period_start = today.replace(day=1)
     period_end = today
     reports = []
@@ -236,7 +237,7 @@ def add_transaction(
     if amount_val is None:
         return HTMLResponse("Amount is required.", status_code=400)
     try:
-        when = date.fromisoformat(tx_date) if tx_date else date.today()
+        when = date.fromisoformat(tx_date) if tx_date else local_today()
     except ValueError:
         return HTMLResponse("Date must be a valid date.", status_code=400)
     budget_svc.add_transaction(
@@ -270,7 +271,7 @@ def set_budget(
         return HTMLResponse(str(e), status_code=400)
     if amount_val is None:
         return HTMLResponse("Amount is required.", status_code=400)
-    today = date.today()
+    today = local_today()
     if period == "annual":
         period_start = date(today.year, 1, 1)
     elif period == "quarterly":

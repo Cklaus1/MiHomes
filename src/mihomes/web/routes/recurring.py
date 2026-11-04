@@ -12,6 +12,7 @@ from mihomes.authz.declare import declares
 from mihomes.models.recurring_expense import ExpenseFrequency
 from mihomes.services import note as note_svc
 from mihomes.services import recurring as recurring_svc
+from mihomes.services.localtime import today as local_today
 from mihomes.web.deps import get_db, templates, with_toast
 from mihomes.web.forms import parse_money
 from mihomes.web.routes.budget import _ctx as _budget_ctx
@@ -52,7 +53,7 @@ def create_recurring(
         frequency=ExpenseFrequency(frequency),
         property_id_or_slug=property_slug,
         category=category or "general",
-        start_date=date.fromisoformat(start_date) if start_date else date.today(),
+        start_date=date.fromisoformat(start_date) if start_date else local_today(),
         vendor_id_or_slug=vendor_slug or None,
         end_date=date.fromisoformat(end_date) if end_date else None,
         notes=notes or None,
@@ -133,5 +134,5 @@ def delete_note(request: Request, expense_id: str, note_id: UUID, db: Session = 
 @router.post("/{expense_id}/delete", response_class=HTMLResponse)
 @declares("finance.view", Access.ACCOUNT)
 def delete_recurring(request: Request, expense_id: str, db: Session = Depends(get_db)):
-    recurring_svc.update_recurring_expense(db, expense_id, end_date=date.today())
+    recurring_svc.update_recurring_expense(db, expense_id, end_date=local_today())
     return with_toast(templates.TemplateResponse(request, "budget.html", _ctx(db)), "Recurring expense ended")

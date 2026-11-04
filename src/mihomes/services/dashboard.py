@@ -7,17 +7,17 @@ from sqlalchemy.orm import Session
 
 from mihomes.models.alert import Alert, AlertStatus
 from mihomes.models.asset import Asset
-from mihomes.models.audit_log import AuditLog
 from mihomes.models.budget import Budget, Transaction
 from mihomes.models.issue import Issue, IssueStatus
 from mihomes.models.property import Property
 from mihomes.models.task import Task, TaskStatus
 from mihomes.models.work_order import WorkOrder, WorkOrderStatus
+from mihomes.services.localtime import today as local_today
 
 
 def get_dashboard_data(session: Session, property_id: int | None = None) -> dict:
     """Aggregate dashboard data. Optionally scoped to a single property."""
-    today = date.today()
+    today = local_today()
     year_start = date(today.year, 1, 1)
     year_end = date(today.year + 1, 1, 1)
     week_end = today + timedelta(days=7)

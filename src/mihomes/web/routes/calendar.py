@@ -15,6 +15,7 @@ from mihomes.services import appointment as appt_svc
 from mihomes.services import event as event_svc
 from mihomes.services import property as prop_svc
 from mihomes.services import vendor as vendor_svc
+from mihomes.services.localtime import today as local_today
 from mihomes.web.deps import get_db, templates, with_toast
 
 logger = logging.getLogger(__name__)
@@ -146,7 +147,7 @@ def _ctx(db: Session, month_date: date, property_id: str | None = None) -> dict:
         "type_colors": _TYPE_COLORS,
         "event_color": _EVENT_COLOR,
         "filter_property": property_id,
-        "today": date.today(),
+        "today": local_today(),
     }
 
 
@@ -162,9 +163,9 @@ def calendar_view(
         try:
             month_date = date.fromisoformat(month + "-01")
         except ValueError:
-            month_date = date.today().replace(day=1)
+            month_date = local_today().replace(day=1)
     else:
-        month_date = date.today().replace(day=1)
+        month_date = local_today().replace(day=1)
     return templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date, property_id))
 
 
@@ -200,9 +201,9 @@ def create_appointment(
         notes=notes or None,
     )
     try:
-        month_date = date.fromisoformat(month + "-01") if month else date.today().replace(day=1)
+        month_date = date.fromisoformat(month + "-01") if month else local_today().replace(day=1)
     except ValueError:
-        month_date = date.today().replace(day=1)
+        month_date = local_today().replace(day=1)
     # Use the calendar's active filter, not the appointment's property
     cal_filter = filter_property_id or None
     return with_toast(
@@ -245,9 +246,9 @@ def edit_appointment(
         kwargs["contract_id"] = contract_id
     appt_svc.update_appointment(db, appointment_id, **kwargs)
     try:
-        month_date = date.fromisoformat(month + "-01") if month else date.today().replace(day=1)
+        month_date = date.fromisoformat(month + "-01") if month else local_today().replace(day=1)
     except ValueError:
-        month_date = date.today().replace(day=1)
+        month_date = local_today().replace(day=1)
     return with_toast(templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date)), "Appointment saved")
 
 
@@ -271,9 +272,9 @@ def mark_appointment_serviced(
         logger.info("mark serviced refused: %s", exc)
         toast, kind = str(exc) or "Couldn't mark this appointment serviced.", "error"
     try:
-        month_date = date.fromisoformat(month + "-01") if month else date.today().replace(day=1)
+        month_date = date.fromisoformat(month + "-01") if month else local_today().replace(day=1)
     except ValueError:
-        month_date = date.today().replace(day=1)
+        month_date = local_today().replace(day=1)
     return with_toast(templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date)), toast, kind)
 
 
@@ -287,9 +288,9 @@ def delete_appointment(
 ):
     appt_svc.delete_appointment(db, appointment_id)
     try:
-        month_date = date.fromisoformat(month + "-01") if month else date.today().replace(day=1)
+        month_date = date.fromisoformat(month + "-01") if month else local_today().replace(day=1)
     except ValueError:
-        month_date = date.today().replace(day=1)
+        month_date = local_today().replace(day=1)
     return with_toast(templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date)), "Appointment deleted")
 
 
@@ -303,7 +304,7 @@ def delete_event_from_calendar(
 ):
     event_svc.delete_event(db, str(event_id))
     try:
-        month_date = date.fromisoformat(month + "-01") if month else date.today().replace(day=1)
+        month_date = date.fromisoformat(month + "-01") if month else local_today().replace(day=1)
     except ValueError:
-        month_date = date.today().replace(day=1)
+        month_date = local_today().replace(day=1)
     return with_toast(templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date)), "Event deleted")

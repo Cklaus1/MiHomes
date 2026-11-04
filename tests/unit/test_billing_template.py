@@ -36,6 +36,9 @@ def _render(account, prices=PRICES, card=None):
         jinja2.DictLoader({"base.html": "{% block content %}{% endblock %}"}),
         jinja2.FileSystemLoader(str(TEMPLATES)),
     ]), undefined=jinja2.StrictUndefined)
+    from mihomes.web.deps import _localtime
+
+    env.filters["localtime"] = _localtime  # the app's env registers it (web/deps.py)
     import mihomes.services.billing.plans as plans_mod
 
     original_prices, original_card = plans_mod.plan_prices, route.billing_service.card_on_file

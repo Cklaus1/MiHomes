@@ -378,3 +378,29 @@ def test_my_tasks_filter_without_overdue(client):
     resp = client.get("/tasks/?assignee_id=mine")
     assert resp.status_code == 200
     assert "Order wine" in resp.text and "Plan menu" not in resp.text
+
+
+def test_pages_use_the_estate_time_zone(client):
+    """"Today" and displayed times follow Settings → Time zone, not the server's UTC clock."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from mihomes.models.note import Note
+    from mihomes.services import note as note_svc
+    from mihomes.services.config_service import set_config
+
+    pid = _prop_id(client)
+    with client._SessionLocal() as s:
+        set_config(s, "locale.timezone", "Asia/Tokyo")
+        task = task_svc.create_task(s, "Zone check", pid)
+        note = note_svc.add_note(s, f"task:{task.id}", "left at 23:30 UTC")
+        s.flush()
+        s.query(Note).filter(Note.id == note.id).update({"created_at": datetime(2026, 1, 1, 23, 30)})
+        s.commit()
+        tid = task.id
+
+    tokyo_today = datetime.now(ZoneInfo("Asia/Tokyo")).date()
+    assert tokyo_today.strftime("%A, %b %d") in client.get("/").text
+
+    page = client.get(f"/tasks/?open={tid}").text
+    assert "Jan 02, 2026 08:30" in page, "23:30 UTC is 08:30 next morning in Tokyo"

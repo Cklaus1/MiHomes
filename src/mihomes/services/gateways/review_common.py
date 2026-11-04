@@ -35,6 +35,7 @@ from mihomes.models.staff import Staff
 from mihomes.services.ai.ai_config import get_ai_api_key, get_ai_model, get_ai_provider_name
 from mihomes.services.ai.file_processor import Attachment
 from mihomes.services.ai.provider import get_provider
+from mihomes.services.localtime import today as local_today
 from mihomes.services.query_helpers import escape_like
 from mihomes.services.slug import resolve_identifier
 
@@ -1355,7 +1356,7 @@ def dispatch_items(
                     appt_type = AppointmentType.VENDOR_VISIT
                 appt = create_appointment(
                     session, title=title, property_id_or_slug=prop,
-                    appt_date=appt_date or date.today(),
+                    appt_date=appt_date or local_today(),
                     vendor_id=vendor.id if vendor else None,
                     appointment_type=appt_type,
                     notes=item.get("description"),
@@ -1383,7 +1384,7 @@ def dispatch_items(
             try:
                 from mihomes.services.budget import add_transaction
                 vendor = resolve_vendor(session, item.get("vendor_name"))
-                tx_date = parse_event_date(item.get("date") or item.get("timestamp")) or date.today()
+                tx_date = parse_event_date(item.get("date") or item.get("timestamp")) or local_today()
                 add_transaction(
                     session,
                     amount=float(amount),

@@ -6,7 +6,7 @@
   <li>
     <a href="/chat/c/{{ r.hit.conversation_id }}?at={{ r.hit.seq }}"
        class="block px-4 py-3 hover:bg-gray-50">
-      <div class="text-xs text-gray-500">{{ r.title }} · {{ r.hit.created_at.strftime('%b %d, %H:%M') }}</div>
+      <div class="text-xs text-gray-500">{{ r.title }} · {{ r.hit.created_at|localtime('%b %d, %H:%M') }}</div>
       <p class="mt-0.5 text-sm text-gray-800 break-words">
         {%- for t in r.tokens -%}
           {%- if t.kind == 'hit' -%}<mark>{{ t.text }}</mark>{%- else -%}{{ t.text }}{%- endif -%}

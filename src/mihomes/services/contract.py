@@ -8,6 +8,7 @@ from mihomes.models.contract import Contract
 from mihomes.models.property import Property
 from mihomes.models.vendor import Vendor
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
+from mihomes.services.localtime import today as local_today
 from mihomes.services.money import resolve_currency
 from mihomes.services.slug import get_by_id, resolve_identifier
 from mihomes.services.update_helpers import safe_update
@@ -54,7 +55,7 @@ def list_contracts(
         prop = resolve_identifier(session, Property, property_id_or_slug)
         query = query.filter(Contract.property_id == prop.id)
     if expiring_days:
-        cutoff = date.today() + timedelta(days=expiring_days)
+        cutoff = local_today() + timedelta(days=expiring_days)
         query = query.filter(Contract.end_date.is_not(None), Contract.end_date <= cutoff)
     return query.order_by(Contract.end_date.asc().nullslast()).all()
 

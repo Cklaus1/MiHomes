@@ -1,9 +1,11 @@
 """Weather-based AI task suggestions — generate property-specific tasks from forecasts."""
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import timedelta
 
 from sqlalchemy.orm import Session
+
+from mihomes.services.localtime import today as local_today
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -229,7 +231,7 @@ def create_tasks_from_suggestions(
 
     created = []
     for s in to_create:
-        due = date.today() + timedelta(days=s.due_days)
+        due = local_today() + timedelta(days=s.due_days)
 
         try:
             priority = TaskPriority(s.priority)

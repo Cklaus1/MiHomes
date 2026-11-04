@@ -112,6 +112,17 @@ def _time_label(t) -> str:
 templates.env.filters["time_label"] = _time_label
 
 
+def _localtime(dt, fmt: str = "%b %d, %H:%M") -> str:
+    """A stored instant in the estate's time zone (naive = UTC), formatted. '' for None."""
+    from mihomes.services.localtime import to_local
+
+    local = to_local(dt)
+    return local.strftime(fmt) if local else ""
+
+
+templates.env.filters["localtime"] = _localtime
+
+
 def _money_filter(amount, currency=None, decimals=0):
     """`{{ amount | money }}` or `{{ amount | money(record.currency, 2) }}` — see services/money."""
     from mihomes.services.money import format_money
@@ -356,6 +367,11 @@ async def enforce_declared_action(
         from mihomes.services.money import estate_currency
 
         currency_token = estate_currency.set(get_config(db, "currency.default") or "USD")
+        # Same for the estate's time zone: "today" and displayed times use it (services/localtime).
+        from mihomes.services.config_service import estate_zone
+        from mihomes.services.localtime import estate_tz
+
+        tz_token = estate_tz.set(estate_zone(db).key)
 
         # Role and scope bind together: a request with a scope but no role would filter rows
         # while redacting nothing, which reads as "redaction is broken" rather than "the role
@@ -364,6 +380,7 @@ async def enforce_declared_action(
             with authz_context(principal.role, scope):
                 yield principal
         finally:
+            estate_tz.reset(tz_token)
             estate_currency.reset(currency_token)
 
 
@@ -414,12 +431,24 @@ async def _resolve_authenticated(
         raise HTTPException(status_code=401, detail="Not authenticated")
 
     with account_context(auth.account_id, auth.user_id):
-        yield RequestPrincipal(
-            user_id=auth.user_id,
-            account_id=auth.account_id,
-            membership_id=membership.id,
-            role=membership.role,
-        )
+        # Chat and other session-only routes print times too, so they need the estate's zone
+        # (services/localtime). The GUC first: this transaction began before the account was
+        # known, and an RLS read of the setting would otherwise see no row and fall back to the
+        # default zone without a word.
+        from mihomes.services.config_service import estate_zone
+        from mihomes.services.localtime import estate_tz
+
+        bind_account_guc(db, auth.account_id)
+        tz_token = estate_tz.set(estate_zone(db).key)
+        try:
+            yield RequestPrincipal(
+                user_id=auth.user_id,
+                account_id=auth.account_id,
+                membership_id=membership.id,
+                role=membership.role,
+            )
+        finally:
+            estate_tz.reset(tz_token)
 
 
 def require_authenticated() -> Any:

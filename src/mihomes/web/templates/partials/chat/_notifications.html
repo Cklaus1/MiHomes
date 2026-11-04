@@ -26,7 +26,7 @@
       <option value="24">For 24 hours</option>
     </select>
     {% if muted_until %}
-    <p class="mt-1 text-xs text-amber-700">Paused until {{ muted_until.strftime('%b %d, %H:%M') }} UTC.</p>
+    <p class="mt-1 text-xs text-amber-700">Paused until {{ muted_until|localtime('%b %d, %H:%M') }}.</p>
     {% endif %}
   </div>
   <div class="flex items-center gap-3">

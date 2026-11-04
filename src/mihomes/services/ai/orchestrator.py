@@ -16,6 +16,7 @@ from mihomes.services.ai.ai_config import get_ai_api_key, get_ai_model, get_ai_p
 from mihomes.services.ai.context import assemble_context
 from mihomes.services.ai.provider import get_provider
 from mihomes.services.ai.roles import ROLES, route_query
+from mihomes.services.localtime import today as local_today
 
 logger = logging.getLogger(__name__)
 
@@ -165,7 +166,7 @@ def budget_review(
     from mihomes.services.property import list_properties
     from mihomes.services.slug import resolve_identifier
 
-    today = date.today()
+    today = local_today()
     year_start = date(today.year, 1, 1)
 
     # Build rich financial context beyond what context.py provides

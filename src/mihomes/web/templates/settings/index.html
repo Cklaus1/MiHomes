@@ -309,7 +309,7 @@
             </div>
             <div class="flex items-center gap-3">
               <span class="text-xs text-gray-500">
-                expires {{ invite.expires_at.strftime("%b %d") }}</span>
+                expires {{ invite.expires_at|localtime("%b %d") }}</span>
               <form method="post" action="/settings/invites/{{ invite.id }}/revoke">
                 <button class="py-1 text-sm text-red-700 underline">Revoke</button>
               </form>

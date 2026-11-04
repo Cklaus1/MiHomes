@@ -8,7 +8,7 @@
     <div class="max-w-[85%] rounded-xl px-3 py-2 text-sm {{ 'bg-brand-50 border border-brand-100' if out else 'bg-gray-50 border border-gray-100' }}">
       <div class="text-xs font-medium {{ 'text-brand-700' if out else 'text-gray-700' }}">
         {{ m.sender_name or 'Unknown' }}
-        <span class="font-normal text-gray-400">· {{ m.sent_at.strftime('%b %d, %H:%M') }}</span>
+        <span class="font-normal text-gray-400">· {{ m.sent_at|localtime('%b %d, %H:%M') }}</span>
       </div>
       {% if m.has_media %}<div class="text-xs text-gray-500 mt-0.5">📷 photo</div>{% endif %}
       {% if m.text %}<p class="mt-0.5 text-gray-800 whitespace-pre-line break-words">{{ m.text }}</p>{% endif %}

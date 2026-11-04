@@ -18,6 +18,7 @@ from mihomes.entitlements import check_entitlement
 from mihomes.models.alert import Alert, AlertSeverity, AlertStatus
 from mihomes.models.asset import Asset, AssetCondition, AssetType
 from mihomes.models.task import Task, TaskPriority, TaskStatus
+from mihomes.services.localtime import today as local_today
 
 # ── Thresholds ────────────────────────────────────────────────────────────────
 
@@ -52,7 +53,7 @@ class MaintenanceScanResult:
 
 def scan_assets(session: Session) -> list[MaintenanceFlag]:
     """Scan all active assets and return maintenance flags (no DB writes)."""
-    today = date.today()
+    today = local_today()
     assets = session.query(Asset).filter(Asset.active.is_(True)).all()
     flags: list[MaintenanceFlag] = []
 
@@ -201,7 +202,7 @@ def run_predictive_maintenance(
 
             if not existing_task:
                 from mihomes.services.task import create_task
-                due = date.today() + timedelta(days=30 if flag.risk_level == "high" else 14)
+                due = local_today() + timedelta(days=30 if flag.risk_level == "high" else 14)
                 priority = TaskPriority.HIGH if flag.risk_level == "critical" else TaskPriority.MEDIUM
                 create_task(
                     session,

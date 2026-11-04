@@ -13,7 +13,7 @@
                 {% else %}bg-gray-50 border border-gray-100{% endif %}">
       <div class="text-xs font-medium {{ 'text-brand-700' if v.is_mine else 'text-gray-700' }}">
         {{ v.author_name }}{% if v.is_bot %} <span class="font-normal text-amber-700">· assistant</span>{% endif %}
-        <span class="font-normal text-gray-400">· <time datetime="{{ v.post.created_at.isoformat() }}">{{ v.post.created_at.strftime('%b %d, %H:%M') }}</time>{% if v.post.edited_at and not v.deleted %} · edited{% endif %}</span>
+        <span class="font-normal text-gray-400">· <time datetime="{{ v.post.created_at.isoformat() }}">{{ v.post.created_at|localtime('%b %d, %H:%M') }}</time>{% if v.post.edited_at and not v.deleted %} · edited{% endif %}</span>
       </div>
 
       {% if v.reply_author %}

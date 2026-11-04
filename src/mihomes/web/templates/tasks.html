@@ -366,7 +366,7 @@
         {# A repeating task resets in place when done, so its history lives in the completion log;
            the latest one is shown here rather than as a pile of completed copies. #}
         {% if task.schedule and task.schedule.frequency.value != 'once' and task.completions %}
-        <p class="text-xs text-emerald-700 mt-0.5">↻ Last done {{ task.completions[0].completed_at.strftime('%b %d, %Y') }}{% if task.completions[0].completed_by %} by {{ task.completions[0].completed_by.name.split()[0] }}{% endif %}</p>
+        <p class="text-xs text-emerald-700 mt-0.5">↻ Last done {{ task.completions[0].completed_at|localtime('%b %d, %Y') }}{% if task.completions[0].completed_by %} by {{ task.completions[0].completed_by.name.split()[0] }}{% endif %}</p>
         {% endif %}
       </div>
       <div class="flex items-center gap-2 flex-shrink-0">

@@ -227,7 +227,7 @@
             </span>
           </td>
           <td class="px-4 py-3 text-gray-400 text-xs hidden md:table-cell">
-            {{ issue.created_at.strftime('%b %d, %Y') if issue.created_at else '—' }}
+            {{ issue.created_at|localtime('%b %d, %Y') if issue.created_at else '—' }}
           </td>
         </tr>
         {% endfor %}

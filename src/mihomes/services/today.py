@@ -37,6 +37,7 @@ from mihomes.models.appointment import Appointment
 from mihomes.models.event import Event, EventStatus
 from mihomes.models.task import Task, TaskCategory, TaskPriority
 from mihomes.services import task as task_svc
+from mihomes.services.localtime import today as local_today
 
 _SAFETY_CATEGORIES = frozenset({
     TaskCategory.FIRE_SAFETY, TaskCategory.SECURITY, TaskCategory.HEALTH_ENV,
@@ -100,7 +101,7 @@ def today_items(
     include_unassigned: bool,
 ) -> list[TodayItem]:
     """`user_id` is the viewer; "their" tasks are `task_svc.viewer_task_filter`'s definition."""
-    today = today or date.today()
+    today = today or local_today()
     items: list[TodayItem] = []
 
     is_mine = task_svc.viewer_task_filter(session, user_id, include_unassigned=include_unassigned)

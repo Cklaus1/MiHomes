@@ -240,8 +240,8 @@
                 {% else %}bg-gray-100 text-gray-600{% endif %}">{{ wo.issue.severity.value.title() }}</span>
               {% else %}<div class="font-medium text-sm text-gray-400">—</div>{% endif %}
             </div>
-            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Started</div><div class="font-medium text-sm text-gray-800">{{ wo.started_at.strftime('%b %d, %Y') if wo.started_at else '—' }}</div></div>
-            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Completed</div><div class="font-medium text-sm text-gray-800">{{ wo.completed_at.strftime('%b %d, %Y') if wo.completed_at else '—' }}</div></div>
+            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Started</div><div class="font-medium text-sm text-gray-800">{{ wo.started_at|localtime('%b %d, %Y') if wo.started_at else '—' }}</div></div>
+            <div class="bg-gray-50 rounded-xl p-3"><div class="text-xs text-gray-400 mb-0.5">Completed</div><div class="font-medium text-sm text-gray-800">{{ wo.completed_at|localtime('%b %d, %Y') if wo.completed_at else '—' }}</div></div>
           </div>
           {% if wo.completion_notes %}
           <div class="mb-3">

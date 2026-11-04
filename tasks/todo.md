@@ -1,5 +1,37 @@
 # MiHomes — Project State & Next Actions
 
+## Estate time zone everywhere (2026-11-04, branch `property-timezones`)
+Decision (user): one estate-wide zone (Settings → Time zone, `locale.timezone`, default
+America/New_York) first. A per-property zone can come later and would need a migration.
+
+Problem: the server runs on UTC, so after 7–8pm in Atlanta "today" was already tomorrow. That
+broke Today, My Overdue, the Tasks page, alerts, the calendar and the AI's "current date". Chat,
+conversations and notifications printed UTC.
+
+The earlier claim of "calendar pushes at 09:00 UTC" was wrong for the live per-user sync, which
+already used the estate zone. Only the CLI-only `services/calendar_sync.py` does that.
+
+- [x] `services/localtime.py`: `estate_tz` ContextVar, `today()`, `to_local()`, `bound(session)`.
+- [x] Bound per request in both auth paths in `web/deps.py`. The chat path
+      (`_resolve_authenticated`) binds the account GUC first, or the RLS read of the setting
+      would silently fall back to the default.
+- [x] Bound per account in `cli/jobs.py::_account_session`, so the hourly alerts sweep uses the
+      estate date.
+- [x] `date.today()` → `localtime.today()` in about 70 places across 36 service and route files.
+      Skipped: demo/seed generators and the resume ranker.
+- [x] `localtime` Jinja filter. 23 template timestamps converted, "UTC" labels removed. Dates
+      such as `doc.expires_at` are untouched.
+- [x] Tests:
+      - `tests/unit/test_localtime.py`.
+      - Web: Tokyo date on the dashboard, Tokyo time on a note.
+      - Chat under RLS on the app role.
+      - The seasonal and AI-roles tests now patch `local_today`.
+      - Results: unit and web 2268 passed; integration 1500 passed. The 6 integration failures
+        (chat digest ×2, metering ×2, waitlist, oauth stub) fail identically on the unchanged
+        harness 426ba72.
+- Check on evo-dev: Postgres `TimeZone` must be UTC. Naive `DateTime` columns are read as UTC,
+  and a non-UTC server zone would shift stored naive values. M7 is still deferred.
+
 ## Dashboard Today list (2026-11-03, branch `dashboard-today`)
 - [x] `services/today.py`: today's appointments and events, plus tasks due today or overdue, in one
       list ranked by SPACE:

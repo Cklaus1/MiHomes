@@ -3,7 +3,7 @@
 from datetime import date
 from unittest import mock
 
-from mihomes.services.ai.roles import route_query, ROLES
+from mihomes.services.ai.roles import ROLES, route_query
 
 
 class TestRouteQuery:
@@ -53,7 +53,9 @@ class TestSystemPromptDate:
 
     def test_current_date_is_today(self):
         role = ROLES["estate_manager"]
-        assert f"Current date: {date.today().isoformat()}" in role.system_prompt
+        from mihomes.services.localtime import today
+
+        assert f"Current date: {today().isoformat()}" in role.system_prompt
 
     def test_date_not_frozen_across_days(self):
         role = ROLES["maintenance"]
@@ -63,5 +65,5 @@ class TestSystemPromptDate:
             def today(cls):
                 return cls(2999, 1, 2)
 
-        with mock.patch("mihomes.services.ai.roles.date", FakeDate):
+        with mock.patch("mihomes.services.ai.roles.local_today", FakeDate.today):
             assert "Current date: 2999-01-02" in role.system_prompt

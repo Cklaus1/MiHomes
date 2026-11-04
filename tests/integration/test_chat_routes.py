@@ -208,3 +208,24 @@ def test_every_id_route_enforces_visibility(app_client, app_engine, estate):
         post = s.get(ChatPost, post_id)
         assert post.body == secret and post.deleted_at is None and post.edited_at is None
         assert s.get(ChatConversation, c["belle"]).next_seq == 2   # nothing was posted
+
+
+def test_post_times_are_in_the_estate_time_zone(app_client, app_engine, estate):
+    """Chat runs on `require_authenticated`, the second request path: it must bind the estate's
+    zone too, reading the setting under RLS on the app role (2026-11-04)."""
+    from datetime import datetime, timezone
+
+    from mihomes.services.config_service import set_config
+
+    e = estate
+    c = _groups(app_engine, e)
+    with app_session(app_engine, e.account_id) as s:
+        set_config(s, "locale.timezone", "Asia/Tokyo")
+        s.commit()
+    pid = _post(app_engine, e, c["general"], e.owner, "zone check")
+    with app_session(app_engine, e.account_id) as s:
+        s.query(ChatPost).filter(ChatPost.id == pid).update(
+            {"created_at": datetime(2026, 1, 1, 23, 30, tzinfo=timezone.utc)})
+        s.commit()
+    page = app_client(e.account_id, e.owner).get(f"/chat/c/{c['general']}").text
+    assert "Jan 02, 08:30" in page, "23:30 UTC is 08:30 the next morning in Tokyo"

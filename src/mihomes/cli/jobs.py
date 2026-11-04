@@ -688,20 +688,27 @@ class _account_session:  # noqa: N801 - a context manager, named like one
         self._account_id = account_id
         self._ctx = None
         self._session_cm = None
+        self._tz = None
 
     def __enter__(self):
         from mihomes.db import get_session
         from mihomes.models.account import Account
+        from mihomes.services import localtime
         from mihomes.tenancy import account_context
 
         self._ctx = account_context(self._account_id)
         self._ctx.__enter__()
         self._session_cm = get_session()
         session = self._session_cm.__enter__()
+        # The account's time zone, so a sweep's "today" is the estate's (services/localtime).
+        self._tz = localtime.bound(session)
+        self._tz.__enter__()
         return session, session.get(Account, self._account_id)
 
     def __exit__(self, *exc) -> None:
         try:
+            if self._tz is not None:
+                self._tz.__exit__(*exc)
             if self._session_cm is not None:
                 self._session_cm.__exit__(*exc)
         finally:

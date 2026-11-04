@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from mihomes.models.property import Property, PropertyStatus, PropertyType
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
+from mihomes.services.localtime import today as local_today
 from mihomes.services.money import resolve_currency
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
 from mihomes.services.update_helpers import safe_update
@@ -307,7 +308,7 @@ def occupy_property(
     from_date: date | None = None,
     until_date: date | None = None,
 ) -> Property:
-    effective_from = from_date or date.today()
+    effective_from = from_date or local_today()
     if until_date and until_date <= effective_from:
         raise ValueError(
             f"occupied_until ({until_date}) must be after occupied_since ({effective_from})"

@@ -6,6 +6,8 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from mihomes.services.localtime import today as local_today
+
 # ── Tool schemas (Anthropic tool_use format) ──────────────────────────────────
 
 TOOL_SCHEMAS: list[dict] = [
@@ -497,7 +499,7 @@ def _query_assets(session: Session, inp: dict) -> str:
 
 
 def _query_tasks(session: Session, inp: dict) -> str:
-    from datetime import date, timedelta
+    from datetime import timedelta
 
     from mihomes.models.task import Task, TaskPriority, TaskStatus
 
@@ -519,14 +521,14 @@ def _query_tasks(session: Session, inp: dict) -> str:
     if inp.get("overdue_only"):
         q = q.filter(
             Task.status.notin_(_terminal),
-            Task.due_date < date.today(),
+            Task.due_date < local_today(),
         )
     elif inp.get("upcoming_days"):
         days = int(inp["upcoming_days"])
         q = q.filter(
             Task.status.notin_(_terminal),
-            Task.due_date >= date.today(),
-            Task.due_date <= date.today() + timedelta(days=days),
+            Task.due_date >= local_today(),
+            Task.due_date <= local_today() + timedelta(days=days),
         )
     if inp.get("assignee"):
         from mihomes.models.staff import Staff
@@ -629,7 +631,7 @@ def _query_budget(session: Session, inp: dict) -> str:
 
     from mihomes.models.budget import Transaction
 
-    year = int(inp.get("year", date.today().year))
+    year = int(inp.get("year", local_today().year))
     start = date(year, 1, 1)
     end = date(year, 12, 31)
 
@@ -742,7 +744,7 @@ def _query_staff(session: Session, inp: dict) -> str:
 
 
 def _query_contracts(session: Session, inp: dict) -> str:
-    from datetime import date, timedelta
+    from datetime import timedelta
 
     from mihomes.models.contract import Contract
 
@@ -753,8 +755,8 @@ def _query_contracts(session: Session, inp: dict) -> str:
         prop = resolve_identifier(session, Property, inp["property_slug"])
         q = q.filter(Contract.property_id == prop.id)
     if inp.get("expiring_within_days"):
-        cutoff = date.today() + timedelta(days=int(inp["expiring_within_days"]))
-        q = q.filter(Contract.end_date <= cutoff, Contract.end_date >= date.today())
+        cutoff = local_today() + timedelta(days=int(inp["expiring_within_days"]))
+        q = q.filter(Contract.end_date <= cutoff, Contract.end_date >= local_today())
     if inp.get("vendor"):
         from mihomes.models.vendor import Vendor
         q = q.join(Vendor, Contract.vendor_id == Vendor.id, isouter=True)
@@ -914,7 +916,6 @@ def _query_inventory(session: Session, inp: dict) -> str:
 
 
 def _query_events(session: Session, inp: dict) -> str:
-    from datetime import date
 
     from mihomes.models.event import Event, EventStatus
 
@@ -925,7 +926,7 @@ def _query_events(session: Session, inp: dict) -> str:
         prop = resolve_identifier(session, Property, inp["property_slug"])
         q = q.filter(Event.property_id == prop.id)
     if inp.get("upcoming_only"):
-        q = q.filter(Event.event_date >= date.today())
+        q = q.filter(Event.event_date >= local_today())
     if inp.get("status"):
         try:
             q = q.filter(Event.status == EventStatus(inp["status"]))

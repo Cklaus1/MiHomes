@@ -20,7 +20,7 @@
            class="block px-4 py-3 hover:bg-gray-50 {{ 'bg-gray-50' if active else '' }}">
           <div class="text-sm font-medium text-gray-900 truncate">{{ c.label }}</div>
           <div class="text-xs text-gray-500 mt-0.5">
-            {{ c.count }} message{{ 's' if c.count != 1 else '' }} · last {{ c.last_at.strftime('%b %d, %H:%M') }} UTC
+            {{ c.count }} message{{ 's' if c.count != 1 else '' }} · last {{ c.last_at|localtime('%b %d, %H:%M') }}
           </div>
         </a>
       </li>

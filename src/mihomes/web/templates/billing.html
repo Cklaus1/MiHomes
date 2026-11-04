@@ -43,7 +43,7 @@
         </div>
         <p class="text-sm text-gray-600">
           {%- if status == "trialing" and account.trial_ends_at -%}
-            No card needed · Trial ends {{ account.trial_ends_at.strftime("%d %b %Y") }}
+            No card needed · Trial ends {{ account.trial_ends_at|localtime("%d %b %Y") }}
           {%- elif paying -%}
             {{ paying_now or "Paid plan" }}
             {%- if account.current_period_end %} · {% if account.cancel_at_period_end %}Ends{% else %}Renews{% endif %} {{ account.current_period_end.strftime("%d %b %Y") }}{% endif %}

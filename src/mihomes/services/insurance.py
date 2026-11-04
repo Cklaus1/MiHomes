@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from mihomes.models.insurance import InsurancePolicy, InsuranceType
 from mihomes.models.property import Property
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
+from mihomes.services.localtime import today as local_today
 from mihomes.services.money import resolve_currency
 from mihomes.services.slug import get_by_id, resolve_identifier
 from mihomes.services.update_helpers import safe_update
@@ -55,7 +56,7 @@ def list_policies(
         prop = resolve_identifier(session, Property, property_id_or_slug)
         query = query.filter(InsurancePolicy.property_id == prop.id)
     if expiring_days:
-        cutoff = date.today() + timedelta(days=expiring_days)
+        cutoff = local_today() + timedelta(days=expiring_days)
         # `!= None`, not `is not None`: SQLAlchemy overloads `!=` on a Column to emit
         # `IS NOT NULL`. See the same note in services/alerts.py.
         query = query.filter(

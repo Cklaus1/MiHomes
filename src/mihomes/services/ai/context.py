@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from mihomes.models.ai_conversation import AIConversation
 from mihomes.services.ai.roles import AIRole
+from mihomes.services.localtime import today as local_today
 
 #: context category → the MATRIX action that authorises it. Only categories backed by
 #: **account-level** entities appear: the property-scoped ones are filtered row-by-row by
@@ -213,7 +214,7 @@ def _fetch_budgets(session: Session, property_slug: str | None) -> str:
     from mihomes.services.budget import get_budget_report
     from mihomes.services.property import list_properties
 
-    today = date.today()
+    today = local_today()
     year_start = date(today.year, 1, 1)
     year_end = date(today.year + 1, 1, 1)
     lines = ["## Budget Status (YTD)"]

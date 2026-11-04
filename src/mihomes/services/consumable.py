@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from mihomes.models.consumable import Consumable, ConsumablePriceEntry, ConsumableStatus
 from mihomes.models.property import Property
+from mihomes.services.localtime import today as local_today
 from mihomes.services.query_helpers import exact_ci
 from mihomes.services.slug import ensure_unique_slug, generate_slug, get_by_id, resolve_identifier
 from mihomes.services.validators import validate_name
@@ -161,7 +162,7 @@ def mark_ordered(
     item = resolve_identifier(session, Consumable, id_or_slug)
     item.status = ConsumableStatus.ORDERED
     item.quantity_to_order = None
-    item.last_ordered_at = order_date or date.today()
+    item.last_ordered_at = order_date or local_today()
     if price is not None:
         add_price_entry(
             session, id_or_slug, price, item.last_ordered_at,

@@ -231,7 +231,7 @@
           {{ severity_dot(alert.severity.value) }}
           <div class="min-w-0">
             <div class="text-sm text-gray-800">{{ alert.message }}</div>
-            <div class="text-xs text-gray-500 mt-0.5">{{ alert.severity.value.title() }} · {{ alert.created_at.strftime('%b %d') if alert.created_at else '' }}</div>
+            <div class="text-xs text-gray-500 mt-0.5">{{ alert.severity.value.title() }} · {{ alert.created_at|localtime('%b %d') if alert.created_at else '' }}</div>
           </div>
         </a>
       </li>

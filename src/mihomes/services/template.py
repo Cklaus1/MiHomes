@@ -4,9 +4,10 @@ from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 
+from mihomes.models.task import Task, TaskPriority
 from mihomes.models.template import Template, TemplateItem
-from mihomes.models.task import Task, TaskPriority, RecurrenceFrequency
 from mihomes.services.audit import record_change, snapshot_instance
+from mihomes.services.localtime import today as local_today
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
 from mihomes.services.task import create_task
 
@@ -58,7 +59,7 @@ def run_template(
     resolve_identifier(session, Property, property_id_or_slug)
 
     tasks = []
-    base_due = due_date or date.today()
+    base_due = due_date or local_today()
 
     for i, item in enumerate(template.items):
         task_due = base_due + timedelta(days=i)  # stagger by 1 day per step

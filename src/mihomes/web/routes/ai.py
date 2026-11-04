@@ -3,7 +3,7 @@
 import json
 import logging
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
@@ -15,6 +15,7 @@ from mihomes.models.document import DocumentType
 from mihomes.services import document as doc_svc
 from mihomes.services import property as prop_svc
 from mihomes.services.ai.file_processor import Attachment, process_upload
+from mihomes.services.localtime import today as local_today
 
 # The AI ceiling raises this from inside the provider wrapper. Imported from where it is
 # defined rather than re-exported, so `except` here matches the object that is actually raised.
@@ -147,7 +148,7 @@ def _list_sessions(db: Session) -> list[dict]:
 
 def _group_sessions(sessions: list[dict]) -> list[tuple[str, list[dict]]]:
     """Group sessions into Today / Yesterday / Last 7 days / Older, omitting empty groups."""
-    today = date.today()
+    today = local_today()
     yesterday = today - timedelta(days=1)
     week_ago = today - timedelta(days=7)
 
@@ -489,7 +490,7 @@ async def estate_digest(
 ):
     from mihomes.services.ai.reports import generate_estate_digest
 
-    today = date.today()
+    today = local_today()
 
     period_map = {
         "this_week":  (today - timedelta(days=today.weekday()), today, "This Week"),

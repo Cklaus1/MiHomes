@@ -9,6 +9,7 @@ from mihomes.models.property import Property
 from mihomes.models.recurring_expense import ExpenseFrequency, RecurringExpense
 from mihomes.models.vendor import Vendor
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
+from mihomes.services.localtime import today as local_today
 from mihomes.services.money import resolve_currency
 from mihomes.services.recurrence import add_months
 from mihomes.services.slug import get_by_id, resolve_identifier
@@ -75,7 +76,7 @@ def list_recurring_expenses(session: Session, *, active_only: bool = True) -> li
 
 def generate_transactions(session: Session) -> list[Transaction]:
     """Generate pending transactions for all active recurring expenses due now."""
-    today = date.today()
+    today = local_today()
     generated = []
     expenses = session.query(RecurringExpense).filter(RecurringExpense.active.is_(True)).all()
 
@@ -143,7 +144,7 @@ def generate_upcoming_appointments(session: Session, horizon_days: int = 180) ->
     from mihomes.models.appointment import Appointment
     from mihomes.services.appointment import create_appointment
 
-    today = date.today()
+    today = local_today()
     horizon_end = today + timedelta(days=horizon_days)
     created = []
 

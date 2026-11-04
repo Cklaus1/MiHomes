@@ -2,7 +2,6 @@
 
 import logging
 import uuid
-from datetime import date
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
@@ -21,6 +20,7 @@ from mihomes.services import note as note_svc
 from mihomes.services import property as prop_svc
 from mihomes.services import space as space_svc
 from mihomes.services.ai.assessors import parse_room_scan
+from mihomes.services.localtime import today as local_today
 from mihomes.web.deps import get_db, templates, with_toast
 from mihomes.web.forms import parse_money, read_document_upload, read_image_uploads
 
@@ -127,7 +127,7 @@ def _list_ctx(db: Session, property_slug: str, space_slug: str, asset_type: str 
         "type_counts": type_counts,
         "room_asset_count": room_asset_count,
         # Warranty highlighting compares against today, not a hardcoded year.
-        "today": date.today(),
+        "today": local_today(),
         "properties": prop_svc.list_properties(db),
         "spaces": spaces,
         "asset_types": [t.value for t in AssetType],

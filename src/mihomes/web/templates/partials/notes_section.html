@@ -5,7 +5,7 @@
     <div class="bg-white rounded-lg px-3 py-2.5 border border-gray-100 flex items-start gap-2 group" data-note-item>
       <div class="flex-1 min-w-0">
         <p class="text-sm text-gray-700 whitespace-pre-wrap">{{ note.content }}</p>
-        <p class="text-xs text-gray-400 mt-1">{{ note.created_at.strftime('%b %d, %Y %H:%M') if note.created_at else '' }}</p>
+        <p class="text-xs text-gray-400 mt-1">{{ note.created_at|localtime('%b %d, %Y %H:%M') if note.created_at else '' }}</p>
       </div>
       <button hx-delete="{{ delete_url_prefix }}/{{ note.id }}"
               hx-target="closest [data-notes-container]"

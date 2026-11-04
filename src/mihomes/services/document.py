@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from mihomes.models.document import Document, DocumentType
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
+from mihomes.services.localtime import today as local_today
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
 from mihomes.services.update_helpers import safe_update
 
@@ -123,11 +124,11 @@ def delete_document(session: Session, id_or_slug: str) -> str:
 
 def list_expiring(session: Session, days: int = 30) -> list[Document]:
     """List documents expiring within the given number of days."""
-    cutoff = date.today() + timedelta(days=days)
+    cutoff = local_today() + timedelta(days=days)
     return session.query(Document).filter(
         Document.expires_at != None,  # noqa: E711
         Document.expires_at <= cutoff,
-        Document.expires_at >= date.today(),
+        Document.expires_at >= local_today(),
     ).order_by(Document.expires_at).all()
 
 

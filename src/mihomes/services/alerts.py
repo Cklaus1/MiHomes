@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from mihomes.models.alert import Alert, AlertSeverity, AlertStatus
 from mihomes.models.issue import Issue, IssueSeverity, IssueStatus
 from mihomes.models.task import Task, TaskStatus
+from mihomes.services.localtime import today as local_today
 from mihomes.services.slug import get_by_id
 
 
@@ -70,7 +71,7 @@ def resolve_cleared_alerts(session: Session) -> int:
     snoozed alerts are resolved too: the problem they were about no longer exists.
     (Low-inventory alerts already clear themselves on restock in `_check_low_inventory`.)
     """
-    today = date.today()
+    today = local_today()
     resolved = 0
 
     def _open(alert_type: str) -> list[Alert]:
@@ -117,7 +118,7 @@ def resolve_cleared_alerts(session: Session) -> int:
 def _check_overdue_tasks(session: Session) -> int:
     """Create alerts for overdue tasks."""
     overdue = session.query(Task).filter(
-        Task.due_date < date.today(),
+        Task.due_date < local_today(),
         Task.status.notin_([TaskStatus.COMPLETED, TaskStatus.CANCELLED]),
     ).all()
 
@@ -126,7 +127,7 @@ def _check_overdue_tasks(session: Session) -> int:
         if _already_alerted(session, "overdue_task", "task", task, occurrence_after=task.due_date):
             continue
 
-        days_overdue = (date.today() - task.due_date).days
+        days_overdue = (local_today() - task.due_date).days
         severity = AlertSeverity.HIGH if days_overdue > 7 else AlertSeverity.MEDIUM
 
         alert = Alert(
@@ -146,7 +147,7 @@ def _check_overdue_tasks(session: Session) -> int:
 
 def _check_critical_issues(session: Session) -> int:
     """Create alerts for unresolved critical/high issues older than 3 days."""
-    threshold = date.today() - timedelta(days=3)
+    threshold = local_today() - timedelta(days=3)
     issues = session.query(Issue).filter(
         Issue.status.notin_([IssueStatus.RESOLVED, IssueStatus.VERIFIED]),
         Issue.severity.in_([IssueSeverity.CRITICAL, IssueSeverity.HIGH]),

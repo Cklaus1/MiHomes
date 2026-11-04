@@ -1,6 +1,5 @@
 """Dashboard — portfolio overview."""
 
-from datetime import date
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
@@ -18,6 +17,7 @@ from mihomes.services import onboarding_service as onboarding
 from mihomes.services import property as prop_svc
 from mihomes.services import task as task_svc
 from mihomes.services.health_score import compute_all_health_scores
+from mihomes.services.localtime import today as local_today
 from mihomes.services.today import today_items
 from mihomes.tenancy import current_account, current_user
 from mihomes.web.deps import get_db, templates
@@ -98,7 +98,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             "properties": properties,
             "health_scores": health_scores,
             "overdue_tasks": overdue,
-            "today_date": date.today(),
+            "today_date": local_today(),
             "today_items": today[:_TODAY_ROWS],
             "today_more": max(0, len(today) - _TODAY_ROWS),
             "upcoming_tasks": upcoming[:10],

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from mihomes.models.staff import Staff
 from mihomes.models.staff_pto import PTOStatus, StaffPTORequest
 from mihomes.models.task import Task, TaskStatus
+from mihomes.services.localtime import today as local_today
 from mihomes.services.slug import get_by_id, resolve_identifier
 
 _log = logging.getLogger("mihomes.staff_pto")
@@ -129,9 +130,8 @@ def list_pto_requests(
 
 def get_pto_balance(session: Session, staff_id_or_slug: str) -> dict:
     """Return days used and pending for the current calendar year."""
-    from datetime import date
     staff = resolve_identifier(session, Staff, staff_id_or_slug)
-    year = date.today().year
+    year = local_today().year
     year_str = str(year)
 
     requests = (

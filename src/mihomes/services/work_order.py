@@ -1,6 +1,6 @@
 """Work order service — CRUD with state machine transitions."""
 
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
@@ -10,6 +10,7 @@ from mihomes.models.staff import Staff
 from mihomes.models.vendor import Vendor
 from mihomes.models.work_order import WorkOrder, WorkOrderStatus
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
+from mihomes.services.localtime import today as local_today
 from mihomes.services.money import resolve_currency
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
 from mihomes.services.update_helpers import safe_update
@@ -280,7 +281,7 @@ def complete(
         from mihomes.services.budget import add_transaction
         add_transaction(
             session, cost, str(wo.property_id), "maintenance",
-            date.today(), vendor_id_or_slug=str(wo.vendor_id) if wo.vendor_id else None,
+            local_today(), vendor_id_or_slug=str(wo.vendor_id) if wo.vendor_id else None,
             vendor_name=wo.vendor_name if not wo.vendor_id else None,
             description=f"Work order: {wo.title}", source="work_order",
             work_order_id=wo.id,

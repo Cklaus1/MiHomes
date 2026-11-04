@@ -8,8 +8,9 @@ from mihomes.models.asset import Asset, AssetCondition, AssetType, PriceEntry
 from mihomes.models.property import Property
 from mihomes.models.space import Space
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
-from mihomes.services.update_helpers import safe_update
+from mihomes.services.localtime import today as local_today
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
+from mihomes.services.update_helpers import safe_update
 from mihomes.services.validators import validate_name
 
 
@@ -112,11 +113,11 @@ def delete_asset(session: Session, id_or_slug: str) -> str:
 
 def list_by_warranty_expiring(session: Session, days: int = 30) -> list[Asset]:
     """List assets with warranties expiring within the given number of days."""
-    cutoff = date.today() + timedelta(days=days)
+    cutoff = local_today() + timedelta(days=days)
     return session.query(Asset).filter(
         Asset.warranty_expires != None,  # noqa: E711
         Asset.warranty_expires <= cutoff,
-        Asset.warranty_expires >= date.today(),
+        Asset.warranty_expires >= local_today(),
         Asset.active == True,  # noqa: E712
     ).order_by(Asset.warranty_expires).all()
 
@@ -171,7 +172,7 @@ def list_capital_plan(
     property_id_or_slug: str | None = None,
 ) -> list[tuple[Asset, dict]]:
     """Return assets expected to reach end-of-life within `years`, sorted by EOL date."""
-    from datetime import date as date_cls, timedelta
+    from datetime import date as date_cls
     today = date_cls.today()
     horizon = today.replace(year=today.year + years)
 

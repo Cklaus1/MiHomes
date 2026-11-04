@@ -9,8 +9,9 @@ from mihomes.models.budget import Budget, BudgetPeriod, Transaction
 from mihomes.models.issue import Issue, IssueSeverity, IssueStatus
 from mihomes.models.property import Property
 from mihomes.models.staff import Staff
-from mihomes.models.task import Task, TaskPriority, TaskStatus
+from mihomes.models.task import Task, TaskStatus
 from mihomes.models.work_order import WorkOrder, WorkOrderStatus
+from mihomes.services.localtime import today as local_today
 from mihomes.services.query_helpers import escape_like
 
 
@@ -21,7 +22,7 @@ def generate(session: Session, property_slug: str | None = None) -> dict:
     Covers the past 7 days (done) and next 7 days (upcoming).
     Flags overdue tasks, critical issues, and over-budget properties.
     """
-    today = date.today()
+    today = local_today()
     week_ago = today - timedelta(days=7)
     week_ahead = today + timedelta(days=7)
 

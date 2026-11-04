@@ -12,7 +12,6 @@ Score is clamped to [0, 100].
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
 
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
@@ -21,7 +20,7 @@ from mihomes.models.alert import Alert, AlertSeverity, AlertStatus
 from mihomes.models.budget import Budget, Transaction
 from mihomes.models.issue import Issue, IssueSeverity, IssueStatus
 from mihomes.models.task import Task, TaskStatus
-
+from mihomes.services.localtime import today as local_today
 
 _ISSUE_DEDUCTIONS = {
     IssueSeverity.CRITICAL: 20,
@@ -81,7 +80,7 @@ def compute_property_health(session: Session, property_id: int) -> HealthScore:
         session.query(func.count(Task.id))
         .filter(
             Task.property_id == property_id,
-            Task.due_date < date.today(),
+            Task.due_date < local_today(),
             Task.status.notin_([TaskStatus.COMPLETED, TaskStatus.CANCELLED]),
         )
         .scalar()

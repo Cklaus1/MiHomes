@@ -23,6 +23,7 @@ from mihomes.models.vendor import Vendor
 from mihomes.models.vendor_rating import VendorRating
 from mihomes.models.work_order import WorkOrder
 from mihomes.services.audit import record_change, snapshot_instance
+from mihomes.services.localtime import today as local_today
 from mihomes.services.rating_validation import validate_scores
 from mihomes.services.slug import resolve_identifier
 
@@ -92,7 +93,7 @@ def create_rating(
         quality_score=quality_score, reliability_score=reliability_score,
         cost_score=cost_score, communication_score=communication_score,
         overall_score=round(overall, 2), notes=notes,
-        rated_date=rated_date or date.today(),
+        rated_date=rated_date or local_today(),
     )
     session.add(rating)
     session.flush()

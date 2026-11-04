@@ -32,7 +32,7 @@
   {% for link in telegram_links %}
     <div class="mt-2 flex flex-wrap items-center justify-between gap-2 text-sm">
       <span class="text-gray-600">Telegram account {{ link.telegram_user_id }}
-        <span class="text-gray-500">— linked {{ link.linked_at.strftime("%b %d, %Y") if link.linked_at else "" }}</span></span>
+        <span class="text-gray-500">— linked {{ link.linked_at|localtime("%b %d, %Y") if link.linked_at else "" }}</span></span>
       <form method="post" action="/settings/connections/telegram/{{ link.id }}/unlink"
             onsubmit="return confirm('Unlink this Telegram account? Messages from it will no longer reach your estate.')">
         <button class="text-sm text-red-700 underline">Unlink</button>

@@ -15,6 +15,7 @@ from mihomes.models.task import (
     TaskStatus,
 )
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
+from mihomes.services.localtime import today as local_today
 from mihomes.services.recurrence import calculate_next_due
 from mihomes.services.slug import (
     ensure_unique_slug,
@@ -119,7 +120,7 @@ def list_tasks(
         query = query.filter(Task.category == category)
     if overdue:
         query = query.filter(
-            Task.due_date < date.today(),
+            Task.due_date < local_today(),
             Task.status.notin_([TaskStatus.COMPLETED, TaskStatus.CANCELLED]),
         )
     return query.order_by(Task.due_date.asc().nullslast(), Task.priority).all()
@@ -420,7 +421,7 @@ def get_upcoming_tasks(
     days: int = 14,
     property_id_or_slug: str | None = None,
 ) -> list[Task]:
-    today = date.today()
+    today = local_today()
     end = today + timedelta(days=days)
     query = session.query(Task).filter(
         Task.due_date >= today,
@@ -459,7 +460,7 @@ def get_overdue_tasks(
     property_id_or_slug: str | None = None,
 ) -> list[Task]:
     query = session.query(Task).filter(
-        Task.due_date < date.today(),
+        Task.due_date < local_today(),
         Task.status.notin_([TaskStatus.COMPLETED, TaskStatus.CANCELLED]),
     )
     if property_id_or_slug:

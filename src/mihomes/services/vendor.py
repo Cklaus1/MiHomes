@@ -1,17 +1,16 @@
 """Vendor service — CRUD operations."""
 
-from datetime import date
 
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from mihomes.models.property import Property
 from mihomes.models.vendor import Vendor
 from mihomes.models.vendor_rating import VendorRating
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
+from mihomes.services.localtime import today as local_today
 from mihomes.services.rating_validation import validate_scores
-from mihomes.services.update_helpers import safe_update
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
+from mihomes.services.update_helpers import safe_update
 
 SERVICE_CATEGORIES = [
     "HVAC",
@@ -266,7 +265,7 @@ def rate_vendor(
         communication_score=communication,
         overall_score=overall,
         notes=notes,
-        rated_date=date.today(),
+        rated_date=local_today(),
         work_order_id=work_order_id,
         property_id=property_id,
     )

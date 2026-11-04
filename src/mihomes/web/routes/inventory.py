@@ -32,6 +32,7 @@ from mihomes.services.consumable import (
     update_consumable_settings,
     update_stock,
 )
+from mihomes.services.localtime import today as local_today
 from mihomes.web.deps import get_db, templates
 from mihomes.web.forms import parse_money
 
@@ -139,7 +140,7 @@ def add_item(
         low_stock_threshold=low_stock_threshold_val,
     )
     if unit_price_val is not None:
-        add_price_entry(db, item.slug, unit_price_val, date.today(), entry_type="purchase")
+        add_price_entry(db, item.slug, unit_price_val, local_today(), entry_type="purchase")
     db.commit()
     return _done(filter_property, filter_category, "added")
 

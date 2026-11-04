@@ -334,3 +334,47 @@ def test_dashboard_today_shows_only_my_tasks_with_their_priority(client):
     assert re.search(r">\s*Urgent\s*</span>", today_card), "the task's priority is the tag"
     assert "Rake leaves" not in today_card, "a task assigned to the gardener is not the owner's"
     assert "Economy" not in today_card and "Presence" not in today_card
+
+
+def _my_overdue_tile(html):
+    start = html.index('href="/tasks/?overdue=true&assignee_id=mine"')
+    return html[start:html.index("</a>", start)]
+
+
+def test_my_overdue_tile_counts_only_my_tasks_and_links_to_them(client):
+    """The tile counts the viewer's overdue tasks, matching Today and the page it opens."""
+    import re
+
+    pid = _prop_id(client)
+    late = date.today() - timedelta(days=2)
+    with client._SessionLocal() as s:
+        gardener = staff_svc.create_staff(s, "Gardener Gil")
+        task_svc.create_task(s, "Prune hedge", pid, due_date=late, assignee_id_or_slug=gardener.slug)
+        task_svc.create_task(s, "Sign lease", pid, due_date=late)
+        s.commit()
+    tile = _my_overdue_tile(client.get("/").text)
+    assert "My Overdue" in tile
+    mine_count = int(re.search(r">\s*(\d+)\s*</div>\s*$", tile).group(1))
+
+    page = client.get("/tasks/?overdue=true&assignee_id=mine").text
+    assert "Sign lease" in page and "Prune hedge" not in page
+    assert 'value="mine" selected' in page
+    everyone = client.get("/tasks/?overdue=true").text
+    assert "Prune hedge" in everyone, "the unfiltered view still shows the whole estate"
+    assert mine_count >= 1
+    # Every overdue task the seed or this test made is unassigned except the gardener's.
+    with client._SessionLocal() as s:
+        unassigned_late = sum(1 for t in task_svc.get_overdue_tasks(s) if t.assignee_id is None)
+    assert mine_count == unassigned_late
+
+
+def test_my_tasks_filter_without_overdue(client):
+    pid = _prop_id(client)
+    with client._SessionLocal() as s:
+        cook = staff_svc.create_staff(s, "Cook Cam")
+        task_svc.create_task(s, "Plan menu", pid, assignee_id_or_slug=cook.slug)
+        task_svc.create_task(s, "Order wine", pid)
+        s.commit()
+    resp = client.get("/tasks/?assignee_id=mine")
+    assert resp.status_code == 200
+    assert "Order wine" in resp.text and "Plan menu" not in resp.text

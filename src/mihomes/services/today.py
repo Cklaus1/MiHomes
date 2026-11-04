@@ -30,12 +30,11 @@ import uuid
 from dataclasses import dataclass
 from datetime import date, time
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from mihomes.models.appointment import Appointment
 from mihomes.models.event import Event, EventStatus
-from mihomes.models.staff import Staff
 from mihomes.models.task import Task, TaskCategory, TaskPriority
 from mihomes.services import task as task_svc
 
@@ -89,12 +88,6 @@ def _task_item(task: Task, today: date) -> TodayItem:
     )
 
 
-def _is_mine(task: Task, my_staff_ids: frozenset, include_unassigned: bool) -> bool:
-    if task.assignee_id is None:
-        return include_unassigned
-    return task.assignee_id in my_staff_ids
-
-
 def _calendar_link(day: date) -> str:
     return f"/calendar/?month={day:%Y-%m}"
 
@@ -106,19 +99,13 @@ def today_items(
     user_id: uuid.UUID | None,
     include_unassigned: bool,
 ) -> list[TodayItem]:
-    """`user_id` is the viewer; their tasks are those assigned to a staff record linked to
-    them, plus unassigned ones when `include_unassigned` (owners and admins)."""
+    """`user_id` is the viewer; "their" tasks are `task_svc.viewer_task_filter`'s definition."""
     today = today or date.today()
     items: list[TodayItem] = []
 
-    my_staff_ids = frozenset(
-        session.scalars(select(Staff.id).where(Staff.user_id == user_id))
-    ) if user_id is not None else frozenset()
+    is_mine = task_svc.viewer_task_filter(session, user_id, include_unassigned=include_unassigned)
     tasks = task_svc.get_overdue_tasks(session) + task_svc.get_upcoming_tasks(session, days=0)
-    items += [
-        _task_item(t, today) for t in tasks
-        if t.archived_at is None and _is_mine(t, my_staff_ids, include_unassigned)
-    ]
+    items += [_task_item(t, today) for t in tasks if t.archived_at is None and is_mine(t)]
 
     rank, label = PRESENCE
     for appt in session.query(Appointment).filter(

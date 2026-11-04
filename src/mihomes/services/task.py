@@ -433,6 +433,27 @@ def get_upcoming_tasks(
     return query.order_by(Task.due_date).all()
 
 
+def viewer_task_filter(session: Session, user_id, *, include_unassigned: bool):
+    """`is_mine(task)` for the signed-in viewer — the one definition of "my tasks".
+
+    Mine means assigned to a staff record linked to the viewer's login (`Staff.user_id`), plus
+    unassigned tasks when `include_unassigned` (owners and admins, who hold anything nobody
+    else does). A task assigned to anyone else, including staff with no login, is theirs.
+    Used by the dashboard's Today list and Overdue Tasks tile, and by the Tasks page's
+    "My tasks" filter, so the three always agree.
+    """
+    my_staff_ids = frozenset(
+        sid for (sid,) in session.query(Staff.id).filter(Staff.user_id == user_id)
+    ) if user_id is not None else frozenset()
+
+    def is_mine(task: Task) -> bool:
+        if task.assignee_id is None:
+            return include_unassigned
+        return task.assignee_id in my_staff_ids
+
+    return is_mine
+
+
 def get_overdue_tasks(
     session: Session,
     property_id_or_slug: str | None = None,

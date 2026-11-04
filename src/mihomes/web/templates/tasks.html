@@ -70,6 +70,7 @@
     </select>
     <select name="assignee_id" aria-label="Assignee" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
       <option value="">All assignees</option>
+      <option value="mine" {% if filter_assignee == 'mine' %}selected{% endif %}>My tasks</option>
       {% for s in staff %}
       <option value="{{ s.id }}" {% if filter_assignee == s.id|string %}selected{% endif %}>{{ s.name }}</option>
       {% endfor %}

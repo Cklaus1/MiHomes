@@ -46,10 +46,14 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     properties = prop_svc.list_properties(db)
     property_ids = [p.id for p in properties]
     health_scores = compute_all_health_scores(db, property_ids) if property_ids else {}
-    overdue = task_svc.get_overdue_tasks(db)
-    # Only the viewer's own tasks (plus unassigned ones for owners/admins); see services/today.py.
+    # The viewer's own tasks: assigned to them, plus unassigned ones for owners/admins
+    # (`task_svc.viewer_task_filter`). The Overdue Tasks tile and the Today list both count only
+    # these, and the tile links to the same "My tasks" filter on the Tasks page.
     is_manager = current_role.get() in ("owner", "admin")
-    today = today_items(db, user_id=current_user.get(None), include_unassigned=is_manager)
+    viewer = current_user.get(None)
+    is_mine = task_svc.viewer_task_filter(db, viewer, include_unassigned=is_manager)
+    overdue = [t for t in task_svc.get_overdue_tasks(db) if is_mine(t)]
+    today = today_items(db, user_id=viewer, include_unassigned=is_manager)
     upcoming = task_svc.get_upcoming_tasks(db, days=7)
     # Overdue tasks have their own card and tile, so their alerts are left out of the dashboard's
     # Active Alerts. Since `jobs alerts` runs hourly, every overdue task also has an alert, and

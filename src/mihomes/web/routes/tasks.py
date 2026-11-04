@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from mihomes.authz.actions import Access
 from mihomes.authz.declare import declares
+from mihomes.authz.scope import current_role
 from mihomes.models.staff import Staff
 from mihomes.models.task import RecurrenceFrequency, TaskPriority, TaskStatus
 from mihomes.services import note as note_svc
@@ -17,7 +18,11 @@ from mihomes.services import property as prop_svc
 from mihomes.services import staff as staff_svc
 from mihomes.services import task as task_svc
 from mihomes.services.slug import resolve_identifier
+from mihomes.tenancy import current_user
 from mihomes.web.deps import get_db, templates, with_toast
+
+#: `assignee_id` value for the "My tasks" filter (`task_svc.viewer_task_filter`).
+MINE = "mine"
 
 router = APIRouter()
 
@@ -81,6 +86,10 @@ def _ctx(
 ) -> dict:
     from mihomes.services.config_service import estate_today
     today = estate_today(db)
+    # "My tasks" is a viewer filter, not a staff id: it must never reach `list_tasks` as a slug.
+    mine = assignee_id == MINE
+    if mine:
+        assignee_id = None
     if overdue:
         tasks = task_svc.get_overdue_tasks(db)
     elif due_week:
@@ -103,6 +112,15 @@ def _ctx(
         tasks = [t for t in tasks if t.schedule and t.schedule.frequency.value != "once"]
     elif recurrence == "once":
         tasks = [t for t in tasks if not t.schedule or t.schedule.frequency.value == "once"]
+
+    # Applied after every branch above, so it narrows the Overdue and Due-this-week views too —
+    # the dashboard's "My Overdue" tile links to `?overdue=true&assignee_id=mine`.
+    if mine:
+        is_mine = task_svc.viewer_task_filter(
+            db, current_user.get(None),
+            include_unassigned=current_role.get(None) in ("owner", "admin"),
+        )
+        tasks = [t for t in tasks if is_mine(t)]
 
     all_overdue = task_svc.get_overdue_tasks(db)
     overdue_ids = {t.id for t in all_overdue}
@@ -170,7 +188,7 @@ def _ctx(
         "filter_status": status,
         "filter_overdue": overdue,
         "filter_due_week": due_week,
-        "filter_assignee": str(assignee_id) if assignee_id else None,
+        "filter_assignee": MINE if mine else (str(assignee_id) if assignee_id else None),
         "filter_sort": sort,
         "filter_recurrence": recurrence or "",
         "sort_options": SORT_OPTIONS,

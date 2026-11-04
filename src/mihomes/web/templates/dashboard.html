@@ -99,8 +99,8 @@
     <div class="{{ tile_label }}">Open Issues</div>
     <div class="{{ tile_value }} {% if open_issue_count %}text-amber-600{% else %}text-gray-900{% endif %}">{{ open_issue_count }}</div>
   </a>
-  <a href="/tasks/?overdue=true" class="{{ tile }}">
-    <div class="{{ tile_label }}">Overdue Tasks</div>
+  <a href="/tasks/?overdue=true&assignee_id=mine" class="{{ tile }}">
+    <div class="{{ tile_label }}">My Overdue</div>
     <div class="{{ tile_value }} {% if overdue_tasks %}text-red-600{% else %}text-gray-900{% endif %}">{{ overdue_tasks|length }}</div>
   </a>
   <a href="/tasks/?due_week=true" class="{{ tile }}">

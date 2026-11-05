@@ -24,6 +24,13 @@
     </div>
     <p class="mt-1 text-sm text-gray-500">WhatsApp linking is coming soon.</p>
   </div>
+
+  {# The log of what linked groups sent (/conversations/) had no link anywhere. Owner/admin:
+     the route is `audit.view`, and this partial is also shown to staff. #}
+  {% if viewer_role in ('owner', 'admin') %}
+  <p class="mt-3 text-sm"><a href="/conversations/" class="text-brand-600 hover:text-brand-700 font-medium">Messenger log →</a>
+    <span class="text-gray-500">what the linked Telegram groups have sent, and what MiHomes did with it.</span></p>
+  {% endif %}
 </section>
 
 {# ── Chat notifications (SPEC-014 D13) — a loaded partial under `chat.use`, so both settings

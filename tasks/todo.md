@@ -1,5 +1,20 @@
 # MiHomes — Project State & Next Actions
 
+## Naming cleanup (2026-11-05, branch `naming-cleanup`)
+- [x] Sidebar: "Templates" → **Task templates** (beside Playbooks and Playbook templates);
+      "Rooms" → **Rooms & assets** (what the page holds; search calls them Assets).
+- [x] `/conversations/` (the Telegram/WhatsApp group log, linked from nowhere) → **Messenger log**,
+      linked from Settings → Messenger connections for owners and admins. Chat stays the in-app
+      messaging; the AI Advisor's "conversations" are no longer a page name, so they stay as they are.
+- [x] Search:
+      - "People" → **Directory**. The group headings now come from the route's one label list
+        instead of a second copy in the template.
+      - Asset results open the asset in its room (`?open=asset-<id>`), not the Rooms & assets index.
+      - Note results open the record they are on, captioned "Note on a task: …".
+- [x] Import/export says "properties" like the sidebar, not "homes". Plural is fixed ("propertys").
+- [ ] Open, the user's call: the product still says both "property" (sidebar, pages) and "home"
+      (Getting started, plan limits, pricing). One word should win.
+
 ## Web CSV import (2026-11-05, branch `web-csv-import`)
 Why: `csv_io` could import, but only from the CLI; a new customer moving off a spreadsheet had
 no way in. (`services/importer.py` is the SQLite migration tool, not a CSV importer.)

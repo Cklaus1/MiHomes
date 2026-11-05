@@ -94,7 +94,7 @@ MAX_IMPORT_BYTES = 900_000
 #: Import page are both generated from this, so they cannot disagree with the parser.
 IMPORT_COLUMNS: dict[str, list[tuple[str, bool, str]]] = {
     "property": [
-        ("name", True, "Home name"),
+        ("name", True, "Property name"),
         ("address", False, "Street address"),
         ("property_type", False, "primary, vacation, seasonal, investment, rental, estate, other"),
         ("climate_zone", False, "e.g. southeast, coastal, northeast"),
@@ -116,7 +116,7 @@ IMPORT_COLUMNS: dict[str, list[tuple[str, bool, str]]] = {
     ],
     "task": [
         ("title", True, "What needs doing"),
-        ("property", True, "Home name or slug"),
+        ("property", True, "Property name or slug"),
         ("priority", False, "urgent, high, medium, low"),
         ("due_date", False, "2026-11-30 or 11/30/2026"),
         ("assignee", False, "Staff name or slug (leave blank for unassigned)"),
@@ -128,7 +128,7 @@ IMPORT_COLUMNS: dict[str, list[tuple[str, bool, str]]] = {
     ],
     "issue": [
         ("title", True, "What's wrong"),
-        ("property", True, "Home name or slug"),
+        ("property", True, "Property name or slug"),
         ("severity", False, "critical, high, medium, low"),
         ("description", False, ""),
     ],
@@ -142,7 +142,7 @@ _ALIASES = {
     "categories": "service_categories", "type": "property_type",
 }
 
-LABELS = {"property": "homes", "staff": "staff", "vendor": "vendors", "task": "tasks",
+LABELS = {"property": "properties", "staff": "staff", "vendor": "vendors", "task": "tasks",
           "issue": "issues"}
 LIST_PAGES = {"property": "/properties/", "staff": "/staff/", "vendor": "/vendors/",
               "task": "/tasks/", "issue": "/issues/"}
@@ -249,11 +249,12 @@ def _lookup(session: Session, model, name_attr: str, raw: str, what: str):
     if not matches:
         raise RowProblem(f"No {what} called “{text}”.")
     slugs = ", ".join(m.slug for m in matches)
-    raise RowProblem(f"{len(matches)} {what}s are called “{text}”. Use the slug instead: {slugs}.")
+    plural = "properties" if what == "property" else f"{what}s"
+    raise RowProblem(f"{len(matches)} {plural} are called “{text}”. Use the slug instead: {slugs}.")
 
 
 def _existing(session: Session, entity_type: str, v: dict, prop=None) -> list:
-    """The records this row names, if they are already there: homes, staff and vendors by name,
+    """The records this row names, if they are already there: properties, staff and vendors by name,
     tasks and issues by title within their home. One match is updated from the row; more than
     one is the row's error, because updating the wrong record is worse than skipping one."""
     from sqlalchemy import func
@@ -280,7 +281,7 @@ def _import_row(session: Session, entity_type: str, v: dict) -> tuple[str, str]:
     if missing:
         raise RowProblem(f"Missing {', '.join(missing)}.")
 
-    prop = _lookup(session, Property, "name", v["property"], "home") if "property" in required else None
+    prop = _lookup(session, Property, "name", v["property"], "property") if "property" in required else None
     matches = _existing(session, entity_type, v, prop)
     if len(matches) > 1:
         raise RowProblem(f"{len(matches)} existing {LABELS[entity_type]} match “{label}”, so "

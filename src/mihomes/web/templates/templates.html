@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block title %}Templates — MiHomes{% endblock %}
-{% block heading %}Templates{% endblock %}
-{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ templates|length }} template{{ 's' if templates|length != 1 else '' }}</p>{% endblock %}
+{% block title %}Task templates — MiHomes{% endblock %}
+{% block heading %}Task templates{% endblock %}
+{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ templates|length }} task template{{ 's' if templates|length != 1 else '' }} · reusable checklists you add to a property as tasks</p>{% endblock %}
 
 {% block actions %}
 <button type="button" onclick="openModal('add-template-modal')"

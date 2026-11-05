@@ -84,7 +84,7 @@ def global_search(session: Session, query: str, *, entity_type: str | None = Non
         ).all():
             parts = [a.property.name if a.property else "", _fmt(a.asset_type.value)]
             results.append({"type": "asset", "id": a.id, "name": a.name, "slug": a.slug,
-                            "subtitle": " · ".join(p for p in parts if p)})
+                            **_asset_place(a), "subtitle": " · ".join(p for p in parts if p)})
 
     if entity_type is None or entity_type == "workorder":
         for w in session.query(WorkOrder).filter(
@@ -119,7 +119,57 @@ def global_search(session: Session, query: str, *, entity_type: str | None = Non
 
     if entity_type is None or entity_type == "note":
         for n in session.query(Note).filter(Note.content.ilike(q)).all():
+            parent = _note_parent(session, n)
             results.append({"type": "note", "id": n.id, "name": n.content[:80], "slug": None,
-                            "subtitle": ""})
+                            "parent": parent,
+                            "subtitle": f"Note on {parent['label']}" if parent else ""})
 
     return results
+
+
+def _asset_place(asset) -> dict:
+    """Where an asset's page is: its property and room (`unassigned` when it has none), so a
+    result opens the asset itself rather than the Rooms & assets index."""
+    return {
+        "property_slug": asset.property.slug if asset.property else None,
+        "space_slug": asset.space.slug if asset.space else "unassigned",
+    }
+
+
+#: Note parents → (result type used for its link, what to call it).
+_NOTE_PARENTS = {
+    "property": ("property", "a property"), "space": ("space", "a room"),
+    "staff": ("staff", "a person"), "vendor": ("vendor", "a vendor"),
+    "task": ("task", "a task"), "issue": ("issue", "an issue"), "asset": ("asset", "an asset"),
+    "workorder": ("workorder", "a work order"), "event": ("event", "an event"),
+    "contract": ("contract", "a contract"),
+}
+
+
+def _note_parent(session: Session, note) -> dict | None:
+    """The record a note is on, shaped like a search result so the route can link to it.
+    None when the record is gone (notes outlive deletions) or the type is unknown."""
+    from mihomes.services.note import _get_model_class
+
+    kind = _NOTE_PARENTS.get(note.entity_type)
+    if kind is None:
+        return None
+    try:
+        model = _get_model_class(note.entity_type)
+    except (KeyError, ValueError):
+        return None
+    if model is None:
+        return None
+    record = session.get(model, note.entity_id)
+    if record is None:
+        return None
+    name = getattr(record, "name", None) or getattr(record, "title", None) or \
+        getattr(record, "company_name", None) or ""
+    parent = {"type": kind[0], "id": record.id, "slug": getattr(record, "slug", None),
+              "label": f"{kind[1]}: {name}" if name else kind[1]}
+    if note.entity_type == "asset":
+        parent.update(_asset_place(record))
+    if note.entity_type == "space":
+        prop = getattr(record, "property", None)
+        parent["property_slug"] = prop.slug if prop else None
+    return parent

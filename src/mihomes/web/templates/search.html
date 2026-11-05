@@ -76,12 +76,8 @@
   'guest': 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z',
 } %}
 
-{% set type_labels = {
-  'property': 'Properties', 'task': 'Tasks', 'issue': 'Issues',
-  'staff': 'People', 'vendor': 'Vendors', 'asset': 'Assets',
-  'workorder': 'Work Orders', 'document': 'Documents', 'note': 'Notes',
-  'event': 'Events', 'guest': 'Guests',
-} %}
+{# Group labels come from the route (`TYPE_LABELS`), the same list as the filter chips, so
+   the two cannot name a type differently again. #}
 
 {% set type_colors = {
   'property': 'text-blue-600 bg-blue-50',

@@ -82,7 +82,7 @@ def test_an_ambiguous_home_name_is_refused_not_guessed(client):
         prop_svc.create_property(s, "Twin House")
         s.commit()
     r = _apply(client, "task", "title,property\r\nPaint shed,Twin House\r\n")
-    assert "2 homes are called “Twin House”. Use the slug instead" in r.text
+    assert "2 properties are called “Twin House”. Use the slug instead" in r.text
     assert _count(client, Task, title="Paint shed") == 0
 
 
@@ -98,7 +98,7 @@ def test_one_bad_row_does_not_stop_the_rest(client):
         f",{home.name},,\r\n"))
     page = html.unescape(r.text)
     assert "<strong>1</strong> tasks added" in page and "4 not imported" in page
-    assert "No home called “Nowhere Manor”." in page
+    assert "No property called “Nowhere Manor”." in page
     assert "“whenever” isn't a priority" in page
     assert "“next tuesday” isn't a date" in page
     assert "Missing title." in page
@@ -127,7 +127,7 @@ def test_free_plan_home_limit_applies_to_imports(client, account_a):
         s.commit()
     before = _count(client, Property)
     r = _apply(client, "property", "name,address\r\nBeach House,1 Ocean Dr\r\n")
-    assert "<strong>0</strong> homes added" in r.text and "1 not imported" in r.text
+    assert "<strong>0</strong> properties added" in r.text and "1 not imported" in r.text
     assert _count(client, Property) == before
 
 

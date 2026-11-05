@@ -1,5 +1,24 @@
 # MiHomes — Project State & Next Actions
 
+## Settings split in two (2026-11-05, branch `settings-split`)
+- [x] **Estate** (`/settings`, owner/admin): Account (+ import), Preferences, estate
+      Notifications, Plan & billing, Members, and a Danger zone (export/delete, owner only).
+- [x] **You** (`/settings/connections`, every role): Messengers (+ Messenger log link for
+      owner/admin), Chat notifications, Google Calendar, Profile, Sign-in methods, Estates
+      switcher, Sign out everywhere.
+- [x] Tabs between the two pages for owner/admin. Staff have only You and see no tabs.
+- [x] The real page heading ("Settings") replaces the body `<h1>`. Each page's section menu lists
+      exactly its sections; the old menu missed five.
+- [x] `_home_for()` is the You page for every role. Profile, Telegram-code and sign-in refusals
+      render the You page, and the Google sign-in and calendar callbacks in auth.py return there.
+      The You page no longer redirects owners/admins to `/settings`.
+- [x] `_danger.html` takes `danger_part` ("personal" | "estate").
+- [x] Tests:
+      - 3 new tests in `TestSettingsSplit`.
+      - 9 existing tests moved to the You page URL.
+      - The danger-zone test now asserts the split.
+      - UI checklist rows updated.
+
 ## Links that open the record (2026-11-05, branch `record-links`)
 - [x] **Calendar.** `/calendar/?open=appt-<id>` or `event-<id>` shows that item's month and opens
       its window. Bad or deleted ids are ignored.

@@ -94,13 +94,14 @@ static tests do cover them directly.
 | `property_detail.html` | — | 197 | ☐ | ☐ | ☐ |
 | `property_form.html` | — | 38 | ☐ | ☐ | ☐ |
 | `search.html` | /search/ | 150 | ☐ | ☐ | ☐ |
-| `settings/_account_switcher.html` | (included in /settings and /settings/connections) | — | ☐ | ☐ | ☐ |
-| `settings/_danger.html` | (included in /settings and /settings/connections) | — | ☐ | ☐ | ☐ |
+| `settings/_account_switcher.html` | (the You page, /settings/connections) | — | ☐ | ☐ | ☐ |
+| `settings/_danger.html` | (estate part on /settings for the owner; sign out on /settings/connections) | — | ☐ | ☐ | ☐ |
 | `settings/_notice.html` | (included in /settings and /settings/connections) | — | ☐ | ☐ | ☐ |
-| `settings/_personal.html` | (included in /settings and /settings/connections) | — | ☐ | ☐ | ☐ |
-| `settings/_telegram_link.html` | (Telegram card in /settings and /settings/connections) | — | ☐ | ☐ | ☐ |
-| `settings/connections.html` | /settings/connections (staff) | — | ☐ | ☐ | ☐ |
-| `settings/index.html` | /settings | 54 | ☐ | ☐ | ☐ |
+| `settings/_tabs.html` | (Estate / You tabs at the top of both settings pages, owner/admin) | — | ☐ | ☐ | ☐ |
+| `settings/_personal.html` | (the You page, /settings/connections) | — | ☐ | ☐ | ☐ |
+| `settings/_telegram_link.html` | (Telegram card on /settings/connections) | — | ☐ | ☐ | ☐ |
+| `settings/connections.html` | /settings/connections (You tab, every role) | — | ☐ | ☐ | ☐ |
+| `settings/index.html` | /settings (Estate tab, owner/admin) | 54 | ☐ | ☐ | ☐ |
 | `signup.html` | /signup | 87 | ☐ | ☐ | ☐ |
 | `staff.html` | /staff/ | 353 | ☐ | ☐ | ☐ |
 | `tasks.html` | /tasks/ | 503 | ☐ | ☐ | ☐ |

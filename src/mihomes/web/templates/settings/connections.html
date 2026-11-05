@@ -1,11 +1,26 @@
 {% extends "base.html" %}
-{% block title %}Settings — MiHomes{% endblock %}
+{% block title %}Your settings — MiHomes{% endblock %}
+{% block heading %}Settings{% endblock %}
+{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">You: profile, sign-in, messengers, notifications and calendar</p>{% endblock %}
 {% block content %}
-<div class="max-w-2xl mx-auto py-6 sm:py-10">
-  <h1 class="text-xl sm:text-2xl font-semibold mb-8">Settings</h1>
+<div class="max-w-2xl mx-auto py-2 sm:py-4">
+  {% set settings_tab = "you" %}{% include "settings/_tabs.html" %}
+
+  <nav aria-label="Your settings sections" class="mb-8 flex flex-wrap gap-x-1 gap-y-1 text-sm">
+    {# In the order the sections appear. "Estates" only when there is another to switch to:
+       the switcher is absent below two (A24), and a link to nothing is worse than none. #}
+    {% for anchor, label in [("connections", "Messengers"), ("chat-notifications", "Chat notifications"),
+                              ("calendar", "Google Calendar"), ("profile", "Profile"),
+                              ("sign-in", "Sign-in")]
+                             + ([("estates", "Estates")] if accounts and accounts|length > 1 else [])
+                             + [("danger-zone", "Sign out")] %}
+      <a href="#{{ anchor }}" class="rounded-lg px-3 py-2 text-gray-600 hover:bg-gray-100 hover:text-gray-900">{{ label }}</a>
+    {% endfor %}
+  </nav>
+
   {% include "settings/_notice.html" %}
-  <div class="mb-8">{% include "settings/_account_switcher.html" %}</div>
   {% include "settings/_personal.html" %}
-  {% include "settings/_danger.html" %}
+  <div id="estates" class="mb-10 scroll-mt-4">{% include "settings/_account_switcher.html" %}</div>
+  {% set danger_part = "personal" %}{% include "settings/_danger.html" %}
 </div>
 {% endblock %}

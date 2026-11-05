@@ -247,12 +247,8 @@ def index(request: Request, principal=require_authenticated(),
     return templates.TemplateResponse(
         request,
         "settings/index.html",
-        _page_context(
-            db, principal,
-            notice=_notice(request),
-            sign_in=_sign_in_context(db, db.get(_user_model(), principal.user_id), request),
-            calendar=_calendar_context(db, principal, request),
-        ),
+        # Sign-in methods and the calendar are on the You page now (2026-11-05 split).
+        _page_context(db, principal, notice=_notice(request)),
     )
 
 
@@ -289,17 +285,10 @@ def update_profile_route(
                 current_password=current_password or None,
             )
     except ProfileError as exc:
-        if principal.role not in ("owner", "admin"):
-            return templates.TemplateResponse(
-                request,
-                "settings/connections.html",
-                _connections_context(db, principal, profile_error=str(exc)),
-                status_code=400,
-            )
         return templates.TemplateResponse(
             request,
-            "settings/index.html",
-            _page_context(db, principal, profile_error=str(exc)),
+            "settings/connections.html",
+            _connections_context(db, principal, profile_error=str(exc)),
             status_code=400,
         )
 
@@ -307,8 +296,13 @@ def update_profile_route(
 
 
 def _home_for(principal) -> str:
-    """The settings page this role lands on: the full page for owner/admin, connections for staff."""
-    return "/settings" if principal.role in ("owner", "admin") else "/settings/connections"
+    """Where a personal setting (profile, sign-in, messengers, calendar) lives: the **You** page.
+
+    Since the 2026-11-05 split this is the same for every role. `/settings` is the estate's page
+    (owner/admin), `/settings/connections` is yours; owners and admins switch between them with
+    the tabs. It used to send owners and admins back to one long page that held both.
+    """
+    return "/settings/connections"
 
 
 # ── Messenger connections — every role, own membership only ────────────────────
@@ -346,12 +340,12 @@ def _connections_context(db: Session, principal, **extra):
 @declares(_PROFILE_ACTION, Access.ACCOUNT)
 def connections(request: Request, principal=require_authenticated(),
                 db: Session = Depends(get_db)):
-    """Messenger connections and profile — the settings page staff can open.
+    """**You** — the personal half of Settings, for every role (2026-11-05 split).
 
-    Owner and admin have the same two sections on `/settings`, so they are sent there.
+    Profile, sign-in methods, messenger connections, chat notifications, Google Calendar,
+    switching estate and signing out everywhere. Owners and admins reach the estate half
+    (`/settings`) through the tabs at the top of both pages.
     """
-    if principal.role in ("owner", "admin"):
-        return RedirectResponse("/settings#connections", status_code=303)
     return templates.TemplateResponse(
         request, "settings/connections.html",
         _connections_context(
@@ -388,10 +382,6 @@ def telegram_link_code(request: Request, principal=require_authenticated(),
         "link_issued": int(time.time()),
         "settings_home": _home_for(principal),
     }
-    if principal.role in ("owner", "admin"):
-        return templates.TemplateResponse(
-            request, "settings/index.html", _page_context(db, principal, **shown)
-        )
     return templates.TemplateResponse(
         request, "settings/connections.html", _connections_context(db, principal, **shown)
     )
@@ -830,11 +820,6 @@ def _user_model():
 
 def _render_sign_in_refusal(request: Request, db: Session, principal, user, exc):
     sign_in = _sign_in_context(db, user, request, error=exc.message(user.email))
-    if principal.role in ("owner", "admin"):
-        return templates.TemplateResponse(
-            request, "settings/index.html",
-            _page_context(db, principal, sign_in=sign_in), status_code=400,
-        )
     return templates.TemplateResponse(
         request, "settings/connections.html",
         _connections_context(db, principal, sign_in=sign_in), status_code=400,

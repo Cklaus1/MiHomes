@@ -1,0 +1,11 @@
+{# Settings is two pages since 2026-11-05: the estate's (/settings, owner/admin) and yours
+   (/settings/connections, every role). Owners and admins switch between them here; staff have
+   only their own page, so they see no tabs. Set `settings_tab` ("estate" | "you") first. #}
+{% if role in ("owner", "admin") %}
+<nav aria-label="Settings pages" class="mb-6 flex gap-1 border-b border-gray-200">
+  {% for key, href, label in [("estate", "/settings", "Estate"), ("you", "/settings/connections", "You")] %}
+  <a href="{{ href }}" {% if settings_tab == key %}aria-current="page"{% endif %}
+     class="-mb-px px-4 py-2 text-sm font-medium border-b-2 {{ 'border-brand-600 text-brand-700' if settings_tab == key else 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300' }}">{{ label }}</a>
+  {% endfor %}
+</nav>
+{% endif %}

@@ -400,10 +400,10 @@ def test_reconnecting_a_different_google_account_starts_a_fresh_calendar(world, 
 # ── Settings card ────────────────────────────────────────────────────────────
 
 def test_settings_offers_connect_then_shows_status(world):
-    page = world.owner.get("/settings").text
+    page = world.owner.get("/settings/connections").text
     assert 'action="/settings/calendar/google/connect"' in page
     _connect(world, world.owner.membership_id)
-    page = world.owner.get("/settings").text
+    page = world.owner.get("/settings/connections").text
     assert "me@gmail.com" in page and 'action="/settings/calendar/sync"' in page
 
 

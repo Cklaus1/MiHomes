@@ -30,7 +30,7 @@ def test_task_templates_page_says_what_it_is(client):
 def test_messenger_log_is_named_and_linked_from_settings(client):
     log = client.get("/conversations/").text
     assert "Messenger log" in log and "For in-app messaging, use Chat." in log
-    assert 'href="/conversations/"' in client.get("/settings").text
+    assert 'href="/conversations/"' in client.get("/settings/connections").text
 
 
 def test_search_labels_match_the_sidebar(client):

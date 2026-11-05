@@ -96,7 +96,7 @@ def _google_round_trip(client, path):
 # ── The page ─────────────────────────────────────────────────────────────────
 
 def test_every_role_sees_the_section(web_client_as):
-    for role, path in (("owner", "/settings"), ("staff", "/settings/connections")):
+    for role, path in (("owner", "/settings/connections"), ("staff", "/settings/connections")):
         client, _ = _signed_in(web_client_as, role)
         page = client.get(path)
         assert page.status_code == 200
@@ -105,7 +105,7 @@ def test_every_role_sees_the_section(web_client_as):
 
 def test_a_fresh_google_user_is_offered_the_password_form(web_client_as):
     client, _ = _signed_in(web_client_as)
-    page = client.get("/settings").text
+    page = client.get("/settings/connections").text
     assert 'action="/settings/sign-in/password"' in page
     assert "Connect Google" not in page
 
@@ -113,7 +113,7 @@ def test_a_fresh_google_user_is_offered_the_password_form(web_client_as):
 def test_a_stale_google_session_must_confirm_first(web_client_as):
     client, conn = _signed_in(web_client_as)
     _age_session(conn, client.user_id)
-    page = client.get("/settings").text
+    page = client.get("/settings/connections").text
     assert 'action="/settings/sign-in/google/confirm"' in page
     assert 'action="/settings/sign-in/password"' not in page
 
@@ -186,7 +186,7 @@ def test_confirming_with_the_same_google_account_unlocks_the_form(web_client_as,
     r = _google_round_trip(client, "/settings/sign-in/google/confirm")
     assert r.status_code == 303, r.text
     assert "signin=confirmed" in r.headers["location"]
-    page = client.get("/settings").text
+    page = client.get("/settings/connections").text
     assert 'action="/settings/sign-in/password"' in page, "re-auth did not refresh the session"
 
 
@@ -197,7 +197,7 @@ def test_confirming_with_a_different_google_account_is_refused(web_client_as, go
     google.claims = {"sub": "someone-else", "email": "x@example.com", "email_verified": True}
     r = _google_round_trip(client, "/settings/sign-in/google/confirm")
     assert "signin_error=reauth_mismatch" in r.headers["location"]
-    assert 'action="/settings/sign-in/password"' not in client.get("/settings").text
+    assert 'action="/settings/sign-in/password"' not in client.get("/settings/connections").text
 
 
 # ── Connect Google ───────────────────────────────────────────────────────────

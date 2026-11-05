@@ -264,7 +264,7 @@ def _finish_settings_flow(db: DbSession, request: Request, intent: str, claims):
         return RedirectResponse("/login", status_code=303)
 
     user = db.get(User, session.user_id)
-    home = "/settings" if session.role in ("owner", "admin") else "/settings/connections"
+    home = "/settings/connections"  # sign-in methods live on the You page, for every role
 
     def back(param: str, code: str) -> RedirectResponse:
         return RedirectResponse(f"{home}?{urlencode({param: code})}#sign-in", status_code=303)
@@ -335,7 +335,7 @@ def calendar_connect(request: Request, csrf_token: str = Form(""),
 
 def _calendar_home(role: str | None, *, notice: str | None = None,
                    error: str | None = None) -> str:
-    home = "/settings" if role in ("owner", "admin") else "/settings/connections"
+    home = "/settings/connections"  # the calendar lives on the You page, for every role
     query = urlencode({"calendar": notice} if notice else {"calendar_error": error})
     return f"{home}?{query}#calendar"
 

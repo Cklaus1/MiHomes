@@ -314,7 +314,7 @@ class TestMessengerConnections:
         """Refreshing the code page used to re-POST and mint a fresh code after linking."""
         client = web_client_as("owner")
         body = client.post("/settings/connections/telegram/code").text
-        assert 'history.replaceState(null, "", "/settings#connections")' in body
+        assert 'history.replaceState(null, "", "/settings/connections#connections")' in body
         assert 'hx-get="/settings/connections/telegram/status?known=0&amp;issued=' in body
         assert 'hx-trigger="every 3s"' in body
 
@@ -338,7 +338,7 @@ class TestMessengerConnections:
         assert "linked " in linked.text and "818181818" in linked.text
 
         # A normal reload after linking offers no new code, only a secondary "link another".
-        page = client.get("/settings").text
+        page = client.get("/settings/connections").text
         assert "Get a link code" not in page
         assert "Link another Telegram account" in page
 
@@ -1076,13 +1076,18 @@ class TestAccountFlowsUx:
         assert 'role="alert"' in response.text
 
     def test_danger_zone_is_owner_only_for_export_and_delete(self, web_client_as):
-        owner = web_client_as("owner").get("/settings").text
-        admin = web_client_as("admin").get("/settings").text
-        for page in (owner, admin):
-            assert 'id="danger-zone"' in page
-            assert 'action="/signout-all"' in page
-        assert 'action="/privacy/delete"' in owner and "/privacy/export" in owner
-        assert "/privacy/" not in admin
+        """Since the 2026-11-05 split: export and delete are the estate page's, owner only;
+        signing yourself out everywhere is on the You page, for every role."""
+        owner, admin = web_client_as("owner"), web_client_as("admin")
+        owner_estate = owner.get("/settings").text
+        admin_estate = admin.get("/settings").text
+        assert 'action="/privacy/delete"' in owner_estate and "/privacy/export" in owner_estate
+        assert "/privacy/" not in admin_estate and 'id="danger-zone"' not in admin_estate
+        assert 'action="/signout-all"' not in owner_estate
+        for client in (owner, admin):
+            you = client.get("/settings/connections").text
+            assert 'action="/signout-all"' in you
+            assert "/privacy/delete" not in you
 
     def test_delete_from_the_form_shows_the_pending_state_and_cancels(self, web_client_as):
         """A browser form post is redirected back here; JSON callers keep the JSON contract
@@ -1109,3 +1114,43 @@ class TestAccountFlowsUx:
         assert "Account name saved" in client.get(response.headers["location"]).text
         # Only mapped keys render; the query text itself never reaches the page.
         assert "INJECTED" not in client.get("/settings?notice=INJECTED").text
+
+
+class TestSettingsSplit:
+    """Settings is two pages since 2026-11-05: the estate's and yours (was one long page)."""
+
+    def test_owner_and_admin_get_tabs_and_each_page_holds_only_its_own_sections(self, web_client_as):
+        for role in ("owner", "admin"):
+            client = web_client_as(role)
+            estate = client.get("/settings")
+            assert estate.status_code == 200
+            assert 'aria-label="Settings pages"' in estate.text
+            assert 'href="/settings/connections"' in estate.text
+            for section in ('id="account"', 'id="preferences"', 'id="plan"', 'id="members"'):
+                assert section in estate.text, (role, section)
+            for personal in ('id="sign-in"', 'id="calendar"', 'id="profile"'):
+                assert personal not in estate.text, (role, personal)
+
+            you = client.get("/settings/connections")
+            assert you.status_code == 200, "owners and admins are no longer sent back to /settings"
+            for section in ('id="sign-in"', 'id="calendar"', 'id="profile"', 'id="connections"'):
+                assert section in you.text, (role, section)
+            assert 'id="members"' not in you.text
+
+    def test_staff_have_only_their_page_and_no_tabs(self, web_client_as):
+        staff = web_client_as("staff")
+        assert staff.get("/settings", follow_redirects=False).headers["location"] == "/settings/connections"
+        page = staff.get("/settings/connections").text
+        assert 'aria-label="Settings pages"' not in page and 'id="profile"' in page
+
+    def test_personal_saves_return_to_the_you_page(self, web_client_as):
+        import re
+
+        owner = web_client_as("owner")
+        page = owner.get("/settings/connections").text
+        email = re.search(r'name="email"[^>]*value="([^"]+)"|value="([^"]+)"[^>]*name="email"', page)
+        assert email, "the profile form shows the current email"
+        r = owner.post("/settings/profile",
+                       data={"name": "Owner Renamed", "email": email.group(1) or email.group(2)},
+                       follow_redirects=False)
+        assert r.status_code == 303 and r.headers["location"].startswith("/settings/connections")

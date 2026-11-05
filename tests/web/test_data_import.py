@@ -141,3 +141,73 @@ def test_unknown_columns_are_named_and_empty_files_explained(client):
 
 def test_settings_and_dashboard_link_to_import(client):
     assert 'href="/import/"' in client.get("/settings").text
+
+
+# ── Export (2026-11-05) ────────────────────────────────────────────────────────────────────
+
+
+def _export(client, entity_type):
+    r = client.get(f"/export/{entity_type}.csv")
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"].startswith("text/csv")
+    assert "attachment" in r.headers["content-disposition"]
+    return r.content.decode("utf-8")
+
+
+def test_export_uses_the_import_columns_and_names(client):
+    home = _home(client)
+    _apply(client, "task", f"title,property,priority,due_date\r\nOil the gate,{home.name},high,2026-12-01\r\n")
+    body = _export(client, "task")
+    assert body.startswith("﻿title,property,priority,due_date,assignee,repeat,category,"
+                           "description,estimated_hours,status\r\n")
+    assert f"Oil the gate,{home.name},high,2026-12-01,,once" in body
+    assert client.get("/export/nope.csv").status_code == 404
+
+
+def test_tasks_under_same_named_homes_export_the_home_slug(client):
+    """A home's own `name` column stays its name; a task's `property` reference uses the slug
+    when the name is shared, so re-importing files the task under the right home."""
+    from mihomes.services import task as task_svc
+
+    with client._SessionLocal() as s:
+        a = prop_svc.create_property(s, "Twin House")
+        b = prop_svc.create_property(s, "Twin House")
+        task_svc.create_task(s, "Sweep porch A", str(a.id))
+        task_svc.create_task(s, "Sweep porch B", str(b.id))
+        s.commit()
+        slug_a, slug_b = a.slug, b.slug
+    body = _export(client, "task")
+    assert f"Sweep porch A,{slug_a}," in body and f"Sweep porch B,{slug_b}," in body
+    assert body.count("Twin House") == 0
+
+
+def test_round_trip_reimports_as_already_there(client):
+    home = _home(client)
+    _apply(client, "issue", f"title,property,severity\r\nCracked tile,{home.name},low\r\n")
+    exported = _export(client, "issue").lstrip("﻿")
+    again = _apply(client, "issue", exported)
+    assert "<strong>0</strong> issues added" in again.text and "Ignored columns" not in again.text
+    assert "already there" in again.text
+
+
+def test_formulas_are_defused_on_the_way_out_and_restored_on_the_way_in(client):
+    home = _home(client)
+    hostile = '=HYPERLINK("http://evil.example","click")'
+    with client._SessionLocal() as s:
+        from mihomes.services import issue as issue_svc
+
+        issue_svc.create_issue(s, "Strange message", str(home.id), description=hostile)
+        s.commit()
+    body = _export(client, "issue")
+    assert "'=HYPERLINK" in body, "a cell starting with = must not run as a formula in Excel"
+
+    from mihomes.services.csv_io import _unguard
+
+    assert _unguard("'" + hostile) == hostile and _unguard("'plain") == "'plain"
+
+
+def test_list_pages_offer_export_to_owners(client):
+    for path, kind in (("/properties", "property"), ("/staff/", "staff"), ("/vendors/", "vendor"),
+                       ("/tasks/", "task"), ("/issues/", "issue")):
+        html = client.get(path, follow_redirects=True).text
+        assert f'href="/export/{kind}.csv"' in html, path

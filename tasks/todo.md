@@ -29,6 +29,12 @@ no way in. (`services/importer.py` is the SQLite migration tool, not a CSV impor
 - [x] **CLI** `mihomes csv import` uses the same engine, with the same return shape.
 - [x] **Tests:** `tests/web/test_data_import.py`, 10 multipart tests. The import page was added to
       `docs/UI_MANUAL_CHECKLIST.md`.
+- [x] **CSV export** (`web-csv-export`): an Export CSV button on Homes/Staff/Vendors/Tasks/Issues
+      (owner/admin), plus "Export your current …" on /import/.
+      - Same columns as the import, with homes and people by name (slug when the name is shared).
+      - UTF-8 BOM for Excel.
+      - Formula cells guarded with `'`, and the guard is undone on import.
+      - A round trip re-imports as "already there".
 - Not done:
   - assets, inventory and other types;
   - mapping columns by hand in the UI;
@@ -78,6 +84,12 @@ already used the estate zone. Only the CLI-only `services/calendar_sync.py` does
       Issues, since they are undated. Shows 8 rows, then "+N more".
 - [x] Tests: `tests/unit/test_today.py` (ranking, labels, exclusions) and a web test for the card.
       The CSS was rebuilt and re-stamped (`md:col-span-2` was not in `app.css`).
+- [x] **CSV export** (`web-csv-export`): an Export CSV button on Homes/Staff/Vendors/Tasks/Issues
+      (owner/admin), plus "Export your current …" on /import/.
+      - Same columns as the import, with homes and people by name (slug when the name is shared).
+      - UTF-8 BOM for Excel.
+      - Formula cells guarded with `'`, and the guard is undone on import.
+      - A round trip re-imports as "already there".
 - Not done:
   - Chat mentions and unread DMs (chat has its own badge).
   - Compliance items (contract and insurance expiries are still in Alerts).

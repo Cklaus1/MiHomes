@@ -349,7 +349,7 @@ def run_import(session: Session, entity_type: str, csv_text: str) -> ImportResul
                          f"{', '.join(IMPORT_COLUMNS)}")
     reader = _reader(csv_text)
     headers = {h: _header(h) for h in (reader.fieldnames or [])}
-    known = {c for c, _, _ in IMPORT_COLUMNS[entity_type]} | {"id", "slug"}
+    known = {c for c, _, _ in IMPORT_COLUMNS[entity_type]} | {"id", "slug"} | EXPORT_ONLY_COLUMNS
     result = ImportResult(entity_type, unknown_columns=sorted(
         h for h, key in headers.items() if h and key not in known))
 
@@ -357,7 +357,7 @@ def run_import(session: Session, entity_type: str, csv_text: str) -> ImportResul
         if row_no - 1 > MAX_IMPORT_ROWS:
             raise RowProblem(f"The file has more than {MAX_IMPORT_ROWS} rows. Split it into "
                              "smaller files.")
-        values = {headers.get(k, k): (val or "").strip() for k, val in raw.items() if k}
+        values = {headers.get(k, k): _unguard((val or "").strip()) for k, val in raw.items() if k}
         if not any(values.values()):
             continue  # a blank line at the end of a spreadsheet is not a row
         label = values.get("title") or values.get("name") or values.get("company_name") or "(blank)"
@@ -400,3 +400,98 @@ def _get_model(entity_type: str):
     from mihomes.models.task import Task
     from mihomes.models.vendor import Vendor
     return {"property": Property, "staff": Staff, "vendor": Vendor, "task": Task, "issue": Issue}[entity_type]
+
+
+# ── Spreadsheet export (2026-11-05): the import's own columns, so a file goes out and back ───
+#
+# `export_csv` above writes database ids (`property_id` as a UUID) for the CLI; a person opening
+# that in Excel cannot tell one home from another. This writes the import template's columns
+# with homes and people by **name**, falling back to the slug only where a name is shared, the
+# same rule the import resolves by. So export → edit → re-import works, and rows that already
+# exist are skipped on the way back in.
+
+#: Columns the export adds after the import ones, for reading only. The import ignores them
+#: without listing them as unknown, so a round-tripped file previews cleanly.
+EXPORT_ONLY_COLUMNS = {"status"}
+_EXPORT_EXTRA = {"task": ["status"], "issue": ["status"]}
+
+#: A cell starting with one of these is a formula to Excel and Sheets. Text that arrived from
+#: outside (a Telegram message turned into an issue) must not run as one, so it gets a leading
+#: apostrophe — the spreadsheet convention for "this is text", which spreadsheets hide.
+_FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _guard(value) -> str:
+    text = "" if value is None else str(value)
+    return "'" + text if text.startswith(_FORMULA_START) else text
+
+
+def _unguard(text: str) -> str:
+    """Undo `_guard` on the way back in, when the file was never opened in a spreadsheet."""
+    if len(text) > 1 and text[0] == "'" and text[1:].startswith(_FORMULA_START):
+        return text[1:]
+    return text
+
+
+def _labeller(session: Session, model, name_attr: str):
+    """`label(record)`: its name, or its slug when another record shares the name."""
+    from collections import Counter
+
+    counts = Counter((n or "").lower() for (n,) in session.query(getattr(model, name_attr)))
+
+    def label(record) -> str:
+        if record is None:
+            return ""
+        name = getattr(record, name_attr) or ""
+        return record.slug if counts[name.lower()] > 1 else name
+    return label
+
+
+def _value(v) -> str:
+    if v is None:
+        return ""
+    if hasattr(v, "value"):  # Enum
+        return v.value
+    if isinstance(v, (date, datetime)):
+        return v.isoformat()
+    if isinstance(v, list):
+        return "|".join(str(x) for x in v)
+    return str(v)
+
+
+def export_for_spreadsheet(session: Session, entity_type: str) -> str:
+    """Every record of `entity_type` the viewer can see, as a CSV the import accepts back."""
+    from mihomes.models.property import Property
+    from mihomes.models.staff import Staff
+
+    if entity_type not in IMPORT_COLUMNS:
+        raise ValueError(f"Export not supported for: {entity_type}")
+    columns = [c for c, _, _ in IMPORT_COLUMNS[entity_type]] + _EXPORT_EXTRA.get(entity_type, [])
+    home = _labeller(session, Property, "name")
+    person = _labeller(session, Staff, "name")
+    model = _get_model(entity_type)
+    query = session.query(model)
+    if entity_type == "task":
+        query = query.filter(model.archived_at.is_(None))
+    order = {"vendor": "company_name", "task": "title", "issue": "title"}.get(entity_type, "name")
+
+    def row(r) -> dict:
+        if entity_type == "task":
+            freq = r.schedule.frequency if r.schedule else None
+            return {"title": r.title, "property": home(r.property), "priority": r.priority,
+                    "due_date": r.due_date, "assignee": person(r.assignee),
+                    "repeat": freq or "once", "category": r.category,
+                    "description": r.description, "estimated_hours": r.estimated_hours,
+                    "status": r.status}
+        if entity_type == "issue":
+            return {"title": r.title, "property": home(r.property), "severity": r.severity,
+                    "description": r.description, "status": r.status}
+        return {c: getattr(r, c, None) for c in columns}
+
+    out = io.StringIO()
+    writer = csv.DictWriter(out, fieldnames=columns, lineterminator="\r\n")
+    writer.writeheader()
+    for record in query.order_by(getattr(model, order)):
+        values = row(record)
+        writer.writerow({c: _guard(_value(values.get(c))) for c in columns})
+    return out.getvalue()

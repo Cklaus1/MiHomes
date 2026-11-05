@@ -4,6 +4,7 @@
 {% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ properties|length }} propert{{ 'y' if properties|length == 1 else 'ies' }}</p>{% endblock %}
 
 {% block actions %}
+{% set export_type = 'property' %}{% include "partials/_export_csv.html" %}
 {# At the plan's home cap the button opens the upgrade choice instead of the form. It stays an
    `<a href="/properties/new">` so it still works without JS — that page shows the same choice. #}
 <a href="/properties/new" data-testid="add-property"

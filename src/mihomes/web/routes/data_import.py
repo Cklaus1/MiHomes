@@ -114,3 +114,28 @@ def import_apply(
         return _page(request, entity_type, error=str(exc))
     db.commit()
     return _page(request, entity_type, result=result, mode="done")
+
+
+# ── Export as a spreadsheet (2026-11-05) ──────────────────────────────────────────────────
+#
+# The other half of the import: the same columns, so a file can go out, be edited in Excel and
+# come back. Before this the only web export was the owner's full-account JSON (`/privacy/
+# export`), which no one opens in a spreadsheet. What it contains is what the viewer can see:
+# RLS and the property scope apply to the query like any other page.
+
+export_router = APIRouter()
+
+
+@export_router.get("/{entity_type}.csv")
+@declares(IMPORT_ACTION, Access.ACCOUNT)
+def export_spreadsheet(entity_type: str, db: Session = Depends(get_db)):
+    from mihomes.services.localtime import today
+
+    if entity_type not in csv_io.IMPORT_COLUMNS:
+        return Response("Unknown export type.", status_code=404, media_type="text/plain")
+    name = f"mihomes-{csv_io.LABELS[entity_type]}-{today().isoformat()}.csv"
+    # A UTF-8 BOM first: without it Excel reads the file as Windows-1252 and "José" turns to mojibake.
+    return Response(
+        "﻿" + csv_io.export_for_spreadsheet(db, entity_type), media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )

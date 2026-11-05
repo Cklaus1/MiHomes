@@ -1,0 +1,10 @@
+{# Export CSV button for a list page. Set `export_type` (property, staff, vendor, task, issue)
+   before including. Owner/admin only, matching the route's `export.data` permission;
+   `viewer_role` is added to every template context by `RedactingTemplates` (web/deps.py). #}
+{% if viewer_role in ('owner', 'admin') %}
+<a href="/export/{{ export_type }}.csv" download data-testid="export-csv"
+   class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors">
+  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
+  Export CSV
+</a>
+{% endif %}

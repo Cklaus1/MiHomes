@@ -107,7 +107,10 @@
       </div>
       {% endfor %}
     </dl>
-    <a href="/import/template/{{ entity_type }}.csv" download class="{{ btn2 }} mt-4">Download template</a>
+    <div class="mt-4 flex flex-wrap gap-2">
+      <a href="/import/template/{{ entity_type }}.csv" download class="{{ btn2 }}">Download template</a>
+      <a href="/export/{{ entity_type }}.csv" download class="{{ btn2 }}">Export your current {{ types[entity_type] }}</a>
+    </div>
   </section>
 
   <section class="{{ card }} p-5" aria-labelledby="upload-heading">

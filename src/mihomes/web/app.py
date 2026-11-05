@@ -235,6 +235,7 @@ def create_app() -> FastAPI:
     app.include_router(library_route.router, prefix="/library")
     app.include_router(playbooks_route.router, prefix="/playbooks")
     app.include_router(data_import.router, prefix="/import")
+    app.include_router(data_import.export_router, prefix="/export")
     app.include_router(conversations.router, prefix="/conversations")
     app.include_router(chat.router, prefix="/chat")
     # SPEC-014 D12: root-scoped service worker + manifest, permanently undeclared (fixed bytes).

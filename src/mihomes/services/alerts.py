@@ -265,3 +265,39 @@ def acknowledge_alert(session: Session, alert_id: int) -> Alert:
     alert.status = AlertStatus.ACKNOWLEDGED
     session.flush()
     return alert
+
+
+def source_links(session: Session, alerts: list[Alert]) -> dict:
+    """alert id → the page that opens the thing the alert is about (2026-11-05).
+
+    Dashboard and Alerts rows used to link to /alerts/, the list the person was already on or one
+    click from. Missing here (an insurance policy has no page; the record was deleted) means no
+    link, and the caller falls back to the Alerts page.
+    """
+    from mihomes.models.asset import Asset
+    from mihomes.models.consumable import Consumable
+    from mihomes.models.contract import Contract
+
+    def url(alert: Alert) -> str | None:
+        kind, sid = alert.source_entity_type, alert.source_entity_id
+        if sid is None:
+            return None
+        if kind == "task":
+            return f"/tasks/?open={sid}"
+        if kind == "issue":
+            return f"/issues/?open={sid}"
+        if kind == "consumable":
+            item = session.get(Consumable, sid)
+            return f"/inventory/?open={item.slug}" if item else None
+        if kind == "contract":
+            contract = session.get(Contract, sid)  # contracts live on their vendor's record
+            return f"/vendors/?open={contract.vendor_id}" if contract and contract.vendor_id else None
+        if kind == "asset":
+            asset = session.get(Asset, sid)
+            if asset is None or asset.property is None:
+                return None
+            room = asset.space.slug if asset.space else "unassigned"
+            return f"/assets/{asset.property.slug}/{room}?open=asset-{asset.id}"
+        return None
+
+    return {a.id: url(a) for a in alerts}

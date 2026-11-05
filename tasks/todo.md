@@ -1,5 +1,21 @@
 # MiHomes — Project State & Next Actions
 
+## Links that open the record (2026-11-05, branch `record-links`)
+- [x] **Calendar.** `/calendar/?open=appt-<id>` or `event-<id>` shows that item's month and opens
+      its window. Bad or deleted ids are ignored.
+      - The Today list's appointment and event rows link there, not to the month.
+      - Search event results link there too.
+- [x] **Alerts link to their source**, on the dashboard and on the Alerts page
+      (`alert_svc.source_links`):
+      - issue → the issue;
+      - low stock → `/inventory/?open=<slug>`, which scrolls to and highlights the row;
+      - contract → its vendor's record;
+      - warranty → the asset in its room.
+      Insurance has no page, so those alerts stay plain text, and the dashboard row falls back
+      to /alerts/.
+- [x] "Snoozed until" now shows in the estate zone (it was missed in the time-zone pass).
+- [x] Tests: `tests/web/test_record_links.py` (4). Unit + web: 2300 passed.
+
 ## Naming cleanup (2026-11-05, branch `naming-cleanup`)
 - [x] Sidebar: "Templates" → **Task templates** (beside Playbooks and Playbook templates);
       "Rooms" → **Rooms & assets** (what the page holds; search calls them Assets).

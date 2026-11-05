@@ -107,6 +107,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             "open_issues": open_issues[:5],
             "open_issue_count": len(open_issues),
             "alerts": all_alerts[:5],
+            "alert_links": alert_svc.source_links(db, all_alerts[:5]),
             "total_alerts": len(all_alerts),
             "active_work_orders": active_work_orders,
             "open_wo_count": open_wo_count,

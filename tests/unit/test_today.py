@@ -85,7 +85,7 @@ def test_multi_day_event_shows_which_day(session, prop):
     session.flush()
     (item,) = today_items(session, TODAY, user_id=None, include_unassigned=True)
     assert (item.kind, item.space, item.when) == ("event", "Presence", "Day 2 of 3")
-    assert item.link == f"/calendar/?month={TODAY:%Y-%m}"
+    assert item.link.startswith("/calendar/?open=event-")
 
 
 # ── Only the viewer's tasks (2026-11-04) ─────────────────────────────────────

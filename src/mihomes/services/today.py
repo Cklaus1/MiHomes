@@ -89,9 +89,6 @@ def _task_item(task: Task, today: date) -> TodayItem:
     )
 
 
-def _calendar_link(day: date) -> str:
-    return f"/calendar/?month={day:%Y-%m}"
-
 
 def today_items(
     session: Session,
@@ -116,7 +113,7 @@ def today_items(
         items.append(TodayItem(
             kind="appointment", title=appt.title,
             property_name=appt.property.name if appt.property else None,
-            link=_calendar_link(today), space=label,
+            link=f"/calendar/?open=appt-{appt.id}", space=label,
             when=f"Today {at:%H:%M}" if at else "Today", late=False,
             _sort=(rank, 0, 9, at or time.max, appt.title),
         ))
@@ -133,7 +130,7 @@ def today_items(
         items.append(TodayItem(
             kind="event", title=event.title,
             property_name=event.property.name if event.property else None,
-            link=_calendar_link(today), space=label, when=when, late=False,
+            link=f"/calendar/?open=event-{event.id}", space=label, when=when, late=False,
             _sort=(rank, 0, 9, time.min, event.title),
         ))
 

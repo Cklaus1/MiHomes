@@ -43,7 +43,7 @@ ENTITY_URLS = {
     "space": "/assets/{property_slug}/{slug}",
     "workorder": "/work-orders/?open={id}",
     "document": "/documents/?open={slug}",
-    "event": "/calendar/",
+    "event": "/calendar/?open=event-{id}",
     "contract": None,
     "guest": None,
 }

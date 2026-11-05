@@ -489,6 +489,9 @@
 </div>
 
 
+{# One-shot instruction from the server: open an appointment or event (?open=appt-<id>). #}
+<div id="calendar-page" hidden {% if open_modal %}data-open-modal="{{ open_modal }}"{% endif %}></div>
+
 <script>
 function openAddModal(dateStr) {
   if (dateStr) document.getElementById('add-appt-date').value = dateStr;
@@ -517,6 +520,21 @@ if (!window.__mhCalDayClick) {
     openAddModal(cell.dataset.calDay);
   });
 }
+/* Open the item a link asked for, once, then drop ?open= so a refresh or a later month swap
+   does not reopen it. The marker is consumed, because this script re-runs on body swaps. */
+(function () {
+  var marker = document.getElementById('calendar-page');
+  var id = marker && marker.dataset.openModal;
+  if (!id) return;
+  delete marker.dataset.openModal;
+  if (document.getElementById(id)) openModal(id);
+  var params = new URLSearchParams(location.search);
+  if (params.has('open')) {
+    params.delete('open');
+    var qs = params.toString();
+    history.replaceState(null, '', location.pathname + (qs ? '?' + qs : ''));
+  }
+})();
 </script>
 
 {% endblock %}

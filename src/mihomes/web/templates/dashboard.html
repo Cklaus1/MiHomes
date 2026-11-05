@@ -228,7 +228,7 @@
     <ul class="divide-y divide-gray-50">
       {% for alert in alerts %}
       <li>
-        <a href="/alerts/" class="flex items-start gap-3 px-5 py-3 hover:bg-gray-50 transition-colors">
+        <a href="{{ alert_links.get(alert.id) or '/alerts/' }}" class="flex items-start gap-3 px-5 py-3 hover:bg-gray-50 transition-colors">
           {{ severity_dot(alert.severity.value) }}
           <div class="min-w-0">
             <div class="text-sm text-gray-800">{{ alert.message }}</div>

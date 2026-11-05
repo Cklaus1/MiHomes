@@ -28,7 +28,8 @@ def _list_response(request: Request, db: Session, message: str):
     response = templates.TemplateResponse(
         request,
         "partials/alert_list.html",
-        {"alerts": alerts, "oob_count": True},
+        {"alerts": alerts, "oob_count": True,
+         "alert_links": alert_svc.source_links(db, alerts)},
     )
     response.headers["HX-Trigger"] = json.dumps(
         {"toast": {"message": message, "kind": "success"}, "alerts-changed": True}
@@ -54,6 +55,7 @@ def list_alerts(request: Request, db: Session = Depends(get_db)):
             "high": high,
             "medium": medium,
             "low": low,
+            "alert_links": alert_svc.source_links(db, alerts),
         },
     )
 

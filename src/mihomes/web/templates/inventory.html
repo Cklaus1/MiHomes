@@ -636,6 +636,24 @@
     var qs = params.toString();
     history.replaceState(null, '', location.pathname + (qs ? '?' + qs : ''));
   }
+
+  // ?open=<item slug> (from a low-stock alert): bring that item's row into view and mark it,
+  // then drop the parameter so a refresh does not jump again. Items open through their row's
+  // buttons, so the row itself is the record.
+  var openSlug = params.get('open');
+  if (openSlug) {
+    var btn = Array.prototype.find.call(document.querySelectorAll('[data-inv-action][data-slug]'),
+                                        function (b) { return b.dataset.slug === openSlug; });
+    var row = btn && btn.closest('tr');
+    if (row) {
+      row.classList.add('ring-2', 'ring-brand-500', 'bg-brand-50');
+      row.setAttribute('aria-current', 'true');
+      row.scrollIntoView({block: 'center'});
+    }
+    params.delete('open');
+    var rest = params.toString();
+    history.replaceState(null, '', location.pathname + (rest ? '?' + rest : ''));
+  }
 })();
 </script>
 {% endblock %}

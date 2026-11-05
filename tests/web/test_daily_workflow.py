@@ -312,7 +312,7 @@ def test_dashboard_today_card_lists_todays_appointment_and_overdue_task(client):
     assert html.index("Pool tech") < html.index("Service boiler"), "Presence ranks above Economy"
     assert "3 days overdue" in html
     assert f'href="/tasks/?open={tid}"' in html
-    assert f'href="/calendar/?month={today:%Y-%m}"' in html
+    assert 'href="/calendar/?open=appt-' in html, "the appointment opens itself, not the month"
     assert ">Overdue Tasks</h2>" not in html, "the old card would list the task a second time"
 
 

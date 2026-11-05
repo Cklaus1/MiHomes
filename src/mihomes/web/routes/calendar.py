@@ -157,16 +157,43 @@ def calendar_view(
     request: Request,
     month: str | None = None,
     property_id: str | None = None,
+    open: str | None = None,
     db: Session = Depends(get_db),
 ):
+    target = _open_target(db, open)
     if month:
         try:
             month_date = date.fromisoformat(month + "-01")
         except ValueError:
             month_date = local_today().replace(day=1)
+    elif target:
+        month_date = target[1].replace(day=1)  # the item's own month, so its window exists
     else:
         month_date = local_today().replace(day=1)
-    return templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date, property_id))
+    ctx = _ctx(db, month_date, property_id)
+    ctx["open_modal"] = target[0] if target else None
+    return templates.TemplateResponse(request, "calendar.html", ctx)
+
+
+def _open_target(db: Session, raw: str | None) -> tuple[str, date] | None:
+    """`?open=appt-<id>` / `event-<id>` → (the item's modal id, its date), so a link from the
+    dashboard's Today list or from search opens that appointment rather than the month view
+    (2026-11-05). Anything else — a bad id, a deleted or out-of-scope item — is ignored."""
+    from mihomes.models.appointment import Appointment
+    from mihomes.models.event import Event
+
+    kind, _, raw_id = (raw or "").partition("-")
+    model = {"appt": Appointment, "event": Event}.get(kind)
+    if model is None:
+        return None
+    try:
+        item = db.get(model, UUID(raw_id))
+    except ValueError:
+        return None
+    if item is None:
+        return None
+    when = item.date if kind == "appt" else item.event_date
+    return f"{kind}-modal-{item.id}", when
 
 
 @router.post("/appointments/", response_class=HTMLResponse)

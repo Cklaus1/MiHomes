@@ -1,5 +1,24 @@
 # MiHomes — Project State & Next Actions
 
+## Asset and inventory import/export (2026-11-05, branch `import-assets-inventory`)
+- [x] **Assets.** Columns: name*, property*, room, asset_type, make, model, serial_number,
+      condition, purchase_date, purchase_price, warranty_expires, notes.
+      - A room that doesn't exist yet is created, and the preview says "New room “X”".
+      - With a room given, an asset is matched by name + room, because smoke detectors repeat.
+- [x] **Inventory.** Columns: name*, property*, category, unit, quantity, par_level,
+      low_stock_threshold, notes.
+      - Updates go through `update_consumable`, `update_stock` and
+        `update_consumable_settings`, so the low/OK status is recomputed.
+      - Found while testing: `update_stock` finds by name and *creates* on no match, so passing
+        the slug made a second item. It's now passed the name.
+- [x] Export CSV on Rooms & assets and on Inventory. Inactive assets are not exported.
+- [x] Import page:
+      - Created rows show their note.
+      - Enum errors say "a" or "an" correctly.
+      - Download filenames are hyphenated.
+      - The assets index heading is "Rooms & assets", matching the sidebar.
+- [x] Tests: `tests/web/test_import_assets_inventory.py` (7). Unit, web and CLI CSV: 2309 passed.
+
 ## Settings split in two (2026-11-05, branch `settings-split`)
 - [x] **Estate** (`/settings`, owner/admin): Account (+ import), Preferences, estate
       Notifications, Plan & billing, Members, and a Danger zone (export/delete, owner only).

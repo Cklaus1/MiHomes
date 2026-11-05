@@ -132,6 +132,31 @@ IMPORT_COLUMNS: dict[str, list[tuple[str, bool, str]]] = {
         ("severity", False, "critical, high, medium, low"),
         ("description", False, ""),
     ],
+    # 2026-11-05: the two lists an estate most often already keeps in a spreadsheet.
+    "asset": [
+        ("name", True, "What it is, e.g. Sub-Zero fridge"),
+        ("property", True, "Property name or slug"),
+        ("room", False, "Room name; a room that doesn't exist yet is created (the preview says so)"),
+        ("asset_type", False, "appliance, vehicle, valuable, consumable, equipment (default equipment)"),
+        ("make", False, ""),
+        ("model", False, ""),
+        ("serial_number", False, ""),
+        ("condition", False, "excellent, good, fair, poor"),
+        ("purchase_date", False, "2024-05-01 or 5/1/2024"),
+        ("purchase_price", False, "Number, e.g. 1299.99"),
+        ("warranty_expires", False, "Date; you'll get an alert 30 days before"),
+        ("notes", False, ""),
+    ],
+    "inventory": [
+        ("name", True, "Item, e.g. Paper towels"),
+        ("property", True, "Property name or slug"),
+        ("category", False, "e.g. cleaning, kitchen, bathroom"),
+        ("unit", False, "e.g. rolls, boxes, bottles"),
+        ("quantity", False, "How many you have now"),
+        ("par_level", False, "How many you like to keep"),
+        ("low_stock_threshold", False, "Alert when stock falls to this"),
+        ("notes", False, ""),
+    ],
 }
 
 #: Other headers accepted for a column: our own export's names, and common spreadsheet wording.
@@ -140,12 +165,16 @@ _ALIASES = {
     "assigned_to": "assignee", "due": "due_date", "frequency": "repeat",
     "recurrence_frequency": "repeat", "company": "company_name", "contact": "contact_name",
     "categories": "service_categories", "type": "property_type",
+    "space": "room", "location": "room", "model_name": "model", "serial": "serial_number",
+    "warranty": "warranty_expires", "warranty_expiry": "warranty_expires", "price": "purchase_price",
+    "qty": "quantity", "quantity_in_stock": "quantity", "in_stock": "quantity", "par": "par_level",
+    "threshold": "low_stock_threshold", "type_of_asset": "asset_type",
 }
 
 LABELS = {"property": "properties", "staff": "staff", "vendor": "vendors", "task": "tasks",
-          "issue": "issues"}
+          "issue": "issues", "asset": "assets", "inventory": "inventory items"}
 LIST_PAGES = {"property": "/properties/", "staff": "/staff/", "vendor": "/vendors/",
-              "task": "/tasks/", "issue": "/issues/"}
+              "task": "/tasks/", "issue": "/issues/", "asset": "/assets/", "inventory": "/inventory/"}
 
 
 class RowProblem(ValueError):
@@ -211,7 +240,8 @@ def _enum(enum_cls, raw: str | None, default, what: str):
         if member.value == key or member.name.lower().replace("_", "-") == key:
             return member
     allowed = ", ".join(m.value for m in enum_cls)
-    raise RowProblem(f"“{raw}” isn't a {what}. Use one of: {allowed}.")
+    article = "an" if what[:1] in "aeiou" else "a"
+    raise RowProblem(f"“{raw}” isn't {article} {what}. Use one of: {allowed}.")
 
 
 _DATE_FORMATS = ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y", "%d %b %Y", "%b %d, %Y", "%B %d, %Y")
@@ -264,6 +294,23 @@ def _existing(session: Session, entity_type: str, v: dict, prop=None) -> list:
         return session.query(model).filter(
             func.lower(model.title) == v["title"].lower(), model.property_id == prop.id
         ).all()
+    if entity_type in ("asset", "inventory"):  # by name within its property
+        query = session.query(model).filter(
+            func.lower(model.name) == v["name"].lower(), model.property_id == prop.id
+        )
+        if entity_type == "asset" and v.get("room"):
+            # A house has a smoke detector in the kitchen *and* one in the hall: with a room
+            # given, the room is part of what the row names. An unknown room means a new asset.
+            from mihomes.models.space import Space
+
+            text = v["room"].strip()
+            room_ids = [r.id for r in session.query(Space).filter(
+                Space.property_id == prop.id,
+                (func.lower(Space.name) == text.lower()) | (Space.slug == text))]
+            if not room_ids:
+                return []
+            query = query.filter(model.space_id.in_(room_ids))
+        return query.all()
     name_attr = "company_name" if entity_type == "vendor" else "name"
     return session.query(model).filter(
         func.lower(getattr(model, name_attr)) == v[name_attr].lower()
@@ -295,7 +342,7 @@ def _import_row(session: Session, entity_type: str, v: dict) -> tuple[str, str]:
 
         create_property(
             session, v["name"], address=v.get("address"),
-            property_type=_enum(PropertyType, v.get("property_type"), PropertyType.OTHER, "home type"),
+            property_type=_enum(PropertyType, v.get("property_type"), PropertyType.OTHER, "property type"),
             climate_zone=v.get("climate_zone"), currency=v.get("currency") or None,
         )
     elif entity_type == "staff":
@@ -338,12 +385,67 @@ def _import_row(session: Session, entity_type: str, v: dict) -> tuple[str, str]:
         create_issue(session, v["title"], str(prop.id),
                      severity=_enum(IssueSeverity, v.get("severity"), IssueSeverity.MEDIUM, "severity"),
                      description=v.get("description"))
+    elif entity_type == "asset":
+        from mihomes.models.asset import AssetType
+        from mihomes.services.asset import create_asset
+
+        room, note = _room(session, prop, v.get("room"))
+        fields = _wanted(session, entity_type, v, prop=prop, room=room)
+        fields.pop("space_id", None)
+        create_asset(
+            session, v["name"], fields.pop("asset_type", AssetType.EQUIPMENT), str(prop.id),
+            space_id_or_slug=str(room.id) if room else None, **fields,
+        )
+        return "created", label, note
+    elif entity_type == "inventory":
+        from mihomes.services.consumable import create_consumable
+
+        fields = _wanted(session, entity_type, v)
+        create_consumable(
+            session, v["name"], str(prop.id), unit=fields.get("unit"),
+            category=fields.get("category"), par_level=fields.get("par_level"),
+            quantity_in_stock=fields.get("quantity_in_stock"),
+            low_stock_threshold=fields.get("low_stock_threshold"), notes=fields.get("notes"),
+        )
     else:  # pragma: no cover - callers check the type
         raise ValueError(f"Import not supported for: {entity_type}")
     return "created", label, ""
 
 
-def _wanted(session: Session, entity_type: str, v: dict) -> dict:
+def _number(raw: str | None, what: str) -> float | None:
+    if not raw:
+        return None
+    text = raw.replace(",", "").replace("$", "").replace("€", "").replace("£", "").strip()
+    try:
+        return float(text)
+    except ValueError:
+        raise RowProblem(f"“{raw}” isn't a number for {what}.") from None
+
+
+def _room(session: Session, prop, raw: str | None):
+    """The room called `raw` in `prop`, created when there is none (and the row says so, so the
+    preview shows a typo before it becomes a room). Two rooms with the name is the row's error."""
+    from sqlalchemy import func
+
+    from mihomes.models.space import Space
+    from mihomes.services.space import create_space
+
+    if not raw:
+        return None, ""
+    text = raw.strip()
+    rooms = session.query(Space).filter(
+        Space.property_id == prop.id,
+        (func.lower(Space.name) == text.lower()) | (Space.slug == text),
+    ).all()
+    if len(rooms) > 1:
+        raise RowProblem(f"{len(rooms)} rooms in {prop.name} are called “{text}”. Use the slug instead: "
+                         f"{', '.join(r.slug for r in rooms)}.")
+    if rooms:
+        return rooms[0], ""
+    return create_space(session, text, str(prop.id)), f"New room “{text}”"
+
+
+def _wanted(session: Session, entity_type: str, v: dict, *, prop=None, room=None) -> dict:
     """Attribute → new value, for every **filled** cell an existing record can take. A blank
     cell means "leave it as it is", so a sheet with only a few columns cannot wipe the rest."""
     from mihomes.models.issue import IssueSeverity
@@ -359,7 +461,7 @@ def _wanted(session: Session, entity_type: str, v: dict) -> dict:
         out = {"address": given("address"), "climate_zone": given("climate_zone"),
                "currency": (given("currency") or "").upper() or None}
         if given("property_type"):
-            out["property_type"] = _enum(PropertyType, v["property_type"], None, "home type")
+            out["property_type"] = _enum(PropertyType, v["property_type"], None, "property type")
     elif entity_type == "staff":
         out = {"phone": given("phone"), "email": given("email")}
         if given("role"):
@@ -392,6 +494,25 @@ def _wanted(session: Session, entity_type: str, v: dict) -> dict:
         out = {"description": given("description")}
         if given("severity"):
             out["severity"] = _enum(IssueSeverity, v["severity"], None, "severity")
+    elif entity_type == "asset":
+        from mihomes.models.asset import AssetCondition, AssetType
+
+        out = {"make": given("make"), "model_name": given("model"),
+               "serial_number": given("serial_number"), "notes": given("notes"),
+               "purchase_date": _date(given("purchase_date")),
+               "purchase_price": _number(given("purchase_price"), "purchase_price"),
+               "warranty_expires": _date(given("warranty_expires"))}
+        if given("asset_type"):
+            out["asset_type"] = _enum(AssetType, v["asset_type"], None, "asset type")
+        if given("condition"):
+            out["condition"] = _enum(AssetCondition, v["condition"], None, "condition")
+        if room is not None:
+            out["space_id"] = room.id
+    elif entity_type == "inventory":
+        out = {"category": given("category"), "unit": given("unit"), "notes": given("notes"),
+               "quantity_in_stock": _number(given("quantity"), "quantity"),
+               "par_level": _number(given("par_level"), "par_level"),
+               "low_stock_threshold": _number(given("low_stock_threshold"), "low_stock_threshold")}
     return {k: val for k, val in out.items() if val is not None}
 
 
@@ -404,7 +525,19 @@ def _shown(session: Session, attr: str, value) -> str:
 
         person = session.get(Staff, value)
         return person.name if person else "—"
+    if attr == "space_id":
+        from mihomes.models.space import Space
+
+        room = session.get(Space, value)
+        return room.name if room else "—"
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
     return _value(value)
+
+
+#: How a changed attribute is named in the preview: the column the person wrote, not the field.
+_CHANGE_NAMES = {"assignee_id": "assignee", "space_id": "room", "model_name": "model",
+                 "quantity_in_stock": "quantity"}
 
 
 def _update_row(session: Session, entity_type: str, record, v: dict, label: str):
@@ -420,7 +553,11 @@ def _update_row(session: Session, entity_type: str, record, v: dict, label: str)
     from mihomes.services import task as task_svc
     from mihomes.services import vendor as vendor_svc
 
-    wanted = _wanted(session, entity_type, v)
+    room_note = ""
+    room = None
+    if entity_type == "asset":
+        room, room_note = _room(session, record.property, v.get("room"))
+    wanted = _wanted(session, entity_type, v, room=room)
     repeat = wanted.pop("repeat", None)
     current_repeat = None
     if entity_type == "task":
@@ -428,21 +565,54 @@ def _update_row(session: Session, entity_type: str, record, v: dict, label: str)
     repeat_changes = repeat is not None and repeat != current_repeat
 
     changes = {attr: new for attr, new in wanted.items() if getattr(record, attr) != new}
-    notes = [f"{attr.removesuffix('_id')}: {_shown(session, attr, getattr(record, attr))} → "
+    notes = [f"{_CHANGE_NAMES.get(attr, attr)}: {_shown(session, attr, getattr(record, attr))} → "
              f"{_shown(session, attr, new)}" for attr, new in changes.items()]
+    if room_note:
+        notes.append(room_note)
     if repeat_changes:
         notes.append(f"repeat: {current_repeat.value} → {repeat.value}")
     if not notes:
         return "exists", label, "No changes"
 
+    if entity_type == "inventory":
+        _update_inventory(session, record, changes)
+        return "updated", label, "; ".join(notes)
+
+    from mihomes.services import asset as asset_svc
+
     update = {"property": prop_svc.update_property, "staff": staff_svc.update_staff,
               "vendor": vendor_svc.update_vendor, "task": task_svc.update_task,
-              "issue": issue_svc.update_issue}[entity_type]
+              "issue": issue_svc.update_issue, "asset": asset_svc.update_asset}[entity_type]
     if changes:
         update(session, str(record.id), **changes)
     if repeat_changes:
         task_svc.set_task_frequency(session, str(record.id), repeat)
     return "updated", label, "; ".join(notes)
+
+
+def _update_inventory(session: Session, item, changes: dict) -> None:
+    """Inventory has three update paths, and the stock status must be recomputed by them:
+    details (category, unit), stock (quantity), and settings (par level, low-stock threshold).
+    Each is passed the current value for whatever the row left blank."""
+    from mihomes.services import consumable as consumable_svc
+
+    if "category" in changes or "unit" in changes:
+        consumable_svc.update_consumable(
+            session, item.slug, name=item.name,
+            category=changes.get("category", item.category), unit=changes.get("unit", item.unit))
+    if "quantity_in_stock" in changes:
+        # By name: `update_stock` finds the item by name within the property and *creates* one
+        # when nothing matches, so passing the slug silently made a second item called it.
+        consumable_svc.update_stock(session, item.name, str(item.property_id),
+                                    quantity_in_stock=changes["quantity_in_stock"])
+    if "par_level" in changes or "low_stock_threshold" in changes:
+        consumable_svc.update_consumable_settings(
+            session, item.slug,
+            par_level=changes.get("par_level", item.par_level),
+            low_stock_threshold=changes.get("low_stock_threshold", item.low_stock_threshold))
+    if "notes" in changes:
+        item.notes = changes["notes"]
+    session.flush()
 
 
 def run_import(session: Session, entity_type: str, csv_text: str) -> ImportResult:
@@ -502,12 +672,15 @@ def import_csv(session: Session, entity_type: str, csv_text: str) -> dict:
 
 
 def _get_model(entity_type: str):
+    from mihomes.models.asset import Asset
+    from mihomes.models.consumable import Consumable
     from mihomes.models.issue import Issue
     from mihomes.models.property import Property
     from mihomes.models.staff import Staff
     from mihomes.models.task import Task
     from mihomes.models.vendor import Vendor
-    return {"property": Property, "staff": Staff, "vendor": Vendor, "task": Task, "issue": Issue}[entity_type]
+    return {"property": Property, "staff": Staff, "vendor": Vendor, "task": Task, "issue": Issue,
+            "asset": Asset, "inventory": Consumable}[entity_type]
 
 
 # ── Spreadsheet export (2026-11-05): the import's own columns, so a file goes out and back ───
@@ -581,6 +754,8 @@ def export_for_spreadsheet(session: Session, entity_type: str) -> str:
     query = session.query(model)
     if entity_type == "task":
         query = query.filter(model.archived_at.is_(None))
+    if entity_type == "asset":
+        query = query.filter(model.active.is_(True))
     order = {"vendor": "company_name", "task": "title", "issue": "title"}.get(entity_type, "name")
 
     def row(r) -> dict:
@@ -594,6 +769,17 @@ def export_for_spreadsheet(session: Session, entity_type: str) -> str:
         if entity_type == "issue":
             return {"title": r.title, "property": home(r.property), "severity": r.severity,
                     "description": r.description, "status": r.status}
+        if entity_type == "asset":
+            return {"name": r.name, "property": home(r.property),
+                    "room": r.space.name if r.space else "", "asset_type": r.asset_type,
+                    "make": r.make, "model": r.model_name, "serial_number": r.serial_number,
+                    "condition": r.condition, "purchase_date": r.purchase_date,
+                    "purchase_price": r.purchase_price, "warranty_expires": r.warranty_expires,
+                    "notes": r.notes}
+        if entity_type == "inventory":
+            return {"name": r.name, "property": home(r.property), "category": r.category,
+                    "unit": r.unit, "quantity": r.quantity_in_stock, "par_level": r.par_level,
+                    "low_stock_threshold": r.low_stock_threshold, "notes": r.notes}
         return {c: getattr(r, c, None) for c in columns}
 
     out = io.StringIO()

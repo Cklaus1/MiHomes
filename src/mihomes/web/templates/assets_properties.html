@@ -1,9 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Rooms — MiHomes{% endblock %}
-{% block heading %}Rooms{% endblock %}
+{% block title %}Rooms & assets — MiHomes{% endblock %}
+{% block heading %}Rooms & assets{% endblock %}
 {% block subheading %}<p class="text-sm text-gray-500 mt-0.5">Select a property to browse its rooms</p>{% endblock %}
 
 {% block actions %}
+{% set export_type = 'asset' %}{% include "partials/_export_csv.html" %}
 {% if properties %}
 <button type="button" onclick="openModal('add-room-modal')"
         class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">

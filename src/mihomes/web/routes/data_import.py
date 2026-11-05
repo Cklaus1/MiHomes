@@ -65,7 +65,7 @@ def import_page(request: Request, type: str = "task"):
 def import_template(entity_type: str):
     if entity_type not in csv_io.IMPORT_COLUMNS:
         return Response("Unknown import type.", status_code=404, media_type="text/plain")
-    name = csv_io.LABELS[entity_type]
+    name = csv_io.LABELS[entity_type].replace(" ", "-")
     return Response(
         csv_io.import_template(entity_type), media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="mihomes-{name}-template.csv"'},
@@ -133,7 +133,7 @@ def export_spreadsheet(entity_type: str, db: Session = Depends(get_db)):
 
     if entity_type not in csv_io.IMPORT_COLUMNS:
         return Response("Unknown export type.", status_code=404, media_type="text/plain")
-    name = f"mihomes-{csv_io.LABELS[entity_type]}-{today().isoformat()}.csv"
+    name = f"mihomes-{csv_io.LABELS[entity_type].replace(' ', '-')}-{today().isoformat()}.csv"
     # A UTF-8 BOM first: without it Excel reads the file as Windows-1252 and "José" turns to mojibake.
     return Response(
         "﻿" + csv_io.export_for_spreadsheet(db, entity_type), media_type="text/csv; charset=utf-8",

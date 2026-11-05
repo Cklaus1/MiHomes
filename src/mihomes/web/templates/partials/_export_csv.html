@@ -1,4 +1,4 @@
-{# Export CSV button for a list page. Set `export_type` (property, staff, vendor, task, issue)
+{# Export CSV button for a list page. Set `export_type` (property, staff, vendor, task, issue, asset, inventory)
    before including. Owner/admin only, matching the route's `export.data` permission;
    `viewer_role` is added to every template context by `RedactingTemplates` (web/deps.py). #}
 {% if viewer_role in ('owner', 'admin') %}

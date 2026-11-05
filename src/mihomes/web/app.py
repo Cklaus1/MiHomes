@@ -24,6 +24,7 @@ from mihomes.web.routes import (
     chat,
     conversations,
     dashboard,
+    data_import,
     documents,
     documents_download,  # noqa: E402
     issues,
@@ -233,6 +234,7 @@ def create_app() -> FastAPI:
     app.include_router(weather_route.router, prefix="/weather")
     app.include_router(library_route.router, prefix="/library")
     app.include_router(playbooks_route.router, prefix="/playbooks")
+    app.include_router(data_import.router, prefix="/import")
     app.include_router(conversations.router, prefix="/conversations")
     app.include_router(chat.router, prefix="/chat")
     # SPEC-014 D12: root-scoped service worker + manifest, permanently undeclared (fixed bytes).

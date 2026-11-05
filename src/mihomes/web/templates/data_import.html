@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}Import — MiHomes{% endblock %}
+{% block heading %}Import from a spreadsheet{% endblock %}
+{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">Bring in your existing {{ types[entity_type] }} from a CSV file</p>{% endblock %}
+
+{% block content %}
+{% set card = 'bg-white rounded-xl border border-gray-200' %}
+{% set btn = 'inline-flex items-center gap-1.5 px-3 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors disabled:opacity-60' %}
+{% set btn2 = 'inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors' %}
+
+{% if error %}
+<div role="alert" class="mb-5 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{{ error }}</div>
+{% endif %}
+
+{% if mode == 'done' and result %}
+<!-- Step 3: what the import did -->
+<section class="{{ card }} p-5 mb-6" aria-labelledby="done-heading">
+  <h2 id="done-heading" class="text-base font-semibold text-gray-900">Import finished</h2>
+  <p class="mt-1 text-sm text-gray-700">
+    <strong>{{ result.count('created') }}</strong> {{ types[entity_type] }} added
+    {%- if result.count('exists') %} · {{ result.count('exists') }} already there, skipped{% endif %}
+    {%- if result.count('error') %} · <span class="text-red-700">{{ result.count('error') }} not imported</span>{% endif %}.
+  </p>
+  <div class="mt-4 flex flex-wrap gap-2">
+    <a href="{{ list_page }}" class="{{ btn }}">View {{ types[entity_type] }} →</a>
+    <a href="/import/?type={{ entity_type }}" class="{{ btn2 }}">Import another file</a>
+  </div>
+  {% if result.count('error') %}
+  <p class="mt-4 text-sm text-gray-600">Fix the rows below in your spreadsheet and upload the whole file again. Rows already imported are skipped, so nothing is added twice.</p>
+  {% endif %}
+</section>
+{% endif %}
+
+{% if result %}
+<!-- Row-by-row table (preview or results) -->
+<section class="{{ card }} overflow-hidden mb-6" aria-labelledby="rows-heading">
+  <div class="px-5 py-3 border-b border-gray-100 flex flex-wrap items-center justify-between gap-2">
+    <h2 id="rows-heading" class="text-sm font-semibold text-gray-700">
+      {% if mode == 'preview' %}Preview of {{ filename }} — nothing has been saved yet{% else %}Row by row{% endif %}
+    </h2>
+    <p class="text-xs text-gray-600">
+      {% if mode == 'preview' %}{{ result.count('created') }} ready{% else %}{{ result.count('created') }} added{% endif %}
+      · {{ result.count('exists') }} already there · {{ result.count('error') }} with problems
+    </p>
+  </div>
+  {% if result.unknown_columns %}
+  <p class="px-5 py-2 text-xs text-amber-800 bg-amber-50 border-b border-amber-100">Ignored columns (not used for {{ types[entity_type] }}): {{ result.unknown_columns|join(', ') }}</p>
+  {% endif %}
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-left text-xs text-gray-600">
+        <tr><th scope="col" class="px-5 py-2 font-medium">Row</th><th scope="col" class="px-3 py-2 font-medium">Item</th><th scope="col" class="px-3 py-2 font-medium">Result</th></tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50">
+        {% for r in result.rows[:shown_rows] %}
+        <tr>
+          <td class="px-5 py-2 text-gray-500 tabular-nums">{{ r.row }}</td>
+          <td class="px-3 py-2 text-gray-900">{{ r.label }}</td>
+          <td class="px-3 py-2">
+            {% if r.status == 'created' %}<span class="text-emerald-700">{{ 'Ready' if mode == 'preview' else 'Added' }}</span>
+            {% elif r.status == 'exists' %}<span class="text-gray-600">{{ r.message }}</span>
+            {% else %}<span class="text-red-700">{{ r.message }}</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if result.rows|length > shown_rows %}
+  <p class="px-5 py-2 text-xs text-gray-600 border-t border-gray-100">Showing the first {{ shown_rows }} of {{ result.rows|length }} rows. The counts above cover all of them.</p>
+  {% endif %}
+</section>
+
+{% if mode == 'preview' %}
+<!-- Step 2b: confirm. The CSV goes back with the form; the import re-checks every row. -->
+<form method="post" action="/import/apply" enctype="multipart/form-data" class="flex flex-wrap items-center gap-3 mb-8"
+      onsubmit="this.querySelector('button[type=submit]').disabled = true">
+  <input type="hidden" name="entity_type" value="{{ entity_type }}">
+  <textarea name="csv_text" hidden aria-hidden="true">{{ csv_text }}</textarea>
+  {% if result.count('created') %}
+  <button type="submit" class="{{ btn }}">Import {{ result.count('created') }} {{ types[entity_type] }}</button>
+  {% endif %}
+  <a href="/import/?type={{ entity_type }}" class="{{ btn2 }}">Choose a different file</a>
+  {% if result.count('error') %}<p class="text-sm text-gray-600">Rows with problems are skipped. You can fix them and upload again later.</p>{% endif %}
+</form>
+{% endif %}
+{% endif %}
+
+{% if not result or mode == 'done' %}
+<!-- Step 1: what to import, its columns, and the upload -->
+<nav aria-label="What to import" class="flex flex-wrap gap-2 mb-4">
+  {% for key, label in types.items() %}
+  <a href="/import/?type={{ key }}" {% if key == entity_type %}aria-current="page"{% endif %}
+     class="px-3 py-1.5 rounded-lg text-sm font-medium border {{ 'bg-brand-600 text-white border-brand-600' if key == entity_type else 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50' }}">{{ label|capitalize }}</a>
+  {% endfor %}
+</nav>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+  <section class="{{ card }} p-5" aria-labelledby="columns-heading">
+    <h2 id="columns-heading" class="text-sm font-semibold text-gray-700">Columns for {{ types[entity_type] }}</h2>
+    <p class="mt-1 text-xs text-gray-600">Start from the template, or use your own file with these column names in the first row. Column order doesn't matter.</p>
+    <dl class="mt-3 divide-y divide-gray-50 text-sm">
+      {% for name, required, help in columns %}
+      <div class="py-2 sm:grid sm:grid-cols-3 sm:gap-3">
+        <dt class="font-mono text-gray-900">{{ name }}{% if required %} <span class="text-red-600" aria-label="required">*</span>{% endif %}</dt>
+        <dd class="sm:col-span-2 text-gray-600">{{ help or '—' }}</dd>
+      </div>
+      {% endfor %}
+    </dl>
+    <a href="/import/template/{{ entity_type }}.csv" download class="{{ btn2 }} mt-4">Download template</a>
+  </section>
+
+  <section class="{{ card }} p-5" aria-labelledby="upload-heading">
+    <h2 id="upload-heading" class="text-sm font-semibold text-gray-700">Upload your file</h2>
+    <p class="mt-1 text-xs text-gray-600">CSV, up to {{ max_rows }} rows ({{ max_kb }} KB). In Excel or Google Sheets: File → Save as / Download → CSV. You'll see a preview before anything is saved.</p>
+    <form method="post" action="/import/preview" enctype="multipart/form-data" class="mt-4 space-y-3"
+          onsubmit="this.querySelector('button[type=submit]').disabled = true">
+      <input type="hidden" name="entity_type" value="{{ entity_type }}">
+      <label for="import-file" class="block text-sm text-gray-700">CSV file <span class="text-red-600" aria-label="required">*</span></label>
+      <input id="import-file" type="file" name="file" accept=".csv,text/csv" required
+             class="block w-full text-sm text-gray-700 file:mr-3 file:px-3 file:py-2 file:rounded-lg file:border-0 file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200">
+      <button type="submit" class="{{ btn }}">Preview import</button>
+    </form>
+    <p class="mt-4 text-xs text-gray-600">Already imported some rows? Upload the whole file again — rows that are already in MiHomes are skipped.</p>
+  </section>
+</div>
+{% endif %}
+{% endblock %}

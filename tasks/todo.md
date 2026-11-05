@@ -1,5 +1,39 @@
 # MiHomes — Project State & Next Actions
 
+## Web CSV import (2026-11-05, branch `web-csv-import`)
+Why: `csv_io` could import, but only from the CLI; a new customer moving off a spreadsheet had
+no way in. (`services/importer.py` is the SQLite migration tool, not a CSV importer.)
+
+- [x] `csv_io.run_import`:
+  - **One row's problem never stops the rest.** Every row runs in its own SAVEPOINT and is
+    flushed there.
+  - **Friendly input.** Headers in any wording (the export's names still work). Home and
+    assignee given by name, slug or id. Dates as ISO, US, or "Nov 30, 2026". UTF-8 with BOM or
+    Windows-1252. `;` delimiter allowed.
+  - **Caps:** 2000 rows and 900 KB. That keeps the CSV under the form parser's 1 MB field limit,
+    since the preview posts the CSV back.
+- [x] **Names are not unique** (there are 3× "Belle Estate" locally). Two matches is an error for
+      that row, never a guess.
+- [x] **Re-upload is safe.** Rows already present are skipped:
+      - homes, staff and vendors by name;
+      - tasks and issues by title + home.
+- [x] **Plan limits:** `create_property` checks the home limit itself, so an over-limit home is
+      that row's error.
+- [x] **Preview** runs the same code, then rolls back the whole transaction. That also clears the
+      calendar-sync marker, so a preview queues nothing.
+- [x] **Web:**
+      - `/import/` with tabs per type, a column guide generated from `IMPORT_COLUMNS`, a template
+        download, upload, preview table, import and per-row results.
+      - Owner/admin only, via `export.data` (data portability both ways).
+      - Linked from Settings → Account and from the dashboard Getting started card.
+- [x] **CLI** `mihomes csv import` uses the same engine, with the same return shape.
+- [x] **Tests:** `tests/web/test_data_import.py`, 10 multipart tests. The import page was added to
+      `docs/UI_MANUAL_CHECKLIST.md`.
+- Not done:
+  - assets, inventory and other types;
+  - mapping columns by hand in the UI;
+  - a live browser walk.
+
 ## Estate time zone everywhere (2026-11-04, branch `property-timezones`)
 Decision (user): one estate-wide zone (Settings → Time zone, `locale.timezone`, default
 America/New_York) first. A per-property zone can come later and would need a migration.

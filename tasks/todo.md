@@ -35,6 +35,13 @@ no way in. (`services/importer.py` is the SQLite migration tool, not a CSV impor
       - UTF-8 BOM for Excel.
       - Formula cells guarded with `'`, and the guard is undone on import.
       - A round trip re-imports as "already there".
+- [x] **Import updates existing records** (`csv-import-updates`):
+      - A filled cell that differs updates the record through its own update function, so
+        audit and validation apply.
+      - A blank cell keeps the current value.
+      - The preview lists each change ("priority: low → urgent").
+      - Two candidate records is a row error, never a guess.
+      - The CLI reports updates too.
 - Not done:
   - assets, inventory and other types;
   - mapping columns by hand in the UI;
@@ -90,6 +97,13 @@ already used the estate zone. Only the CLI-only `services/calendar_sync.py` does
       - UTF-8 BOM for Excel.
       - Formula cells guarded with `'`, and the guard is undone on import.
       - A round trip re-imports as "already there".
+- [x] **Import updates existing records** (`csv-import-updates`):
+      - A filled cell that differs updates the record through its own update function, so
+        audit and validation apply.
+      - A blank cell keeps the current value.
+      - The preview lists each change ("priority: low → urgent").
+      - Two candidate records is a row error, never a guess.
+      - The CLI reports updates too.
 - Not done:
   - Chat mentions and unread DMs (chat has its own badge).
   - Compliance items (contract and insurance expiries are still in Alerts).

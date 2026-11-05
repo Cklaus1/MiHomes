@@ -56,7 +56,7 @@ def test_preview_saves_nothing_and_understands_a_real_spreadsheet(client):
     r = _preview(client, "task", body)
     assert r.status_code == 200
     assert "nothing has been saved yet" in r.text
-    assert r.text.count(">Ready<") == 2, r.text
+    assert r.text.count(">New<") == 2, r.text
     assert "Import 2 tasks" in r.text
     assert _count(client, Task) == before, "a preview must not create anything"
 
@@ -72,7 +72,7 @@ def test_import_then_reupload_skips_what_is_already_there(client):
         assert task.property_id == home.id and task.priority.value == "urgent"
 
     again = _apply(client, "task", csv_text)
-    assert "<strong>0</strong> tasks added" in again.text and "2 already there" in again.text
+    assert "<strong>0</strong> tasks added" in again.text and "2 unchanged" in again.text
     assert _count(client, Task, title="Winterize pipes") == 1
 
 
@@ -108,7 +108,7 @@ def test_one_bad_row_does_not_stop_the_rest(client):
 def test_semicolons_and_windows_1252(client):
     body = "name;role;phone\r\nJosé Núñez;Groundskeeper;555-0100\r\n".encode("cp1252")
     preview = _preview(client, "staff", body)
-    assert ">Ready<" in preview.text and "José Núñez" in preview.text
+    assert ">New<" in preview.text and "José Núñez" in preview.text
     _apply(client, "staff", "name;role;phone\r\nJosé Núñez;Groundskeeper;555-0100\r\n")
     with client._SessionLocal() as s:
         person = s.query(Staff).filter(Staff.name == "José Núñez").one()
@@ -187,7 +187,7 @@ def test_round_trip_reimports_as_already_there(client):
     exported = _export(client, "issue").lstrip("﻿")
     again = _apply(client, "issue", exported)
     assert "<strong>0</strong> issues added" in again.text and "Ignored columns" not in again.text
-    assert "already there" in again.text
+    assert "1 unchanged" in again.text
 
 
 def test_formulas_are_defused_on_the_way_out_and_restored_on_the_way_in(client):
@@ -211,3 +211,77 @@ def test_list_pages_offer_export_to_owners(client):
                        ("/tasks/", "task"), ("/issues/", "issue")):
         html = client.get(path, follow_redirects=True).text
         assert f'href="/export/{kind}.csv"' in html, path
+
+
+# ── Updating existing records (2026-11-05) ──────────────────────────────────────────────────
+
+
+def test_reupload_updates_what_changed_and_shows_it_first(client):
+    home = _home(client)
+    with client._SessionLocal() as s:
+        staff_svc.create_staff(s, "Marta Lopez")
+        s.commit()
+    _apply(client, "task", f"title,property,priority,description\r\nFix fence,{home.name},low,Back gate\r\n")
+
+    edited = f"title,property,priority,due_date,assignee\r\nFix fence,{home.name},urgent,2026-12-24,Marta Lopez\r\n"
+    preview = html.unescape(_preview(client, "task", edited.encode()).text)
+    assert "Will update" in preview and "priority: low → urgent" in preview
+    assert "due_date: — → 2026-12-24" in preview and "assignee: — → Marta Lopez" in preview
+    assert "Update 1 tasks" in preview
+    with client._SessionLocal() as s:
+        assert s.query(Task).filter(Task.title == "Fix fence").one().priority.value == "low", \
+            "the preview must not save the change"
+
+    done = _apply(client, "task", edited)
+    assert "<strong>1</strong> updated" in done.text
+    with client._SessionLocal() as s:
+        task = s.query(Task).filter(Task.title == "Fix fence").one()
+        assert task.priority.value == "urgent" and str(task.due_date) == "2026-12-24"
+        assert task.assignee.name == "Marta Lopez"
+        assert task.description == "Back gate", "a column left out of the file must not be wiped"
+    assert _count(client, Task, title="Fix fence") == 1
+
+
+def test_blank_cells_leave_values_alone(client):
+    home = _home(client)
+    _apply(client, "issue", f"title,property,severity,description\r\nDamp wall,{home.name},high,North side\r\n")
+    again = html.unescape(_apply(client, "issue", f"title,property,severity,description\r\nDamp wall,{home.name},,\r\n").text)
+    assert "No changes" in again
+    from mihomes.models.issue import Issue
+
+    with client._SessionLocal() as s:
+        issue = s.query(Issue).filter(Issue.title == "Damp wall").one()
+        assert issue.severity.value == "high" and issue.description == "North side"
+
+
+def test_two_matching_records_are_not_guessed(client):
+    home = _home(client)
+    with client._SessionLocal() as s:
+        from mihomes.services import task as task_svc
+
+        task_svc.create_task(s, "Water plants", str(home.id))
+        task_svc.create_task(s, "Water plants", str(home.id))
+        s.commit()
+    page = html.unescape(_apply(client, "task", f"title,property,priority\r\nWater plants,{home.name},high\r\n").text)
+    assert "2 existing tasks match “Water plants”" in page
+    with client._SessionLocal() as s:
+        assert {t.priority.value for t in s.query(Task).filter(Task.title == "Water plants")} == {"medium"}
+
+
+def test_repeat_can_be_changed(client):
+    home = _home(client)
+    _apply(client, "task", f"title,property\r\nChange filters,{home.name}\r\n")
+    page = html.unescape(_apply(client, "task", f"title,property,repeat\r\nChange filters,{home.name},monthly\r\n").text)
+    assert "repeat: once → monthly" in page
+    with client._SessionLocal() as s:
+        task = s.query(Task).filter(Task.title == "Change filters").one()
+        assert task.schedule is not None and task.schedule.frequency.value == "monthly"
+
+
+def test_staff_details_update(client):
+    _apply(client, "staff", "name,role,phone\r\nAli Khan,driver,555-0100\r\n")
+    page = html.unescape(_apply(client, "staff", "name,phone\r\nAli Khan,555-0199\r\n").text)
+    assert "phone: 555-0100 → 555-0199" in page
+    with client._SessionLocal() as s:
+        person = s.query(Staff).filter(Staff.name == "Ali Khan").one()
+        assert person.phone == "555-0199" and person.role.value == "driver"

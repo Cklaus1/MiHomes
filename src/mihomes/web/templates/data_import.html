@@ -18,7 +18,8 @@
   <h2 id="done-heading" class="text-base font-semibold text-gray-900">Import finished</h2>
   <p class="mt-1 text-sm text-gray-700">
     <strong>{{ result.count('created') }}</strong> {{ types[entity_type] }} added
-    {%- if result.count('exists') %} · {{ result.count('exists') }} already there, skipped{% endif %}
+    {%- if result.count('updated') %} · <strong>{{ result.count('updated') }}</strong> updated{% endif %}
+    {%- if result.count('exists') %} · {{ result.count('exists') }} unchanged{% endif %}
     {%- if result.count('error') %} · <span class="text-red-700">{{ result.count('error') }} not imported</span>{% endif %}.
   </p>
   <div class="mt-4 flex flex-wrap gap-2">
@@ -26,7 +27,7 @@
     <a href="/import/?type={{ entity_type }}" class="{{ btn2 }}">Import another file</a>
   </div>
   {% if result.count('error') %}
-  <p class="mt-4 text-sm text-gray-600">Fix the rows below in your spreadsheet and upload the whole file again. Rows already imported are skipped, so nothing is added twice.</p>
+  <p class="mt-4 text-sm text-gray-600">Fix the rows below in your spreadsheet and upload the whole file again. Rows already in MiHomes are updated, not added twice.</p>
   {% endif %}
 </section>
 {% endif %}
@@ -39,8 +40,9 @@
       {% if mode == 'preview' %}Preview of {{ filename }} — nothing has been saved yet{% else %}Row by row{% endif %}
     </h2>
     <p class="text-xs text-gray-600">
-      {% if mode == 'preview' %}{{ result.count('created') }} ready{% else %}{{ result.count('created') }} added{% endif %}
-      · {{ result.count('exists') }} already there · {{ result.count('error') }} with problems
+      {{ result.count('created') }} {{ 'new' if mode == 'preview' else 'added' }}
+      · {{ result.count('updated') }} {{ 'to update' if mode == 'preview' else 'updated' }}
+      · {{ result.count('exists') }} unchanged · {{ result.count('error') }} with problems
     </p>
   </div>
   {% if result.unknown_columns %}
@@ -57,7 +59,8 @@
           <td class="px-5 py-2 text-gray-500 tabular-nums">{{ r.row }}</td>
           <td class="px-3 py-2 text-gray-900">{{ r.label }}</td>
           <td class="px-3 py-2">
-            {% if r.status == 'created' %}<span class="text-emerald-700">{{ 'Ready' if mode == 'preview' else 'Added' }}</span>
+            {% if r.status == 'created' %}<span class="text-emerald-700">{{ 'New' if mode == 'preview' else 'Added' }}</span>
+            {% elif r.status == 'updated' %}<span class="text-blue-700">{{ 'Will update' if mode == 'preview' else 'Updated' }}</span> <span class="text-gray-700">— {{ r.message }}</span>
             {% elif r.status == 'exists' %}<span class="text-gray-600">{{ r.message }}</span>
             {% else %}<span class="text-red-700">{{ r.message }}</span>{% endif %}
           </td>
@@ -77,8 +80,13 @@
       onsubmit="this.querySelector('button[type=submit]').disabled = true">
   <input type="hidden" name="entity_type" value="{{ entity_type }}">
   <textarea name="csv_text" hidden aria-hidden="true">{{ csv_text }}</textarea>
-  {% if result.count('created') %}
-  <button type="submit" class="{{ btn }}">Import {{ result.count('created') }} {{ types[entity_type] }}</button>
+  {% set n_new, n_upd = result.count('created'), result.count('updated') %}
+  {% if n_new or n_upd %}
+  <button type="submit" class="{{ btn }}">
+    {%- if n_new and n_upd %}Add {{ n_new }} and update {{ n_upd }} {{ types[entity_type] }}
+    {%- elif n_new %}Import {{ n_new }} {{ types[entity_type] }}
+    {%- else %}Update {{ n_upd }} {{ types[entity_type] }}{% endif -%}
+  </button>
   {% endif %}
   <a href="/import/?type={{ entity_type }}" class="{{ btn2 }}">Choose a different file</a>
   {% if result.count('error') %}<p class="text-sm text-gray-600">Rows with problems are skipped. You can fix them and upload again later.</p>{% endif %}
@@ -124,7 +132,7 @@
              class="block w-full text-sm text-gray-700 file:mr-3 file:px-3 file:py-2 file:rounded-lg file:border-0 file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200">
       <button type="submit" class="{{ btn }}">Preview import</button>
     </form>
-    <p class="mt-4 text-xs text-gray-600">Already imported some rows? Upload the whole file again — rows that are already in MiHomes are skipped.</p>
+    <p class="mt-4 text-xs text-gray-600">Rows that are already in MiHomes are <strong>updated</strong> from your file (the preview shows each change first). Blank cells leave the current value as it is, so a sheet with only a few columns changes only those.</p>
   </section>
 </div>
 {% endif %}

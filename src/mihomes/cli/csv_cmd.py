@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Optional
 
 import typer
-from rich.table import Table
 
 from mihomes.cli.formatters import console, format_error, format_success
 from mihomes.db import get_session
@@ -36,7 +35,7 @@ def export_csv(
             sys.stdout.write(csv_text)
     except ValueError as e:
         format_error(str(e))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @import_app.command("csv")
@@ -57,13 +56,16 @@ def import_csv(
             result = csv_io.import_csv(session, entity_type, csv_text)
         except ValueError as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
 
     created = result.get("created", [])
+    updated = result.get("updated", [])
     errors = result.get("errors", [])
 
     if created:
         format_success(f"{len(created)} {entity_type}(s) imported")
+    if updated:
+        format_success(f"{len(updated)} {entity_type}(s) updated")
 
     if errors:
         console.print(f"\n[yellow]{len(errors)} error(s):[/yellow]")
@@ -72,5 +74,5 @@ def import_csv(
 
     # M41: a CSV in which every row failed must exit non-zero so a scripted
     # caller can detect the wholesale failure (partial success still exits 0).
-    if errors and not created:
+    if errors and not created and not updated:
         raise typer.Exit(1)

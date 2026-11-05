@@ -156,7 +156,7 @@ class RowProblem(ValueError):
 class RowResult:
     row: int            # spreadsheet row number (the header is row 1)
     label: str          # what the row is about, e.g. the task title
-    status: str         # "created" | "exists" | "error"
+    status: str         # "created" | "updated" | "exists" (no changes) | "error"
     message: str = ""
 
 
@@ -252,20 +252,21 @@ def _lookup(session: Session, model, name_attr: str, raw: str, what: str):
     raise RowProblem(f"{len(matches)} {what}s are called “{text}”. Use the slug instead: {slugs}.")
 
 
-def _existing(session: Session, entity_type: str, v: dict, prop=None):
-    """The record this row would duplicate, if it is already there. Re-uploading a corrected
-    file is the normal way to fix a few bad rows, so rows already imported are skipped."""
+def _existing(session: Session, entity_type: str, v: dict, prop=None) -> list:
+    """The records this row names, if they are already there: homes, staff and vendors by name,
+    tasks and issues by title within their home. One match is updated from the row; more than
+    one is the row's error, because updating the wrong record is worse than skipping one."""
     from sqlalchemy import func
 
     model = _get_model(entity_type)
     if entity_type in ("task", "issue"):
         return session.query(model).filter(
             func.lower(model.title) == v["title"].lower(), model.property_id == prop.id
-        ).first()
+        ).all()
     name_attr = "company_name" if entity_type == "vendor" else "name"
     return session.query(model).filter(
         func.lower(getattr(model, name_attr)) == v[name_attr].lower()
-    ).first()
+    ).all()
 
 
 def _import_row(session: Session, entity_type: str, v: dict) -> tuple[str, str]:
@@ -280,8 +281,12 @@ def _import_row(session: Session, entity_type: str, v: dict) -> tuple[str, str]:
         raise RowProblem(f"Missing {', '.join(missing)}.")
 
     prop = _lookup(session, Property, "name", v["property"], "home") if "property" in required else None
-    if _existing(session, entity_type, v, prop) is not None:
-        return "exists", label
+    matches = _existing(session, entity_type, v, prop)
+    if len(matches) > 1:
+        raise RowProblem(f"{len(matches)} existing {LABELS[entity_type]} match “{label}”, so "
+                         "it isn't clear which to update. Rename one in MiHomes first.")
+    if matches:
+        return _update_row(session, entity_type, matches[0], v, label)
 
     if entity_type == "property":
         from mihomes.models.property import PropertyType
@@ -334,7 +339,109 @@ def _import_row(session: Session, entity_type: str, v: dict) -> tuple[str, str]:
                      description=v.get("description"))
     else:  # pragma: no cover - callers check the type
         raise ValueError(f"Import not supported for: {entity_type}")
-    return "created", label
+    return "created", label, ""
+
+
+def _wanted(session: Session, entity_type: str, v: dict) -> dict:
+    """Attribute → new value, for every **filled** cell an existing record can take. A blank
+    cell means "leave it as it is", so a sheet with only a few columns cannot wipe the rest."""
+    from mihomes.models.issue import IssueSeverity
+    from mihomes.models.property import PropertyType
+    from mihomes.models.staff import Staff, StaffRole
+    from mihomes.models.task import RecurrenceFrequency, TaskCategory, TaskPriority
+
+    def given(col):
+        return v.get(col) or None
+
+    out: dict = {}
+    if entity_type == "property":
+        out = {"address": given("address"), "climate_zone": given("climate_zone"),
+               "currency": (given("currency") or "").upper() or None}
+        if given("property_type"):
+            out["property_type"] = _enum(PropertyType, v["property_type"], None, "home type")
+    elif entity_type == "staff":
+        out = {"phone": given("phone"), "email": given("email")}
+        if given("role"):
+            out["role"] = _enum(StaffRole, v["role"], None, "role")
+    elif entity_type == "vendor":
+        out = {"contact_name": given("contact_name"), "phone": given("phone"),
+               "email": given("email")}
+        if given("service_categories"):
+            out["service_categories"] = [
+                c.strip() for c in v["service_categories"].replace(";", "|").split("|") if c.strip()
+            ]
+    elif entity_type == "task":
+        out = {"description": given("description")}
+        if given("priority"):
+            out["priority"] = _enum(TaskPriority, v["priority"], None, "priority")
+        if given("due_date"):
+            out["due_date"] = _date(v["due_date"])
+        if given("category"):
+            out["category"] = _enum(TaskCategory, v["category"], None, "category")
+        if given("assignee"):
+            out["assignee_id"] = _lookup(session, Staff, "name", v["assignee"], "staff member").id
+        if given("estimated_hours"):
+            try:
+                out["estimated_hours"] = float(v["estimated_hours"])
+            except ValueError:
+                raise RowProblem(f"“{v['estimated_hours']}” isn't a number of hours.") from None
+        if given("repeat"):
+            out["repeat"] = _enum(RecurrenceFrequency, v["repeat"], None, "repeat")
+    elif entity_type == "issue":
+        out = {"description": given("description")}
+        if given("severity"):
+            out["severity"] = _enum(IssueSeverity, v["severity"], None, "severity")
+    return {k: val for k, val in out.items() if val is not None}
+
+
+def _shown(session: Session, attr: str, value) -> str:
+    """A value as the person wrote it: a staff member's name, not their id."""
+    if value is None or value == "" or value == []:
+        return "—"
+    if attr == "assignee_id":
+        from mihomes.models.staff import Staff
+
+        person = session.get(Staff, value)
+        return person.name if person else "—"
+    return _value(value)
+
+
+def _update_row(session: Session, entity_type: str, record, v: dict, label: str):
+    """Bring an existing record in line with the row; returns (status, label, what changed).
+
+    Through each type's own update function, so validation, frozen-home refusal and the audit
+    log apply exactly as they do to an edit in the app.
+    """
+    from mihomes.models.task import RecurrenceFrequency
+    from mihomes.services import issue as issue_svc
+    from mihomes.services import property as prop_svc
+    from mihomes.services import staff as staff_svc
+    from mihomes.services import task as task_svc
+    from mihomes.services import vendor as vendor_svc
+
+    wanted = _wanted(session, entity_type, v)
+    repeat = wanted.pop("repeat", None)
+    current_repeat = None
+    if entity_type == "task":
+        current_repeat = record.schedule.frequency if record.schedule else RecurrenceFrequency.ONCE
+    repeat_changes = repeat is not None and repeat != current_repeat
+
+    changes = {attr: new for attr, new in wanted.items() if getattr(record, attr) != new}
+    notes = [f"{attr.removesuffix('_id')}: {_shown(session, attr, getattr(record, attr))} → "
+             f"{_shown(session, attr, new)}" for attr, new in changes.items()]
+    if repeat_changes:
+        notes.append(f"repeat: {current_repeat.value} → {repeat.value}")
+    if not notes:
+        return "exists", label, "No changes"
+
+    update = {"property": prop_svc.update_property, "staff": staff_svc.update_staff,
+              "vendor": vendor_svc.update_vendor, "task": task_svc.update_task,
+              "issue": issue_svc.update_issue}[entity_type]
+    if changes:
+        update(session, str(record.id), **changes)
+    if repeat_changes:
+        task_svc.set_task_frequency(session, str(record.id), repeat)
+    return "updated", label, "; ".join(notes)
 
 
 def run_import(session: Session, entity_type: str, csv_text: str) -> ImportResult:
@@ -363,10 +470,9 @@ def run_import(session: Session, entity_type: str, csv_text: str) -> ImportResul
         label = values.get("title") or values.get("name") or values.get("company_name") or "(blank)"
         try:
             with session.begin_nested():
-                status, label = _import_row(session, entity_type, values)
+                status, label, message = _import_row(session, entity_type, values)
                 session.flush()
-            result.rows.append(RowResult(row_no, label, status,
-                                         "Already exists — skipped" if status == "exists" else ""))
+            result.rows.append(RowResult(row_no, label, status, message))
         except Exception as exc:  # noqa: BLE001 — every row's problem is reported, none stops the rest
             result.rows.append(RowResult(row_no, label, "error", _message(exc)))
     return result
@@ -385,10 +491,11 @@ def _message(exc: Exception) -> str:
 
 
 def import_csv(session: Session, entity_type: str, csv_text: str) -> dict:
-    """CLI shape of `run_import`: {"created": [...], "errors": [{"row", "error"}]}."""
+    """CLI shape of `run_import`: {"created": [...], "updated": [...], "errors": [{"row", "error"}]}."""
     result = run_import(session, entity_type, csv_text)
     return {
         "created": [r for r in result.rows if r.status == "created"],
+        "updated": [r for r in result.rows if r.status == "updated"],
         "errors": [{"row": r.row, "error": r.message} for r in result.rows if r.status == "error"],
     }
 

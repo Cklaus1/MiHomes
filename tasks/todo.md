@@ -1,5 +1,11 @@
 # MiHomes — Project State & Next Actions
 
+## Export all (2026-11-06, branch `export-all`)
+- [x] `/export/all.zip` (owner/admin): one spreadsheet per list (the 7 import types), each with
+      its import columns and BOM, plus a README naming the type each file imports as.
+- [x] Linked from Settings → Estate ("Spreadsheets: import & export") and from the Import page.
+- [x] Tests: 2 new. Unit + web: 2311 passed.
+
 ## Asset and inventory import/export (2026-11-05, branch `import-assets-inventory`)
 - [x] **Assets.** Columns: name*, property*, room, asset_type, make, model, serial_number,
       condition, purchase_date, purchase_price, warranty_expires, notes.

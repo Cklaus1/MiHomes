@@ -139,3 +139,51 @@ def export_spreadsheet(entity_type: str, db: Session = Depends(get_db)):
         "﻿" + csv_io.export_for_spreadsheet(db, entity_type), media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{name}"'},
     )
+
+
+# ── Export all (2026-11-06) ───────────────────────────────────────────────────────────────
+#
+# Every list in one download: a ZIP of the per-type spreadsheets above, so each file inside
+# re-imports as it is. The owner's full-account JSON (`/privacy/export`) is still the complete
+# record for leaving MiHomes; this is the version a person opens in Excel.
+
+_EXPORT_ALL_README = """MiHomes export — {estate}, {day}
+
+One spreadsheet per list, each with the same columns as its import template:
+
+{files}
+
+Open any of them in Excel, Numbers or Google Sheets. To bring edits back in, use
+Settings → Estate → Import data and pick the same type: rows already in MiHomes are updated
+from the file (blank cells leave values unchanged), new rows are added.
+
+What you see is what your role can see: staff limited to some properties get those only.
+"""
+
+
+@export_router.get("/all.zip")
+@declares(IMPORT_ACTION, Access.ACCOUNT)
+def export_all(db: Session = Depends(get_db)):
+    import io
+    import zipfile
+
+    from mihomes.models.account import Account
+    from mihomes.services.localtime import today
+    from mihomes.tenancy import current_account
+
+    day = today().isoformat()
+    account = db.get(Account, current_account.get(None)) if current_account.get(None) else None
+    buffer = io.BytesIO()
+    names = []
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for entity_type, label in csv_io.LABELS.items():
+            name = f"{label.replace(' ', '-')}.csv"
+            # The same UTF-8 BOM as the single exports, so Excel reads accents correctly.
+            zf.writestr(name, "﻿" + csv_io.export_for_spreadsheet(db, entity_type))
+            names.append(f"  {name:<24} import as: {label}")
+        zf.writestr("README.txt", _EXPORT_ALL_README.format(
+            estate=account.name if account else "your estate", day=day, files="\n".join(names)))
+    return Response(
+        buffer.getvalue(), media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="mihomes-export-{day}.zip"'},
+    )

@@ -107,3 +107,29 @@ def test_pages_offer_export_and_import_lists_both_types(client):
     assert 'href="/export/inventory.csv"' in client.get("/inventory/").text
     page = client.get("/import/?type=inventory").text
     assert "low_stock_threshold" in page and 'href="/import/?type=asset"' in page
+
+
+def test_export_all_is_one_zip_of_every_list(client):
+    """Every list in one download; each file inside re-imports as it is (2026-11-06)."""
+    import io
+    import zipfile
+
+    home = _home(client)
+    _apply(client, "task", f"title,property\r\nPrune roses,{home.name}\r\n")
+    r = client.get("/export/all.zip")
+    assert r.status_code == 200 and r.headers["content-type"] == "application/zip"
+    assert 'filename="mihomes-export-' in r.headers["content-disposition"]
+    zf = zipfile.ZipFile(io.BytesIO(r.content))
+    names = set(zf.namelist())
+    assert names == {"properties.csv", "assets.csv", "inventory-items.csv", "staff.csv",
+                     "vendors.csv", "tasks.csv", "issues.csv", "README.txt"}
+    tasks = zf.read("tasks.csv").decode("utf-8")
+    assert tasks.startswith("﻿title,property") and "Prune roses" in tasks
+    assert "import as: tasks" in zf.read("README.txt").decode("utf-8")
+    again = _apply(client, "task", tasks.lstrip("﻿"))
+    assert "<strong>0</strong> tasks added" in again
+
+
+def test_export_all_is_linked_for_owners(client):
+    assert 'href="/export/all.zip"' in client.get("/settings").text
+    assert 'href="/export/all.zip"' in client.get("/import/").text

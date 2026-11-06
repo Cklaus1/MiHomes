@@ -253,6 +253,12 @@ def set_current_account(db: DbSession, session_id: uuid.UUID, account_id: uuid.U
     ).one_or_none()
     if membership is None or membership.status != "active":
         return False
+    # A deactivated household cannot be entered — by anyone, the owner included: the owner
+    # reactivates it from the deactivated page first (services/account_lifecycle.py).
+    from mihomes.services.account_lifecycle import is_active
+
+    if not is_active(db, account_id):
+        return False
     row.current_account_id = account_id
     db.flush()
     return True

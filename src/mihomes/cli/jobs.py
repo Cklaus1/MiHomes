@@ -505,7 +505,9 @@ def purge_deletions(
     from mihomes.services.privacy.deletion import purge_due
 
     purged = would = skipped = failed = 0
-    for account_id, _ in _all_accounts():
+    # Deactivated accounts included: the 90-day rule erases them, and a deactivated account
+    # can also have a pending deletion of its own.
+    for account_id, _ in _all_accounts(include_deactivated=True):
         try:
             with _account_session(account_id) as (session, _account):
                 outcome = purge_due(session, account_id, dry_run=dry_run)
@@ -662,21 +664,25 @@ def _expire_trial(session, account) -> None:
     logger.info("trial expired for account %s", account.id)
 
 
-def _all_accounts() -> list[tuple[object, str | None]]:
+def _all_accounts(*, include_deactivated: bool = False) -> list[tuple[object, str | None]]:
     """Every account. The drip sweep visits all of them, not only paying ones.
 
     `_accounts_with_customers` and `_accounts_with_trials` are billing-shaped filters; an
     onboarding drip is for people who have just signed up and therefore have neither.
+
+    **Deactivated households are left out** (2026-11-06): their owner switched them off, so no
+    alerts, mail, chat notifications or calendar pushes. Only `purge-deletions` asks for them.
     """
     from sqlalchemy import select
 
     from mihomes.db import get_session
     from mihomes.models.account import Account
 
+    query = select(Account.id, Account.stripe_customer_id)
+    if not include_deactivated:
+        query = query.where(Account.deactivated_at.is_(None))
     with get_session() as session:
-        return list(
-            session.execute(select(Account.id, Account.stripe_customer_id)).all()
-        )
+        return list(session.execute(query).all())
 
 
 def _accounts_with_customers() -> list[tuple[object, str]]:

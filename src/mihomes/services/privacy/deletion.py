@@ -413,8 +413,11 @@ def purge_due(session: Session, account_id, *, now: datetime | None = None,
 
     now = now or datetime.now(UTC)
     _require_bound_to(session, account_id)  # the request itself is a tenant row
+    inactive = _inactivity_deletion(session, account_id, now=now, create=not dry_run)
     request = due_request(session, account_id, now=now)
     if request is None:
+        if inactive and dry_run:
+            return PurgeOutcome(account_id, "would_purge", "deactivated 90+ days ago")
         return None
     if dry_run:
         return PurgeOutcome(account_id, "would_purge",
@@ -446,6 +449,39 @@ def purge_due(session: Session, account_id, *, now: datetime | None = None,
     session.flush()
     return PurgeOutcome(account_id, "purged",
                         f"{len(manifest)} tables; {scrubbed} sign-in(s) removed")
+
+
+def _inactivity_deletion(session: Session, account_id, *, now: datetime, create: bool) -> bool:
+    """The 90-day rule: a household deactivated that long is erased. Returns whether it applies.
+
+    Opens **one** system request, due at `deactivated_at + 90 days` (so the deadline is 90 days in
+    all, not 90 plus the 30-day grace), which the same run then purges. Never for an account
+    already purged — `_finish_account` stamps `deactivated_at` on every purged account, and
+    without that guard each of them would be "deleted" again 90 days later. An account with a
+    live request already keeps it (`request_deletion` is idempotent in the same way).
+    """
+    from mihomes.models.account import Account
+    from mihomes.services.account_lifecycle import (
+        INACTIVE_DAYS_BEFORE_ERASURE,
+        SYSTEM_REQUESTER,
+        was_purged,
+    )
+
+    account = session.get(Account, account_id)
+    if account is None or account.deactivated_at is None:
+        return False
+    deadline = account.deactivated_at + timedelta(days=INACTIVE_DAYS_BEFORE_ERASURE)
+    if deadline > now or was_purged(session, account_id):
+        return False
+    if create and _live_request(session, account_id) is None:
+        session.add(AccountDeletionRequest(
+            account_id=account_id, requested_at=now,
+            requested_by_user_id=SYSTEM_REQUESTER, purge_after=deadline,
+        ))
+        session.flush()
+        logger.info("deletion requested by the 90-day rule: account=%s deactivated=%s",
+                    account_id, account.deactivated_at)
+    return True
 
 
 def _finish_account(account, now: datetime) -> None:

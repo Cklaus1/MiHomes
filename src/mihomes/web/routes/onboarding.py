@@ -55,13 +55,41 @@ def _account_for(db: Session, user: User):
     # and `resume` re-showed step 2 forever. Measured on a live install. See `bind_user_guc`.
     bind_user_guc(db, user.id)
 
+    # A deactivated household is skipped (2026-11-06): it cannot be entered, and binding it
+    # would bounce between `/` and here. `_deactivated_for` lists those for the page instead.
+    accounts = Account.__table__
     row = db.execute(
-        select(Membership.__table__.c.account_id).where(
+        select(Membership.__table__.c.account_id)
+        .join(accounts, accounts.c.id == Membership.__table__.c.account_id)
+        .where(
             Membership.__table__.c.user_id == user.id,
             Membership.__table__.c.status == "active",
+            accounts.c.deactivated_at.is_(None),
         )
     ).first()
     return db.get(Account, row.account_id) if row else None
+
+
+def _deactivated_for(db: Session, user: User) -> list[tuple]:
+    """(account, role) for each deactivated household this user is an active member of."""
+    from sqlalchemy import select
+
+    from mihomes.models.account import Account
+    from mihomes.models.membership import Membership
+    from mihomes.services.account_lifecycle import was_purged
+    from mihomes.tenancy.connection import bind_user_guc
+
+    bind_user_guc(db, user.id)
+    m, accounts = Membership.__table__, Account.__table__
+    rows = db.execute(
+        select(m.c.account_id, m.c.role)
+        .join(accounts, accounts.c.id == m.c.account_id)
+        .where(m.c.user_id == user.id, m.c.status == "active",
+               accounts.c.deactivated_at.is_not(None))
+    ).all()
+    out = [(db.get(Account, r.account_id), r.role) for r in rows]
+    # A purged ("Deleted account") household is gone, not paused: nothing to show or reactivate.
+    return [(a, role) for a, role in out if a is not None and not was_purged(db, a.id)]
 
 
 @router.get("/")
@@ -72,6 +100,9 @@ def resume(request: Request, db: Session = Depends(get_db)):
     account = _account_for(db, user)
 
     if account is None:
+        deactivated = _deactivated_for(db, user)
+        if deactivated:
+            return _deactivated_page(request, deactivated)
         return templates.TemplateResponse(
             request,
             "onboarding/account.html",
@@ -261,3 +292,56 @@ def _select_account(db: Session, request: Request, account_id: uuid.UUID, user_i
     auth = lookup_session(db, request.cookies.get(SESSION_COOKIE))
     if auth is not None:
         switch_account(db, auth.session_id, user_id, account_id)
+
+
+# ── A deactivated household (2026-11-06) ─────────────────────────────────────────────────
+#
+# Sign-in refuses to enter a deactivated household, and an unbound session lands here. The owner
+# can switch it back on; everyone else is told who switched it off. Session-scoped like the rest
+# of onboarding: there is no account bound to authorise against, which is the point.
+
+
+def _deactivated_page(request: Request, deactivated: list[tuple], *, error: str | None = None,
+                      status_code: int = 200):
+    from datetime import timedelta
+
+    from mihomes.services.account_lifecycle import INACTIVE_DAYS_BEFORE_ERASURE
+
+    rows = [{"account": a, "is_owner": role == "owner",
+             "erase_on": a.deactivated_at + timedelta(days=INACTIVE_DAYS_BEFORE_ERASURE)}
+            for a, role in deactivated]
+    return templates.TemplateResponse(
+        request, "onboarding/deactivated.html",
+        {"page": "onboarding", "households": rows, "error": error}, status_code=status_code,
+    )
+
+
+_REACTIVATE_REASON = (
+    "A deactivated household cannot be entered, so there is no bound account for the matrix to "
+    "authorise a role in. The handler checks ownership itself, server-side, against the active "
+    "owner membership (account_lifecycle.reactivate), and refuses a purged account."
+)
+
+
+@router.post("/reactivate")
+@declares_session(_REACTIVATE_REASON)
+def reactivate_household(request: Request, account_id: uuid.UUID = Form(...),
+                         db: Session = Depends(get_db)):
+    """The owner switches a deactivated household back on, then enters it.
+
+    The account id comes from a form, so ownership is re-checked server-side (`reactivate`) and a
+    staff member posting it gets a 403, not a household.
+    """
+    from mihomes.services.account_lifecycle import LifecycleRefused, reactivate
+
+    user = _current_user(db)
+    try:
+        reactivate(db, account_id, user.id)
+    except LifecycleRefused as exc:
+        return _deactivated_page(request, _deactivated_for(db, user), error=str(exc),
+                                 status_code=403)
+    db.commit()
+    current = lookup_session(db, request.cookies.get(SESSION_COOKIE))
+    if current is not None:
+        set_current_account(db, current.session_id, account_id)
+    return RedirectResponse("/", status_code=303)

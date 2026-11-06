@@ -267,7 +267,9 @@ def run_chat_notify(session_factory, *, push_sender, email_factory: Callable, no
 
     result = NotifyResult()
     with session_factory() as s:
-        account_ids = list(s.execute(select(Account.id)).scalars())
+        # A deactivated household is not notified (services/account_lifecycle.py).
+        account_ids = list(s.execute(
+            select(Account.id).where(Account.deactivated_at.is_(None))).scalars())
     for account_id in account_ids:
         try:
             with account_context(account_id):

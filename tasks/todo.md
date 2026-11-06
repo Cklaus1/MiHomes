@@ -1072,11 +1072,25 @@ Four slices, each committed + deployed on its own (a `pg_dump` before every migr
 - [x] Found on the way: "paying" was the stored subscription id, never cleared when Stripe ends a
       subscription — now `has_live_subscription` (id + a status Stripe can still modify)
 
-**Slice 2 — Deactivate / reactivate** (owner only)
-- [ ] `accounts.deactivated_at`; deactivating revokes every member's sessions and cancels billing
-- [ ] Enforced at sign-in, not per request (no account read in `enforce_declared_action` — the
-      async path that just deadlocked); owner sees "Reactivate", others "deactivated by owner"
-- [ ] Jobs skip deactivated / deletion-pending accounts
+**Slice 2 — Deactivate / reactivate** (owner only) — built 2026-11-06, branch `account-deactivation`
+- [x] `services/account_lifecycle.py`. Deactivating does three things:
+      - **Billing:** cancels a live subscription immediately (no refund; the account comes back on
+        Free). If the cancel fails, deactivation is refused.
+      - **Flag:** stamps `deactivated_at`.
+      - **Sessions:** **detaches** every session from the account rather than deleting it, so a
+        member of another estate stays signed in.
+- [x] Enforced at sign-in (`set_current_account` refuses), not per request. Onboarding skips
+      deactivated accounts and shows `onboarding/deactivated.html`: the owner gets Reactivate
+      (ownership re-checked server-side, so staff get 403), everyone else "Deactivated by the
+      owner". A purged account can never be reactivated.
+- [x] **The Telegram bot ignores it:** links and group bindings into a deactivated account resolve
+      to nothing. A DM from such a member gets the normal "link yourself" prompt; nothing is logged.
+- [x] **Jobs skip it:** `_all_accounts()` (alerts, drips, digests, chat prune), the outbox drain,
+      and chat-notify. `purge-deletions` alone passes `include_deactivated=True`.
+- [x] Owner-only "Deactivate household" in Settings → Estate → Danger zone (`account.delete`
+      action). Its confirmation text states the no-refund cancel and the 90-day erasure.
+- Deletion-pending accounts are NOT locked; they stay usable for the 30 days, so the owner can
+  export. Decided 2026-11-06.
 
 **Slice 3 — Delete** (owner only; on the existing `request_deletion`/`purge`)
 - [ ] Settings "Delete account": download-my-data first, typed confirmation, locks like
@@ -1103,8 +1117,12 @@ Four slices, each committed + deployed on its own (a `pg_dump` before every migr
   privacy policy must say so.
 
 **Slice 4 — 3-month rule + non-owners**
-- [ ] `purge-deletions` also deletes accounts deactivated > 90 days (`last_login_at` is never
-      written; reactivating = signing in, so `deactivated_at` is the honest clock)
+- [x] `purge-deletions` also erases accounts deactivated > 90 days (2026-11-06):
+      - It opens one system request (`requested_by_user_id` = nil UUID), due at
+        `deactivated_at + 90d`, and the same run purges it.
+      - It never re-opens a purged account, even though `_finish_account` stamps `deactivated_at`.
+      - `--dry-run` reports it without creating anything.
+      - Tests: `tests/integration/test_deactivation.py` (6).
 - [ ] Non-owners: "Leave household", "Delete my profile"
 
 **Blocker to report:** no scheduler on evo-dev — purges and the 90-day sweep never run by

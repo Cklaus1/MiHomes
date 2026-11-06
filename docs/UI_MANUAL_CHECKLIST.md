@@ -79,6 +79,7 @@ static tests do cover them directly.
 | `login.html` | /login | 131 | ☐ | ☐ | ☐ |
 | `onboarding/_layout.html` | (layout for /onboarding/ steps) | — | ☐ | ☐ | ☐ |
 | `onboarding/account.html` | — | 20 | ☐ | ☐ | ☐ |
+| `onboarding/deactivated.html` | /onboarding/ when every household is deactivated | — | ☐ | ☐ | ☐ |
 | `onboarding/invite.html` | — | 18 | ☐ | ☐ | ☐ |
 | `onboarding/property.html` | — | 17 | ☐ | ☐ | ☐ |
 | `onboarding/spaces.html` | — | 18 | ☐ | ☐ | ☐ |

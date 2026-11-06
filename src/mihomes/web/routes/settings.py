@@ -475,6 +475,32 @@ def rename(
     return RedirectResponse("/settings?notice=account_saved#account", status_code=303)
 
 
+@router.post("/settings/deactivate")
+@declares("account.delete", Access.ACCOUNT)
+def deactivate_household(request: Request, principal=require_authenticated(),
+                         db: Session = Depends(get_db)):
+    """Switch the whole household off (owner only: the same matrix row as deleting it).
+
+    Every session in the household is detached, the owner's included, so the redirect lands on
+    the deactivated page, where the owner can switch it back on. If the subscription cannot be
+    cancelled nothing changes and the reason is shown here.
+    """
+    from mihomes.models.account import Account
+    from mihomes.services.account_lifecycle import LifecycleRefused, deactivate
+
+    account = db.get(Account, principal.account_id)
+    try:
+        deactivate(db, account)
+    except LifecycleRefused as exc:
+        db.rollback()
+        return templates.TemplateResponse(
+            request, "settings/index.html", _page_context(db, principal, error=str(exc)),
+            status_code=502,
+        )
+    db.commit()
+    return RedirectResponse("/onboarding/", status_code=303)
+
+
 @router.post("/settings")
 @declares(_SETTINGS_ACTION, Access.ACCOUNT)
 async def update(

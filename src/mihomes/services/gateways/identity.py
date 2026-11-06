@@ -164,9 +164,15 @@ def _links_for(session: Session, *, gateway: str, sender_id: str) -> list:
         )
     ).all()
 
+    from mihomes.services.account_lifecycle import is_active
+
     rows = []
     try:
         for link in links:
+            if not is_active(session, link.account_id):
+                # Deactivated by its owner: the bot ignores this household entirely, exactly as
+                # signing in to it is refused (services/account_lifecycle.py).
+                continue
             bind_account_guc(session, link.account_id)
             membership = session.execute(
                 select(_MEMBERSHIPS.c.id, _MEMBERSHIPS.c.role).where(

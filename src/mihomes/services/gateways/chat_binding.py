@@ -76,9 +76,14 @@ def bound_account_for_chat(session: Session, chat_id: str) -> uuid.UUID | None:
     except (TypeError, ValueError):
         return None
     bind_gateway_guc(session, GATEWAY_TELEGRAM_CHAT_GUC, str(chat))
-    return session.execute(
+    account_id = session.execute(
         select(_BINDINGS.c.account_id).where(_BINDINGS.c.chat_id == chat)
     ).scalar_one_or_none()
+    # A deactivated household's group is treated as unbound: nothing is logged or answered
+    # (services/account_lifecycle.py).
+    from mihomes.services.account_lifecycle import is_active
+
+    return account_id if account_id is not None and is_active(session, account_id) else None
 
 
 def _manager(session: Session, sender_id: str, *, account_id: uuid.UUID | None):

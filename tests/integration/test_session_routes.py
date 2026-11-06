@@ -103,6 +103,9 @@ class TestTheExemptionStaysSmall:
             "/onboarding/skip",
             "/onboarding/leave",
             "/onboarding/finish",
+            # 2026-11-06: reactivating a deactivated household — there is no account to bind
+            # until it is reactivated; the handler checks ownership itself.
+            "/onboarding/reactivate",
             "/invite/{token}",
             "/invite/{token}/accept",
             "/accounts/switch",

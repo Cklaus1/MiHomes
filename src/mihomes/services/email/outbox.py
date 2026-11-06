@@ -256,7 +256,9 @@ def drain_all(
     combined = DrainResult()
 
     with session_factory() as session:
-        account_ids = list(session.execute(select(Account.id)).scalars())
+        # A deactivated household gets no mail (services/account_lifecycle.py).
+        account_ids = list(session.execute(
+            select(Account.id).where(Account.deactivated_at.is_(None))).scalars())
 
     # **Constructed once, and only when there is something to send.**
     #

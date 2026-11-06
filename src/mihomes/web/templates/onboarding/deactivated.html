@@ -1,0 +1,38 @@
+{% extends "onboarding/_layout.html" %}
+{% block title %}Household deactivated — MiHomes{% endblock %}
+{% block card %}
+  <h1 class="text-xl font-semibold text-gray-900 mb-1">This household is switched off</h1>
+  <p class="text-sm text-gray-600 mb-5">Nobody can open it, the Telegram bot ignores it, and no
+    reminders or emails go out while it's deactivated.</p>
+
+  {% if error %}
+  <p role="alert" class="mb-4 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">{{ error }}</p>
+  {% endif %}
+
+  <ul class="space-y-4">
+    {% for h in households %}
+    <li class="rounded-lg border border-gray-200 p-4">
+      <p class="font-medium text-gray-900">{{ h.account.name }}</p>
+      <p class="mt-1 text-sm text-gray-600">
+        Deactivated {{ h.account.deactivated_at|localtime('%b %d, %Y') }}.
+        Everything in it will be permanently deleted on
+        <strong>{{ h.erase_on|localtime('%b %d, %Y') }}</strong> unless it's reactivated.
+      </p>
+      {% if h.is_owner %}
+      <form method="post" action="/onboarding/reactivate" class="mt-3">
+        <input type="hidden" name="account_id" value="{{ h.account.id }}">
+        <button type="submit" class="w-full rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-brand-700">Reactivate {{ h.account.name }}</button>
+        <p class="mt-2 text-xs text-gray-500">It comes back on the Free plan; choose a plan again in Settings if you need one.</p>
+      </form>
+      {% else %}
+      <p class="mt-3 text-sm text-gray-700">Deactivated by the owner. Ask them to reactivate it if you still need access.</p>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+
+  <form method="post" action="/signout" class="mt-6">
+    <input type="hidden" name="csrf_token" value="{{ request.cookies.get('mihomes_csrf', '') }}" />
+    <button type="submit" class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50">Sign out</button>
+  </form>
+{% endblock %}

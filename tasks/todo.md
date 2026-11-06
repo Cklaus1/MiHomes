@@ -1081,9 +1081,26 @@ Four slices, each committed + deployed on its own (a `pg_dump` before every migr
 **Slice 3 — Delete** (owner only; on the existing `request_deletion`/`purge`)
 - [ ] Settings "Delete account": download-my-data first, typed confirmation, locks like
       deactivation; restore during the 30 days = `cancel_deletion`
-- [ ] `mihomes jobs purge-deletions` in `SCHEDULE`; purge also scrubs the account row, deletes
-      users whose only membership it was, deletes the Stripe customer
-- [ ] Purge tested as the app role; mutation-check it refuses before `purge_after`
+- [x] `mihomes jobs purge-deletions` in `SCHEDULE` (04:45 UTC, after the 02:30 dump), with
+      `--dry-run` (2026-11-06, branch `account-deletion`):
+      - Billing is cancelled first (immediately). If that fails, the account is skipped and
+        retried next run.
+      - Then `purge`. The account row is kept but scrubbed (name, Stripe ids, plan free,
+        `deactivated_at`).
+      - Users whose only estate it was are **scrubbed, not deleted**: other estates' rows may
+        reference them. That means no email, name, password or Google id, and their sessions
+        and reset tokens are deleted.
+      - The Stripe customer itself is NOT deleted; only the subscription is cancelled. That is
+        still open.
+- [x] `purge()` binds the tenant GUC to the request's account and refuses if the binding doesn't
+      hold, so an unbound session can't record a zero-row "erasure".
+- [x] Purge tested as the app role, with outcomes checked through the superuser:
+      `tests/integration/test_purge_job.py` (5 tests). Covers not-due, cancelled, dry run, the
+      billing-failure skip, the refusal, and a member of another estate being kept.
+- [ ] The "locks like deactivation" part of the delete flow waits for Slice 2: during the 30
+      days the account stays usable, which is how the owner exports.
+- Erased data survives in the nightly dumps (14 days) and the laptop copies (30 days). The
+  privacy policy must say so.
 
 **Slice 4 — 3-month rule + non-owners**
 - [ ] `purge-deletions` also deletes accounts deactivated > 90 days (`last_login_at` is never

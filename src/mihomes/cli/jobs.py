@@ -115,6 +115,12 @@ SCHEDULE: dict[str, tuple[str, str]] = {
         "critical issue or an out-of-stock item surfaces the same morning, and a completed "
         "task's alert clears within the hour. Off the hour to stay clear of the other sweeps.",
     ),
+    "purge-deletions": (
+        "45 4 * * *",
+        "Erases accounts whose 30-day undo window has ended; until this existed a requested "
+        "deletion never happened. Daily is the window's own unit. After the 02:30 dump, so the "
+        "state just before an erasure is in that night's backup if a purge ever needs checking.",
+    ),
     "reconcile": (
         "0 3 * * *",
         "The backstop for a dropped webhook (BILLING §6). Nightly and off-peak: it re-fetches "
@@ -482,6 +488,44 @@ def alerts() -> None:
             failed += 1
             logger.exception("alerts: failed for account %s", account_id)
     rprint(f"Alerts: {raised} raised, {cleared} cleared; {failed} account(s) failed.")
+
+
+@app.command("purge-deletions")
+def purge_deletions(
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="List the accounts that are due, and erase nothing."
+    ),
+) -> None:
+    """Erase every account whose deletion grace period has ended (2026-11-06).
+
+    Per account under its own context: the request is a tenant row, and `purge` itself refuses
+    unless the tenant binding holds. A billing failure skips that account until the next run.
+    Idempotent: a purged request is stamped `purged_at` and is not due again.
+    """
+    from mihomes.services.privacy.deletion import purge_due
+
+    purged = would = skipped = failed = 0
+    for account_id, _ in _all_accounts():
+        try:
+            with _account_session(account_id) as (session, _account):
+                outcome = purge_due(session, account_id, dry_run=dry_run)
+                if outcome is None:
+                    continue
+                if outcome.status == "purged":
+                    session.commit()
+                    purged += 1
+                elif outcome.status == "would_purge":
+                    would += 1
+                else:
+                    skipped += 1
+                rprint(f"  {outcome.status}: {account_id} — {outcome.detail}")
+        except Exception:
+            failed += 1
+            logger.exception("purge-deletions: failed for account %s", account_id)
+    if dry_run:
+        rprint(f"Deletions due: {would} (dry run: nothing erased); {failed} account(s) failed.")
+    else:
+        rprint(f"Deletions: {purged} purged, {skipped} skipped (billing); {failed} account(s) failed.")
 
 
 @app.command("reconcile")

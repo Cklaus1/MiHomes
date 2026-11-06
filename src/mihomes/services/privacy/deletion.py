@@ -60,7 +60,11 @@ __all__ = [
     "account_referencing_global_columns",
     "cancel_deletion",
     "disposition_for",
+    "PurgeOutcome",
+    "PurgeRefused",
+    "due_request",
     "purge",
+    "purge_due",
     "request_deletion",
 ]
 
@@ -265,6 +269,29 @@ def _delete_storage_objects(session: Session, account_id) -> int:
     return deleted
 
 
+class PurgeRefused(RuntimeError):
+    """The purge would not have reached the account's rows, so it did not start."""
+
+
+def _require_bound_to(session: Session, account_id) -> None:
+    """Bind this transaction's tenant GUC to `account_id` and prove it took (2026-11-06).
+
+    **Without it a purge can record an erasure that never happened.** On the app role every
+    count and DELETE below goes through RLS, which reads `app.current_account`. If that is unset
+    or names another account, every count is 0 and every DELETE removes nothing; the manifest
+    then says "0 rows" everywhere and `purged_at` is stamped. Binding here rather than trusting
+    the caller makes the purge correct from any session; checking afterwards makes it refuse
+    rather than guess when the binding cannot be made.
+    """
+    from mihomes.tenancy.connection import ACCOUNT_GUC, bind_account_guc
+
+    bind_account_guc(session, account_id)
+    bound = session.execute(sa.text("SELECT current_setting(:guc, true)"),
+                            {"guc": ACCOUNT_GUC}).scalar()
+    if str(bound or "") != str(account_id):
+        raise PurgeRefused(f"tenant GUC is {bound!r}, not {account_id}; refusing to purge")
+
+
 def purge(
     session: Session,
     request: AccountDeletionRequest,
@@ -279,6 +306,7 @@ def purge(
     """
     now = now or datetime.now(UTC)
     account_id = request.account_id
+    _require_bound_to(session, account_id)
     manifest: dict[str, dict] = {}
 
     # A10 — storage first. See `_delete_storage_objects`.
@@ -343,3 +371,140 @@ def purge(
         "purge complete: account=%s tables=%d", account_id, len(manifest)
     )
     return manifest
+
+
+# ── Running the purge when the grace period ends (2026-11-06) ─────────────────────────────
+#
+# `request_deletion` started a clock and `purge` could erase, but nothing ever called `purge`:
+# an owner who pressed "Delete account" got a 30-day countdown and then nothing, forever. This
+# is what `mihomes jobs purge-deletions` runs for each account, daily.
+
+
+@dataclass
+class PurgeOutcome:
+    account_id: object
+    status: str          # "purged" | "would_purge" (dry run) | "billing_failed"
+    detail: str = ""
+
+
+def due_request(session: Session, account_id, *, now: datetime) -> AccountDeletionRequest | None:
+    """The live request whose grace period has ended: not cancelled, not purged, due."""
+    request = _live_request(session, account_id)
+    if request is None or request.purge_after > now:
+        return None
+    return request
+
+
+def purge_due(session: Session, account_id, *, now: datetime | None = None,
+              dry_run: bool = False, billing=None) -> PurgeOutcome | None:
+    """Erase `account_id` if its deletion is due; None when it is not.
+
+    Order matters, and each step is the safe direction if the next one fails:
+    1. **Billing first.** A live subscription is cancelled immediately. If that call fails the
+       account is skipped and the request stays live, so tomorrow's run retries: a day's delay
+       is better than erasing an account Stripe keeps charging.
+    2. Note the members, then `purge` (which refuses unless the tenant binding holds).
+    3. Finish the account row: kept, because the preserved request points at it, but scrubbed.
+    4. Scrub members who belonged to no other estate, so nobody can sign in as them.
+    """
+    from mihomes.models.account import Account
+    from mihomes.models.membership import Membership
+    from mihomes.services.billing.cancel import has_live_subscription
+
+    now = now or datetime.now(UTC)
+    _require_bound_to(session, account_id)  # the request itself is a tenant row
+    request = due_request(session, account_id, now=now)
+    if request is None:
+        return None
+    if dry_run:
+        return PurgeOutcome(account_id, "would_purge",
+                            f"requested {request.requested_at:%Y-%m-%d}, due {request.purge_after:%Y-%m-%d}")
+
+    account = session.get(Account, account_id)
+    if account is not None and has_live_subscription(account):
+        try:
+            if billing is None:
+                from mihomes.services.billing.provider import get_billing_provider
+
+                billing = get_billing_provider("stripe")
+            billing.cancel(subscription_id=account.stripe_subscription_id, at_period_end=False)
+        except Exception as exc:  # noqa: BLE001 — any billing failure means "not today"
+            logger.warning("purge skipped: account=%s billing cancel failed: %s", account_id, exc)
+            return PurgeOutcome(account_id, "billing_failed", str(exc))
+
+    memberships = Membership.__table__
+    member_ids = [uid for (uid,) in session.execute(
+        sa.select(memberships.c.user_id).where(memberships.c.account_id == account_id))]
+
+    manifest = purge(session, request, now=now)
+    if account is not None:
+        _finish_account(account, now)
+    scrubbed = _scrub_orphaned_users(session, member_ids)
+    manifest["_account_row"] = {"disposition": ANONYMIZE, "rows": 1 if account else 0}
+    manifest["_users"] = {"disposition": ANONYMIZE, "rows": scrubbed}
+    request.purge_manifest = json.dumps(manifest, default=str)
+    session.flush()
+    return PurgeOutcome(account_id, "purged",
+                        f"{len(manifest)} tables; {scrubbed} sign-in(s) removed")
+
+
+def _finish_account(account, now: datetime) -> None:
+    """The account row outlives the purge (the preserved request references it); its name and
+    billing identity do not."""
+    account.name = "Deleted account"
+    account.plan = "free"
+    account.stripe_customer_id = None
+    account.stripe_subscription_id = None
+    account.subscription_status = None
+    account.current_period_end = None
+    account.billing_interval = None
+    account.trial_ends_at = None
+    account.cancel_at_period_end = False
+    account.deactivated_at = now
+
+
+def _scrub_orphaned_users(session: Session, user_ids: list) -> int:
+    """Scrub every former member who now belongs to no estate at all. Returns how many.
+
+    Membership is counted with a **Core** query on purpose: the ORM's tenant filter would limit
+    it to the account just purged, find nothing, and scrub people who still belong to another
+    estate. On the app role the `membership_self` policy (bound by `bind_user_guc`) lets the
+    Core query see exactly this user's memberships, in every account.
+
+    Scrubbed rather than deleted: other estates' rows may still reference the user (an old
+    invite, an audit entry), and the row without a name, email, password or Google id is no
+    longer anyone. Their sessions and reset tokens are deleted, so no device stays signed in.
+    """
+    from mihomes.models.membership import Membership
+    from mihomes.models.password_reset_token import PasswordResetToken
+    from mihomes.models.session import Session as LoginSession
+    from mihomes.models.user import User
+    from mihomes.tenancy.connection import bind_user_guc
+
+    memberships = Membership.__table__
+    scrubbed = 0
+    for user_id in dict.fromkeys(user_ids):
+        bind_user_guc(session, user_id)
+        remaining = session.execute(
+            sa.select(sa.func.count()).select_from(memberships)
+            .where(memberships.c.user_id == user_id)
+        ).scalar()
+        if remaining:
+            continue
+        user = session.get(User, user_id)
+        if user is None:
+            continue
+        user.email = f"deleted-{user.id}@deleted.invalid"
+        user.name = None
+        user.password_hash = None
+        user.password_set_at = None
+        user.google_sub = None
+        user.avatar_url = None
+        user.last_used_account_id = None
+        session.execute(sa.delete(LoginSession.__table__).where(
+            LoginSession.__table__.c.user_id == user_id))
+        session.execute(sa.delete(PasswordResetToken.__table__).where(
+            PasswordResetToken.__table__.c.user_id == user_id))
+        scrubbed += 1
+    session.flush()
+    return scrubbed

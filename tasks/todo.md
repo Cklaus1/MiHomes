@@ -316,7 +316,7 @@ in parallel, (5) Twilio SMS then email as further adapters. Design: `docs/produc
       Baileys bridge record aligned; PRD §7 rewritten to match the code
 - [x] `ChannelAdapter` Protocol (required: label, channel, send; optional hooks) + `review_common.handle_inbound`;
       both `process_and_respond` are now adapter builders. PRD §5.2 note added
-- [ ] FOUND, not fixed (out of scope): gateway issue photos are copied to public `/static/uploads/`
+- [x] FIXED since (photos now use tenant storage, review_common.py ~L1496): gateway issue photos were copied to public `/static/uploads/`
       (`review_common._create_issue_with_photos`) — the cross-tenant path removed elsewhere (a7e2bd2)
 - Review: gateway set 165 → 190 passing (new: token, normalize, handle_inbound, H27 outcome tests); existing
   tests changed only where they encoded a bug (permissive client fake, H27 mechanism test, A17/e2e
@@ -1292,7 +1292,7 @@ Decided by the founder from market research (PRICING_AND_PACKAGING §6): keep Fr
 - [x] GA gate text: blocked now only on the Stripe prices
 - [x] Prices changed same day to the ones already in Stripe test mode: Pro $19/mo + $190/yr, Estate $49/mo + $490/yr (founder's choice); evo-dev's four STRIPE_PRICE_* already point at them
 - [ ] **At launch, in the live Stripe account:** create the same four prices and set their ids on the production host
-- [ ] Set the four price ids on the server (`~/.mihomes/run/web.env`): STRIPE_PRICE_PRO_MONTHLY, STRIPE_PRICE_PRO_ANNUAL, STRIPE_PRICE_ESTATE_MONTHLY, STRIPE_PRICE_ESTATE_ANNUAL, then restart
+- [x] (evo-dev already has them, test mode) Set the four price ids on the server (`~/.mihomes/run/web.env`): STRIPE_PRICE_PRO_MONTHLY, STRIPE_PRICE_PRO_ANNUAL, STRIPE_PRICE_ESTATE_MONTHLY, STRIPE_PRICE_ESTATE_ANNUAL, then restart
 - [ ] Check /billing on evo-dev shows $19 / $49 and the yearly saving
 - [ ] Find NIM's production cost per token (build.nvidia.com trial credits are not a production plan) and check 100 / 1,500 / 3,000 calls against it
 - [ ] After a month of real use: compare `ai_usage_events` tokens per call with the estimate (20k in / 1.5k out)

@@ -21,7 +21,7 @@ Three plans. **Free** for a single household, free forever. **Pro** for multi-ho
 | **Seats** | **3** | **10** | **50** *(fair-use)* |
 | **Staff invites** | No | Yes | Yes |
 | **Roles available** | owner, admin | owner, admin, staff | owner, admin, staff |
-| **AI advisor** | Limited (see §3) | Full SPACE advisor | Priority AI (faster, higher limits) |
+| **AI advisor** | Limited (see §3) | Full SPACE advisor | Full SPACE advisor, highest allowance (same AI as every plan) |
 | **AI usage / mo** | **100 calls** | **1,500 calls** | **3,000 calls** |
 | **AI provider** | Same for every plan: NVIDIA NIM, set by MiHomes | ← | ← |
 | **Core management** | Properties, tasks, issues, vendors, inventory, documents, work orders | Everything in Free | Everything in Pro |
@@ -83,7 +83,7 @@ These are the entitlement keys the service resolves per account. The values are 
 | `roles_allowed` | set | owner, admin | owner, admin, staff | owner, admin, staff |
 | `ai_calls_per_month` | int | 100 | 1,500 | 3,000 |
 | `ai_overage_buffer_pct` | int (%) | **0** | 20 | 20 |
-| `ai_priority` | enum | `standard` | `standard` | `priority` |
+| `ai_priority` | enum | `standard` | `standard` | `priority` *(not used: one AI for every plan, decided 2026-11-09)* |
 | `vendor_ratings` | bool | `false` | `true` | `true` |
 | `work_order_scheduling` | bool | `false` | `true` | `true` |
 | ↳ *scope of that key* | — | Covers **exactly one capability: setting `WorkOrder.due_date`.** Not `assignee_id` (no UI exposes it), and **not** `Appointment`/`/calendar` — that is a different product wearing the same word, and gating it would paywall the whole calendar plus a nightly automated job. | | |

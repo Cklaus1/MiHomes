@@ -16,8 +16,8 @@ resolve against something other than the live binding.
 
 **Launch numbers, decided 2026-11-09** (SPEC-004 O1): Pro $15/mo or $150/yr, Estate $149/mo or
 $1,490/yr. The prices themselves live in Stripe (see `services/billing/prices.py`); this table
-owns the limits. AI allowances are sized to the model each plan's `ai_priority` buys
-(`services/ai/ai_config.py::PLAN_MODELS`): Free and Pro answer on Haiku, Estate on Sonnet.
+owns the limits. Every plan uses the same AI — one provider and model set by MiHomes (NVIDIA
+NIM), never chosen by a household — so plans differ only in how many AI calls they include.
 They are literals rather than env vars deliberately — C11: a price id is deployment identity and
 must be env, but the limits are product definition, already committed and drift-gated here, and
 moving them to env would make the plan table unreadable for no safety gain.

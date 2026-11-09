@@ -23,7 +23,7 @@ Three plans. **Free** for a single household, free forever. **Pro** for multi-ho
 | **Roles available** | owner, admin | owner, admin, staff | owner, admin, staff |
 | **AI advisor** | Limited (see §3) | Full SPACE advisor | Priority AI (faster, higher limits) |
 | **AI usage / mo** | **100 calls** | **1,500 calls** | **3,000 calls** |
-| **AI model** | Claude Haiku | Claude Haiku | Claude Sonnet ("priority AI") |
+| **AI provider** | Same for every plan: NVIDIA NIM, set by MiHomes | ← | ← |
 | **Core management** | Properties, tasks, issues, vendors, inventory, documents, work orders | Everything in Free | Everything in Pro |
 | **Advanced features** | — | Vendor ratings, work-order scheduling | + Predictive maintenance, weekly AI reports, audit export, priority support |
 | **Support** | Community / docs | Email (best-effort) | Priority email + onboarding help |
@@ -230,13 +230,13 @@ Research done 2026-11-09 from vendors' own pricing pages where possible (third-p
 Price bands: owner home apps $40–220/yr; households with staff — almost nothing published, between consumer apps (~$20/mo) and the first estate product ($340/mo); family offices $340–1,100/mo, usually annual.
 
 Pricing logic:
-- **Free** wins the household and builds habit. Its cost is bounded by 100 AI calls a month on Haiku (about $0.30 worst case).
-- **Pro at $15/mo ($150/yr)** sits just above HomeZada Premium, for owners with several homes or a little help. Its 1,500 AI calls run on Haiku, about $5 a month if every call is used (Sonnet would be about $165).
-- **Estate at $149/mo ($1,490/yr)** targets households with staff and family offices. It undercuts EstateSpace's $340 floor while pricing MiHomes as professional software, not a consumer app. Its 3,000 AI calls run on Sonnet, about $165 a month if every call is used; typical use is far below the ceiling.
+- **Free** wins the household and builds habit. Its AI cost is bounded by 100 calls a month.
+- **Pro at $15/mo ($150/yr)** sits just above HomeZada Premium, for owners with several homes or a little help.
+- **Estate at $149/mo ($1,490/yr)** targets households with staff and family offices. It undercuts EstateSpace's $340 floor while pricing MiHomes as professional software, not a consumer app.
 - **Annual = 2 months free** (~17%), the common pattern in this market.
 - **14-day trial**, the norm across the comparables.
 
-AI cost per call was estimated, not measured: about 20k input and 1.5k output tokens per advisor question (the agent loop runs up to 5 rounds) — Haiku 5.5 about $0.003, Sonnet 5 about $0.055. `ai_usage_events` records real tokens per call; re-check the allowances once there is a month of real usage.
+**AI is one provider for everyone.** MiHomes uses NVIDIA NIM, chosen and configured by MiHomes (`ai.*` is operator-only); a household never picks a provider or model, and every plan gets the same AI. Plans differ only in their monthly allowance. An advisor question is roughly 20k input and 1.5k output tokens (the agent loop runs up to 5 rounds); `ai_usage_events` records real tokens per call. Check the allowances against NIM's production cost per token, and against a month of real usage, before launch.
 
 ---
 

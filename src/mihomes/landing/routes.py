@@ -167,3 +167,21 @@ async def confirm_waitlist(request: Request, token: str = "") -> HTMLResponse:
 def base_url() -> str:
     """Absolute base for confirm links (§10 LANDING_BASE_URL)."""
     return os.environ.get("LANDING_BASE_URL", "http://localhost:8080").rstrip("/")
+
+
+# ── Terms and Privacy (2026-11-09) ─────────────────────────────────────────────────────────
+# The footer links here 404 until each document has an effective date (`mihomes.legal`); the
+# main app serves the same pages for its own signed-out visitors (`web/routes/legal.py`).
+
+
+@router.get("/legal/{slug}", response_class=HTMLResponse)
+async def legal_document(slug: str) -> HTMLResponse:
+    from fastapi import HTTPException
+
+    from mihomes import legal
+    from mihomes.landing.templates_env import render_page
+
+    doc = legal.published(slug)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    return HTMLResponse(render_page("legal.html", {"doc": doc}))

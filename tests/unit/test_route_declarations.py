@@ -48,6 +48,11 @@ PERMANENT_ALLOWLIST: dict[str, str] = {
         "The difference from `auth` is only which credential is presented — an OIDC token there, "
         "a password here — and the not-yet-authenticated window is the same window."
     ),
+    "mihomes.web.routes.legal": (
+        "2026-11-09. The Terms of Service and Privacy Policy must be readable before anyone has an "
+        "account — they are what a visitor agrees to by signing up. Read-only, no account data, "
+        "and 404 until each document is published (`mihomes.legal`)."
+    ),
     "mihomes.web.routes.webhooks": (
         "Stripe is not a user. There is no cookie, no principal and no account on this request, "
         "so there is no role for the matrix to consult — the caller is authenticated by an "
@@ -101,6 +106,11 @@ PERMANENT_ALLOWLIST: dict[str, str] = {
 #: correct exemption and a forgotten one are byte-identical in code unless the correct one is
 #: made to say so.
 ALLOWLIST_MECHANISMS: dict[str, str] = {
+    "mihomes.web.routes.legal": (
+        "none, by design: there is nothing to authenticate. Two GET routes serve fixed documents "
+        "from the repository (`mihomes/legal/*.md`) — no account, user or query parameter reaches "
+        "the response — and they answer 404 until a document is dated and free of placeholders"
+    ),
     "mihomes.web.routes.auth": (
         # **Was: 'the OIDC provider's own flow'.** True until SPEC-010, and it became false the
         # moment a second credential type could mint a session — `/signout` and the session

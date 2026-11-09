@@ -21,6 +21,9 @@ ALLOWED_PATHS = {
     "/auth/google/start",
     "/auth/google/callback",
     "/healthz",
+    # 2026-11-09: the footer's Terms and Privacy links. Fixed documents from mihomes/legal/,
+    # 404 until published; no product data.
+    "/legal/{slug}",
 }
 
 # A sample of the single-user product's routes. None may be reachable.

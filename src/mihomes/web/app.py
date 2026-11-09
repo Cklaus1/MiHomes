@@ -46,6 +46,9 @@ from mihomes.web.routes import billing as billing_route
 from mihomes.web.routes import calendar as calendar_route
 from mihomes.web.routes import gateways as gateways_route
 from mihomes.web.routes import inventory as inventory_route
+from mihomes.web.routes import (
+    legal as legal_route,
+)
 from mihomes.web.routes import library as library_route
 from mihomes.web.routes import password as password_route
 from mihomes.web.routes import privacy as privacy_route
@@ -195,6 +198,8 @@ def create_app() -> FastAPI:
     # and Origin guards. Declares no matrix action; it is in `PERMANENT_ALLOWLIST`, authorised by
     # a signature over the raw body rather than by a session (N3).
     app.include_router(webhooks_route.router)
+    # Terms and Privacy — public (PERMANENT_ALLOWLIST) and 404 until published (mihomes.legal).
+    app.include_router(legal_route.router)
 
     # SPEC-006 Step 5 — `POST /webhooks/telegram`. Mounted at the root for the same reason and
     # under the same `/webhooks/` prefix, so `web/security.py`'s existing exemption covers it

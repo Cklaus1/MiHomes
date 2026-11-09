@@ -67,4 +67,12 @@ echo "$out" > "$DIR/LATEST"
 find "$DIR" -maxdepth 1 \( -name 'mihomes-*.dump' -o -name 'globals-*.sql' \) \
     -mtime +"$KEEP_DAYS" -delete
 
+# Every other database copy in the parent folder too (2026-11-09): the dumps deploy.sh takes
+# before each deploy (pre-*.sql) and one-off restore points used to be kept forever, so data an
+# owner erased never fully left the server. The privacy policy states the same 14 days.
+PARENT="$(dirname "$DIR")"
+pruned="$(find "$PARENT" -maxdepth 1 -type f \( -name '*.sql' -o -name '*.dump' \) \
+    -mtime +"$KEEP_DAYS" -print -delete | wc -l)"
+[ "$pruned" -gt 0 ] && echo "pruned $pruned older dump(s) in $PARENT"
+
 echo "ok: $size bytes; $(ls "$DIR"/mihomes-*.dump | wc -l) dump(s) kept"

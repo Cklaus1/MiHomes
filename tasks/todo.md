@@ -1,5 +1,40 @@
 # MiHomes — Project State & Next Actions
 
+## Terms of Service + Privacy Policy (2026-11-09, branch `legal-pages`) — SPEC-001 O1
+Decisions (user): drafts plus a publish switch (counsel reviews before anything goes live). All
+database dumps on evo-dev are kept 14 days, including the pre-deploy ones.
+- [x] Drafts in `src/mihomes/legal/terms.md` and `privacy.md`, written from the data inventory.
+- [x] Served at `/legal/terms` and `/legal/privacy` by the app and the landing site, signed out.
+      **404 until** the frontmatter `effective_date` is set **and** `legal.unresolved()` is empty
+      (no `[ALL-CAPS]` or `[n]` placeholder, no draft banner).
+- [x] `pg-backup.sh` prunes every `*.sql`/`*.dump` in `~/.mihomes/backups/pg/` older than
+      14 days. Pre-deploy dumps were kept forever.
+- [ ] Founder/counsel to fill in:
+      - company name, address and contacts;
+      - governing law and jurisdiction;
+      - minimum age;
+      - hosting provider and region;
+      - the current AI provider;
+      - who holds the offline backup copy;
+      - the pricing page, trial length and notice period;
+      - liability terms;
+      - controller/processor roles and a DPA;
+      - international transfers;
+      - lawful bases.
+- [ ] Decisions the drafts flag:
+      - the refund policy, including deactivation without a refund;
+      - keep or drop waitlist IP and user-agent collection;
+      - whether to enforce the audit (2y) and AI-conversation (1y) retention settings, which
+        exist but do nothing today.
+- [ ] Found while drafting, worth fixing (privacy):
+      - the full property address goes to OpenStreetMap and to Google Calendar;
+      - guest dietary preferences are stored (possibly health data);
+      - jsDelivr scripts load on the AI, dashboard and budget pages;
+      - nothing prunes the email outbox, the Telegram conversation log or the waitlist;
+      - expired session rows are never deleted.
+- [ ] After publishing: a "you agree to the Terms" line at signup, and mark the GA readiness
+      gate MET.
+
 ## Export all (2026-11-06, branch `export-all`)
 - [x] `/export/all.zip` (owner/admin): one spreadsheet per list (the 7 import types), each with
       its import columns and BOM, plus a README naming the type each file imports as.

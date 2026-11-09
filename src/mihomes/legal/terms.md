@@ -47,8 +47,8 @@ The Telegram bot (and, when available, WhatsApp) works through those companies' 
 
 # Plans, trials and billing
 
-- **Plans.** MiHomes has a Free plan and paid plans with different limits on homes, members and AI use. Current plans and prices are shown on the [PRICING PAGE]. [DECISION: launch prices and limits are not final.]
-- **Trial.** New households can try a paid plan free for [14] days, once. At the end of the trial the household moves to the Free plan unless you choose a paid plan.
+- **Plans.** MiHomes has a Free plan and paid plans with different limits on homes, members and AI use. Current plans and prices are shown on the [PRICING PAGE].
+- **Trial.** New households can try a paid plan free for 14 days, once. At the end of the trial the household moves to the Free plan unless you choose a paid plan.
 - **Payment.** Paid plans are billed in advance, monthly or annually, through Stripe, and renew automatically until cancelled. Taxes may apply.
 - **Failed payments.** If a payment fails, we email reminders and retry over about two weeks; if it still fails, the household moves to the Free plan.
 - **Cancelling.** You can cancel in Settings at any time. You keep the paid plan until the end of the period you've paid for, then move to the Free plan. Nothing is deleted; homes over the Free limit become read-only until you upgrade or remove some.

@@ -54,16 +54,19 @@ ROLE_DISPLAY = {
 
 # SPEC-003 §3/Step 15 — these told a *browser* user to "run `mihomes ai setup` in the CLI",
 # which SPEC-002 D1 had already made impossible: the CLI is an operator tool and there is no
-# user-facing one. The advice was not merely unhelpful, it was unfollowable. Now that Step 15's
-# settings page exists, point at it.
+# user-facing one. The advice was not merely unhelpful, it was unfollowable. Pointing at Settings
+# was no better: the AI provider and its key are set by MiHomes for every household (operator-only
+# `ai.*`, decided 2026-11-09), so there is nothing a household can change. Say so.
 #
 # G6.4 deferred this deliberately rather than deleting it early: removing the wrong advice before
 # the right destination existed would have left a worse message than the wrong one.
 _AI_ERROR_HINT = (
-    "AI provider not configured. An owner or admin can set the API key in Settings."
+    "The AI assistant isn't available right now. It's run by MiHomes, so there's nothing to "
+    "set up on your side — please try again later."
 )
 _AI_INVALID_KEY_HINT = (
-    "API key is invalid or rejected. An owner or admin can update it in Settings."
+    "The AI assistant isn't available right now. It's run by MiHomes, so there's nothing to "
+    "change on your side — please try again later."
 )
 
 

@@ -848,3 +848,7 @@ Review this at the start of each session.
 - **Don't surface internal frameworks as UI labels.** SPACE ("Economy", "Presence") is how the AI
   advisor ranks; to a user "Economy" read as money. Use it to *order* if useful, but tag rows with
   vocabulary the user already has in the data (the task's own priority).
+
+## Check the production AI provider before designing anything around AI cost (2026-11-09)
+- **Mistake:** sized plan AI allowances and built per-plan model routing (Haiku/Sonnet) on the code's `DEFAULT_MODEL = claude-sonnet-5`, while the live provider was NVIDIA NIM — and memory already said "AI still NIM".
+- **Rule:** MiHomes runs ONE AI provider for every household, chosen by the developer (`ai.provider`, operator-only). Never add per-plan or per-household provider/model choice. Before any AI cost or model work, confirm the provider the founder intends for production; the code's defaults are not the product decision.

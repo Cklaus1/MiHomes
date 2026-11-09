@@ -74,7 +74,7 @@ Only these service providers, and only what each needs:
 - **Stripe**: payments and subscriptions.
 - **Google**: sign-in, if you choose it; Google Calendar, if you connect it. Calendar events we create include the title, description and the **property's address**.
 - **Telegram**: messages to and from the bot, if you use it.
-- **AI providers**: your question, attachments and relevant household context. We use [AI PROVIDER(S)]. [COUNSEL: check each provider's data-use and retention terms, and state whether they may train on submitted data.]
+- **AI providers**: your question, attachments and relevant household context. We use NVIDIA (NIM), the same provider for every household. [COUNSEL: check each provider's data-use and retention terms, and state whether they may train on submitted data.]
 - **Resend**: sending email.
 - **Browser push services** (Google, Mozilla, Apple, Microsoft): delivering notifications you turned on.
 - **OpenStreetMap (Nominatim) and Open-Meteo**: weather for your property. The **property address** is sent to OpenStreetMap to find its location, and the coordinates to Open-Meteo.

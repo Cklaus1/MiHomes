@@ -45,10 +45,48 @@ def get_ai_provider_name(session: Session) -> str:
     return get_config(session, "ai.provider", "nim")
 
 
+#: `ai_priority` (the plan table, `entitlements/limits.py`) → the Claude model that plan buys.
+#: Decided 2026-11-09 with the launch prices: Free and Pro answer on Haiku, Estate on Sonnet. The
+#: AI allowances are sized to this — Pro's 1,500 calls cost about $5 a month on Haiku and would
+#: cost about $165 on Sonnet, against a $15 price — so changing a model here means re-checking
+#: `ai_calls_per_month` too.
+PLAN_MODELS = {
+    "standard": "claude-haiku-5-5",
+    "priority": DEFAULT_MODEL,
+}
+
+
+def plan_model(session: Session) -> str:
+    """The Claude model the bound account's plan buys.
+
+    No bound account means an operator CLI command or a system job (N10: not a household's
+    usage), which gets `DEFAULT_MODEL`. An account that cannot be read gets the *standard* model:
+    the cheaper answer is the fail-closed direction for a paid feature (`PRICING` rule 2).
+    """
+    from mihomes.entitlements.limits import limits_for
+    from mihomes.models.account import Account
+    from mihomes.tenancy.context import current_account
+
+    try:
+        account_id = current_account.get()
+    except LookupError:
+        return DEFAULT_MODEL
+    try:
+        account = session.get(Account, account_id)
+    except Exception:
+        account = None
+    if account is None:
+        return PLAN_MODELS["standard"]
+    priority = limits_for(account.plan, account.subscription_status)["ai_priority"]
+    return PLAN_MODELS.get(priority, PLAN_MODELS["standard"])
+
+
 def get_ai_model(session: Session, provider: str = "nim") -> str:
     """Get configured model name with sensible defaults.
 
-    Checks ai.<provider>_model first, then ai.model, then built-in defaults.
+    Checks ai.<provider>_model first, then ai.model, then built-in defaults. Both keys are
+    operator-only (`config_service.USER_SETTING_KEYS` excludes `ai.*`), so an explicit setting is
+    an operator's override and wins; with none, Claude's model follows the account's plan.
     """
     provider_specific = get_config(session, f"ai.{provider}_model")
     if provider_specific:
@@ -56,6 +94,8 @@ def get_ai_model(session: Session, provider: str = "nim") -> str:
     stored = get_config(session, "ai.model")
     if stored:
         return stored
+    if provider == "claude":
+        return plan_model(session)
     defaults = {
         "claude": DEFAULT_MODEL,
         "openai": "gpt-4o",

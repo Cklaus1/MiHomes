@@ -44,12 +44,11 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["TRIAL_DAYS", "TRIAL_PLAN", "is_on_trial", "maybe_start_trial", "start_trial"]
 
-#: `PRICING` §4.2 — *"14-day Pro trial (PLACEHOLDER length)"*.
+#: `PRICING` §4.2 — a 14-day Pro trial, confirmed as the launch length on 2026-11-09 (O1).
 #:
-#: Tagged PLACEHOLDER in the source, so it is O1's to set at launch. A literal rather than an env
-#: var for the same reason the plan limits are (C11): trial length is product definition, already
-#: committed, and moving it to the environment would make it invisible to anyone reading the
-#: policy.
+#: A literal rather than an env var for the same reason the plan limits are (C11): trial length is
+#: product definition, already committed, and moving it to the environment would make it invisible
+#: to anyone reading the policy.
 TRIAL_DAYS = 14
 
 #: The plan a trial grants. Pro, not Estate: §4.2 sells a *Pro* trial, and granting the top tier

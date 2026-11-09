@@ -1278,3 +1278,28 @@ their calendar up to date with the estate's appointments and tasks.
 **Known limits:** calendar scopes are *sensitive* — beyond Console test users (max 100) Google
 requires app verification (weeks). Tasks are assigned to `staff`, not to users, so "only my
 tasks" needs a staff↔member link that doesn't exist yet.
+
+## Launch prices (2026-11-09) — branch real-prices
+
+Decided by the founder from market research (PRICING_AND_PACKAGING §6): keep Free / Pro / Estate.
+
+- [x] Limits table: Free 1 home / 3 seats / 100 AI calls; Pro 3 homes / 10 seats / 1,500; Estate unlimited / 50 / 3,000
+- [x] AI model follows the plan: Free + Pro on `claude-haiku-5-5`, Estate on Sonnet (`ai_config.PLAN_MODELS`, keyed by `ai_priority`); an operator's `ai.claude_model` still overrides
+- [x] Trial stays 14 days (PLACEHOLDER tag removed); Terms trial + "prices not final" placeholders removed
+- [x] PRICING_AND_PACKAGING.md: prices, limits, research table, AI cost reasoning
+- [x] GA gate text: blocked now only on the Stripe prices
+- [ ] **Founder, in the Stripe dashboard:** create products "MiHomes Pro" and "MiHomes Estate", each with a recurring monthly and yearly USD price — Pro $15/mo + $150/yr, Estate $149/mo + $1,490/yr — in test mode first, then live
+- [ ] Set the four price ids on the server (`~/.mihomes/run/web.env`): STRIPE_PRICE_PRO_MONTHLY, STRIPE_PRICE_PRO_ANNUAL, STRIPE_PRICE_ESTATE_MONTHLY, STRIPE_PRICE_ESTATE_ANNUAL, then restart
+- [ ] Check /billing shows $15 / $149 and the yearly saving
+- [ ] Switch `ai.provider` to `claude` (still NIM on evo-dev) — the plan model only applies to the Claude provider
+- [ ] After a month of real use: compare `ai_usage_events` tokens per call with the estimate (20k in / 1.5k out)
+
+**Review:** 12 new unit tests (`test_plan_model.py`); unit suite 1603 passed on Python 3.14; billing/trial/AI/overage
+integration tests 182 passed. Not tested against the live Claude API (no key on the laptop) — Haiku 5.5 accepts
+everything the provider sends (no sampling params; forced `tool_choice` is allowed on Haiku; the agent loop appends
+`resp.content` whole, so thinking blocks round-trip).
+
+**Found while testing, not fixed here:** this worktree's `.venv` was rebuilt today on Python 3.12 with an untracked
+`uv.lock` resolving FastAPI 0.162, which wraps included routers lazily — the route-census test then sees only
+`/healthz`, i.e. the security census goes blind on that FastAPI. Pin FastAPI or teach the census to walk
+`_IncludedRouter` before anything upgrades FastAPI in production. `test_css_is_current` fails too, though this branch touches no template, input.css or Tailwind config.

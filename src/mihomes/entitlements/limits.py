@@ -14,7 +14,10 @@ loaded gun for the next reader, who cannot tell an inert fixture from a live one
 same object, and `limits_for(table=...)` still takes an explicit table for tests that need to
 resolve against something other than the live binding.
 
-**These numbers are `PLACEHOLDER` except Free's 1 home / 3 seats** (SPEC-004 O1, blocks-ship).
+**Launch numbers, decided 2026-11-09** (SPEC-004 O1): Pro $15/mo or $150/yr, Estate $149/mo or
+$1,490/yr. The prices themselves live in Stripe (see `services/billing/prices.py`); this table
+owns the limits. AI allowances are sized to the model each plan's `ai_priority` buys
+(`services/ai/ai_config.py::PLAN_MODELS`): Free and Pro answer on Haiku, Estate on Sonnet.
 They are literals rather than env vars deliberately — C11: a price id is deployment identity and
 must be env, but the limits are product definition, already committed and drift-gated here, and
 moving them to env would make the plan table unreadable for no safety gain.
@@ -50,7 +53,7 @@ PLAN_LIMITS: dict[str, dict[str, Any]] = {
         "max_seats": 3,
         "staff_invites_allowed": False,
         "roles_allowed": frozenset({"owner", "admin"}),
-        "ai_calls_per_month": 200,
+        "ai_calls_per_month": 100,
         "ai_overage_buffer_pct": 0,
         "ai_priority": "standard",
         "vendor_ratings": False,
@@ -61,11 +64,11 @@ PLAN_LIMITS: dict[str, dict[str, Any]] = {
         "support_tier": "community",
     },
     "pro": {
-        "max_homes": 5,
+        "max_homes": 3,
         "max_seats": 10,
         "staff_invites_allowed": True,
         "roles_allowed": frozenset({"owner", "admin", "staff"}),
-        "ai_calls_per_month": 3_000,
+        "ai_calls_per_month": 1_500,
         "ai_overage_buffer_pct": 20,
         "ai_priority": "standard",
         "vendor_ratings": True,
@@ -85,7 +88,7 @@ PLAN_LIMITS: dict[str, dict[str, Any]] = {
         "max_seats": 50,
         "staff_invites_allowed": True,
         "roles_allowed": frozenset({"owner", "admin", "staff"}),
-        "ai_calls_per_month": 15_000,
+        "ai_calls_per_month": 3_000,
         "ai_overage_buffer_pct": 20,
         "ai_priority": "priority",
         "vendor_ratings": True,

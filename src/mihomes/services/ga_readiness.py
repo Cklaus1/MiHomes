@@ -139,9 +139,9 @@ _EVIDENCE: dict[str, tuple[Status, str, str | None]] = {
     ),
     "public signup open": (
         Status.BLOCKED,
-        "SPEC-004 O1 — prices and limits decided 2026-11-09 (Pro $15/$150, Estate $149/$1,490, "
-        "14-day trial). Still blocked: the four Stripe prices must be created in the live Stripe "
-        "account and their ids set as STRIPE_PRICE_* on the production host.",
+        "SPEC-004 O1 — prices and limits decided 2026-11-09 (Pro $19/$190, Estate $49/$490, "
+        "14-day trial); the four prices exist in Stripe test mode. Still blocked: create them in "
+        "the live Stripe account and set their ids as STRIPE_PRICE_* on the production host.",
         "founder",
     ),
 }

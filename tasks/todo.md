@@ -1290,9 +1290,10 @@ Decided by the founder from market research (PRICING_AND_PACKAGING §6): keep Fr
 - [x] Trial stays 14 days (PLACEHOLDER tag removed); Terms trial + "prices not final" placeholders removed
 - [x] PRICING_AND_PACKAGING.md: prices, limits, research table, AI cost reasoning
 - [x] GA gate text: blocked now only on the Stripe prices
-- [ ] **Founder, in the Stripe dashboard:** create products "MiHomes Pro" and "MiHomes Estate", each with a recurring monthly and yearly USD price — Pro $15/mo + $150/yr, Estate $149/mo + $1,490/yr — in test mode first, then live
+- [x] Prices changed same day to the ones already in Stripe test mode: Pro $19/mo + $190/yr, Estate $49/mo + $490/yr (founder's choice); evo-dev's four STRIPE_PRICE_* already point at them
+- [ ] **At launch, in the live Stripe account:** create the same four prices and set their ids on the production host
 - [ ] Set the four price ids on the server (`~/.mihomes/run/web.env`): STRIPE_PRICE_PRO_MONTHLY, STRIPE_PRICE_PRO_ANNUAL, STRIPE_PRICE_ESTATE_MONTHLY, STRIPE_PRICE_ESTATE_ANNUAL, then restart
-- [ ] Check /billing shows $15 / $149 and the yearly saving
+- [ ] Check /billing on evo-dev shows $19 / $49 and the yearly saving
 - [ ] Find NIM's production cost per token (build.nvidia.com trial credits are not a production plan) and check 100 / 1,500 / 3,000 calls against it
 - [ ] After a month of real use: compare `ai_usage_events` tokens per call with the estimate (20k in / 1.5k out)
 

@@ -15,8 +15,8 @@ Three plans. **Free** for a single household, free forever. **Pro** for multi-ho
 | | **Free** | **Pro** | **Estate** |
 |---|---|---|---|
 | **Positioning** | Run your own home | Run it like a business | Run an estate with a team |
-| **Price — monthly** | $0 forever | **$15/mo** | **$149/mo** |
-| **Price — annual** | $0 | **$150/yr** (2 months free) | **$1,490/yr** (2 months free) |
+| **Price — monthly** | $0 forever | **$19/mo** | **$49/mo** |
+| **Price — annual** | $0 | **$190/yr** (2 months free) | **$490/yr** (2 months free) |
 | **Homes** | **1** | up to **3** | **Unlimited** *(fair-use, see §3)* |
 | **Seats** | **3** | **10** | **50** *(fair-use)* |
 | **Staff invites** | No | Yes | Yes |
@@ -231,8 +231,8 @@ Price bands: owner home apps $40–220/yr; households with staff — almost noth
 
 Pricing logic:
 - **Free** wins the household and builds habit. Its AI cost is bounded by 100 calls a month.
-- **Pro at $15/mo ($150/yr)** sits just above HomeZada Premium, for owners with several homes or a little help.
-- **Estate at $149/mo ($1,490/yr)** targets households with staff and family offices. It undercuts EstateSpace's $340 floor while pricing MiHomes as professional software, not a consumer app.
+- **Pro at $19/mo ($190/yr)** sits just above HomeZada Premium, for owners with several homes or a little help.
+- **Estate at $49/mo ($490/yr)** — the founder's choice (2026-11-09), already set up in Stripe. It is far below the estate/family-office band ($340+/mo), which makes it an easy yes for households with staff; the research suggested ~$149, so revisit once there are paying Estate customers.
 - **Annual = 2 months free** (~17%), the common pattern in this market.
 - **14-day trial**, the norm across the comparables.
 

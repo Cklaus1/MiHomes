@@ -14,8 +14,8 @@ loaded gun for the next reader, who cannot tell an inert fixture from a live one
 same object, and `limits_for(table=...)` still takes an explicit table for tests that need to
 resolve against something other than the live binding.
 
-**Launch numbers, decided 2026-11-09** (SPEC-004 O1): Pro $15/mo or $150/yr, Estate $149/mo or
-$1,490/yr. The prices themselves live in Stripe (see `services/billing/prices.py`); this table
+**Launch numbers, decided 2026-11-09** (SPEC-004 O1): Pro $19/mo or $190/yr, Estate $49/mo or
+$490/yr. The prices themselves live in Stripe (see `services/billing/prices.py`); this table
 owns the limits. Every plan uses the same AI — one provider and model set by MiHomes (NVIDIA
 NIM), never chosen by a household — so plans differ only in how many AI calls they include.
 They are literals rather than env vars deliberately — C11: a price id is deployment identity and

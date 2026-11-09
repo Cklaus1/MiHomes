@@ -475,6 +475,52 @@ def rename(
     return RedirectResponse("/settings?notice=account_saved#account", status_code=303)
 
 
+@router.post("/settings/leave")
+@declares(_PROFILE_ACTION, Access.ACCOUNT)
+def leave_household_route(request: Request, principal=require_authenticated(),
+                          db: Session = Depends(get_db)):
+    """The signed-in member leaves this household (2026-11-09). Every role may ask; it acts only
+    on their own membership, and the owner is refused (`member_exit.leave_household`)."""
+    from mihomes.services.member_exit import ExitRefused, leave_household
+
+    try:
+        leave_household(db, user_id=principal.user_id, account_id=principal.account_id,
+                        membership_id=principal.membership_id, role=principal.role)
+    except ExitRefused as exc:
+        db.rollback()
+        return templates.TemplateResponse(
+            request, "settings/connections.html",
+            _connections_context(db, principal, error=str(exc)), status_code=400,
+        )
+    db.commit()
+    return RedirectResponse("/onboarding/", status_code=303)
+
+
+@router.post("/settings/delete-profile")
+@declares(_PROFILE_ACTION, Access.ACCOUNT)
+def delete_profile_route(request: Request, confirm: str = Form(""),
+                         principal=require_authenticated(), db: Session = Depends(get_db)):
+    """Leave every household and erase your login (2026-11-09). Typed confirmation, checked here
+    rather than only in the page; refused for anyone who still owns a household."""
+    from mihomes.services.member_exit import ExitRefused, delete_profile
+
+    if confirm.strip().upper() != "DELETE":
+        return templates.TemplateResponse(
+            request, "settings/connections.html",
+            _connections_context(db, principal, error="Type DELETE to confirm."), status_code=400,
+        )
+    try:
+        delete_profile(db, user_id=principal.user_id)
+    except ExitRefused as exc:
+        db.rollback()
+        return templates.TemplateResponse(
+            request, "settings/connections.html",
+            _connections_context(db, principal, error=str(exc)), status_code=400,
+        )
+    db.commit()
+    return RedirectResponse("/login", status_code=303)
+
+
 @router.post("/settings/deactivate")
 @declares("account.delete", Access.ACCOUNT)
 def deactivate_household(request: Request, principal=require_authenticated(),

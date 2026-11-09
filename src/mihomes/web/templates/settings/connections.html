@@ -13,12 +13,16 @@
                               ("calendar", "Google Calendar"), ("profile", "Profile"),
                               ("sign-in", "Sign-in")]
                              + ([("estates", "Estates")] if accounts and accounts|length > 1 else [])
-                             + [("danger-zone", "Sign out")] %}
+                             + [("danger-zone", "Leave or delete")] %}
       <a href="#{{ anchor }}" class="rounded-lg px-3 py-2 text-gray-600 hover:bg-gray-100 hover:text-gray-900">{{ label }}</a>
     {% endfor %}
   </nav>
 
   {% include "settings/_notice.html" %}
+  {% if error %}
+    <p role="alert" tabindex="-1" autofocus
+       class="mb-4 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-red-800">{{ error }}</p>
+  {% endif %}
   {% include "settings/_personal.html" %}
   <div id="estates" class="mb-10 scroll-mt-4">{% include "settings/_account_switcher.html" %}</div>
   {% set danger_part = "personal" %}{% include "settings/_danger.html" %}

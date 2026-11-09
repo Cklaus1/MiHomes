@@ -11,8 +11,8 @@
    sign out everywhere) or "estate" (the estate page, owner: export and delete). Unset shows
    both. #}
 <section id="danger-zone" class="mb-10 scroll-mt-4">
-  <h2 class="text-lg font-medium mb-1">{{ 'Sign out' if danger_part == 'personal' else 'Danger zone' }}</h2>
-  <p class="text-sm text-gray-500 mb-3">{{ 'End your sessions on every device.' if danger_part == 'personal' else 'Actions that affect the whole account.' if danger_part == 'estate' else 'Actions that sign you out or affect the whole account.' }}</p>
+  <h2 class="text-lg font-medium mb-1">{{ 'Sign out, leave or delete' if danger_part == 'personal' else 'Danger zone' }}</h2>
+  <p class="text-sm text-gray-500 mb-3">{{ 'Sign out everywhere, leave this household, or delete your profile.' if danger_part == 'personal' else 'Actions that affect the whole account.' if danger_part == 'estate' else 'Actions that sign you out or affect the whole account.' }}</p>
 
   <div class="divide-y rounded-lg border border-red-200">
     {% if danger_part != 'estate' %}
@@ -28,6 +28,44 @@
           Sign out everywhere
         </button>
       </form>
+    </div>
+
+    {# Leave / delete my profile (2026-11-09): the non-owner half of account deletion
+       (services/member_exit.py). The owner's equivalents act on the whole household. #}
+    {% if role != "owner" %}
+    <div class="p-4">
+      <p class="font-medium text-gray-900">Leave {{ account.name if account else "this household" }}</p>
+      <p class="mt-1 text-sm text-gray-600">You lose access to it and the Telegram bot stops
+        answering you for it. The household keeps everything you added.</p>
+      <form method="post" action="/settings/leave" class="mt-3"
+            onsubmit="return confirm('Leave {{ (account.name if account else "this household")|e }}? Only an owner or admin can invite you back.')">
+        <button type="submit" data-testid="leave-button"
+                class="rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50">
+          Leave household
+        </button>
+      </form>
+    </div>
+    {% endif %}
+
+    <div class="p-4">
+      <p class="font-medium text-red-800">Delete my profile</p>
+      {% if role == "owner" %}
+        <p class="mt-1 text-sm text-gray-600">You own this household. Transfer ownership to another
+          member under Estate → Members, or delete the household, before deleting your profile.</p>
+      {% else %}
+        <p class="mt-1 text-sm text-gray-600">Leaves every household you belong to and erases your
+          login: name, email, password and Google sign-in. Households keep the work you added. This
+          can't be undone.</p>
+        <form method="post" action="/settings/delete-profile" class="mt-3 space-y-2">
+          <label for="delete-profile-confirm" class="block text-sm text-gray-700">Type <strong>DELETE</strong> to confirm</label>
+          <input id="delete-profile-confirm" name="confirm" autocomplete="off" spellcheck="false" required
+                 class="w-full sm:w-64 border rounded-lg px-3 py-2" />
+          <button type="submit" data-testid="delete-profile-button"
+                  class="block rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50">
+            Delete my profile
+          </button>
+        </form>
+      {% endif %}
     </div>
     {% endif %}
 

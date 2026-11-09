@@ -1123,7 +1123,15 @@ Four slices, each committed + deployed on its own (a `pg_dump` before every migr
       - It never re-opens a purged account, even though `_finish_account` stamps `deactivated_at`.
       - `--dry-run` reports it without creating anything.
       - Tests: `tests/integration/test_deactivation.py` (6).
-- [ ] Non-owners: "Leave household", "Delete my profile"
+- [x] Non-owners: "Leave household", "Delete my profile" (2026-11-09, branch `member-leave-delete`;
+      `services/member_exit.py`, on the You page):
+      - **Leave:** `offboard` (soft revoke; the household keeps the work), unlinks their staff
+        record, and detaches their sessions. Owners are refused.
+      - **Delete my profile:** typed DELETE. Leaves every household, then `scrub_user`. Refused
+        while they own an active household.
+      - The purge now scrubs users with no *active* membership. Revoked elsewhere no longer keeps
+        a login alive.
+      - Tests: `tests/integration/test_member_exit.py` (4).
 
 **Blocker to report:** no scheduler on evo-dev — purges and the 90-day sweep never run by
 themselves until Chris schedules `mihomes jobs purge-deletions` (or someone runs it). Backups

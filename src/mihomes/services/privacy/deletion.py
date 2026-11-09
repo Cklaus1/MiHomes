@@ -500,21 +500,17 @@ def _finish_account(account, now: datetime) -> None:
 
 
 def _scrub_orphaned_users(session: Session, user_ids: list) -> int:
-    """Scrub every former member who now belongs to no estate at all. Returns how many.
+    """Scrub every former member who now has no **active** membership anywhere. Returns how many.
 
     Membership is counted with a **Core** query on purpose: the ORM's tenant filter would limit
     it to the account just purged, find nothing, and scrub people who still belong to another
     estate. On the app role the `membership_self` policy (bound by `bind_user_guc`) lets the
     Core query see exactly this user's memberships, in every account.
 
-    Scrubbed rather than deleted: other estates' rows may still reference the user (an old
-    invite, an audit entry), and the row without a name, email, password or Google id is no
-    longer anyone. Their sessions and reset tokens are deleted, so no device stays signed in.
+    Only *active* memberships keep a user (2026-11-09): a revoked one elsewhere is a household
+    they already left, and it never let them sign in to anything.
     """
     from mihomes.models.membership import Membership
-    from mihomes.models.password_reset_token import PasswordResetToken
-    from mihomes.models.session import Session as LoginSession
-    from mihomes.models.user import User
     from mihomes.tenancy.connection import bind_user_guc
 
     memberships = Membership.__table__
@@ -523,24 +519,40 @@ def _scrub_orphaned_users(session: Session, user_ids: list) -> int:
         bind_user_guc(session, user_id)
         remaining = session.execute(
             sa.select(sa.func.count()).select_from(memberships)
-            .where(memberships.c.user_id == user_id)
+            .where(memberships.c.user_id == user_id, memberships.c.status == "active")
         ).scalar()
         if remaining:
             continue
-        user = session.get(User, user_id)
-        if user is None:
-            continue
-        user.email = f"deleted-{user.id}@deleted.invalid"
-        user.name = None
-        user.password_hash = None
-        user.password_set_at = None
-        user.google_sub = None
-        user.avatar_url = None
-        user.last_used_account_id = None
-        session.execute(sa.delete(LoginSession.__table__).where(
-            LoginSession.__table__.c.user_id == user_id))
-        session.execute(sa.delete(PasswordResetToken.__table__).where(
-            PasswordResetToken.__table__.c.user_id == user_id))
-        scrubbed += 1
+        if scrub_user(session, user_id):
+            scrubbed += 1
     session.flush()
     return scrubbed
+
+
+def scrub_user(session: Session, user_id) -> bool:
+    """Make a user row nobody: no email, name, password or Google id; no sessions or reset tokens.
+
+    Scrubbed rather than deleted: other estates' rows may still reference the user (an old
+    invite, an audit entry), and the row without those fields is no longer anyone. Used by the
+    purge and by "Delete my profile". Returns False when there is no such user.
+    """
+    from mihomes.models.password_reset_token import PasswordResetToken
+    from mihomes.models.session import Session as LoginSession
+    from mihomes.models.user import User
+
+    user = session.get(User, user_id)
+    if user is None:
+        return False
+    user.email = f"deleted-{user.id}@deleted.invalid"
+    user.name = None
+    user.password_hash = None
+    user.password_set_at = None
+    user.google_sub = None
+    user.avatar_url = None
+    user.last_used_account_id = None
+    session.execute(sa.delete(LoginSession.__table__).where(
+        LoginSession.__table__.c.user_id == user_id))
+    session.execute(sa.delete(PasswordResetToken.__table__).where(
+        PasswordResetToken.__table__.c.user_id == user_id))
+    session.flush()
+    return True

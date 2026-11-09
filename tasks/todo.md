@@ -32,6 +32,16 @@ database dumps on evo-dev are kept 14 days, including the pre-deploy ones.
       - jsDelivr scripts load on the AI, dashboard and budget pages;
       - nothing prunes the email outbox, the Telegram conversation log or the waitlist;
       - expired session rows are never deleted.
+- [x] Wording describes the **production service**, not today's test setup (user, 2026-11-09).
+      - It names one production hosting and data region, and nightly encrypted backups there,
+        deleted after [14] days.
+      - It mentions no laptop or offline copy and no test hosts.
+- [ ] **Before publishing, make it true:**
+      - production hosting chosen: cloud or MiHomes-run servers/VM;
+      - backups stored encrypted in that environment, access restricted;
+      - encryption at rest confirmed;
+      - the laptop backup pull (`Pull-MiHomesBackup.ps1`) retired for customer data, or replaced
+        by an off-site copy inside the production environment.
 - [ ] After publishing: a "you agree to the Terms" line at signup, and mark the GA readiness
       gate MET.
 

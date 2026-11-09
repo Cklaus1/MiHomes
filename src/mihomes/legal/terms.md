@@ -3,7 +3,7 @@ title: Terms of Service
 version: draft-2026-11-09
 effective_date:
 ---
-**DRAFT for counsel review. Not in effect.** Written from how MiHomes works as of 9 November 2026. Items in [BRACKETS] must be filled in or decided before publishing.
+**DRAFT for counsel review. Not in effect.** Describes MiHomes as a production service for its customers. Every statement must be true of the live service on the day this is published; items in [BRACKETS] must be filled in or decided first.
 
 # Agreement
 

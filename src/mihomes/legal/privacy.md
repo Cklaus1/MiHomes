@@ -3,7 +3,7 @@ title: Privacy Policy
 version: draft-2026-11-09
 effective_date:
 ---
-**DRAFT for counsel review. Not in effect.** Written from how MiHomes works as of 9 November 2026. Items in [BRACKETS] must be filled in or decided before publishing.
+**DRAFT for counsel review. Not in effect.** Describes MiHomes as a production service for its customers. Every statement must be true of the live service on the day this is published; items in [BRACKETS] must be filled in or decided first.
 
 # Who we are
 
@@ -74,12 +74,12 @@ Only these service providers, and only what each needs:
 - **Stripe**: payments and subscriptions.
 - **Google**: sign-in, if you choose it; Google Calendar, if you connect it. Calendar events we create include the title, description and the **property's address**.
 - **Telegram**: messages to and from the bot, if you use it.
-- **AI providers**: your question, attachments and relevant household context. MiHomes can use NVIDIA (NIM), Anthropic (Claude) or OpenAI; the provider currently configured is [CURRENT AI PROVIDER]. [COUNSEL: check each provider's data-use and retention terms, and state whether they may train on submitted data.]
+- **AI providers**: your question, attachments and relevant household context. We use [AI PROVIDER(S)]. [COUNSEL: check each provider's data-use and retention terms, and state whether they may train on submitted data.]
 - **Resend**: sending email.
 - **Browser push services** (Google, Mozilla, Apple, Microsoft): delivering notifications you turned on.
 - **OpenStreetMap (Nominatim) and Open-Meteo**: weather for your property. The **property address** is sent to OpenStreetMap to find its location, and the coordinates to Open-Meteo.
 - **jsDelivr**: some pages load open-source scripts from this content network, which sees your IP address when they load.
-- **Hosting**: [HOSTING PROVIDER(S) AND REGION(S)]. Our public website runs on Fly.io in the United States.
+- **Hosting and storage**: MiHomes, its database, uploaded files and backups run on [PRODUCTION HOSTING: cloud provider, or servers operated by MiHomes], in [DATA REGION(S)]. Your data is not kept on personal computers.
 
 We may also disclose data if the law requires it, or to protect people's safety or our rights.
 
@@ -101,7 +101,7 @@ Your browser also remembers a few display choices on your own device (for exampl
 - **Deleting a household:** the owner can delete it in Settings. It can be undone for 30 days; then its data and files are permanently erased. A record that the deletion happened is kept, and so is the unsubscribe list.
 - **Deactivating a household:** if the owner deactivates it and does not reactivate it within 90 days, it is permanently erased the same way.
 - **Leaving or deleting your profile:** staff and admins can leave a household, and anyone who owns no household can delete their profile. That erases their name, email, password and Google link and signs them out everywhere. Households keep the work they added.
-- **Backups:** we back up the database every night. Erasing data removes it from MiHomes straight away, but copies made before the erasure stay in our backups until they are deleted on schedule: **up to 14 days on our server** and **up to 30 days in an offline copy** kept by [WHO HOLDS THE OFFLINE COPY]. Backups are only used to recover from a failure; if one were ever restored, erasures made since it was taken would be applied again.
+- **Backups:** we back up the database every night, encrypted, within our hosting ([BACKUP LOCATION AND REGION]). Each backup is deleted after **[14] days**. Erasing data removes it from MiHomes straight away, but backups made before the erasure still contain it until they reach that age, so erased data is fully gone **within [14] days**. Backups are used only to recover from a failure, and only authorised MiHomes staff can access them; if one were ever restored, erasures made since it was taken would be applied again.
 - **Shorter-lived data:** sign-in sessions expire after 14 days, password-reset links after 1 hour, invitations after 7 days, Telegram link codes after 15 minutes, and the chat activity log behind live updates after 7 days. Server logs rotate and are overwritten.
 
 # Your rights
@@ -116,7 +116,7 @@ Depending on where you live you may also have the right to object to or restrict
 
 # Security
 
-Passwords are stored as one-way hashes, sessions as hashes, and calendar tokens encrypted. Each household's data is separated from every other household's at the database level. Connections are encrypted. No system is perfectly secure; tell us at [SECURITY CONTACT EMAIL] if you find a problem.
+Passwords are stored as one-way hashes, sessions as hashes, and calendar tokens encrypted. Each household's data is separated from every other household's at the database level. Connections are encrypted, and access to production systems and backups is limited to authorised MiHomes staff. [CONFIRM: the database, uploaded files and backups are encrypted at rest.] No system is perfectly secure; tell us at [SECURITY CONTACT EMAIL] if you find a problem.
 
 # Children
 

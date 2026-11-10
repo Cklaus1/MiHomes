@@ -16,6 +16,7 @@ from mihomes.models.membership import Membership
 from mihomes.services.chat import conversations as conv
 from mihomes.services.chat import posts
 from tests.integration.chat_helpers import app_client, app_session, estate
+from tests.route_table import api_routes
 
 __all__ = ["app_client", "estate"]  # re-exported pytest fixtures (see chat_helpers)
 
@@ -54,7 +55,7 @@ def test_every_chat_route_declares_chat_use():
     from mihomes.authz.actions import Access
     from mihomes.web.app import create_app
 
-    chat_routes = [r for r in create_app().routes if getattr(r, "path", "").startswith("/chat")]
+    chat_routes = [r for r in api_routes(create_app()) if r.path.startswith("/chat")]
     assert len(chat_routes) >= 12
     for route in chat_routes:
         assert getattr(route.endpoint, ACTION_ATTR, None) == "chat.use", route.path
@@ -186,8 +187,8 @@ def test_every_id_route_enforces_visibility(app_client, app_engine, estate):
 
     derived = {
         (method, route.path)
-        for route in create_app().routes
-        if getattr(route, "path", "").startswith("/chat")
+        for route in api_routes(create_app())
+        if route.path.startswith("/chat")
         and any(p in route.path for p in _ID_PARAMS)
         for method in route.methods - {"HEAD"}
     }

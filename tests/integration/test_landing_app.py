@@ -12,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mihomes.landing import create_landing_app
+from tests.route_table import all_routes
 
 # The complete allowlist from §7-N1. Anything outside it must 404.
 ALLOWED_PATHS = {
@@ -87,7 +88,7 @@ def test_no_single_user_router_is_mounted(client):
     nobody thought to add its path above.
     """
     mounted = set()
-    for route in client.app.routes:
+    for route in all_routes(client.app):
         path = getattr(route, "path", None)
         if path and not path.startswith("/static"):
             mounted.add(path)

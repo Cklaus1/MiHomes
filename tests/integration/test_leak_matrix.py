@@ -54,6 +54,7 @@ from mihomes.models.book import Book
 from mihomes.models.event import Guest
 from mihomes.models.property import Property
 from mihomes.models.template import Template
+from tests.route_table import all_routes
 
 # ======================================================================================
 # The two exception lists.
@@ -611,7 +612,7 @@ class TestAccountLevelReachIsDeclaredOrDenied:
 
         offenders = []
         application = app_module.create_app()
-        for route in application.routes:
+        for route in all_routes(application):
             endpoint = getattr(route, "endpoint", None)
             if endpoint is None:
                 continue

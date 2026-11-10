@@ -17,6 +17,7 @@ import uuid
 import pytest
 
 from mihomes.storage import build_key, get_storage, reset_storage
+from tests.route_table import all_routes
 
 
 @pytest.fixture
@@ -118,7 +119,7 @@ def test_the_unauthenticated_uploads_mount_is_gone():
 
     app = create_app()
     mounted = [
-        r.path for r in app.routes if type(r).__name__ == "Mount"
+        r.path for r in all_routes(app) if type(r).__name__ == "Mount"
     ]
     assert "/uploads" not in mounted, (
         "the unauthenticated /uploads static mount is back — it serves every tenant's documents "

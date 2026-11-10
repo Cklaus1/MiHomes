@@ -23,15 +23,15 @@ database dumps on evo-dev are kept 14 days, including the pre-deploy ones.
       - lawful bases.
 - [ ] Decisions the drafts flag:
       - the refund policy, including deactivation without a refund;
-      - keep or drop waitlist IP and user-agent collection;
+      - ~~keep or drop waitlist IP and user-agent collection~~ — decided 2026-11-10: cleared after 30 days;
       - whether to enforce the audit (2y) and AI-conversation (1y) retention settings, which
         exist but do nothing today.
 - [ ] Found while drafting, worth fixing (privacy):
       - the full property address goes to OpenStreetMap and to Google Calendar;
       - guest dietary preferences are stored (possibly health data);
       - jsDelivr scripts load on the AI, dashboard and budget pages;
-      - nothing prunes the email outbox, the Telegram conversation log or the waitlist;
-      - expired session rows are never deleted.
+      - ~~nothing prunes the email outbox, the Telegram conversation log or the waitlist~~ — done 2026-11-10;
+      - ~~expired session rows are never deleted~~ — done 2026-11-10 (`mihomes jobs cleanup`).
 - [x] Wording describes the **production service**, not today's test setup (user, 2026-11-09).
       - It names one production hosting and data region, and nightly encrypted backups there,
         deleted after [14] days.
@@ -1310,3 +1310,17 @@ now 255 and 10). Runtime sign-in was never affected (signed-out GETs: same 401s 
 `tests/route_table.py` (`all_routes`/`api_routes`, the one place using FastAPI's private
 `effective_route_contexts`), used by all 9 route-walking tests, guarded by `tests/unit/test_route_table.py`.
 104 affected tests pass on FastAPI 0.136.1 and 0.139.2. `test_css_is_current` fails too, though this branch touches no template, input.css or Tailwind config.
+
+## Nightly clean-up job (2026-11-10) — branch cleanup-job
+
+Periods decided by the founder 2026-11-10. `services/housekeeping.py` + `mihomes jobs cleanup` (cron `55 4 * * *`).
+
+- [x] Messenger log (`chat_messages`): `retention.whatsapp_years`, default 1 year; 0 or garbage falls back to 1
+- [x] Sent/failed mail (`email_outbox`) and delivery results (`email_deliveries`): 90 days; queued mail and the unsubscribe list never touched
+- [x] Waitlist: unconfirmed deleted after 30 days; IP + browser details cleared after 30 days
+- [x] Expired sign-in sessions, password-reset links, Telegram link codes deleted
+- [x] Privacy Policy states the periods; email_delivery docstring no longer says "permanent"
+- [x] Tests: `tests/integration/test_housekeeping.py` on the app role (RLS applies): old vs new row per table, a 2-year account setting, idempotent re-run
+- [ ] Deploy: the job joins the crontab when boot.sh re-runs install-cron.sh (14 lines)
+- [ ] If the public landing site runs against its own database (Fly), the waitlist there needs `mihomes jobs cleanup` scheduled too — this job prunes the waitlist in the database it runs against
+- [ ] Still open (separate decision): enforce audit-trail (2y) and AI-conversation (1y) retention

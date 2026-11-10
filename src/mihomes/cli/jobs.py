@@ -121,6 +121,12 @@ SCHEDULE: dict[str, tuple[str, str]] = {
         "deletion never happened. Daily is the window's own unit. After the 02:30 dump, so the "
         "state just before an erasure is in that night's backup if a purge ever needs checking.",
     ),
+    "cleanup": (
+        "55 4 * * *",
+        "Deletes what nothing needs any more (services/housekeeping): Messenger log past its "
+        "retention, mail finished 90+ days ago, stale waitlist data, expired sign-in rows. Daily, "
+        "after the 02:30 dump and the 04:45 purge; a missed night only keeps a day more.",
+    ),
     "reconcile": (
         "0 3 * * *",
         "The backstop for a dropped webhook (BILLING §6). Nightly and off-peak: it re-fetches "
@@ -460,6 +466,39 @@ def chat_prune_events() -> None:
             failed += 1
             logger.exception("chat-prune-events: failed for account %s", account_id)
     rprint(f"Chat events: removed {removed} older than 7 days; {failed} account(s) failed.")
+
+
+@app.command("cleanup")
+def cleanup() -> None:
+    """Delete data past its retention period, every account plus the global tables (2026-11-10).
+
+    Per account under that account's context, as `chat-prune-events` does, so RLS scopes each
+    delete; **deactivated households included**, because retention applies to data a household
+    still holds while it is switched off. Then the global tables, with no account bound.
+    """
+    from mihomes.db import get_session
+    from mihomes.services.housekeeping import prune_account, prune_global
+
+    totals: dict[str, int] = {}
+    failed = 0
+    for account_id, _ in _all_accounts(include_deactivated=True):
+        try:
+            with _account_session(account_id) as (session, _account):
+                for key, n in prune_account(session).items():
+                    totals[key] = totals.get(key, 0) + n
+                session.commit()
+        except Exception:
+            failed += 1
+            logger.exception("cleanup: failed for account %s", account_id)
+    try:
+        with get_session() as session:
+            totals.update(prune_global(session))
+            session.commit()
+    except Exception:
+        failed += 1
+        logger.exception("cleanup: failed on the global tables")
+    summary = ", ".join(f"{k} {v}" for k, v in totals.items()) or "nothing"
+    rprint(f"Cleanup: removed {summary}; {failed} part(s) failed.")
 
 
 @app.command("alerts")

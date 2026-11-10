@@ -7,9 +7,11 @@ shrug.
 
 ## Separate from `EmailOutbox` on purpose
 
-The outbox is a work queue that drains; this is a permanent record. Merging them means one of two
-bad outcomes: either the queue never empties (rows kept forever so the history survives) or the
-history is deleted (rows removed once sent). Two tables, two lifetimes.
+The outbox is a work queue that drains; this is the delivery history. Merging them means one of
+two bad outcomes: either the queue never empties (rows kept so the history survives) or the
+history is deleted (rows removed once sent). Two tables, two lifetimes. **The history is kept 90
+days** (founder's decision 2026-11-10, enforced by `services/housekeeping.py`), long enough for a
+"we never got the receipt" question, not forever.
 
 The consequence for A19 is worth stating: **the row is written next to the successful
 `provider.send()` call**, not when a message is enqueued. Step 4 moves that call out of

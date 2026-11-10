@@ -53,7 +53,7 @@ If you add information about other people (for example a housekeeper's phone num
 - If you turn on browser notifications: the push address your browser gives us and its user agent.
 
 **The waiting list** (our public website)
-- Email, name, number of homes, whether you have staff, how you found us (campaign tags, referrer), and the IP address and browser details at sign-up. [DECISION: keep IP and browser details, or stop collecting them.]
+- Email, name, number of homes, whether you have staff, how you found us (campaign tags, referrer), and the IP address and browser details at sign-up. The IP address and browser details are deleted after 30 days; a sign-up that is never confirmed is deleted entirely after 30 days.
 
 We use IP addresses briefly, in memory, to limit repeated sign-in attempts and form submissions. They are not stored for that purpose.
 
@@ -102,7 +102,9 @@ Your browser also remembers a few display choices on your own device (for exampl
 - **Deactivating a household:** if the owner deactivates it and does not reactivate it within 90 days, it is permanently erased the same way.
 - **Leaving or deleting your profile:** staff and admins can leave a household, and anyone who owns no household can delete their profile. That erases their name, email, password and Google link and signs them out everywhere. Households keep the work they added.
 - **Backups:** we back up the database every night, encrypted, within our hosting ([BACKUP LOCATION AND REGION]). Each backup is deleted after **[14] days**. Erasing data removes it from MiHomes straight away, but backups made before the erasure still contain it until they reach that age, so erased data is fully gone **within [14] days**. Backups are used only to recover from a failure, and only authorised MiHomes staff can access them; if one were ever restored, erasures made since it was taken would be applied again.
-- **Shorter-lived data:** sign-in sessions expire after 14 days, password-reset links after 1 hour, invitations after 7 days, Telegram link codes after 15 minutes, and the chat activity log behind live updates after 7 days. Server logs rotate and are overwritten.
+- **Telegram group messages** shown on the Conversations page are deleted after 1 year.
+- **Emails:** copies of sent emails and their delivery results are deleted 90 days after sending. The unsubscribe list is kept.
+- **Shorter-lived data:** sign-in sessions expire after 14 days, password-reset links after 1 hour, invitations after 7 days, Telegram link codes after 15 minutes, and the chat activity log behind live updates after 7 days; expired records are deleted every night. Server logs rotate and are overwritten.
 
 # Your rights
 

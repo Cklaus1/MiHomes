@@ -195,6 +195,53 @@ def _content_globs() -> list[str]:
     return json.loads(match.group(1).replace("'", '"'))
 
 
+def _glob_match(path: pathlib.PurePosixPath, glob: str) -> bool:
+    """Whole-path glob match with recursive `**`, on every Python the product runs.
+
+    `PurePath.full_match` is the reference, but it arrived in Python 3.13 and production runs
+    3.12 (evo-dev: 3.12.3), so this test could not run there at all. Same rules as `full_match`
+    and Tailwind's matcher for the patterns used here: `**/` spans zero or more directories,
+    `*` and `?` never cross a `/`. `test_glob_match_agrees_with_the_reference` pins that.
+    """
+    out, i = [], 0
+    while i < len(glob):
+        if glob.startswith("**/", i):
+            out.append("(?:[^/]+/)*")
+            i += 3
+        elif glob.startswith("**", i):
+            out.append(".*")
+            i += 2
+        elif glob[i] == "*":
+            out.append("[^/]*")
+            i += 1
+        elif glob[i] == "?":
+            out.append("[^/]")
+            i += 1
+        else:
+            out.append(re.escape(glob[i]))
+            i += 1
+    return re.fullmatch("".join(out), str(path)) is not None
+
+
+_GLOB_CASES = [
+    ("src/t/**/*.html", "src/t/tasks.html", True),          # `**/` = zero directories
+    ("src/t/**/*.html", "src/t/partials/x.html", True),
+    ("src/t/**/*.html", "src/t/a/b/c.html", True),
+    ("src/t/**/*.html", "src/t/tasks.css", False),
+    ("src/t/**/*.html", "src/other/tasks.html", False),
+    ("src/t/*.html", "src/t/partials/x.html", False),       # `*` never crosses `/`
+    ("src/t/?.html", "src/t/a.html", True),
+]
+
+
+@pytest.mark.parametrize("glob,path,expected", _GLOB_CASES)
+def test_glob_match_agrees_with_the_reference(glob, path, expected):
+    rel = pathlib.PurePosixPath(path)
+    assert _glob_match(rel, glob) is expected
+    if hasattr(rel, "full_match"):  # Python 3.13+: the matcher must agree with the stdlib
+        assert rel.full_match(glob) is expected
+
+
 @pytest.mark.parametrize("template", templates(), ids=lambda p: p.name)
 def test_content_globs_cover_every_template(template):
     """**Every** template must be matched by a content glob, subdirectories included.
@@ -207,7 +254,7 @@ def test_content_globs_cover_every_template(template):
     rel = pathlib.PurePosixPath(template.relative_to(ROOT).as_posix())
     globs = [g.lstrip("./") for g in _content_globs()]
 
-    # `PurePath.full_match`, **not `fnmatch`**. `fnmatch` has no recursive-glob semantics: it
+    # A recursive-glob matcher (`_glob_match`, `full_match`'s rules), **not `fnmatch`**. `fnmatch` has no recursive-glob semantics: it
     # treats `**` as a single `*`, which cannot cross a directory boundary — so
     # `templates/**/*.html` matched `partials/x.html` and *failed* on `tasks.html`, reporting
     # all 28 top-level templates as uncovered while the build was compiling them correctly.
@@ -216,7 +263,7 @@ def test_content_globs_cover_every_template(template):
     # would have produced an almost-empty stylesheet, which `test_the_compiled_stylesheet_is_
     # actually_linked` asserts against. Two gates disagreeing is what located the bug in the
     # matcher rather than the config.
-    assert any(rel.full_match(g) for g in globs), (
+    assert any(_glob_match(rel, g) for g in globs), (
         f"{rel} is not matched by any tailwind `content` glob {globs}. Every class it uses "
         "will be missing from app.css — silently, and only in production"
     )

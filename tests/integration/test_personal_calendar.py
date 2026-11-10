@@ -529,3 +529,31 @@ def test_403_api_not_enabled_is_a_setup_error_not_reconnect():
 def test_403_permission_denied_asks_to_reconnect():
     with pytest.raises(ReconnectNeeded):
         _client_answering(403, "forbidden").create_calendar("x", "UTC")
+
+
+# ── Calendar page entry point (2026-11-10) ───────────────────────────────────
+
+def test_calendar_page_offers_google_sync_when_not_connected(world):
+    page = world.owner.get("/calendar/").text
+    assert 'data-testid="gcal-status"' in page
+    assert "Sync to Google Calendar" in page
+    assert 'action="/settings/calendar/google/connect"' in page
+
+
+def test_calendar_page_shows_synced_status_and_sync_now(world):
+    _connect(world, world.owner.membership_id)
+    page = world.owner.get("/calendar/").text
+    assert "Synced to Google" in page and 'action="/settings/calendar/sync"' in page
+    assert "Sync to Google Calendar" not in page
+
+
+def test_calendar_page_asks_to_reconnect_when_access_lapsed(world):
+    cid = _connect(world, world.owner.membership_id)
+    world.conn.execute(text("update calendar_connections set status='needs_reconnect' "
+                            "where id = :i"), {"i": cid})
+    assert "Reconnect Google Calendar" in world.owner.get("/calendar/").text
+
+
+def test_calendar_page_hides_google_when_not_configured(world, monkeypatch):
+    monkeypatch.delenv("GOOGLE_CLIENT_ID")
+    assert 'data-testid="gcal-status"' not in world.owner.get("/calendar/").text

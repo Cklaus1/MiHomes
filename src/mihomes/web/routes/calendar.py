@@ -16,7 +16,7 @@ from mihomes.services import event as event_svc
 from mihomes.services import property as prop_svc
 from mihomes.services import vendor as vendor_svc
 from mihomes.services.localtime import today as local_today
-from mihomes.web.deps import get_db, templates, with_toast
+from mihomes.web.deps import get_db, require_authenticated, templates, with_toast
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +158,7 @@ def calendar_view(
     month: str | None = None,
     property_id: str | None = None,
     open: str | None = None,
+    principal=require_authenticated(),
     db: Session = Depends(get_db),
 ):
     target = _open_target(db, open)
@@ -172,6 +173,14 @@ def calendar_view(
         month_date = local_today().replace(day=1)
     ctx = _ctx(db, month_date, property_id)
     ctx["open_modal"] = target[0] if target else None
+    # The Google Calendar connection, surfaced here because this is where people look for it
+    # (user, 2026-11-10); the full card stays on Settings → You.
+    from mihomes.services.personal_calendar import connect as gcal_connect
+
+    ctx["gcal"] = {
+        "configured": gcal_connect.configured(),
+        "connection": gcal_connect.own_connection(db, principal.membership_id),
+    }
     return templates.TemplateResponse(request, "calendar.html", ctx)
 
 

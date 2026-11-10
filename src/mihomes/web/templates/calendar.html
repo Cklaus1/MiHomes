@@ -4,6 +4,39 @@
 {% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ month_date.strftime('%B %Y') }}</p>{% endblock %}
 
 {% block actions %}
+{# Google Calendar status, next to the page's main action so people find it where they look for
+   their schedule (2026-11-10). Full controls: Settings → You → Google Calendar. #}
+{% set gc = gcal.connection if gcal else none %}
+{% set gcsrf = request.cookies.get('mihomes_csrf', '') %}
+{% if gc and gc.status == 'active' %}
+  <div class="inline-flex items-center gap-2 text-sm" data-testid="gcal-status">
+    <a href="/settings/connections#calendar" class="inline-flex items-center gap-1.5 text-green-700 hover:underline"
+       title="Connected to {{ gc.google_email }}{% if gc.last_synced_at %} · last synced {{ gc.last_synced_at | localtime }}{% endif %}">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+      Synced to Google
+    </a>
+    <form method="post" action="/settings/calendar/sync">
+      <input type="hidden" name="csrf_token" value="{{ gcsrf }}" />
+      <button class="px-2.5 py-1.5 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">Sync now</button>
+    </form>
+  </div>
+{% elif gc %}
+  <form method="post" action="/settings/calendar/google/connect" data-testid="gcal-status">
+    <input type="hidden" name="csrf_token" value="{{ gcsrf }}" />
+    <button class="px-3 py-1.5 border border-amber-300 bg-amber-50 text-amber-800 text-sm font-medium rounded-lg hover:bg-amber-100">
+      Reconnect Google Calendar
+    </button>
+  </form>
+{% elif gcal and gcal.configured %}
+  <form method="post" action="/settings/calendar/google/connect" data-testid="gcal-status"
+        title="Add this estate's appointments and tasks to your own Google Calendar">
+    <input type="hidden" name="csrf_token" value="{{ gcsrf }}" />
+    <button class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+      Sync to Google Calendar
+    </button>
+  </form>
+{% endif %}
 <button type="button" onclick="openAddModal(null)"
         class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>

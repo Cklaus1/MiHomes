@@ -1302,4 +1302,11 @@ Decided by the founder from market research (PRICING_AND_PACKAGING §6): keep Fr
 **Found while testing, not fixed here:** this worktree's `.venv` was rebuilt today on Python 3.12 with an untracked
 `uv.lock` resolving FastAPI 0.162, which wraps included routers lazily — the route-census test then sees only
 `/healthz`, i.e. the security census goes blind on that FastAPI. Pin FastAPI or teach the census to walk
-`_IncludedRouter` before anything upgrades FastAPI in production. `test_css_is_current` fails too, though this branch touches no template, input.css or Tailwind config.
+`_IncludedRouter` before anything upgrades FastAPI in production.
+**RESOLVED 2026-11-10 (branch census-fastapi):** worse than noted — evo-dev already runs FastAPI
+0.139.2, and the lazy routers arrived in 0.137.0, so on production's version the billing owner-only test,
+the leak matrix and the landing allowlist passed while checking **zero** routes (old walk: 1 route, 0 billing;
+now 255 and 10). Runtime sign-in was never affected (signed-out GETs: same 401s on 0.136 and 0.162). Fix:
+`tests/route_table.py` (`all_routes`/`api_routes`, the one place using FastAPI's private
+`effective_route_contexts`), used by all 9 route-walking tests, guarded by `tests/unit/test_route_table.py`.
+104 affected tests pass on FastAPI 0.136.1 and 0.139.2. `test_css_is_current` fails too, though this branch touches no template, input.css or Tailwind config.

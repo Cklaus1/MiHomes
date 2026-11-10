@@ -15,11 +15,11 @@ miss half the rule.
 from __future__ import annotations
 
 import pytest
-from fastapi.routing import APIRoute
 
 from mihomes.models.account import Account
 from mihomes.services.billing.provider import SubscriptionState
 from mihomes.services.billing.service import start_checkout, start_portal_session
+from tests.route_table import api_routes
 
 
 class FakeProvider:
@@ -127,8 +127,8 @@ def _billing_routes() -> list[str]:
     from mihomes.web.app import create_app
 
     return sorted({
-        r.path for r in create_app().routes
-        if isinstance(r, APIRoute) and r.path.startswith("/billing")
+        r.path for r in api_routes(create_app())
+        if r.path.startswith("/billing")
     })
 
 
@@ -195,8 +195,8 @@ class TestOwnerOnly:
         from mihomes.web.app import create_app
 
         wrong = []
-        for route in create_app().routes:
-            if isinstance(route, APIRoute) and route.path.startswith("/billing"):
+        for route in api_routes(create_app()):
+            if route.path.startswith("/billing"):
                 declared = declared_action(route.endpoint)
                 if declared is None or declared[0] != "billing.manage":
                     wrong.append(f"{route.path}: {declared}")

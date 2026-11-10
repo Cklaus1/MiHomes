@@ -29,6 +29,7 @@ import pytest
 from fastapi.routing import APIRoute
 
 from mihomes.authz.declare import declared_action
+from tests.route_table import api_routes
 
 # ---------------------------------------------------------------------------------------
 # Allowlists
@@ -177,8 +178,7 @@ CEILING = 0
 def _app_routes():
     from mihomes.web.app import create_app
 
-    app = create_app()
-    return [r for r in app.routes if isinstance(r, APIRoute)]
+    return api_routes(create_app())
 
 
 def _module_of(route: APIRoute) -> str:

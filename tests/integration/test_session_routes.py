@@ -16,12 +16,12 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from fastapi.routing import APIRoute
 from sqlalchemy import text
 
 from mihomes.auth.sessions import SESSION_COOKIE, hash_session_id
 from mihomes.authz.actions import Access
 from mihomes.authz.declare import declared_action, declares_session
+from tests.route_table import api_routes
 
 
 def _signed_in_without_account(conn) -> str:
@@ -89,9 +89,7 @@ class TestTheExemptionStaysSmall:
 
         app = create_app()
         session_routes = set()
-        for route in app.routes:
-            if not isinstance(route, APIRoute):
-                continue
+        for route in api_routes(app):
             declared = declared_action(route.endpoint)
             if declared and declared[1] is Access.SESSION:
                 session_routes.add(route.path)
@@ -116,9 +114,7 @@ class TestTheExemptionStaysSmall:
         from mihomes.web.app import create_app
 
         app = create_app()
-        for route in app.routes:
-            if not isinstance(route, APIRoute):
-                continue
+        for route in api_routes(app):
             declared = declared_action(route.endpoint)
             if declared and declared[1] is Access.SESSION:
                 reason = getattr(route.endpoint, "__mihomes_session_reason__", "")

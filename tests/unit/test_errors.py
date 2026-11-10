@@ -24,6 +24,7 @@ import pathlib
 import pytest
 
 from mihomes.logging_config import JsonFormatter, logging_dict_config
+from tests.route_table import all_routes
 
 WEB_ROOT = pathlib.Path(__file__).resolve().parents[2] / "src" / "mihomes" / "web"
 
@@ -328,7 +329,7 @@ def test_healthz_is_live_on_the_product_app():
     """
     from mihomes.web.app import create_app
 
-    paths = {route.path for route in create_app().routes if hasattr(route, "path")}
+    paths = {route.path for route in all_routes(create_app()) if hasattr(route, "path")}
     assert "/healthz" in paths, (
         "the product app has no /healthz — Fly's healthcheck would have nothing to call, and a "
         "deploy that cannot fail its healthcheck cannot be rolled back automatically"

@@ -24,6 +24,12 @@ class NIMProvider:
     API keys start with 'nvapi-' and are obtained at build.nvidia.com.
     """
 
+    # Subclasses pointing at another OpenAI-compatible endpoint override these.
+    BASE_URL: str = NIM_BASE_URL
+    KEY_ENV: str = "NVIDIA_API_KEY"
+    LABEL: str = "NVIDIA NIM"
+    DEFAULT_MODEL: str = DEFAULT_MODEL
+
     max_images_per_request: int = 1
 
     # H13: NIM's _build_content forwards real image_url blocks to the model.
@@ -34,16 +40,16 @@ class NIMProvider:
             raise AIProviderError(
                 "OpenAI SDK not installed. Install with: pip install openai>=1.0"
             )
-        self.api_key = api_key or os.environ.get("NVIDIA_API_KEY")
+        self.api_key = api_key or os.environ.get(self.KEY_ENV)
         if not self.api_key:
             raise AIAuthError(
-                "NVIDIA API key not found. Set NVIDIA_API_KEY environment variable "
+                f"{self.LABEL} API key not found. Set {self.KEY_ENV} environment variable "
                 "or run: mihomes ai setup"
             )
-        self.model = model or os.environ.get("MIHOMES_AI_MODEL", DEFAULT_MODEL)
+        self.model = model or os.environ.get("MIHOMES_AI_MODEL", self.DEFAULT_MODEL)
         self.client = openai.OpenAI(
             api_key=self.api_key,
-            base_url=NIM_BASE_URL,
+            base_url=self.BASE_URL,
             timeout=120.0,
         )
 
@@ -103,11 +109,11 @@ class NIMProvider:
             )
             return response.choices[0].message.content
         except openai.AuthenticationError as e:
-            raise AIAuthError(f"Invalid NVIDIA API key: {e}") from e
+            raise AIAuthError(f"Invalid {self.LABEL} API key: {e}") from e
         except openai.RateLimitError as e:
-            raise AIRateLimitError(f"NIM rate limited: {e}") from e
+            raise AIRateLimitError(f"{self.LABEL} rate limited: {e}") from e
         except openai.APIError as e:
-            raise AIProviderError(f"NVIDIA NIM API error: {e}") from e
+            raise AIProviderError(f"{self.LABEL} API error: {e}") from e
 
     def stream(
         self,
@@ -137,11 +143,11 @@ class NIMProvider:
                     if delta:
                         yield delta
         except openai.AuthenticationError as e:
-            raise AIAuthError(f"Invalid NVIDIA API key: {e}") from e
+            raise AIAuthError(f"Invalid {self.LABEL} API key: {e}") from e
         except openai.RateLimitError as e:
-            raise AIRateLimitError(f"NIM rate limited: {e}") from e
+            raise AIRateLimitError(f"{self.LABEL} rate limited: {e}") from e
         except openai.APIError as e:
-            raise AIProviderError(f"NVIDIA NIM API error: {e}") from e
+            raise AIProviderError(f"{self.LABEL} API error: {e}") from e
 
     def structured_output(
         self,
@@ -175,10 +181,10 @@ class NIMProvider:
             text = response.choices[0].message.content.strip()
             return json.loads(text)
         except openai.AuthenticationError as e:
-            raise AIAuthError(f"Invalid NVIDIA API key: {e}") from e
+            raise AIAuthError(f"Invalid {self.LABEL} API key: {e}") from e
         except openai.RateLimitError as e:
-            raise AIRateLimitError(f"NIM rate limited: {e}") from e
+            raise AIRateLimitError(f"{self.LABEL} rate limited: {e}") from e
         except openai.APIError as e:
-            raise AIProviderError(f"NVIDIA NIM API error: {e}") from e
+            raise AIProviderError(f"{self.LABEL} API error: {e}") from e
         except json.JSONDecodeError as e:
-            raise AIProviderError("NIM did not return valid JSON for structured output") from e
+            raise AIProviderError(f"{self.LABEL} did not return valid JSON for structured output") from e

@@ -20,6 +20,7 @@ def get_ai_api_key(session: Session, provider: str = "nim") -> str:
         "claude": "ANTHROPIC_API_KEY",
         "openai": "OPENAI_API_KEY",
         "nim": "NVIDIA_API_KEY",
+        "openrouter": "OPENROUTER_API_KEY",
     }
 
     # Try env var first
@@ -61,5 +62,6 @@ def get_ai_model(session: Session, provider: str = "nim") -> str:
         "openai": "gpt-4o",
         "ollama": "llama3.1",
         "nim": "meta/muse-glimmer-30b",
+        "openrouter": "deepseek/deepseek-chat",
     }
     return defaults.get(provider, DEFAULT_MODEL)

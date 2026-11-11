@@ -154,5 +154,10 @@ def _construct(provider_name: str, api_key: str | None, model: str | None) -> AI
     elif provider_name == "nim":
         from mihomes.services.ai.nim_provider import NIMProvider
         return NIMProvider(api_key=api_key, model=model)
+    elif provider_name == "openrouter":
+        from mihomes.services.ai.openrouter_provider import OpenRouterProvider
+        return OpenRouterProvider(api_key=api_key, model=model)
     else:
-        raise AIProviderError(f"Unknown AI provider: {provider_name}. Supported: claude, openai, ollama, nim")
+        raise AIProviderError(
+            f"Unknown AI provider: {provider_name}. Supported: claude, openai, ollama, nim, openrouter"
+        )

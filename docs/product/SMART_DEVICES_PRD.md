@@ -55,6 +55,7 @@ reachable from the deployed app:
 | Encrypted third-party credentials | Fernet `encrypt()`/`decrypt()` under `MIHOMES_SECRET_KEY`, stored as `enc:v1:` | `crypto.py:49,130,140` |
 | Per-user OAuth with refresh, reconnect state, lease | `CalendarConnection` (`refresh_token` encrypted, `status` active/needs_reconnect, `syncing_until` lease) | `models/calendar_connection.py:30-45`, `personal_calendar/sync.py:330-383` |
 | Webhook ingress on a tailnet-only host | Tailscale **Funnel** publishes one path on :8443 | `docs/deploy/TELEGRAM-WEBHOOK.md:7-75` |
+| Finding the account **before** any account is bound (webhooks) | "Gateway bootstrap" SELECT-only RLS policies keyed on a transaction-local GUC holding one external id, set by `bind_gateway_guc` | `alembic/versions/0024_gateway_bootstrap_policies.py`, `tenancy/rls.py` `GATEWAY_BOOTSTRAP_POLICIES`, `tenancy/connection.py` |
 | Alerts | `Alert(alert_type, source_entity_type, source_entity_id, property_id, severity, message, status)` + `_already_alerted` dedupe | `models/alert.py:29`, `services/alerts.py:34,162-171` |
 | Issues | `create_issue(session, title, property_id_or_slug, *, severity, description, space_id_or_slug, photos, …)` (sync) | `services/issue.py:15` |
 | Plan gating | `PLAN_LIMITS` + `_BOOLEAN_ACTIONS` → `can()` | `entitlements/limits.py:50-103`, `entitlements/service.py:95,111` |
@@ -193,7 +194,7 @@ IDs are stable so that the SPEC and its tests can cite them. **P** is the phase 
 | ID | Requirement | P |
 |---|---|---|
 | FR-C1 | Settings → **Devices & cameras** lists connections per account: provider, linked identity, status (`active` / `needs_reconnect` / `revoked` / `error`), last event time, device count | A |
-| FR-C2 | **Ring connect.** Supports the Ring-driven link: the user starts in Ring's App Store and lands on a MiHomes page that binds the link to the signed-in account. Partner-initiated OAuth (PKCE) is used once Ring grants it. Tokens are stored encrypted. The access token (about 4 h) is never persisted | A |
+| FR-C2 | **Ring connect.** Two flows. **(a) Partner-initiated OAuth (PKCE)**, preferred: the owner clicks *Connect Ring* in MiHomes, so the link carries a MiHomes `state` and binds to that account directly. It needs Ring's invitation (O2). **(b) Ring-driven link** (the default Ring offers): Ring POSTs `code` + `client_id` server-to-server to the token-exchange URL. The code lives 60 s, and the link fails unless MiHomes returns 200 *after* storing tokens. MiHomes never issued anything in this flow, so it has **no way to know the MiHomes account**. Whether Ring then redirects the user to a partner URL, and with what, is **[unverified]**. Requirement: exchange the code immediately and store the connection as **`unclaimed`** (a global routing row, no account, no devices pulled). Within 24 h the owner claims it in Settings by entering a short code MiHomes shows on the post-link page, or by matching the Ring account email. Unclaimed connections are unlinked and deleted after 24 h. Tokens are stored encrypted. The access token (about 4 h) is never persisted | A |
 | FR-C3 | **Ring token rotation.** Each refresh invalidates the previous refresh token, so refresh runs under a DB lease (`refreshing_until`, as in `CalendarConnection.syncing_until`). Exactly one refresher wins and the others re-read. `invalid_grant` sets `needs_reconnect` and alerts the owner | A |
 | FR-C4 | **Ring disconnect** calls the unlink API (`DELETE /v1/accounts/me/app-integrations`) where available. In every case it handles the `app_integration_removed` webhook by marking the connection `revoked` and stopping all calls | A |
 | FR-C5 | **HA connect.** Settings shows a 10-minute single-use pairing code. The HA integration's config flow exchanges it for a per-connection token (stored hashed), then posts the entity list the customer selected | B |
@@ -229,14 +230,14 @@ IDs are stable so that the SPEC and its tests can cite them. **P** is the phase 
 | FR-E2 | **Rules** map `(device_class, condition)` → action ∈ {none, timeline only, Alert, Issue}, with severity and cooldown. They are seeded with defaults (below) and editable per account by owner/admin. Rules match on **device_class**, never on name regexes | A |
 | FR-E3 | Defaults: leak → Issue HIGH; device offline > 30 min → Alert MEDIUM; battery ≤ 20% → Alert LOW (one per device per 7 days); temperature outside the property's band → Alert MEDIUM; contact open > 30 min while the property is `occupied=false` → Alert MEDIUM; doorbell press / person at a vacant property → Alert LOW with snapshot; motion → timeline only; smoke/CO → Alert HIGH, **worded as informational** (§8.4) | A |
 | FR-E4 | Alerts use `alert_type="device"`, `source_entity_type="device"`, `source_entity_id=<device.id>` and `property_id` from the mapping. Dedupe uses the existing `_already_alerted`. Introduce one small `create_alert()` service rather than a fourth inline copy | A |
-| FR-E5 | Issues created from a device carry `space_id` and a snapshot in `photos`. The device and the issue are linked, and when the device returns to normal the issue gets a comment. **It is never auto-resolved**: a human closes it | A |
+| FR-E5 | Issues created from a device carry `space_id` and are linked to the device. When the device returns to normal the issue gets a comment. **It is never auto-resolved**: a human closes it. A camera snapshot is **not** copied into `Issue.photos`, because that would show it to everyone who can see the Issue, including staff without a camera grant. The Issue holds a *reference* to the `device_event`, and the image renders through the camera media route (FR-M1). It is shown only to viewers with `can_view_media`, and each view is logged. Others see "Camera image — owner access only". The same rule applies to snapshots on doorbell/person Alerts (FR-E3). Copying a snapshot into `Issue.photos` (for example to send to a vendor) is an explicit, logged owner/admin action, and the copy then leaves camera scope | A |
 | FR-E6 | Push notification (`send_pushes`) to the members who can see the property, for Alerts at or above a per-user threshold. The payload names the property and device class, never shows an image, and follows SPEC-014 O3 on lock-screen property names | B |
 | FR-E7 | Events from unmapped devices are stored but raise nothing | A |
 
 ### 5.5 Cameras and media
 | ID | Requirement | P |
 |---|---|---|
-| FR-M1 | On a doorbell/person event at a mapped camera, fetch **one** snapshot and store it via `StorageProvider` under `build_key(account_id, "device-snapshots", …)`. It is served only through an authenticated route that checks the account prefix and camera permission (§9), with `private, no-store` | A |
+| FR-M1 | On a doorbell/person event at a mapped camera, fetch **one** snapshot and store it via `StorageProvider` under `build_key(account_id, "device-snapshots", …)`. It is served only through a **new** route, `/devices/media/{event_id}`, which checks the account, the viewer's property scope **and** `camera_grants.can_view_media`, writes the access-log row, and responds `private, no-store`. It is **not** served by `/documents/file/{key}`, which checks only the account prefix | A |
 | FR-M2 | "Refresh snapshot" on a tile fetches on demand, rate-limited per device (default once per 60 s) | A |
 | FR-M3 | Clips (MP4) are **fetched on demand and streamed through**, never stored, unless a user attaches one to an Issue. Storing is then an explicit action, logged | B |
 | FR-M4 | Ring's watermark is never cropped, blurred or removed | A |
@@ -256,7 +257,7 @@ IDs are stable so that the SPEC and its tests can cite them. **P** is the phase 
 | FR-P2 | **Access log.** Every snapshot view, refresh, clip view and live-view session writes `audit_write(entity_type="device", action="camera.view"…)` with the viewer. Owners see a "Camera access" log per camera in Settings (Ring Content Policy 1.2.2) | A |
 | FR-P3 | Disconnecting a provider offers "also delete history": events, states and stored snapshots for its devices. The default is to delete media and keep the event metadata | A |
 | FR-P4 | All new tables are classified in the account-deletion purge (`services/privacy/deletion.py`). Snapshots in object storage are deleted with the account | A |
-| FR-P5 | Retention: snapshots 30 days, events 90 days, state history 30 days (O5), enforced by the nightly `cleanup` job | A |
+| FR-P5 | Retention: snapshots 30 days, events 90 days, state history 30 days (O5), enforced by the nightly `cleanup` job. A snapshot referenced by an **open** Issue is kept until 30 days after the Issue resolves. A copy made into `Issue.photos` (FR-E5) follows Issue retention | A |
 
 ---
 
@@ -303,6 +304,19 @@ device_commands                                          -- HA control queue (Ph
   status ('queued'|'delivered'|'confirmed'|'failed'|'expired'), created_at, delivered_at, resolved_at
 ```
 
+**Finding the account before one is bound.** The Ring webhook and the HA ingest endpoints know
+only an external id (the Ring account id, or a bearer token) when they start. Under FORCE RLS with
+no account GUC, a lookup on `device_connections` sees **zero rows** in production. It passes in
+tests only because fixtures run as a superuser, which is exactly the RLS read bug of 2026-09. The
+fix is the Telegram one (`0024_gateway_bootstrap_policies`): two SELECT-only policies on
+`device_connections`, one matching `external_account_id = current_setting('app.gateway_ring_account')`
+and one matching `ingest_token_hash = current_setting('app.gateway_device_ingest_hash')`. They are
+set through `bind_gateway_guc`, added to `rls.GATEWAY_BOOTSTRAP_POLICIES`, and match exactly one row,
+after which the handler binds `account_context` from it. `unclaimed` Ring links (FR-C2b) have no
+account yet, so they live in a small **global** table, `ring_pending_links` (in `GLOBAL_TABLES`,
+24 h TTL, encrypted tokens), until claimed. The HA pairing code reuses `gateway_link_tokens`
+(hash lookup, single use).
+
 **Deliberately not a table:** a high-frequency state time series. `devices.last_state` holds the
 current state, and `device_events` holds *meaningful* transitions (the HA integration sends only
 selected entities, and numeric sensors are filtered by a change threshold). If history charts are
@@ -316,16 +330,18 @@ wanted later, they get their own decision.
 ```
 Ring cloud ──POST (X-Signature: sha256=HMAC(body))──► /webhooks/ring   (Funnel-published path only)
   1. verify HMAC over raw body BEFORE parsing; reject → 401
-  2. resolve connection by Ring account id → bind account_context
+  2. bind_gateway_guc(ring account id) → bootstrap policy finds the one connection
+     → bind account_context from it  (§6 "Finding the account"; unknown id → 2xx + drop, logged)
   3. insert device_event (dedupe on meta.request_id) and COMMIT
   4. return 2xx  (Ring requires < 5 s; retries 1s…1h; 4xx is not retried)
   5. after-commit: enqueue snapshot fetch + rule evaluation (in-process executor,
      as personal_calendar/trigger.py), publish to BUS for SSE
 ```
 - The handler never calls Ring synchronously. A slow snapshot must not cost the 5 s budget.
-- A token-exchange POST (Ring-driven linking) cannot be signature-verified. It is accepted only
-  with a `state`/nonce MiHomes issued to a signed-in owner in the last 10 minutes. With no matching
-  nonce there is no link.
+- A token-exchange POST (Ring-driven linking, FR-C2b) cannot be signature-verified and carries no
+  MiHomes nonce. What makes it safe is that the code is redeemed against Ring's token endpoint with
+  MiHomes' `client_secret`, so a forged POST gets nothing, and the resulting link stays `unclaimed`,
+  with no account and no device access, until an owner claims it.
 - `mihomes jobs devices-reconcile` (`*/15`) re-lists devices and statuses per active Ring
   connection, catching anything missed while a webhook was dead-lettered (Ring keeps those 72 h).
 
@@ -337,7 +353,8 @@ Customer HA (custom_components/mihomes v2)
    GET  /devices/ha/commands      long-poll ≤ 25 s → returns queued device_commands
    POST /devices/ha/commands/{id} ack + resulting state
 ```
-- The ingest token maps to exactly one `device_connections` row, and that row binds the account.
+- The ingest token maps to exactly one `device_connections` row, found through the
+  `app.gateway_device_ingest_hash` bootstrap policy (§6), and that row binds the account.
   The token never authorizes anything except these four endpoints.
 - Payload caps: 500 entities per batch, 256 KB per request, 10 requests/s per connection (429 above that).
 - Commands are only ever created by an authenticated MiHomes user who passed `device.control`
@@ -388,7 +405,8 @@ test where a staff member on property A receives nothing from property B.
 ## 9. Entitlements and RBAC
 
 **Entitlements** (`entitlements/limits.py`). New keys go in **all three** plans, or
-`ENTITLEMENT_KEYS` breaks (`:103`). Gated actions go in `_BOOLEAN_ACTIONS`, or `can()` silently allows them.
+`ENTITLEMENT_KEYS` breaks (`:103`). Boolean features go in `_BOOLEAN_ACTIONS` (`service.py:95`) and
+`max_devices` goes in the counted-actions map (`:104`). An action in neither map is silently allowed by `can()`.
 
 | Key | Free | Pro | Estate |
 |---|---|---|---|
@@ -421,7 +439,7 @@ These numbers are a proposal. Pricing owns them (O4).
 | NFR-3 | HA command round-trip (click → confirmed state) ≤ 5 s p95 when HA is online |
 | NFR-4 | A provider outage never breaks the dashboard. Device widgets degrade to "last known at …" |
 | NFR-5 | No provider network call on the dashboard render path. Everything renders from the DB |
-| NFR-6 | Zero cross-tenant reads, proven by the existing RLS test harness running as `mihomes_dev_app`, not the superuser (see the RLS read bug lesson) |
+| NFR-6 | Zero cross-tenant reads, proven by the existing RLS test harness running as `mihomes_dev_app`, not the superuser (see the RLS read bug lesson). That includes a test that `/webhooks/ring` and `/devices/ha/ingest` **do** resolve their account under that role, and resolve only one |
 | NFR-7 | Duplicate webhook deliveries create no duplicate events, alerts or snapshots |
 
 ---
@@ -429,8 +447,11 @@ These numbers are a proposal. Pricing owns them (O4).
 ## 11. Operations (evo-dev and production)
 
 - **Webhook ingress:** add a Funnel path for `/webhooks/ring` only, on the same :8443 used for Telegram
-  (`TELEGRAM-WEBHOOK.md` §4). The Ring webhook URL **cannot be changed via API**, so register the
-  production hostname, not the tailnet name, once production exists (O9).
+  (`TELEGRAM-WEBHOOK.md` §4). The Ring webhook URL **cannot be changed via API**. The developer
+  portal has separate **Staging** and **Production** settings tabs, and the assumption that each
+  holds its own webhook URL is **[unverified]**. If it does, the evo-dev Funnel URL goes on Staging
+  for Phase A and the production hostname goes on Production later (O9). If it does not, O9 must be
+  decided **before** Phase A can register any webhook.
 - **Static egress IP for Ring** (to avoid HTTP 406): find evo-dev's egress IP, register it with Ring
   support, and document it in a new `docs/deploy/RING.md`.
 - **HA ingest** (`/devices/ha/*`) must be reachable from customers' homes, so it is a second Funnel
@@ -475,14 +496,14 @@ These numbers are a proposal. Pricing owns them (O4).
 | # | Decision | Owner | Blocks |
 |---|---|---|---|
 | **O1** | **Which pilot homes are in the US?** Ring's program is US-only. If Belle or the first customers are outside the US, Ring-direct is blocked pending Ring's approval and Phase B goes first | Founder | Phase order |
-| O2 | Ring distribution: private track (5 accounts, still shown with a "private" badge) for the pilot, then certification; and whether to request partner-initiated OAuth | Founder | Phase A connect UX |
+| O2 | Ring distribution: private track (5 accounts, still shown with a "private" badge) for the pilot, then certification. **Request partner-initiated OAuth from Ring now**: without it, every link goes through the `unclaimed` → claim step (FR-C2b), and what Ring shows the user after a Ring-driven link is unverified | Founder | Phase A connect UX |
 | O3 | Is MiHomes a "paid Ring app" under Req 2.15/2.17 (Ring billing, 10% share, monthly only) when Ring access comes bundled in a Stripe subscription? Ask Ring before certification | Founder + counsel | Phase D |
 | O4 | Plan placement and device caps (§9) | Pricing | Config only |
 | O5 | Retention periods for snapshots, events and state (§5.7 FR-P5) | Founder | Config only |
 | O6 | May admins create and remove provider connections, or only owners? | Founder | RBAC row |
 | O7 | May the AI provider (NVIDIA NIM) receive camera snapshots for descriptions? Default **no**. Images leave the building and must match the privacy policy | Founder + counsel | FR-M5, FR-A1 |
 | O8 | Web server capacity for HA long-polls (one held request per connected home) | Eng | Phase B |
-| O9 | Production hostname for the immutable Ring webhook URL | Founder | Ring registration |
+| O9 | Production hostname for the immutable Ring webhook URL | Founder | Production registration. It also blocks **Phase A** if the portal's Staging tab can't hold its own webhook URL (§11) |
 | O10 | Publish the HA integration publicly on HACS (open source), or ship it privately per customer? | Founder | Phase B distribution |
 
 **Risks**

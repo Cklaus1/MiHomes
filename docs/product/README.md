@@ -25,6 +25,7 @@
 | **[VENDOR_DISCOVERY_PRD.md](VENDOR_DISCOVERY_PRD.md)** | AI vendor research + public star ratings marketplace (growth bet) |
 | **[OMNICHANNEL_GATEWAY_PRD.md](OMNICHANNEL_GATEWAY_PRD.md)** | Unifying WhatsApp/Telegram/Twilio behind one core (growth bet). **Partially repaired 2026-08-05** — see below |
 | **[WHATSAPP_GATEWAY_PRD.md](WHATSAPP_GATEWAY_PRD.md)** | WhatsApp Business Cloud API gateway (growth bet). **Partially repaired 2026-08-05** — see below |
+| **[SMART_DEVICES_PRD.md](SMART_DEVICES_PRD.md)** | Ring cameras (official Partner API) + smart devices via the customer's Home Assistant on the dashboard (growth bet). Requirements only — 10 open decisions; SPEC-015 to follow |
 
 > **Read the two gateway PRDs with care.** They were added after the other ten and, unlike them,
 > made factual claims about the existing code that did not hold — catalogued in

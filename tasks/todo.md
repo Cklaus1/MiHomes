@@ -1325,7 +1325,7 @@ Periods decided by the founder 2026-11-10. `services/housekeeping.py` + `mihomes
 - [ ] If the public landing site runs against its own database (Fly), the waitlist there needs `mihomes jobs cleanup` scheduled too — this job prunes the waitlist in the database it runs against
 - [ ] Still open (separate decision): enforce audit-trail (2y) and AI-conversation (1y) retention
 
-## Google → MiHomes import (two-way calendar, 2026-11-11) — BUILT 71d8c09, deploy pending
+## Google → MiHomes import (two-way calendar, 2026-11-11) — DEPLOYED 39d64a5 (0030); live phone test pending
 
 **Answers 2026-11-11:** no property named → the person's default import property · Google edits
 to ANY appointment flow back for permitted people (others' edits are overwritten) · deleting in

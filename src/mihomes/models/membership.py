@@ -61,6 +61,12 @@ class Membership(Base, TenantOwned):
     can_edit_playbooks: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=false(), default=False
     )
+    # Staff an owner/admin lets turn events they add in Google Calendar into appointments, and
+    # whose Google edits/deletes flow back (2026-11-11). Owners and admins always can; never
+    # read for them. Granted in Settings → Members, audited.
+    can_import_calendar: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=false(), default=False
+    )
 
     __table_args__ = (
         UniqueConstraint("account_id", "user_id", name="uq_membership_account_user"),

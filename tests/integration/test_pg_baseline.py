@@ -160,6 +160,7 @@ def test_upgrade_then_downgrade_is_clean(scratch_db):
     # measured on a scratch DB. No enums.
     # `0029_calendar_connections` (2026-10-30) adds two (calendar_connections,
     # calendar_event_links) -> 73. No enums.
+    # 0030 adds columns only -> still 73.
     assert len(first["tables"]) == 73, first["tables"]
     assert len(first["enums"]) == 22
     assert first["guard_fns"] == ["mihomes_assert_account_matches_parent"]

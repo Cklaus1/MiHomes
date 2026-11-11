@@ -52,6 +52,15 @@ class CalendarConnection(Base, TenantOwned):
     needs_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False,
                                                  server_default=func.now())
+    # ── Google → MiHomes import (0030, 2026-11-11) ───────────────────────────
+    # Google's incremental-sync cursor for this calendar. NULL means the next pull is a
+    # baseline: it records what is there and changes nothing.
+    sync_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Where an event added in Google goes when it names no property.
+    default_property_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("properties.id", ondelete="SET NULL"), nullable=True)
+    # A plain-language note about the last pull ("2 repeating events weren't imported").
+    import_note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (
         Index("uq_calendar_connections_member", "account_id", "membership_id", unique=True),
@@ -76,10 +85,18 @@ class CalendarEventLink(Base, TenantOwned):
     entity_id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
     google_event_id: Mapped[str] = mapped_column(String(1024), nullable=False)
     fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    # mihomes: pushed from a MiHomes record · google: created in Google and imported.
+    origin: Mapped[str] = mapped_column(String(10), nullable=False, default="mihomes",
+                                        server_default="mihomes")
+    # Google's etag for the version WE last wrote or saw. A pulled event with the same etag is
+    # our own write coming back, not someone's edit.
+    etag: Mapped[str | None] = mapped_column(String(200), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False,
                                                  server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
         UniqueConstraint("account_id", "connection_id", "entity_type", "entity_id",
                          name="uq_calendar_event_links_entity"),
+        Index("ix_calendar_event_links_google", "account_id", "connection_id",
+              "google_event_id"),
     )

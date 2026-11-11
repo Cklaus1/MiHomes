@@ -37,6 +37,10 @@ class GoogleBusy(GoogleError):
     """Rate limited or a server error: stop this run, the next one picks up."""
 
 
+class SyncTokenExpired(GoogleError):
+    """Google forgot our incremental-sync cursor (410): list everything again."""
+
+
 class EventExists(GoogleError):
     """`insert` with an id Google already has (possibly a deleted event)."""
 
@@ -125,21 +129,53 @@ class GoogleCalendarClient:
 
     # ── events ──────────────────────────────────────────────────────────────
 
-    def put_event(self, calendar_id: str, event_id: str, body: dict) -> None:
+    def put_event(self, calendar_id: str, event_id: str, body: dict) -> str | None:
         """Create or overwrite the event with this id.
 
         The id is ours (derived from the connection and the item), so a retry after a lost
         response cannot make a twin: the second insert answers 409 and becomes an update. An
         update also revives an event that was deleted — Google keeps the id as `cancelled`.
+
+        Returns Google's etag for what was written, so the next pull can tell this write
+        coming back from somebody's edit.
         """
         cal = _q(calendar_id)
         full = {**body, "id": event_id, "status": "confirmed"}
         try:
-            self._call("POST", f"/calendars/{cal}/events", json=full)
+            saved = self._call("POST", f"/calendars/{cal}/events", json=full)
         except EventExists:
-            self._call("PUT", f"/calendars/{cal}/events/{event_id}", json=full)
+            saved = self._call("PUT", f"/calendars/{cal}/events/{event_id}", json=full)
         except _NotFound:
             raise CalendarGone(calendar_id) from None
+        return (saved or {}).get("etag")
+
+    def list_changes(self, calendar_id: str, sync_token: str | None) -> tuple[list[dict], str]:
+        """Every event changed since `sync_token` (all events when None), deletions included.
+
+        All pages are fetched before returning, so the caller never holds a transaction across
+        HTTP. Returns the events and the cursor for next time.
+        """
+        from urllib.parse import urlencode
+
+        cal = _q(calendar_id)
+        events: list[dict] = []
+        page = None
+        while True:
+            params = {"showDeleted": "true", "maxResults": "250"}
+            if sync_token:
+                params["syncToken"] = sync_token
+            if page:
+                params["pageToken"] = page
+            try:
+                data = self._call("GET", f"/calendars/{cal}/events?{urlencode(params)}")
+            except _NotFound:
+                if sync_token:
+                    raise SyncTokenExpired(calendar_id) from None
+                raise CalendarGone(calendar_id) from None
+            events.extend(data.get("items", []))
+            page = data.get("nextPageToken")
+            if not page:
+                return events, data.get("nextSyncToken", "")
 
     def delete_event(self, calendar_id: str, event_id: str) -> None:
         try:

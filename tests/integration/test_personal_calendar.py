@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from datetime import date, time, timedelta
 
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import sessionmaker
 
 from mihomes.auth.csrf import CSRF_COOKIE
@@ -46,18 +46,32 @@ def _keys(monkeypatch):
 
 
 class FakeGoogle:
+    """Google Calendar as the sync sees it: etags, deletions kept as `cancelled`, and an
+    incremental change feed keyed by a sync token. `events` holds the live (non-cancelled) ones.
+    `phone_*` simulate someone editing the calendar on their phone."""
+
     def __init__(self):
         self.calendars: dict[str, tuple[str, str]] = {}
         self.events: dict[tuple[str, str], dict] = {}
+        self.cancelled: dict[tuple[str, str], dict] = {}
         self.writes = self.deletes = 0
         self.tokens: list[str] = []
         self.refuse = False
+        self.seq = 0
+        self.changed: dict[tuple[str, str], int] = {}
+        self.expire_tokens = False
 
     def __call__(self, refresh_token):  # the client factory
         self.tokens.append(refresh_token)
         if self.refuse:
             raise ReconnectNeeded("revoked")
         return self
+
+    def _touch(self, key, ev):
+        self.seq += 1
+        ev["etag"] = f"etag-{self.seq}"
+        self.changed[key] = self.seq
+        return ev["etag"]
 
     def create_calendar(self, summary, time_zone):
         cid = f"cal-{len(self.calendars) + 1}"
@@ -71,12 +85,54 @@ class FakeGoogle:
     def put_event(self, cid, eid, body):
         if cid not in self.calendars:
             raise CalendarGone(cid)
-        self.events[(cid, eid)] = body
+        ev = {**body, "id": eid, "status": "confirmed"}
+        self.cancelled.pop((cid, eid), None)
+        self.events[(cid, eid)] = ev
         self.writes += 1
+        return self._touch((cid, eid), ev)
 
     def delete_event(self, cid, eid):
-        self.events.pop((cid, eid), None)
+        ev = self.events.pop((cid, eid), None)
+        if ev is not None:
+            ev = {**ev, "status": "cancelled"}
+            self.cancelled[(cid, eid)] = ev
+            self._touch((cid, eid), ev)
         self.deletes += 1
+
+    def list_changes(self, cid, sync_token):
+        from mihomes.services.personal_calendar.google_client import SyncTokenExpired
+
+        if cid not in self.calendars:
+            raise CalendarGone(cid)
+        if sync_token and self.expire_tokens:
+            self.expire_tokens = False
+            raise SyncTokenExpired(cid)
+        since = int(sync_token) if sync_token else 0
+        out = [dict(ev) for key, ev in {**self.events, **self.cancelled}.items()
+               if key[0] == cid and self.changed.get(key, 0) > since]
+        return out, str(self.seq)
+
+    # ── someone on their phone ──
+    def phone_add(self, cid, summary, start, *, location=None, description=None, **extra):
+        eid = f"phone{self.seq + 1}"
+        ev = {"id": eid, "status": "confirmed", "summary": summary, "start": start,
+              "end": start, **extra}
+        if location:
+            ev["location"] = location
+        if description:
+            ev["description"] = description
+        self.events[(cid, eid)] = ev
+        self._touch((cid, eid), ev)
+        return eid
+
+    def phone_edit(self, cid, eid, **fields):
+        ev = self.events[(cid, eid)]
+        ev.update(fields)
+        self._touch((cid, eid), ev)
+
+    def phone_delete(self, cid, eid):
+        self.delete_event(cid, eid)
+        self.deletes -= 1
 
     def bodies(self):
         return {b["summary"]: b for b in self.events.values()}
@@ -471,13 +527,15 @@ def test_a_committed_save_queues_its_account_and_a_rollback_does_not(world, monk
     assert calls == []
 
 
-def test_nothing_changed_means_no_call_to_google_at_all(world):
-    """Every save in the estate queues a sync; an idle one must not even refresh the token."""
+def test_an_idle_sync_writes_nothing_to_google(world):
+    """Every save in the estate queues a sync; one with nothing to change must only read
+    (the pull, since 2026-11-11), never write."""
     fake = FakeGoogle()
     cid = _connect(world, world.owner.membership_id)
     _sync(world, cid, fake)
+    writes, deletes = fake.writes, fake.deletes
     _sync(world, cid, fake)
-    assert fake.tokens == ["rt-1"]
+    assert (fake.writes, fake.deletes) == (writes, deletes)
 
 
 def test_purge_removes_every_members_calendar_from_google(world, monkeypatch):
@@ -557,3 +615,341 @@ def test_calendar_page_asks_to_reconnect_when_access_lapsed(world):
 def test_calendar_page_hides_google_when_not_configured(world, monkeypatch):
     monkeypatch.delenv("GOOGLE_CLIENT_ID")
     assert 'data-testid="gcal-status"' not in world.owner.get("/calendar/").text
+
+
+# ── Google → MiHomes (2026-11-11) ────────────────────────────────────────────
+
+def _appts(w):
+    from mihomes.models.appointment import Appointment
+
+    with account_context(w.account), w.factory() as s:
+        return {a.title: (a.property_id, a.date, a.start_time, a.notes)
+                for a in s.execute(select(Appointment)).scalars()}
+
+
+def _cal(fake):
+    return next(iter(fake.calendars))
+
+
+def _synced_owner(w, fake):
+    cid = _connect(w, w.owner.membership_id)
+    _sync(w, cid, fake)  # first run: creates the calendar, pushes, baselines the pull
+    return cid
+
+
+def _day(n=7):
+    return {"date": (date.today() + timedelta(days=n)).isoformat()}
+
+
+def _key(fake, summary):
+    return next(k for k, v in fake.events.items() if v["summary"] == summary)
+
+
+def test_an_event_added_on_a_phone_becomes_an_appointment(world):
+    fake = FakeGoogle()
+    cid = _synced_owner(world, fake)
+    eid = fake.phone_add(_cal(fake), "Pool cleaning at the Guest Cottage", _day(),
+                         description="bring chlorine")
+    writes = fake.writes
+    r = _sync(world, cid, fake)
+    assert r.pull.imported == 1
+    prop, day, at, notes = _appts(world)["Pool cleaning at the Guest Cottage"]
+    assert prop == world.props["cottage"] and day == date.today() + timedelta(days=7)
+    assert at is None and notes == "bring chlorine"
+    assert fake.writes == writes, "the imported event was pushed back as a second copy"
+    with account_context(world.account), world.factory() as s:
+        link = s.execute(select(CalendarEventLink).where(
+            CalendarEventLink.google_event_id == eid)).scalar_one()
+        assert link.origin == "google"
+
+
+def test_a_timed_phone_event_lands_in_the_estate_time_zone(world):
+    fake = FakeGoogle()
+    cid = _synced_owner(world, fake)
+    d = date.today() + timedelta(days=3)
+    fake.phone_add(_cal(fake), "Locksmith", {"dateTime": f"{d.isoformat()}T15:30:00Z"},
+                   location="1 Belle Rd")
+    _sync(world, cid, fake)
+    prop, day, at, _ = _appts(world)["Locksmith"]
+    assert prop == world.props["main"]
+    assert at in (time(10, 30), time(11, 30)), at  # New York, EST or EDT
+    assert day == d
+
+
+def test_no_property_named_uses_the_default_else_is_skipped_with_a_note(world):
+    fake = FakeGoogle()
+    cid = _synced_owner(world, fake)
+    fake.phone_add(_cal(fake), "Vague errand", _day())
+    _sync(world, cid, fake)
+    assert "Vague errand" not in _appts(world)
+    note = world.conn.execute(text("select import_note from calendar_connections where id=:i"),
+                              {"i": cid}).scalar()
+    assert "default import property" in note
+
+    world.conn.execute(text("update calendar_connections set default_property_id=:p, "
+                            "sync_token=null where id=:i"),
+                       {"p": world.props["main"], "i": cid})
+    _sync(world, cid, fake)
+    assert _appts(world)["Vague errand"][0] == world.props["main"]
+
+
+def test_staff_need_the_grant_and_stay_inside_their_properties(world):
+    fake = FakeGoogle()
+    staff = world.make("staff", scoped_to=[world.props["cottage"]])
+    cid = _connect(world, staff.membership_id)
+    _sync(world, cid, fake)
+    fake.phone_add(_cal(fake), "Guest Cottage gutters", _day())
+    _sync(world, cid, fake)
+    assert "Guest Cottage gutters" not in _appts(world), "imported without the grant"
+
+    world.conn.execute(text("update memberships set can_import_calendar=true where id=:m"),
+                       {"m": staff.membership_id})
+    world.conn.execute(text("update calendar_connections set sync_token=null where id=:i"),
+                       {"i": cid})
+    fake.phone_add(_cal(fake), "Main House alarm check", _day())
+    _sync(world, cid, fake)
+    got = _appts(world)
+    assert "Guest Cottage gutters" in got
+    assert "Main House alarm check" not in got, "staff imported into a property they can't see"
+
+
+def test_our_own_writes_coming_back_change_nothing(world):
+    fake = FakeGoogle()
+    cid = _synced_owner(world, fake)
+    before = _appts(world)
+    r = _sync(world, cid, fake)
+    assert r.pull.updated == r.pull.imported == r.pull.deleted == 0
+    assert _appts(world) == before
+
+
+def test_the_first_pull_is_a_baseline(world):
+    fake = FakeGoogle()
+    cid = _synced_owner(world, fake)
+    hvac = _key(fake, "HVAC service")
+    world.conn.execute(text("update calendar_connections set sync_token=null where id=:i"),
+                       {"i": cid})
+    fake.phone_edit(*hvac, summary="HVAC moved by phone")
+    _sync(world, cid, fake)
+    assert "HVAC service" in _appts(world), "the baseline applied an edit"
+    fake.phone_edit(*hvac, summary="HVAC moved again")
+    _sync(world, cid, fake)
+    assert "HVAC moved again" in _appts(world)
+
+
+def test_a_permitted_phone_edit_flows_back(world):
+    fake = FakeGoogle()
+    cid = _synced_owner(world, fake)
+    hvac = _key(fake, "HVAC service")
+    new_day = (date.today() + timedelta(days=9)).isoformat()
+    fake.phone_edit(*hvac, summary="HVAC service (rescheduled)",
+                    start={"dateTime": f"{new_day}T14:00:00-05:00"})
+    _sync(world, cid, fake)
+    _, day, at, _ = _appts(world)["HVAC service (rescheduled)"]
+    assert day.isoformat() == new_day and at is not None
+
+
+def test_when_both_sides_changed_mihomes_wins(world):
+    fake = FakeGoogle()
+    cid = _synced_owner(world, fake)
+    hvac = _key(fake, "HVAC service")
+    fake.phone_edit(*hvac, summary="phone version")
+    world.conn.execute(text("update appointments set title='MiHomes version' "
+                            "where title='HVAC service'"))
+    _sync(world, cid, fake)
+    assert "MiHomes version" in _appts(world)
+    assert fake.events[hvac]["summary"] == "MiHomes version"
+
+
+def test_without_permission_google_edits_and_deletes_are_put_back(world):
+    fake = FakeGoogle()
+    staff = world.make("staff", scoped_to=[world.props["main"]])
+    cid = _connect(world, staff.membership_id)
+    _sync(world, cid, fake)
+    hvac = _key(fake, "HVAC service")
+    fake.phone_edit(*hvac, summary="staff renamed it")
+    gutters = _key(fake, "Task: Clean gutters")
+    fake.phone_delete(*gutters)
+    _sync(world, cid, fake)
+    assert "HVAC service" in _appts(world)
+    assert fake.events[hvac]["summary"] == "HVAC service", "an unpermitted edit stuck"
+    assert gutters in fake.events, "an unpermitted delete stuck"
+
+
+def test_tasks_stay_mihomes_controlled_even_for_owners(world):
+    from mihomes.models.task import Task
+
+    fake = FakeGoogle()
+    cid = _synced_owner(world, fake)
+    shed = _key(fake, "Task: Paint shed")
+    fake.phone_delete(*shed)
+    _sync(world, cid, fake)
+    assert shed in fake.events, "a task deleted from a phone was not put back"
+    with account_context(world.account), world.factory() as s:
+        assert s.execute(select(Task).where(Task.title == "Paint shed")).scalar_one()
+
+
+def test_a_permitted_phone_delete_deletes_the_appointment_for_everyone(world):
+    fake, other_fake = FakeGoogle(), FakeGoogle()
+    cid = _synced_owner(world, fake)
+    admin = world.make("admin")
+    other = _connect(world, admin.membership_id)
+    _sync(world, other, other_fake)
+    assert "HVAC service" in other_fake.bodies()
+    fake.phone_delete(*_key(fake, "HVAC service"))
+    assert _sync(world, cid, fake).pull.deleted == 1
+    assert "HVAC service" not in _appts(world)
+    _sync(world, other, other_fake)
+    assert "HVAC service" not in other_fake.bodies()
+
+
+def test_deleting_a_serviced_appointment_from_a_phone_is_refused(world):
+    fake = FakeGoogle()
+    cid = _synced_owner(world, fake)
+    world.conn.execute(text("update appointments set completed=true where title='HVAC service'"))
+    hvac = _key(fake, "HVAC service")
+    fake.phone_delete(*hvac)
+    r = _sync(world, cid, fake)
+    assert r.pull.refused_deletes == 1 and "HVAC service" in _appts(world)
+    assert hvac in fake.events, "the refused event was not put back"
+
+
+def test_a_mass_delete_is_held(world):
+    from mihomes.services.appointment import create_appointment
+
+    fake = FakeGoogle()
+    with account_context(world.account), world.factory() as s:
+        for i in range(11):
+            create_appointment(s, f"Visit {i}", str(world.props["main"]), world.soon)
+    cid = _synced_owner(world, fake)
+    for key in [k for k, v in fake.events.items() if v["summary"].startswith("Visit")]:
+        fake.phone_delete(*key)
+    r = _sync(world, cid, fake)
+    assert r.pull.deleted == 0 and r.pull.held_deletes == 11
+    assert sum(t.startswith("Visit") for t in _appts(world)) == 11
+    assert sum(v["summary"].startswith("Visit") for v in fake.events.values()) == 11
+
+
+def test_mihomes_own_deletions_never_delete_appointments(world):
+    from mihomes.models.task import Task, TaskStatus
+
+    fake = FakeGoogle()
+    staff = world.make("staff", scoped_to=[world.props["main"], world.props["cottage"]])
+    world.conn.execute(text("update memberships set can_import_calendar=true where id=:m"),
+                       {"m": staff.membership_id})
+    cid = _connect(world, staff.membership_id)
+    _sync(world, cid, fake)
+    with account_context(world.account), world.factory() as s:
+        task = s.execute(select(Task).where(Task.title == "Paint shed")).scalar_one()
+        task.status = TaskStatus.COMPLETED
+    world.conn.execute(text("delete from membership_property_scopes where membership_id=:m "
+                            "and property_id=:p"),
+                       {"m": staff.membership_id, "p": world.props["main"]})
+    before = _appts(world)
+    _sync(world, cid, fake)  # push removes the events
+    r = _sync(world, cid, fake)  # pull sees those cancellations come back
+    assert r.pull.deleted == 0 and _appts(world) == before
+
+
+def test_repeating_google_events_are_skipped_with_a_note(world):
+    fake = FakeGoogle()
+    cid = _synced_owner(world, fake)
+    fake.phone_add(_cal(fake), "Weekly Main House sweep", _day(),
+                   recurrence=["RRULE:FREQ=WEEKLY"])
+    r = _sync(world, cid, fake)
+    assert r.pull.skipped_recurring == 1 and "Weekly Main House sweep" not in _appts(world)
+
+
+def test_an_expired_sync_token_resyncs_without_duplicates(world):
+    fake = FakeGoogle()
+    cid = _synced_owner(world, fake)
+    fake.phone_add(_cal(fake), "Main House window wash", _day())
+    _sync(world, cid, fake)
+    fake.expire_tokens = True
+    _sync(world, cid, fake)
+    assert "Main House window wash" in _appts(world)
+    from mihomes.models.appointment import Appointment
+
+    with account_context(world.account), world.factory() as s:
+        n = s.execute(select(func.count()).select_from(Appointment).where(
+            Appointment.title == "Main House window wash")).scalar()
+    assert n == 1
+
+
+def test_a_crash_before_the_cursor_is_saved_imports_nothing_twice(world):
+    from mihomes.models.appointment import Appointment
+
+    fake = FakeGoogle()
+    cid = _synced_owner(world, fake)
+    token = world.conn.execute(text("select sync_token from calendar_connections where id=:i"),
+                               {"i": cid}).scalar()
+    fake.phone_add(_cal(fake), "Main House chimney", _day())
+    _sync(world, cid, fake)
+    world.conn.execute(text("update calendar_connections set sync_token=:t where id=:i"),
+                       {"t": token, "i": cid})  # as if the run died before saving the cursor
+    _sync(world, cid, fake)
+    with account_context(world.account), world.factory() as s:
+        n = s.execute(select(func.count()).select_from(Appointment).where(
+            Appointment.title == "Main House chimney")).scalar()
+    assert n == 1
+
+
+def test_editing_an_imported_appointment_in_mihomes_updates_the_same_google_event(world):
+    fake = FakeGoogle()
+    cid = _synced_owner(world, fake)
+    eid = fake.phone_add(_cal(fake), "Main House piano tuning", _day())
+    _sync(world, cid, fake)
+    world.conn.execute(text("update appointments set title='Piano tuning (confirmed)' "
+                            "where title='Main House piano tuning'"))
+    _sync(world, cid, fake)
+    assert fake.events[(_cal(fake), eid)]["summary"] == "Piano tuning (confirmed)"
+    assert sum("iano" in v["summary"] for v in fake.events.values()) == 1, "a second copy"
+
+
+# ── Settings for the import (2026-11-11) ─────────────────────────────────────
+
+def test_an_owner_grants_and_withdraws_a_staff_members_import(world):
+    staff = world.make("staff", scoped_to=[world.props["cottage"]])
+    path = f"/settings/members/{staff.membership_id}/calendar-import"
+    r = world.owner.post(path, data={"enabled": "on"}, follow_redirects=False)
+    assert "calendar_import_on" in r.headers["location"]
+    flag = "select can_import_calendar from memberships where id=:m"
+    assert world.conn.execute(text(flag), {"m": staff.membership_id}).scalar() is True
+    assert "Can add appointments from Google Calendar" in world.owner.get("/settings").text
+    world.owner.post(path, data={}, follow_redirects=False)
+    assert world.conn.execute(text(flag), {"m": staff.membership_id}).scalar() is False
+
+
+def test_staff_cannot_grant_themselves_the_import(world):
+    staff = world.make("staff", scoped_to=[world.props["cottage"]])
+    r = staff.post(f"/settings/members/{staff.membership_id}/calendar-import",
+                   data={"enabled": "on"}, follow_redirects=False)
+    assert r.status_code == 403
+    assert world.conn.execute(text("select can_import_calendar from memberships where id=:m"),
+                              {"m": staff.membership_id}).scalar() is False
+
+
+def test_the_card_explains_which_way_updates_go(world):
+    _connect(world, world.owner.membership_id)
+    assert 'action="/settings/calendar/default-property"' in \
+        world.owner.get("/settings/connections").text
+    staff = world.make("staff", scoped_to=[world.props["cottage"]])
+    _connect(world, staff.membership_id)
+    page = staff.get("/settings/connections").text
+    assert "Updates go one way" in page
+    assert 'action="/settings/calendar/default-property"' not in page
+
+
+def test_the_default_property_must_be_one_you_can_see(world):
+    staff = world.make("staff", scoped_to=[world.props["cottage"]])
+    staff.cookies.set(CSRF_COOKIE, CSRF)
+    cid = _connect(world, staff.membership_id)
+    bad = staff.post("/settings/calendar/default-property",
+                     data={"property_id": str(world.props["main"]), "csrf_token": CSRF},
+                     follow_redirects=False)
+    assert bad.status_code == 400
+    ok = staff.post("/settings/calendar/default-property",
+                    data={"property_id": str(world.props["cottage"]), "csrf_token": CSRF},
+                    follow_redirects=False)
+    assert ok.status_code == 303
+    assert world.conn.execute(text("select default_property_id from calendar_connections "
+                                   "where id=:i"), {"i": cid}).scalar() == world.props["cottage"]

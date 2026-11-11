@@ -41,6 +41,7 @@ NOTICES = {
                  "minute for a busy estate.",
     "sync_started": "Sync started. Refresh in a moment to see the time it finished.",
     "disconnected": "Google Calendar disconnected.",
+    "default_saved": "Default property saved.",
 }
 
 

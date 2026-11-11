@@ -298,6 +298,21 @@
             </form>
           {% endif %}
 
+          {# Per-person grant (2026-11-11): staff whose Google Calendar changes create, edit and
+             delete appointments. Owners and admins always can. Same switch as playbooks. #}
+          {% if member.role == "staff" %}
+            <form method="post" action="/settings/members/{{ member.membership_id }}/calendar-import"
+                  class="mt-3 flex flex-wrap items-center gap-3">
+              <label class="text-sm flex items-center gap-2 cursor-pointer" for="cal-imp-{{ member.membership_id }}">
+                <input type="checkbox" name="enabled" id="cal-imp-{{ member.membership_id }}"
+                       onchange="this.form.requestSubmit()"
+                       class="h-5 w-5 cursor-pointer" {% if member.can_import_calendar %}checked{% endif %} />
+                Can add appointments from Google Calendar
+              </label>
+              <noscript><button class="border rounded-lg px-3 py-1.5 text-sm">Save</button></noscript>
+            </form>
+          {% endif %}
+
           {# Omitted on your own row: `offboard` has no self-check, so this would be a one-click
              lockout with no way back. The route refuses it regardless. The name travels in a
              data attribute, never inside the JS string, so an apostrophe cannot break it. #}

@@ -63,6 +63,7 @@ _OPEN_TASK = (TaskStatus.PENDING, TaskStatus.IN_PROGRESS)
 @dataclass
 class SyncResult:
     status: str = "ok"  # ok | busy | skipped | removed | reconnect | error
+    pull: object = None  # pull.PullResult
     written: int = 0
     deleted: int = 0
     unchanged: int = 0
@@ -207,7 +208,8 @@ def _plan(session_factory, connection_id) -> _Plan | None:
         return plan
 
 
-def _save_link(session_factory, connection_id, key, event_id: str, fingerprint: str) -> None:
+def _save_link(session_factory, connection_id, key, event_id: str, fingerprint: str,
+               etag: str | None = None) -> None:
     with session_factory() as s:
         link = s.execute(select(CalendarEventLink).where(
             CalendarEventLink.connection_id == connection_id,
@@ -216,9 +218,9 @@ def _save_link(session_factory, connection_id, key, event_id: str, fingerprint: 
         if link is None:
             s.add(CalendarEventLink(connection_id=connection_id, entity_type=key[0],
                                     entity_id=key[1], google_event_id=event_id,
-                                    fingerprint=fingerprint))
+                                    fingerprint=fingerprint, etag=etag))
         else:
-            link.google_event_id, link.fingerprint = event_id, fingerprint
+            link.google_event_id, link.fingerprint, link.etag = event_id, fingerprint, etag
         s.commit()
 
 
@@ -273,13 +275,6 @@ def _one_pass(session_factory, connection_id, client_factory, result: SyncResult
         result.status = "removed"
         return False
 
-    changes = [k for k, (_, fp) in plan.desired.items()
-               if plan.links.get(k, (None, None))[1] != fp]
-    if plan.calendar_id is not None and not changes and not plan.to_delete:
-        # Nothing to do, and no token refresh either. Every save in the estate queues a sync,
-        # so this is the common case and should cost database reads only.
-        result.unchanged += len(plan.desired)
-        return True
     client = client_factory(plan.refresh_token)
 
     if plan.calendar_id is None:
@@ -288,14 +283,23 @@ def _one_pass(session_factory, connection_id, client_factory, result: SyncResult
         plan.links.clear()
 
     try:
+        # Google → MiHomes first (2026-11-11), then plan the push from what it left behind:
+        # an edit pulled in must not be overwritten by a push planned before it.
+        from mihomes.services.personal_calendar.pull import pull
+
+        result.pull = pull(session_factory, connection_id, client, calendar_id=plan.calendar_id)
+        plan = _plan(session_factory, connection_id) or plan
+
         for key, (body, fp) in plan.desired.items():
             existing = plan.links.get(key)
             if existing is not None and existing[1] == fp:
                 result.unchanged += 1
                 continue
-            event_id = event_id_for(connection_id, *key)
-            client.put_event(plan.calendar_id, event_id, body)
-            _save_link(session_factory, connection_id, key, event_id, fp)
+            # An event created in Google keeps Google's id; ours are derived. Reusing the
+            # link's id is what stops an edit in MiHomes from making a second copy.
+            event_id = existing[0] if existing is not None else event_id_for(connection_id, *key)
+            etag = client.put_event(plan.calendar_id, event_id, body)
+            _save_link(session_factory, connection_id, key, event_id, fp, etag)
             result.written += 1
         for key in plan.to_delete:
             client.delete_event(plan.calendar_id, plan.links[key][0])

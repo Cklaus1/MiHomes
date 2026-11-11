@@ -138,6 +138,8 @@ _NOTICES = {
     "access_saved": "Property access saved",
     "playbooks_on": "Playbook editing turned on — they can now create and edit playbooks",
     "playbooks_off": "Playbook editing turned off — they can still view and run playbooks",
+    "calendar_import_on": "Google Calendar import turned on — events they add in Google become appointments",
+    "calendar_import_off": "Google Calendar import turned off — their calendar still receives updates",
     "member_removed": "Access removed",
     "invite_revoked": "Invitation revoked",
     "telegram_unlinked": "Telegram unlinked",
@@ -178,13 +180,25 @@ def _pending_deletion(db: Session, account_id):
 
 def _calendar_context(db: Session, principal, request: Request | None = None) -> dict:
     """The "Google Calendar" card: this member's own connection in this estate, if any."""
+    from mihomes.authz.scope import scoped_property_ids
+    from mihomes.models.membership import Membership
+    from mihomes.models.property import Property
     from mihomes.services.personal_calendar import connect
+    from mihomes.services.personal_calendar.pull import may_import
 
     conn = connect.own_connection(db, principal.membership_id)
     query = request.query_params if request is not None else {}
+    membership = db.get(Membership, principal.membership_id)
+    importing = membership is not None and may_import(membership)
+    visible = scoped_property_ids(db, membership) if importing else frozenset()
     return {
         "configured": connect.configured(),
         "connection": conn,
+        # Google → MiHomes (2026-11-11): whether this person's Google changes come back, and
+        # the properties they may choose as the default for events that name none.
+        "importing": importing,
+        "import_properties": sorted(
+            (p for p in db.query(Property).all() if p.id in visible), key=lambda p: p.name),
         "notice": connect.NOTICES.get(query.get("calendar", "")),
         "error": connect.ERRORS.get(query.get("calendar_error", "")),
     }
@@ -1063,3 +1077,61 @@ def calendar_disconnect(request: Request, csrf_token: str = Form(""),
     db.commit()
     connect.forget_in_google(token, calendar_id, delete_calendar=bool(delete_calendar))
     return _calendar_redirect(principal, notice="disconnected")
+
+
+
+@router.post("/settings/members/{membership_id}/calendar-import")
+@declares(_SETTINGS_ACTION, Access.ACCOUNT)
+def set_member_calendar_import(
+    request: Request,
+    membership_id: uuid.UUID,
+    enabled: str = Form(""),
+    principal=require_authenticated(),
+    db: Session = Depends(get_db),
+):
+    """Let a staff member add, edit and delete appointments from their Google Calendar.
+
+    `member.manage`, so only owners and admins reach it (user decision 2026-11-11).
+    """
+    from mihomes.services import membership_service
+
+    target = _member_in_account(db, principal, membership_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    granted = enabled == "on"
+    try:
+        membership_service.set_calendar_importer(db, target, granted)
+        db.commit()
+    except membership_service.MembershipError as exc:
+        return _member_error(request, db, principal, str(exc))
+    notice = "calendar_import_on" if granted else "calendar_import_off"
+    return RedirectResponse(f"/settings?notice={notice}#members", status_code=303)
+
+
+@router.post("/settings/calendar/default-property")
+@declares(_PROFILE_ACTION, Access.ACCOUNT)
+def calendar_default_property(request: Request, property_id: str = Form(""),
+                              csrf_token: str = Form(""),
+                              principal=require_authenticated(), db: Session = Depends(get_db)):
+    """Where events added in Google go when they name no property. Own connection only, and
+    only a property this member can see; blank clears it."""
+    from mihomes.authz.scope import scoped_property_ids
+    from mihomes.models.membership import Membership
+    from mihomes.services.personal_calendar import connect
+
+    _require_csrf(request, csrf_token)
+    conn = connect.own_connection(db, principal.membership_id)
+    if conn is None:
+        return _calendar_redirect(principal, error="not_connected")
+    chosen = None
+    if property_id:
+        try:
+            chosen = uuid.UUID(property_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Unknown property") from None
+        visible = scoped_property_ids(db, db.get(Membership, principal.membership_id))
+        if chosen not in visible:
+            raise HTTPException(status_code=400, detail="Unknown property")
+    conn.default_property_id = chosen
+    db.commit()
+    return _calendar_redirect(principal, notice="default_saved")

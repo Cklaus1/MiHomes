@@ -51,7 +51,7 @@
   <h2 class="text-lg font-medium mb-1">Google Calendar</h2>
   <p class="text-sm text-gray-500 mb-3">See this estate's appointments and tasks in your own
     Google Calendar. MiHomes adds them to a separate calendar it creates — it can't see or change
-    anything else in your Google account. Changes made in Google don't come back to MiHomes.</p>
+    anything else in your Google account.</p>
 
   {% if calendar.notice %}
     <p class="mb-3 rounded border border-green-300 bg-green-50 px-3 py-2 text-green-800"
@@ -82,6 +82,31 @@
         {% else %}Not synced yet{% endif %}</p>
       {% if conn.last_error %}
         <p class="mt-1 text-xs text-red-700">{{ conn.last_error }}</p>
+      {% endif %}
+      {% if conn.import_note %}
+        <p class="mt-1 text-xs text-amber-800" data-testid="calendar-import-note">{{ conn.import_note }}</p>
+      {% endif %}
+
+      {# Google → MiHomes (2026-11-11). #}
+      {% if calendar.importing %}
+        <p class="mt-3 text-sm text-gray-600">Events you add, change or delete in this Google
+          calendar update MiHomes too (within 15 minutes, or press Sync now). Tasks stay managed
+          in MiHomes.</p>
+        <form method="post" action="/settings/calendar/default-property"
+              class="mt-2 flex flex-wrap items-center gap-2">
+          <input type="hidden" name="csrf_token" value="{{ cal_csrf }}" />
+          <label for="cal-default-prop" class="text-sm text-gray-600">When an event names no property, add it to</label>
+          <select id="cal-default-prop" name="property_id" class="border rounded-lg px-2 py-1.5 text-sm">
+            <option value="">— don't add it —</option>
+            {% for p in calendar.import_properties %}
+              <option value="{{ p.id }}" {% if conn.default_property_id == p.id %}selected{% endif %}>{{ p.name }}</option>
+            {% endfor %}
+          </select>
+          <button class="border rounded-lg px-3 py-1.5 text-sm">Save</button>
+        </form>
+      {% else %}
+        <p class="mt-3 text-sm text-gray-500">Updates go one way, MiHomes → Google. Ask an owner or
+          admin if you need events you add in Google to appear in MiHomes.</p>
       {% endif %}
 
       <div class="mt-3 flex flex-wrap gap-2">

@@ -69,8 +69,12 @@ def upgrade() -> None:
         for table in _TABLES:
             for stmt in policy_statements(table):
                 op.execute(stmt)
+        # Only the links that existed at this revision: 0030 adds
+        # calendar_connections.default_property_id, and live metadata would otherwise make this
+        # revision try to guard a column it hasn't created (the 0001/0007 trap).
         for stmt in trigger_ddl_statements(Base.metadata, only_tables=set(_TABLES)):
-            op.execute(stmt)
+            if "default_property_id" not in stmt:
+                op.execute(stmt)
 
 
 def downgrade() -> None:

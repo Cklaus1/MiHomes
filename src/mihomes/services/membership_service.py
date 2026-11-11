@@ -66,6 +66,7 @@ class MemberView:
     role: str
     joined_at: datetime
     can_edit_playbooks: bool = False
+    can_import_calendar: bool = False
 
     @property
     def display_name(self) -> str:
@@ -232,6 +233,7 @@ def list_members(session: Session, account_id: uuid.UUID) -> list[MemberView]:
             Membership.role,
             Membership.created_at,
             Membership.can_edit_playbooks,
+            Membership.can_import_calendar,
             User.id.label("user_id"),
             User.name,
             User.email,
@@ -253,6 +255,7 @@ def list_members(session: Session, account_id: uuid.UUID) -> list[MemberView]:
                 role=row.role,
                 joined_at=row.created_at,
                 can_edit_playbooks=row.can_edit_playbooks,
+                can_import_calendar=row.can_import_calendar,
             )
             for row in rows
         ),
@@ -285,6 +288,34 @@ def set_playbook_editor(session: Session, membership: Membership, enabled: bool)
             # `audit_log.action` is String(10).
             action="playbooks",
             changes={"can_edit_playbooks": {"old": before, "new": enabled}},
+        )
+        session.flush()
+
+
+def set_calendar_importer(session: Session, membership: Membership, enabled: bool) -> None:
+    """Let a staff member's Google Calendar changes create, edit and delete appointments.
+
+    Owners and admins always can (`personal_calendar.pull.may_import` never reads the flag for
+    them), so it is refused for them for the reason `set_playbook_editor` gives.
+    """
+    if membership.role != "staff":
+        raise MembershipError(
+            f"a {membership.role} can always add appointments from Google Calendar — the "
+            "setting is only for staff"
+        )
+    enabled = bool(enabled)
+    if membership.can_import_calendar == enabled:
+        return
+    with account_context(membership.account_id):
+        bind_account_guc(session, membership.account_id)
+        before = membership.can_import_calendar
+        membership.can_import_calendar = enabled
+        record_change(
+            session,
+            entity_type="membership",
+            entity_id=membership.id,
+            action="calendar",  # audit_log.action is String(10)
+            changes={"can_import_calendar": {"old": before, "new": enabled}},
         )
         session.flush()
 

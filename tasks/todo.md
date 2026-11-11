@@ -1325,7 +1325,7 @@ Periods decided by the founder 2026-11-10. `services/housekeeping.py` + `mihomes
 - [ ] If the public landing site runs against its own database (Fly), the waitlist there needs `mihomes jobs cleanup` scheduled too — this job prunes the waitlist in the database it runs against
 - [ ] Still open (separate decision): enforce audit-trail (2y) and AI-conversation (1y) retention
 
-## Google → MiHomes import (two-way calendar, 2026-11-11) — APPROVED, building
+## Google → MiHomes import (two-way calendar, 2026-11-11) — BUILT 71d8c09, deploy pending
 
 **Answers 2026-11-11:** no property named → the person's default import property · Google edits
 to ANY appointment flow back for permitted people (others' edits are overwritten) · deleting in
@@ -1364,12 +1364,12 @@ owner/admin grants. Everyone else stays one-way.
   Calendar (<email>)".
 
 **Steps**
-- [ ] 0030: `memberships.can_import_calendar`, `calendar_connections.sync_token` +
+- [x] 0030: `memberships.can_import_calendar`, `calendar_connections.sync_token` +
       `default_property_id` + `import_note`, `calendar_event_links.origin` + `etag`
-- [ ] google_client: `list_changes(calendar_id, sync_token)` (handles 410 → full resync)
-- [ ] import pass in `sync.py` before the push pass, gated on permission
-- [ ] Settings → Members: "Can add appointments from Google Calendar" toggle (owner/admin)
-- [ ] Settings → You calendar card: default import property; shows whether importing is on
-- [ ] Tests: permission gate, staff scope, property matching, edit/delete flow-back, no
+- [x] google_client: `list_changes(calendar_id, sync_token)` (handles 410 → full resync)
+- [x] import pass in `sync.py` before the push pass, gated on permission
+- [x] Settings → Members: "Can add appointments from Google Calendar" toggle (owner/admin)
+- [x] Settings → You calendar card: default import property; shows whether importing is on
+- [x] Tests: permission gate, staff scope, property matching, edit/delete flow-back, no
       duplicate push, syncToken expiry, revoked permission
 - [ ] Deploy (migration 0030, backup first) + live test from a phone

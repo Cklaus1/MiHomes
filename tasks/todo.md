@@ -1324,3 +1324,40 @@ Periods decided by the founder 2026-11-10. `services/housekeeping.py` + `mihomes
 - [ ] Deploy: the job joins the crontab when boot.sh re-runs install-cron.sh (14 lines)
 - [ ] If the public landing site runs against its own database (Fly), the waitlist there needs `mihomes jobs cleanup` scheduled too — this job prunes the waitlist in the database it runs against
 - [ ] Still open (separate decision): enforce audit-trail (2y) and AI-conversation (1y) retention
+
+## Google → MiHomes import (two-way calendar, 2026-11-11) — PLAN, awaiting answers
+
+**Decided by user 2026-11-11:** events added in Google to a person's "MiHomes — <estate>"
+calendar become real MiHomes appointments (option B), **only** for owners/admins and members an
+owner/admin grants. Everyone else stays one-way.
+
+**Design**
+- Permission: new `memberships.calendar_import` flag (migration 0030). Owner/admin always
+  allowed; staff only when an owner/admin ticks it in Settings → Members. Revoking stops
+  importing; appointments already created stay.
+- Pull only the MiHomes calendar (never personal calendars) — the existing
+  `calendar.app.created` grant covers reading it, so nobody reconnects.
+- Incremental: Google `syncToken` per connection; `singleEvents=true` so recurring series
+  arrive as individual occurrences.
+- Event → appointment: title, date, start time (estate time zone; all-day = no time), notes ←
+  description. Property: a property named in the title/location, else the importer's
+  **default import property** (chosen in Settings); staff only into properties in their scope.
+- Link both ways through `calendar_event_links` (new `origin` = mihomes | google), so an
+  imported appointment is not pushed back to Google as a second copy; it then reaches every
+  other member's calendar like any appointment.
+- Triggers: on every calendar-sync run (save trigger, Sync now, 15-min cron). No Google push
+  webhooks — evo-dev isn't publicly reachable — so phone → MiHomes takes up to 15 minutes, or
+  instantly with Sync now.
+- Audit: imported/changed/deleted appointments recorded in the audit log as "from Google
+  Calendar (<email>)".
+
+**Steps**
+- [ ] 0030: `memberships.calendar_import`, `calendar_connections.sync_token` +
+      `default_property_id`, `calendar_event_links.origin`
+- [ ] google_client: `list_changes(calendar_id, sync_token)` (handles 410 → full resync)
+- [ ] import pass in `sync.py` before the push pass, gated on permission
+- [ ] Settings → Members: "Can add appointments from Google Calendar" toggle (owner/admin)
+- [ ] Settings → You calendar card: default import property; shows whether importing is on
+- [ ] Tests: permission gate, staff scope, property matching, edit/delete flow-back, no
+      duplicate push, syncToken expiry, revoked permission
+- [ ] Deploy (migration 0030, backup first) + live test from a phone

@@ -1325,7 +1325,19 @@ Periods decided by the founder 2026-11-10. `services/housekeeping.py` + `mihomes
 - [ ] If the public landing site runs against its own database (Fly), the waitlist there needs `mihomes jobs cleanup` scheduled too — this job prunes the waitlist in the database it runs against
 - [ ] Still open (separate decision): enforce audit-trail (2y) and AI-conversation (1y) retention
 
-## Google → MiHomes import (two-way calendar, 2026-11-11) — PLAN, awaiting answers
+## Google → MiHomes import (two-way calendar, 2026-11-11) — APPROVED, building
+
+**Answers 2026-11-11:** no property named → the person's default import property · Google edits
+to ANY appointment flow back for permitted people (others' edits are overwritten) · deleting in
+Google deletes the appointment, whichever side created it · up to 15 min is fine (Sync now =
+instant). **Defaults I chose (tell user):** tasks stay MiHomes-controlled (phone edits/deletes
+to "Task:" events are put back); repeating Google series are skipped with a note; a delete is
+refused (event put back) for serviced appointments or ones tied to an expense/contract; more
+than 10 deletes in one pull → none applied, note on the card.
+
+**Safety:** own writes recognised by Google's etag (stored on the link); first pull after
+deploy is a baseline that changes nothing; conflict = MiHomes wins if it changed since the last
+push; deletes act only on linked events in the importer's visible properties.
 
 **Decided by user 2026-11-11:** events added in Google to a person's "MiHomes — <estate>"
 calendar become real MiHomes appointments (option B), **only** for owners/admins and members an
@@ -1352,8 +1364,8 @@ owner/admin grants. Everyone else stays one-way.
   Calendar (<email>)".
 
 **Steps**
-- [ ] 0030: `memberships.calendar_import`, `calendar_connections.sync_token` +
-      `default_property_id`, `calendar_event_links.origin`
+- [ ] 0030: `memberships.can_import_calendar`, `calendar_connections.sync_token` +
+      `default_property_id` + `import_note`, `calendar_event_links.origin` + `etag`
 - [ ] google_client: `list_changes(calendar_id, sync_token)` (handles 410 → full resync)
 - [ ] import pass in `sync.py` before the push pass, gated on permission
 - [ ] Settings → Members: "Can add appointments from Google Calendar" toggle (owner/admin)

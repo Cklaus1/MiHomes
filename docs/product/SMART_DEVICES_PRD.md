@@ -8,12 +8,23 @@
 and must be re-read before a SPEC builds on them.
 **Next step:** once the open decisions in §14 are closed, cut an executable SPEC from this document (SPEC-015).
 
-**Goal.** An owner opens the MiHomes dashboard and sees, for every home, what the devices in it are
-saying. Which doors are open, whether the leak sensor is dry, the thermostat setting, the battery
-levels. Also the last doorbell press, with a snapshot from the camera that saw it. Anything that
-needs attention becomes an Alert or an Issue, and those already have owners, SPACE priority and a
-Today list. Home Assistant gives you a device panel. MiHomes adds the estate around it: who handles
-the problem, which vendor, which asset, and what it cost last time.
+**Goal.** **MiHomes is the control panel for every smart device in every home, the way Home
+Assistant is for one house.** The owner opens the dashboard and sees, for each home:
+- the **Ring cameras playing live**, with motion, person and doorbell **alerts appearing on the
+  camera tile** as they happen;
+- every other connected device, grouped by room, that can be seen **and controlled**: lights,
+  locks, thermostats, alarm panel, blinds, and sensors for leaks, doors and temperature;
+- an **Integrations** page listing every connected brand, its health and its devices, as HA's
+  *Settings → Devices & services* does.
+
+Then MiHomes adds what HA does not have: an alert that needs follow-up becomes an Issue with an
+owner, a vendor and SPACE priority, across all homes at once.
+
+> **Revised 2026-11-11 after feedback.** The first draft treated devices mainly as a feed for
+> Alerts and Issues, and deferred live view and the device dashboard to Phases C and D. The user's
+> intent is the reverse: **the live, controllable dashboard is the product**, and Issue creation is
+> a feature on top of it. §5.0 (the dashboard), §7.3 (live video) and §12 (phasing) were rewritten
+> to match.
 
 **The stake.** This is the first MiHomes feature that **looks inside a customer's home**. Camera
 images are the most sensitive data the product would hold. Ring's own policy forbids any access to
@@ -81,13 +92,21 @@ reachable from the deployed app:
 
 | The user wants (vs Home Assistant) | MiHomes today | Gap |
 |---|---|---|
+| **Ring camera live on the dashboard, alerts on it** | Nothing | Live tiles (WHEP through MiHomes), alert overlay pushed over SSE, live view that starts automatically on an event (§5.0, Phase A) |
+| See **all** integrations in one place | Nothing | Integrations page + Devices dashboard by home and room (Phase A for Ring, Phase B for everything via HA) |
+| Control lights, locks, thermostat, alarm | Nothing | Control through Home Assistant (Phase B). Ring's partner API is read-only (§3.1) |
 | See every device, by home and room | No device model | `devices` table, mapped to Property → Space and optionally → Asset |
-| Camera snapshots, doorbell presses, motion | Nothing | Ring adapter: webhooks, snapshot fetch, event timeline |
-| Live camera view | Nothing | WHEP proxy (Phase C) |
-| Sensor state (leak, door, temperature, battery) | Dead regex rules | Device-class-based rules → Alerts/Issues, per account, editable |
-| Turn things on and off (lights, locks, thermostat) | Nothing | Control through Home Assistant only. Ring's partner API is read-only (§3.1) |
-| One dashboard across devices | Hard-coded dashboard | A "Homes at a glance" device card + a Devices page. A customizable card grid is Phase D |
+| Sensor state (leak, door, temperature, battery) | Dead regex rules | Live tiles + device-class rules → Alerts/Issues, per account, editable |
+| Arrange my own dashboard | Hard-coded dashboard | Default per-home layout in A. Pin, reorder and resize in Phase C |
 | Automations | HA has them | **Non-goal.** MiHomes routes devices into its estate workflow and does not compete with HA's automation engine (§13) |
+
+**What "all integrations" requires.** HA has about 2,000 brand integrations because it runs in the
+house and has years of community code behind it. MiHomes can't reproduce that brand by brand. The
+realistic route is that each home runs **Home Assistant as the hub** (an HA Green box or any mini
+PC), with the MiHomes integration installed. MiHomes then shows and controls whatever HA can see.
+Ring is the one brand integrated directly as well (§3.1), so the headline feature works even in a
+home with no hub. The `ha-config/` instance in the repo is a demo install (integrations: Demo, Sun,
+Radio Browser, go2rtc), so **no estate runs HA today**. Getting a hub into each home is §14 **O0**.
 
 ---
 
@@ -99,7 +118,7 @@ reachable from the deployed app:
 |---|---|---|
 | **A. Ring Partner API** (official; developer portal GA in 2026) | OAuth 2.0 per customer, REST at `api.amazonvision.com`, signed webhooks, snapshot/clip download, WHEP live view, RTSP bridge | **Chosen for Ring.** It is the only route a SaaS can defend in a privacy review or to Amazon |
 | B. Unofficial Ring API (`ring_doorbell` / `ring-client-api`, which Home Assistant's own Ring integration uses) | Store the customer's Ring password + 2FA refresh token server-side | **Rejected for direct use.** It means holding a customer's Ring credentials, tokens break on 2FA re-prompts, and it violates Ring's terms. A customer who already runs HA with its Ring integration will see those entities through route C, which is their choice made on their own hardware |
-| C. Customer's own Home Assistant | MiHomes reads the customer's HA, which already integrates hundreds of brands | **Chosen for everything that isn't Ring.** It also covers Ring Alarm and lights, which route A cannot do |
+| C. Customer's own Home Assistant | MiHomes reads the customer's HA, which already integrates hundreds of brands | **Chosen for everything that isn't Ring**, and the only realistic way to "see all integrations" (§2). It also covers Ring Alarm and lights, which route A cannot do |
 
 **What the Ring Partner API can and cannot do** (developer docs, read 2026-11-11):
 
@@ -140,13 +159,15 @@ MiHomes runs in the cloud and the customer's HA runs on their LAN. The table wei
 |---|---|---|---|
 | MiHomes holds a WebSocket per account to the HA URL (the old bridge) | Required (Nabu Casa / port-forward) | A long-running listener per account, with **no supervisor on evo-dev** | Rejected |
 | MiHomes polls HA REST from a cron job with a long-lived token | Required | `*/N` cron, minutes of lag, no control path | Fallback only |
-| **The HA custom integration (`custom_components/mihomes`, rewritten) pushes state changes out to MiHomes over HTTPS and long-polls MiHomes for commands** | **None.** Outbound only | Plain web requests. Nothing long-running | **Chosen** |
+| **The HA custom integration (`custom_components/mihomes`, rewritten) opens one outbound WebSocket to MiHomes, which carries state changes up and commands and WebRTC signaling down** (long-poll fallback) | **None.** Outbound only | One socket per home, served by the web app like the chat SSE. No separate worker | **Chosen** |
 
 This turns the existing custom integration around. It is installed through HACS, and its config flow
 pairs with a one-time code shown in MiHomes Settings, which gives it a per-connection bearer token.
 It then sends the entities the customer chose to share. It pushes `state_changed` for those
-entities in batches, sends a heartbeat every 60 s, and holds one long-poll to `/devices/ha/commands`
-to receive control requests. This works behind NAT and needs no Nabu Casa. MiHomes never sees
+entities, and holds one outbound WebSocket (`/devices/ha/socket`) that carries state up and control
+commands plus camera WebRTC signaling down. The socket is needed because the live view and instant
+controls the user asked for can't wait on a 25 s poll. If the socket can't stay up, the integration
+falls back to HTTPS batches plus a long-poll. This works behind NAT and needs no Nabu Casa. MiHomes never sees
 anything the customer did not tick in the config flow.
 
 ### 3.3 One seam, two adapters
@@ -190,6 +211,47 @@ would be one new adapter and nothing else.
 
 IDs are stable so that the SPEC and its tests can cite them. **P** is the phase (§12).
 
+### 5.0 The dashboard experience (what the user sees)
+
+A **home switcher** sits at the top: *All homes · Belle · …*. The view for one home looks like this:
+
+```
+┌─ Belle ─────────────────────────────────── 3 alerts ● ── Integrations: Ring ✓  Home Assistant ✓ ┐
+│ CAMERAS                                                                                          │
+│ ┌──────────────────────┐ ┌──────────────────────┐ ┌──────────────────────┐                     │
+│ │ ● LIVE   Front door  │ │ ◐ 12s ago  Driveway  │ │ ◐ 40s ago  Garden    │                     │
+│ │                      │ │                      │ │                      │                     │
+│ │   [ live video ]     │ │   [ snapshot ]       │ │   [ snapshot ]       │                     │
+│ │ ┌──────────────────┐ │ │                      │ │                      │                     │
+│ │ │🔔 Doorbell 14:02 │ │ │ 🚶 Person 13:58      │ │                      │                     │
+│ │ └──────────────────┘ │ │                      │ │                      │                     │
+│ │ 🔋 —  ▶ ⏸  ⛶  🔇     │ │ 🔋 64%  ▶ Watch live │ │ 🔋 81%  ▶ Watch live │                     │
+│ └──────────────────────┘ └──────────────────────┘ └──────────────────────┘                     │
+│ ▁▁▁▁▁▁▁▁ event strip: 14:02 🔔 Front door · 13:58 🚶 Driveway · 13:40 📦 Front door ▁▁▁▁▁▁▁▁▁▁  │
+│                                                                                                  │
+│ ALERTS  ⚠ Leak — Laundry room (2 min)  [Create issue] [Dismiss]   ⚠ Garage door open 40 min    │
+│                                                                                                  │
+│ BY ROOM                                                                                          │
+│  Living room  💡 Lamp [on ●]  💡 Ceiling [off ○]  🌡 21.5°C  ⬆ Blinds [▲ ▼]                       │
+│  Entrance     🔒 Front lock [Locked ✓]  🚪 Door [closed]   🛡 Alarm [Armed away ▾]              │
+│  Laundry      💧 Leak sensor [WET ⚠]  🔋 18%                                                    │
+│  Climate      🌡 Thermostat 20° → [ − 21° + ]  mode [Heat ▾]                                    │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+| ID | Requirement | P |
+|---|---|---|
+| FR-X1 | **Camera wall** per home. One tile per camera, ordered by the owner. Up to **one** tile per home plays live at a time by default (§7.3); the rest show a snapshot that refreshes while visible (default every 30 s, the most Ring allows without draining battery cameras, O12) | A |
+| FR-X2 | **Alerts on the camera.** A motion, person, vehicle, package or doorbell event slides a badge onto that camera's tile within 5 s of the provider's webhook, with type, time and a pulse ring. The tile's event strip keeps the last 10. Clicking a badge opens that event's snapshot or clip | A |
+| FR-X3 | **Live view that starts on an event.** Per camera, the owner can choose "go live on doorbell" and/or "go live on person". When the event arrives and the dashboard is open, that tile switches to live automatically and sends a browser notification if the tab is hidden | A |
+| FR-X4 | **Live session controls**: play/pause, full screen, mute (audio is receive-only), and a visible countdown to the provider's session cap. At the cap the tile shows **Keep watching**, which opens a new session with one click. Sessions never renew silently without limit (§7.3) | A |
+| FR-X5 | **Alert bar** per home: open device alerts, newest first, with **Create issue**, **Dismiss** and **Snooze**, sharing state with the existing Alerts page | A |
+| FR-X6 | **Rooms panel**: every non-camera device as a tile grouped by Space, with its state and controls (§5.3 FR-U5). Unmapped devices go in "Needs a room" | A (Ring sensors) / B (HA) |
+| FR-X7 | **All homes view**: one compact row per home (cameras online, live alerts, doors/locks, leaks, temperature) where clicking a home opens its view. This replaces FR-U1's card on the main dashboard | A |
+| FR-X8 | **Integrations page** (`/integrations`), like HA's *Devices & services*: one card per connected integration (Ring, Home Assistant, and through HA, each HA integration such as Hue, Nest or Ecobee, read from HA's config entries), with status, device count, last update, and Reconnect / Configure / Remove | A (Ring) / B (HA) |
+| FR-X9 | Everything on these screens updates live over SSE with no page reload. If the connection drops, a "Reconnecting…" chip appears and the tiles grey out to "last known at …" | A |
+| FR-X10 | On a phone (SPEC-009): cameras become a swipeable carousel, the alert bar sticks to the top, rooms collapse into sections | A |
+
 ### 5.1 Connections
 | ID | Requirement | P |
 |---|---|---|
@@ -214,13 +276,13 @@ IDs are stable so that the SPEC and its tests can cite them. **P** is the phase 
 ### 5.3 Dashboard and Devices page
 | ID | Requirement | P |
 |---|---|---|
-| FR-U1 | **Dashboard card "Homes at a glance".** One row per property shows: devices online/total, open entry points, active leak/smoke/CO, out-of-range temperatures, low batteries, and the most recent doorbell/motion event with a thumbnail. It is hidden when the account has no connections | A |
+| FR-U1 | *(Superseded on the device screens by FR-X7. It stays as the summary card on the existing main dashboard.)* **Dashboard card "Homes at a glance".** One row per property shows: devices online/total, open entry points, active leak/smoke/CO, out-of-range temperatures, low batteries, and the most recent doorbell/motion event with a thumbnail. It is hidden when the account has no connections | A |
 | FR-U2 | **Devices page** (`/devices`), filterable by property, room, class and status. Each tile shows state, last change and battery. Camera tiles show the latest snapshot and its time | A |
 | FR-U3 | **Device detail** shows a state/event timeline (30 days default, §8.3), mapped room/asset, linked Alerts/Issues, and a "Create issue from this" button that attaches the snapshot | A |
 | FR-U4 | **Live updates.** Tiles update without reload over SSE (`/devices/stream`). Each event is filtered to the viewer's visible properties before it is sent (§7.4) | A |
 | FR-U5 | **Controls** (HA devices only): toggle light/switch, lock/unlock, set climate target, arm/disarm alarm panel. Lock and alarm require a confirm step. The tile stays "pending…" until HA confirms the new state, and times out after 15 s | B |
-| FR-U6 | **Live view** button on Ring cameras opens a server-proxied stream (§7.3), showing a countdown to Ring's session cap | C |
-| FR-U7 | Customizable dashboard grid: pin, reorder and resize device cards per user, the HA "Lovelace" experience | D |
+| FR-U6 | **Live view** on cameras (Ring: WHEP through MiHomes; HA cameras: WebRTC via HA's go2rtc), §7.3 and FR-X1–X4 | A (Ring) / B (HA) |
+| FR-U7 | Customizable dashboard grid: pin, reorder and resize device cards per user, the HA "Lovelace" experience | C |
 | FR-U8 | Mobile layout follows SPEC-009 (no horizontal scroll at 360 px). Camera tiles go to one column | A |
 
 ### 5.4 Events, rules, alerts and issues
@@ -350,27 +412,63 @@ Ring cloud ──POST (X-Signature: sha256=HMAC(body))──► /webhooks/ring  
 ### 7.2 HA ingest and command flow
 ```
 Customer HA (custom_components/mihomes v2)
-   POST /devices/ha/ingest        Authorization: Bearer <ingest token>   batched state changes
-   POST /devices/ha/heartbeat     every 60 s
-   GET  /devices/ha/commands      long-poll ≤ 25 s → returns queued device_commands
-   POST /devices/ha/commands/{id} ack + resulting state
+   WSS  /devices/ha/socket        Authorization: Bearer <ingest token>   (primary)
+          ↑ state_changed batches, entity list, heartbeat (ping 30 s), command acks, WebRTC answers
+          ↓ device_commands, WebRTC offers/ICE for camera live view, "send snapshot" requests
+   fallback when WebSocket is blocked:
+   POST /devices/ha/ingest · POST /devices/ha/heartbeat · GET /devices/ha/commands (long-poll ≤ 25 s)
 ```
+- In a multi-process deployment, a command for a home reaches the process that holds its socket
+  through the same Postgres LISTEN/NOTIFY bus that chat uses (`services/chat/bus.py:84-119`).
 - The ingest token maps to exactly one `device_connections` row, found through the
   `app.gateway_device_ingest_hash` bootstrap policy (§6), and that row binds the account.
   The token never authorizes anything except these four endpoints.
 - Payload caps: 500 entities per batch, 256 KB per request, 10 requests/s per connection (429 above that).
 - Commands are only ever created by an authenticated MiHomes user who passed `device.control`
   (§9). The HA side executes only service calls on entities it shared, never arbitrary service names.
-- The long-poll is an ordinary request and needs no worker. At 25 s per poll it costs one held
-  request per connected HA. The SPEC must size the web server's worker/connection limits for it (O8).
+- The socket is an ordinary connection held by the web app, like the chat SSE, so it needs no worker.
+  It does cost one held connection per connected home, plus one SSE per open dashboard. The SPEC
+  must size the web server's connection limits for it (O8).
 
-### 7.3 Live view (Phase C)
-Ring calls are server-to-server only (browsers are blocked by CORS), so MiHomes proxies the WHEP
-exchange. The browser POSTs its SDP offer to MiHomes, MiHomes forwards it to Ring with the
-customer's token, and the answer comes back. The media path is
-**[unverified — must be confirmed in the SPEC]**: the media may flow browser↔Ring directly once the
-SDP exchange completes, or it may need a relay. If it needs a relay, a TURN/media server is a new
-piece of infrastructure and its own decision.
+### 7.3 Live video (Phase A for Ring, Phase B for HA cameras)
+
+**What "live on the dashboard" can and cannot mean for Ring.** Ring limits every live session.
+Partner sessions are reportedly capped at **30 s for battery cameras and 60 s for wired ones
+[unverified]**, and Ring's own app also times out live view. Each session wakes the camera, so
+continuous live view drains battery cameras and Ring may throttle it. **No sanctioned route,
+including HA's Ring integration, gives a 24/7 Ring live feed on a wall.** The dashboard therefore
+behaves as follows:
+- Each camera tile shows a fresh snapshot while it is on screen (FR-X1).
+- A tile goes live on click, or on its own when a doorbell or person event arrives (FR-X3).
+- When the session cap is reached, the tile offers **Keep watching** to start a new session (FR-X4).
+- A wired camera can be set to "stay live while this tab is visible", which renews sessions up to a
+  per-camera limit (default 10 minutes, O12) and logs every session.
+
+Non-Ring cameras added through HA (Reolink, UniFi, Hikvision, RTSP) have no such cap and can stay
+live (§ HA path below).
+
+**Ring path (WHEP).** Ring calls are server-to-server only (the browser is blocked by CORS), so
+MiHomes relays the **signaling**:
+1. The browser creates an `RTCPeerConnection` (video recvonly, audio recvonly).
+2. It POSTs the SDP offer to `/devices/{id}/live` (checks `camera.view_media` and writes an access-log row).
+3. MiHomes forwards it to `POST /v1/devices/{id}/media/streaming/whep/sessions` with the customer's token and returns the SDP answer.
+4. A `DELETE` on the session resource ends it when the tile closes.
+
+Whether the **media** then flows browser↔Ring directly, using Ring's ICE candidates, or needs a
+relay is **[unverified]** and is the first thing the SPEC must prove with the Playground. If Ring's
+candidates are publicly reachable, MiHomes carries no video bytes. If not, MiHomes needs a
+TURN/media relay (O11).
+
+**HA path (Phase B).** HA 2024.11+ ships **go2rtc**, which exposes every HA camera over WebRTC. The
+MiHomes HA integration relays the WebRTC offer/answer between the browser and the home's go2rtc
+through MiHomes (over its outbound WebSocket, §7.2). Media goes peer-to-peer browser↔home and falls
+back to a **TURN server** when NAT blocks the direct path, which happens on many home and mobile
+networks. TURN is new infrastructure, either self-hosted coturn on evo-dev or a managed TURN
+service (O11). MiHomes never decodes or stores the stream.
+
+**Concurrency and cost.** A live tile holds one provider session. The SPEC sets per-account limits
+(default 4 concurrent live tiles) to stay well under Ring's 100 TPS app-wide limit and the TURN
+bandwidth budget.
 
 ### 7.4 Realtime visibility
 The chat `BUS` delivers to a whole account. `/devices/stream` must therefore filter every event
@@ -414,7 +512,7 @@ test where a staff member on property A receives nothing from property B.
 |---|---|---|---|
 | `smart_devices` (sensors, Devices page, rules) | False | True | True |
 | `camera_media` (snapshots, clips) | False | True | True |
-| `camera_live_view` (Phase C) | False | False | True |
+| `camera_live_view` | False | True | True |
 | `max_devices` (counted) | 0 | 25 | 250 |
 
 These numbers are a proposal. Pricing owns them (O4).
@@ -471,20 +569,21 @@ These numbers are a proposal. Pricing owns them (O4).
 
 | Phase | Scope | Exit criterion |
 |---|---|---|
-| **A — Foundation + Ring (private track)** | Retire the dead HA code. Migration 0031. `DeviceProvider` seam. Ring connect/refresh/unlink, webhooks, reconcile job. Devices page, dashboard card, device detail. Rules → Alerts/Issues. Snapshots + access log + camera grants. Entitlements/RBAC. Purge + retention | On evo-dev, a doorbell press at a mapped Belle camera shows on the dashboard within 5 s with a watermarked snapshot. A staff member without a grant sees the event but no image. The owner sees that staff member's earlier view in the access log |
-| **B — Home Assistant connector + control** | `custom_components/mihomes` v2 (pairing, ingest, heartbeat, command long-poll). Controls with confirm. Device → Asset. Push notifications. AI device summary | Pair a real HA. A leak sensor set to wet raises an Issue in the right room. A staff member with control toggles a light and the tile confirms within 5 s. Unplugging HA shows `offline` within 5 min |
-| **C — Live view** | WHEP proxy (+ relay if §7.3 needs one), countdown, logging | Owner watches a 30-s live session from a phone. The session appears in the access log |
-| **D — Dashboard grid + Ring certification** | Per-user card layout (pin/reorder/resize). Ring certification for > 5 accounts | A non-allowlisted US customer links Ring from the App Store |
+| **A — Ring live dashboard** (the user's headline) | Retire the dead HA code. Migration 0031. `DeviceProvider` seam. Ring connect/refresh/unlink, webhooks, reconcile job. **Home view with camera wall, live view (WHEP), alert overlay + event strip, live view that starts on an event, alert bar, All-homes view, Integrations page** (§5.0). Ring sensors in the rooms panel. Rules → Alerts/Issues. Snapshots, access log, camera grants. Entitlements/RBAC. Purge + retention | On evo-dev, the owner opens Belle and watches the front-door Ring camera **live**. Someone presses the doorbell, and within 5 s a 🔔 badge appears on that tile; with "go live on doorbell" set, the tile switches to live by itself. **Keep watching** opens a new session at the cap. A staff member without a grant sees the badge but no image or video. The owner sees every session in the access log |
+| **B — All integrations via Home Assistant + control** | `custom_components/mihomes` v2 (pairing, outbound WebSocket, ingest, commands). Every HA integration on the Integrations page. Rooms panel with **controls** (lights, locks, thermostat, alarm, blinds) and confirm steps. HA cameras live through go2rtc WebRTC + TURN. Device → Asset. Push notifications. AI device summary | Pair a real HA in one home. All its integrations and devices appear grouped by room. Toggling a light or locking a door from MiHomes is confirmed on the tile within 5 s. A non-Ring HA camera stays live while the tab is open. A wet leak sensor raises an Issue in the right room. Unplugging HA shows `offline` within 5 min |
+| **C — My dashboard** | Per-user layout: pin, reorder, resize, hide; favourite devices on the main dashboard; scenes ("Leaving Belle": lock all, lights off) run as a group of HA commands | An owner builds their own home view and it persists across devices |
+| **D — Ring at scale** | Ring certification for more than 5 accounts | A non-allowlisted US customer links Ring from the App Store |
 
-**If O1 shows the pilot homes are outside the US, swap A and B.** Ship the HA connector first
-(it has no territorial gate), and Ring waits on Ring's approval.
+**If O1 shows the pilot homes are outside the US, swap A and B.** Ring live view then waits on Ring's approval, and the first live cameras come through HA (non-Ring cameras, or Ring via HA's own integration at the customer's choice).
+Ship the HA connector first: it has no territorial gate.
 
 ---
 
 ## 13. Non-goals
 
 - An automation engine (scenes, schedules, triggers that act on devices). HA does this already. MiHomes links devices to estate work; it does not reproduce HA.
-- Two-way audio, Ring Alarm control via Ring's API, recording/NVR, 24/7 video storage.
+- Two-way audio, Ring Alarm control via Ring's API, recording/NVR, 24/7 video storage, and a 24/7
+  live wall for Ring cameras (Ring caps sessions, §7.3). Non-Ring HA cameras *can* stay live.
 - Direct LAN or Matter/Zigbee/Z-Wave radio support. That is HA's job.
 - Using the unofficial Ring API from MiHomes servers.
 - Facial recognition, licence-plate reading, or identifying people in media.
@@ -497,6 +596,7 @@ These numbers are a proposal. Pricing owns them (O4).
 
 | # | Decision | Owner | Blocks |
 |---|---|---|---|
+| **O0** | **A Home Assistant hub in each home?** "See and control all integrations" (Phase B) depends on HA running in the house. No estate runs one today (§2). Options: (a) MiHomes recommends or supplies an HA Green box per home, and staff install the MiHomes integration; (b) customers who already run HA connect it, and others get Ring only; (c) MiHomes integrates brand clouds one by one (Nest, Ecobee, Hue, SmartThings…), at roughly one adapter per brand and no local devices. **Recommended: (a), with (b) as the self-serve path** | Founder | Phase B scope |
 | **O1** | **Which pilot homes are in the US?** Ring's program is US-only. If Belle or the first customers are outside the US, Ring-direct is blocked pending Ring's approval and Phase B goes first | Founder | Phase order |
 | O2 | Ring distribution: private track (5 accounts, still shown with a "private" badge) for the pilot, then certification. **Request partner-initiated OAuth from Ring now**: without it, every link goes through the `unclaimed` → claim step (FR-C2b), and what Ring shows the user after a Ring-driven link is unverified | Founder | Phase A connect UX |
 | O3 | Is MiHomes a "paid Ring app" under Req 2.15/2.17 (Ring billing, 10% share, monthly only) when Ring access comes bundled in a Stripe subscription? Ask Ring before certification | Founder + counsel | Phase D |
@@ -504,9 +604,11 @@ These numbers are a proposal. Pricing owns them (O4).
 | O5 | Retention periods for snapshots, events and state (§5.7 FR-P5) | Founder | Config only |
 | O6 | May admins create and remove provider connections, or only owners? | Founder | RBAC row |
 | O7 | May the AI provider (NVIDIA NIM) receive camera snapshots for descriptions? Default **no**. Images leave the building and must match the privacy policy | Founder + counsel | FR-M5, FR-A1 |
-| O8 | Web server capacity for HA long-polls (one held request per connected home) | Eng | Phase B |
+| O8 | Web server capacity for held connections: one HA WebSocket per connected home + one SSE per open dashboard | Eng | Phase B |
 | O9 | Production hostname for the immutable Ring webhook URL | Founder | Production registration. It also blocks **Phase A** if the portal's Staging tab can't hold its own webhook URL (§11) |
 | O10 | Publish the HA integration publicly on HACS (open source), or ship it privately per customer? | Founder | Phase B distribution |
+| O11 | **Video relay (TURN).** HA cameras need TURN for viewers behind strict NAT. Ring probably doesn't (unverified, §7.3). Self-host coturn on evo-dev (bandwidth on the box) or pay for a managed TURN service? | Eng + Founder | Phase B live view; Phase A only if Ring media needs a relay |
+| O12 | Live-view limits: snapshot refresh interval (30 s default), "stay live while visible" cap for wired Ring cameras (10 min default), concurrent live tiles per account (4). These trade freshness against battery drain on battery cameras and Ring throttling | Founder | Config only |
 
 **Risks**
 - **Ring changes its program.** It went GA in 2026 and has shipped breaking changes since (refresh-token rotation 2026-10-22). Mitigation: everything behind `DeviceProvider`, and a reconcile job.
@@ -514,6 +616,10 @@ These numbers are a proposal. Pricing owns them (O4).
 - **E2EE Ring users see no video.** Mitigation: an explicit notice (FR-D6).
 - **Privacy incident from a mis-scoped camera view.** Mitigation: the camera grant is separate from property scope (FR-P1), the access log (FR-P2), and a cross-property SSE test (§7.4).
 - **The private track's 5-account ceiling** limits the pilot size until certification.
+- **"Live like HA" expectations for Ring.** Ring caps live sessions for every app, HA included, so
+  a Ring camera can't be a 24/7 wall feed. Mitigation: snapshots that refresh while visible, live
+  view that starts on an event, and one-click **Keep watching** (§7.3). Say this on the connect
+  screen so the limit doesn't look like a MiHomes bug.
 
 ---
 

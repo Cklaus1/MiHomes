@@ -311,7 +311,9 @@ tests only because fixtures run as a superuser, which is exactly the RLS read bu
 fix is the Telegram one (`0024_gateway_bootstrap_policies`): two SELECT-only policies on
 `device_connections`, one matching `external_account_id = current_setting('app.gateway_ring_account')`
 and one matching `ingest_token_hash = current_setting('app.gateway_device_ingest_hash')`. They are
-set through `bind_gateway_guc`, added to `rls.GATEWAY_BOOTSTRAP_POLICIES`, and match exactly one row,
+set through `bind_gateway_guc` (`tenancy/connection.py:153`) and added to
+`rls.GATEWAY_BOOTSTRAP_POLICIES` (`rls.py:100`). That dict holds **one policy per table**, so the SPEC
+either widens it to a list or moves the ingest hash into its own small table. Each policy matches exactly one row,
 after which the handler binds `account_context` from it. `unclaimed` Ring links (FR-C2b) have no
 account yet, so they live in a small **global** table, `ring_pending_links` (in `GLOBAL_TABLES`,
 24 h TTL, encrypted tokens), until claimed. The HA pairing code reuses `gateway_link_tokens`

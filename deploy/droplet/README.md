@@ -30,12 +30,11 @@ Until `~/.mihomes/run/LIVE` exists, `boot.sh` installs only `pg-backup.sh` (02:3
 
 ## Pre-launch passcode
 
-While still building, the whole site sits behind one shared passcode
-(`src/mihomes/web/site_passcode.py`). Every page — landing, login, signup — asks for it first;
-a correct code sets a 30-day cookie. Webhooks (`/webhooks/…`), `/unsubscribe`, `/static/`,
-`/manifest.webmanifest` and `/sw.js` are exempt so Stripe/Telegram and PWA install keep working.
-Invite and password-reset links are gated, but the link survives: enter the code and you land on it
-— so give invitees the passcode too.
+While still building, the front door sits behind one shared passcode
+(`src/mihomes/web/site_passcode.py`) to keep new users out: the homepage `/`, `/login`,
+`/signup` and `/auth/google/start`. A correct code sets a 30-day cookie; then you log in and use
+MiHomes as usual. Every other page is already behind account sign-in and is not gated. A
+signed-in visitor skips the passcode on `/`. Invite and password-reset links stay open.
 
 - **Turn on / change:** add `MIHOMES_SITE_PASSCODE=<code>` to `~/.mihomes/run/web.env` — **no
   quotes, no spaces** (`boot.sh` passes lines through literally) — then stop the app

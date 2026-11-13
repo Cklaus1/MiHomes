@@ -1,19 +1,22 @@
 """Pre-launch site passcode gate.
 
-While the product is still being built, the public domain should not be open to everyone. Set
-``MIHOMES_SITE_PASSCODE`` and every page — including the landing page, login and signup — asks
-for that passcode first. Leave it unset (evo-dev, laptop, tests) and this middleware does nothing.
+While the product is still being built, new people should not be able to find their way in. Set
+``MIHOMES_SITE_PASSCODE`` and the public *front door* — the homepage, login, signup and Google
+sign-in start — asks for that passcode first. Leave it unset (evo-dev, laptop, tests) and this
+middleware does nothing.
 
-It is a *curtain*, not authentication: one shared code, no per-person identity. Accounts and
-their sign-in still sit behind it unchanged.
+Only the front door is gated. Every other page is already behind account sign-in, so once past
+the passcode you log in and use MiHomes as usual. A signed-in visitor (session cookie present)
+skips the passcode on the homepage, so the dashboard opens as normal. Invite and password-reset
+links stay open: whoever holds one was let in by an existing account.
+
+It is a *curtain*, not authentication: one shared code, no per-person identity.
 
 Design notes
   - The page is served by the middleware itself, not a router, so it needs no SPEC-003 action
-    declaration and cannot be reached by ``enforce_declared_action`` before the gate.
+    declaration.
   - The cookie is an HMAC of the passcode keyed with ``MIHOMES_SECRET_KEY``: the passcode
     itself never sits in a browser, and changing the passcode locks everyone out again.
-  - Machine callers (Stripe/Telegram webhooks, RFC 8058 one-click unsubscribe) are exempt —
-    they carry no cookie and authenticate by signature, exactly as for the Host guard.
   - Read per request, so changing the env var and restarting is the whole on/off switch.
 """
 
@@ -36,11 +39,10 @@ COOKIE_NAME = "mihomes_site_pass"
 COOKIE_MAX_AGE = 60 * 60 * 24 * 30  # 30 days
 _WRONG_CODE_DELAY = 1.0  # seconds; slows guessing without blocking other requests
 
-# Package assets (CSS, icons) are public anyway and the gate page may use them.
-_STATIC_PREFIX = "/static/"
-# Browsers fetch the web-app manifest *without* cookies, so gating it would break PWA install.
-# Both are public metadata/JS that reveal no estate data.
-_PUBLIC_PATHS = frozenset({"/manifest.webmanifest", "/sw.js"})
+# The front door: where a stranger can see the product or create an account. Each entry also
+# covers its sub-paths (`/login/...`). Google's callback is not listed — it can only follow a
+# `/auth/google/start`, which is.
+_GATED = ("/login", "/signup", "/auth/google/start")
 
 
 def configured_passcode() -> str:
@@ -52,13 +54,15 @@ def _token(passcode: str) -> str:
     return hmac.new(key, b"mihomes-site-passcode-v1", hashlib.sha256).hexdigest()
 
 
-def _exempt(path: str) -> bool:
-    from mihomes.web.routes.unsubscribe import UNSUBSCRIBE_PATH_PREFIX
-    from mihomes.web.routes.webhooks import WEBHOOK_PATH_PREFIX
+def _gated(request: Request) -> bool:
+    path = request.url.path
+    if path == "/":
+        # Signed-in people get their dashboard. A forged cookie only reveals the marketing page,
+        # never an account — signup and login stay gated.
+        from mihomes.auth.sessions import SESSION_COOKIE
 
-    return path in _PUBLIC_PATHS or path.startswith(
-        (WEBHOOK_PATH_PREFIX, UNSUBSCRIBE_PATH_PREFIX, _STATIC_PREFIX)
-    )
+        return not request.cookies.get(SESSION_COOKIE)
+    return any(path == p or path.startswith(p + "/") for p in _GATED)
 
 
 def _dest(raw: str) -> str:
@@ -132,7 +136,7 @@ class SitePasscodeMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         path = request.url.path
-        if _exempt(path):
+        if path != GATE_PATH and not _gated(request):
             return await call_next(request)
 
         expected = _token(passcode)

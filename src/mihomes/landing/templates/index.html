@@ -34,6 +34,10 @@
       {% if signup_url %}
       <a href="{{ signup_url }}"><button type="button">Start free</button></a>
       <a href="{{ signin_url }}" class="muted">Sign in</a>
+      {% elif waitlist_mode %}
+      {# Product app with MIHOMES_SIGNUP_MODE=waitlist: no open signup, the form below instead. #}
+      <a href="#waitlist"><button type="button">Join the waitlist</button></a>
+      <a href="{{ signin_url }}" class="muted">Sign in</a>
       {% else %}
       <a href="/auth/google/start"><button type="button">Continue with Google</button></a>
       {% endif %}
@@ -188,7 +192,7 @@
         asset protection, compliance, economy — and explains why in plain language.
       </p></details>
     <details class="card"><summary>How do I sign in?</summary>
-      {% if signup_url %}
+      {% if signup_url or waitlist_mode %}
       <p class="muted">With your Google account, or an email and password.</p>
       {% else %}
       <p class="muted">With your Google account.</p>
@@ -268,7 +272,12 @@
         We'll email you when your spot opens. No spam, and you can leave any time.
       </p>
       <p class="muted" style="margin:8px 0 0">
+        {% if waitlist_mode %}
+        {# In the product app Google sign-in is real and creates no account without an invite. #}
+        Already have an account? <a href="{{ signin_url }}">Sign in</a>.
+        {% else %}
         Prefer one click? <a href="/auth/google/start">Continue with Google</a>.
+        {% endif %}
       </p>
     </form>
     </div>

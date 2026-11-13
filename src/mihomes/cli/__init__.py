@@ -71,7 +71,8 @@ def main(
     # multi-account install the command that answers "can we launch" exited 1 with a list of
     # account slugs. Caught by A33 *invoking* it; every check of its content had called
     # `render()` directly, which is the same blind spot that hid the `cron` bug (BD7).
-    if ctx.invoked_subcommand in ("jobs", "cron", "ga-readiness"):
+    # `waitlist` is the fourth: the waitlist is a global table, not any one estate's.
+    if ctx.invoked_subcommand in ("jobs", "cron", "ga-readiness", "waitlist"):
         return
 
     _bind_account(ctx, account)
@@ -289,6 +290,10 @@ from mihomes.cli.jobs import app as jobs_app  # noqa: E402
 app.add_typer(ai_app, name="ai")
 app.add_typer(cron_app, name="cron")
 app.add_typer(jobs_app, name="jobs")
+
+from mihomes.cli.waitlist import app as waitlist_app  # noqa: E402
+
+app.add_typer(waitlist_app, name="waitlist")
 
 # Phase 3a sub-apps
 from mihomes.cli.asset import app as asset_app  # noqa: E402

@@ -24,6 +24,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
+from mihomes.auth import signup_gate
 from mihomes.auth.email_verification import (
     find_unverified_password_user,
     issue_verification_token,
@@ -50,7 +51,7 @@ from mihomes.auth.ratelimit import (
     clear_attempts,
     record_failure,
 )
-from mihomes.auth.session_flow import establish_session, is_loopback, safe_next
+from mihomes.auth.session_flow import establish_session, is_loopback, safe_next, set_auth_cookie
 from mihomes.auth.sessions import SESSION_COOKIE, lookup_session
 from mihomes.services.email import EmailService, get_email_provider
 from mihomes.services.email.provider import EmailProviderError
@@ -66,6 +67,13 @@ router = APIRouter()
 #: to this file.
 _SIGNIN_FAILED = "That email and password combination is not correct."
 
+#: Waitlist mode refusing a new account. Names the likely cause (a different address from the one
+#: invited) because only someone holding an invite link can reach the form at all.
+_INVITE_ONLY = (
+    "MiHomes is invite-only for now. Use the email address your invitation was sent to, "
+    "or join the waitlist on the home page."
+)
+
 
 @router.get("/signup")
 def signup_form(
@@ -73,25 +81,46 @@ def signup_form(
     db: DbSession = Depends(get_db),
     error: str = "",
     next: str = "",
+    email: str = "",
+    invite: str = "",
 ):
     """The registration form — and the destination `login.html` has been promising.
 
     Until now `/signup` did not exist, so the login page could only say "the button above
     creates your account" (c9e2b77): the standard "Create an account" wording would have read
     as a link with nowhere to go. This route is what lets that copy be restored.
+
+    **Waitlist mode** (`auth/signup_gate.py`): only an invitation opens this form — a tester
+    link (`?email=&invite=`) or a team invite in `next`. Anyone else goes to the waitlist. The
+    invitation is also parked in a short-lived cookie so "Sign up with Google" honours it.
     """
     if lookup_session(db, request.cookies.get(SESSION_COOKIE)) is not None:
         return RedirectResponse("/", status_code=303)
-    return templates.TemplateResponse(
+    next_path = safe_next(next) or ""
+    team_token = signup_gate.team_token_from_next(next_path)
+    if signup_gate.waitlist_mode() and not signup_gate.may_create_account(
+        db, email=email, tester_token=invite, team_token=team_token
+    ):
+        return RedirectResponse("/#waitlist", status_code=303)
+    response = templates.TemplateResponse(
         request,
         "signup.html",
         {
             "error": error,
             "min_length": MIN_PASSWORD_LENGTH,
-            "next": safe_next(next) or "",
+            "next": next_path,
+            "email": email,
+            "invite": invite,
             "oauth_configured": _oauth_configured(),
         },
     )
+    if signup_gate.waitlist_mode():
+        set_auth_cookie(
+            response, request, signup_gate.INVITE_COOKIE,
+            signup_gate.encode_cookie(tester_token=invite, team_token=team_token),
+            max_age=signup_gate.INVITE_COOKIE_MAX_AGE,
+        )
+    return response
 
 
 @router.post("/signup")
@@ -102,6 +131,7 @@ def signup(
     password: str = Form(...),
     name: str = Form(""),
     next: str = Form(""),
+    invite: str = Form(""),
 ):
     """**A6** — create the user, then **email a confirmation link instead of signing in**.
 
@@ -114,23 +144,36 @@ def signup(
     trying to register. The asymmetry is deliberate — the login form must not confirm an
     address, the signup form cannot avoid it.
     """
-    try:
-        user = create_password_user(db, email=email, password=password, name=name)
-    except (PasswordTooShort, EmailAlreadyRegistered, EmailRegisteredWithGoogle) as exc:
+    def form_error(message: str, field: str, status_code: int):
         return templates.TemplateResponse(
             request,
             "signup.html",
             {
-                "error": str(exc),
+                "error": message,
                 # Which field the message is about, so the page can mark and focus it.
-                "error_field": "password" if isinstance(exc, PasswordTooShort) else "email",
+                "error_field": field,
                 "min_length": MIN_PASSWORD_LENGTH,
                 "email": email,
                 "name": name,
                 "next": safe_next(next) or "",
+                "invite": invite,
                 "oauth_configured": _oauth_configured(),
             },
-            status_code=400,
+            status_code=status_code,
+        )
+
+    # Waitlist mode: enforced here, not only by hiding the form — a POST needs no form.
+    if not signup_gate.may_create_account(
+        db, email=email, tester_token=invite,
+        team_token=signup_gate.team_token_from_next(safe_next(next) or ""),
+    ):
+        return form_error(_INVITE_ONLY, "email", 403)
+
+    try:
+        user = create_password_user(db, email=email, password=password, name=name)
+    except (PasswordTooShort, EmailAlreadyRegistered, EmailRegisteredWithGoogle) as exc:
+        return form_error(
+            str(exc), "password" if isinstance(exc, PasswordTooShort) else "email", 400
         )
 
     # A14's invitee still lands back on their invitation: `next` travels inside the link, and

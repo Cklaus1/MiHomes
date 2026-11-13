@@ -84,14 +84,18 @@ def seeded(_pg_engine, account_a, account_b):
                 "INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at) "
                 f"VALUES (gen_random_uuid(), :u, :h, {expires})"),
                 {"u": users[0], "h": f"hk-{marker}-{label}"})
-        waitlist = [  # (name, confirmed?, age)
-            ("unconfirmed-old", False, "40 days"), ("unconfirmed-new", False, "5 days"),
-            ("confirmed-old", True, "40 days"), ("confirmed-new", True, "5 days")]
-        for name, confirmed, age in waitlist:
+        waitlist = [  # (name, confirmed?, age, confirmation sent?)
+            ("unconfirmed-old", False, "40 days", True), ("unconfirmed-new", False, "5 days", True),
+            ("confirmed-old", True, "40 days", True), ("confirmed-new", True, "5 days", True),
+            # Waitlist mode sends no confirmation; such a row is interest, not abandonment.
+            ("never-asked-old", False, "40 days", False)]
+        for name, confirmed, age, sent in waitlist:
             conn.execute(text(
                 "INSERT INTO waitlist (id, email, name, signup_ip, user_agent, confirmed_at, "
-                "created_at) VALUES (gen_random_uuid(), :e, :n, '203.0.113.9', 'Firefox', "
-                f"{'now()' if confirmed else 'NULL'}, now() - CAST(:age AS interval))"),
+                "confirm_sent_at, created_at) VALUES (gen_random_uuid(), :e, :n, '203.0.113.9', "
+                f"'Firefox', {'now()' if confirmed else 'NULL'}, "
+                f"{'now() - CAST(:age AS interval)' if sent else 'NULL'}, "
+                "now() - CAST(:age AS interval))"),
                 {"e": f"hk-{marker}-{name}@example.com", "n": name, "age": age})
     yield {"accounts": [account_a, account_b], "users": users, "marker": marker}
     with _pg_engine.begin() as conn:
@@ -149,6 +153,7 @@ def test_cleanup_enforces_each_retention_period(_pg_engine, app_engine, seeded):
             "unconfirmed-new": ("203.0.113.9", "Firefox"),
             "confirmed-old": (None, None),            # kept, tracking details cleared
             "confirmed-new": ("203.0.113.9", "Firefox"),
+            "never-asked-old": (None, None),          # kept: never asked to confirm
         }
 
 

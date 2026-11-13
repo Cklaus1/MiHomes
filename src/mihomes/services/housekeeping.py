@@ -8,7 +8,7 @@ household asked for. The periods were decided by the founder on 2026-11-10:
 |---|---|
 | Messenger log (`chat_messages`, the Conversations page) | `retention.whatsapp_years`, default 1 year |
 | Sent / failed mail (`email_outbox`) and delivery results (`email_deliveries`) | 90 days |
-| Waitlist sign-ups never confirmed | 30 days |
+| Waitlist sign-ups sent a confirmation email and never confirmed | 30 days |
 | Waitlist IP address and browser details | 30 days (confirmed sign-ups keep the rest) |
 | Sign-in sessions, password-reset links, Telegram link codes | until they expire |
 
@@ -114,8 +114,12 @@ def prune_global(session: Session, *, now: datetime | None = None) -> dict[str, 
         "verify_links": run(
             delete(EmailVerificationToken).where(EmailVerificationToken.expires_at < now)
         ),
+        # Only rows that were *asked* to confirm. Waitlist mode (`web/routes/waitlist.py`)
+        # sends no confirmation while mail is not live; without this condition the nightly run
+        # would delete every one of those sign-ups after 30 days.
         "waitlist_unconfirmed": run(delete(Waitlist).where(
             Waitlist.confirmed_at.is_(None),
+            Waitlist.confirm_sent_at.is_not(None),
             Waitlist.created_at < now - WAITLIST_UNCONFIRMED,
         )),
         "waitlist_tracking_cleared": run(

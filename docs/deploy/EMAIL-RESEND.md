@@ -47,27 +47,21 @@ Back in Resend, press **Verify**. GoDaddy usually propagates in minutes; allow u
 Resend → API Keys → Create. Permission: **Sending access**, domain: `send.mihomes.ai`.
 Copy it once (Resend will not show it again). Do not paste it into chat or commit it.
 
-## 4. Clear the stale queue (both servers)
+## 4. Clear the stale queue (if any)
 
-Weekly and chat digests and onboarding emails have been queuing for weeks with no provider.
-The moment a key is set, `drain-outbox` sends all of it within 5 minutes. The Droplet's database
-is a copy of evo-dev's, so it holds the same rows.
-
-On each server:
+Mail queued with no provider would all go out within 5 minutes of setting the key. At the
+2026-11-13 switch-over the Droplet's queue was empty, but check again just before step 5:
 
 ```bash
-# look first
-sudo -n -u postgres psql -d mihomes -c "select template, count(*), min(created_at) \
-  from email_outbox where sent_at is null and failed_at is null group by template order by 2 desc"
+sudo -n -u postgres psql -d mihomes -c "select template, count(*), min(created_at)   from email_outbox where sent_at is null and failed_at is null group by template order by 2 desc"
 
-# then mark everything unsent as failed (kept for the record, never sent)
-sudo -n -u postgres psql -d mihomes -c "update email_outbox set failed_at = now(), \
-  last_error = 'purged before Resend go-live' where sent_at is null and failed_at is null"
+# if anything is listed and should not be sent, mark it failed (kept for the record, never sent)
+sudo -n -u postgres psql -d mihomes -c "update email_outbox set failed_at = now(),   last_error = 'purged before Resend go-live' where sent_at is null and failed_at is null"
 ```
 
 ## 5. Set the key on the server real users use
 
-Today that is **evo-dev**. On the Droplet, do it at switch-over (its jobs are off until then).
+That is the **Droplet** (`ssh millena@107.170.18.108`); evo-dev was retired on 2026-11-13.
 Add to `~/.mihomes/run/web.env` (no quotes, matching the file's style):
 
 ```
@@ -75,11 +69,11 @@ RESEND_API_KEY=re_xxxxxxxx
 EMAIL_FROM=MiHomes <no-reply@send.mihomes.ai>
 ```
 
-Restart the app (`deploy.sh` restart, as usual). Then test:
+Restart the app: `pkill -f '[b]in/mihomes-dev'` then `sudo ~/.mihomes/run/boot.sh`. Then test:
 
 1. Sign out, open `/password/reset`, enter **your own** address.
 2. The email should arrive within a minute, from `no-reply@send.mihomes.ai`. **Check the link
-   starts with `https://` and the server's public address** (e.g. `https://evo-dev.tail6765ef.ts.net`),
+   starts with `https://` and the server's public address** (`https://mihomes.ai`),
    not `http://` or `127.0.0.1`. Verification links are built the same way, so fix this before step 6.
 3. In Gmail, "Show original" should read `SPF: PASS`, `DKIM: PASS`, `DMARC: PASS`.
 4. `tail ~/.mihomes/logs/jobs/jobs-drain-outbox.log` should no longer say `RESEND_API_KEY is not set`.

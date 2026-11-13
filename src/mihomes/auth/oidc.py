@@ -42,6 +42,20 @@ class InvalidIdentityToken(Exception):
     """The ID token could not be verified, or its claims are unusable."""
 
 
+class SignupClosed(Exception):
+    """This Google identity has no account yet, and new accounts need an invitation.
+
+    Raised by `upsert_user(..., allow_create=False)` — waitlist mode (`auth/signup_gate.py`).
+    Existing users never see it: only the branch that would *insert* a row raises.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "MiHomes is invite-only for now. Join the waitlist on the home page and we'll "
+            "be in touch."
+        )
+
+
 class PasswordAccountExists(Exception):
     """A **password** account already holds this email, and it has no Google identity.
 
@@ -163,7 +177,7 @@ def claims_from_dict(claims: dict) -> IdentityClaims:
     )
 
 
-def upsert_user(db: DbSession, claims: IdentityClaims) -> User:
+def upsert_user(db: DbSession, claims: IdentityClaims, *, allow_create: bool = True) -> User:
     """Find-or-create the `users` row for these claims, keyed on `sub`.
 
     `users` is GLOBAL (D3), so this runs with no account context — which is exactly why the G8 read
@@ -191,6 +205,8 @@ def upsert_user(db: DbSession, claims: IdentityClaims) -> User:
         ).scalars().first()
         if password_holder is not None and password_holder.email_verified_at is not None:
             raise PasswordAccountExists()
+        if not allow_create:
+            raise SignupClosed()
 
         if password_holder is not None:
             # **An unverified password row is a claim nobody proved** (2026-11-13). Google has

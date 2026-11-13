@@ -28,11 +28,13 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session as DbSession
 
+from mihomes.auth import signup_gate
 from mihomes.auth.csrf import CSRF_COOKIE, tokens_match
 from mihomes.auth.oidc import (
     GoogleOIDCProvider,
     InvalidIdentityToken,
     PasswordAccountExists,
+    SignupClosed,
     upsert_user,
 )
 from mihomes.auth.session_flow import (
@@ -104,7 +106,7 @@ def login(
         os.environ.get("GOOGLE_CLIENT_ID") and os.environ.get("GOOGLE_CLIENT_SECRET")
     )
 
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         request,
         "login.html",
         {
@@ -119,6 +121,17 @@ def login(
         # client should read it as one. The browser renders the body either way.
         status_code=401 if not error else 400,
     )
+    # Waitlist mode: a team invitee is sent here, not to `/signup`. If they pick Google, the
+    # callback needs the invitation to let a new account through — park it, as `/signup` does.
+    # Only the token is stored; the callback checks it is still pending.
+    team_token = signup_gate.team_token_from_next(safe_next(next) or "")
+    if signup_gate.waitlist_mode() and team_token:
+        _set_cookie(
+            response, request, signup_gate.INVITE_COOKIE,
+            signup_gate.encode_cookie(team_token=team_token),
+            max_age=signup_gate.INVITE_COOKIE_MAX_AGE,
+        )
+    return response
 
 
 @router.get("/auth/google/start")
@@ -219,9 +232,17 @@ def callback(request: Request, code: str = "", state: str = "", db: DbSession = 
     if intent:
         return _clear_flow(_finish_settings_flow(db, request, intent, claims))
 
+    # Waitlist mode: a first Google sign-in creates an account, so it needs the invitation that
+    # `/signup` parked in a cookie (Google cannot carry it). Existing users are unaffected.
+    tester_token, team_token = signup_gate.decode_cookie(
+        request.cookies.get(signup_gate.INVITE_COOKIE)
+    )
+    allow_create = signup_gate.may_create_account(
+        db, email=claims.email, tester_token=tester_token, team_token=team_token
+    )
     try:
-        user = upsert_user(db, claims)
-    except PasswordAccountExists as exc:
+        user = upsert_user(db, claims, allow_create=allow_create)
+    except (PasswordAccountExists, SignupClosed) as exc:
         # Back to the login form with the reason, rather than a bare 4xx: the person can act on
         # this one — their account exists, it just opens with a password. The flow cookies are
         # cleared here too, for the same reason as on success.
@@ -235,8 +256,11 @@ def callback(request: Request, code: str = "", state: str = "", db: DbSession = 
     # none of them is about Google. Copying them would have meant two implementations of
     # session rotation and of the three cookie flags — the kind of thing that gets fixed once
     # and then not again in the copy.
-    response = establish_session(db, request, user.id)
+    # A team invitee lands back on their invitation, as a password signup does (SPEC-010 A14).
+    destination = f"/invite/{team_token}" if team_token else None
+    response = establish_session(db, request, user.id, destination=destination)
     db.commit()
+    response.delete_cookie(signup_gate.INVITE_COOKIE, path="/")
 
     # The flow cookies have done their job; leaving them would keep a usable verifier around.
     # These stay here: they are the only part of this callback that *is* OIDC-specific.

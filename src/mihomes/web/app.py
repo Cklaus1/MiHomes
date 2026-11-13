@@ -57,6 +57,7 @@ from mihomes.web.routes import unsubscribe as unsubscribe_route
 from mihomes.web.routes import weather as weather_route
 from mihomes.web.routes import webhooks as webhooks_route
 from mihomes.web.security import HostAndOriginGuardMiddleware
+from mihomes.web.site_passcode import SitePasscodeMiddleware
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 STATIC_DIR = Path(__file__).parent / "static"
@@ -146,6 +147,10 @@ def create_app() -> FastAPI:
         dependencies=[Depends(enforce_declared_action)],
         lifespan=_chat_listener_lifespan,
     )
+
+    # Pre-launch passcode curtain — a no-op unless MIHOMES_SITE_PASSCODE is set. Registered
+    # first so it sits *inside* the Host/Origin guard: the passcode POST is CSRF-checked too.
+    app.add_middleware(SitePasscodeMiddleware)
 
     # Reject cross-site state-changing requests and non-loopback Host headers
     # (H30): defends the localhost app against browser CSRF and DNS rebinding.

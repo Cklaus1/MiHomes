@@ -28,6 +28,20 @@ Until `~/.mihomes/run/LIVE` exists, `boot.sh` installs only `pg-backup.sh` (02:3
 `keepalive.sh` (every minute). Creating `LIVE` and re-running boot arms the full crontab via
 `scripts/ops/install-cron.sh`.
 
+## Pre-launch passcode
+
+While still building, the whole site sits behind one shared passcode
+(`src/mihomes/web/site_passcode.py`). Every page — landing, login, signup — asks for it first;
+a correct code sets a 30-day cookie. Webhooks (`/webhooks/…`), `/unsubscribe` and `/static/`
+are exempt so Stripe/Telegram keep working.
+
+- **Turn on / change:** add `MIHOMES_SITE_PASSCODE=<code>` to `~/.mihomes/run/web.env`, then
+  `sudo ~/.mihomes/run/boot.sh`. Changing the code signs every browser out of the curtain.
+- **Turn off (launch):** delete that line and re-run boot.
+
+Use a long code (wrong guesses are only slowed by 1 s). It is a curtain, not security — real
+access control is still the account sign-in behind it.
+
 ## Deploy
 
 Same as evo-dev: copy `C:\Users\MillenaLim\mihomes-deploy\deploy.sh` to `/tmp` and run it as

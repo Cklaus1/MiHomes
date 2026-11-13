@@ -26,6 +26,9 @@ migration tree, which owns that one table and keeps its own version table:
 cd ~/MiHomes
 mapfile -t E < <(grep -v '^\s*$' ~/.mihomes/run/web.env)
 env -i "${E[@]}" .venv/bin/alembic -n landing upgrade head    # creates `waitlist`
+# The app runs as the restricted `mihomes_app` role; check it can write the new table (expect `t`).
+sudo -n -u postgres psql mihomes -Atc "select has_table_privilege('mihomes_app','waitlist','INSERT')"
+#   If `f`: sudo -n -u postgres psql mihomes -c "GRANT SELECT, INSERT, UPDATE, DELETE ON waitlist TO mihomes_app"
 echo 'MIHOMES_SIGNUP_MODE=waitlist' >> ~/.mihomes/run/web.env
 sudo -n ~/.mihomes/run/boot.sh                                 # restart with the new env
 ```

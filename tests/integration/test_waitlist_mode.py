@@ -291,3 +291,20 @@ def test_a_made_up_team_token_opens_nothing(client, provider):
                                      "next": "/invite/not-a-real-invite-token"},
                     follow_redirects=False)
     assert r.status_code == 403
+
+
+def test_tester_link_survives_the_site_passcode_screen(monkeypatch, client):
+    """While `MIHOMES_SITE_PASSCODE` is set a tester meets the passcode first; the invite in the
+    link must still be there once they are through it."""
+    monkeypatch.setenv("MIHOMES_SITE_PASSCODE", "letmein")
+    link = f"/signup?{_invite_query()}"
+    gate = client.get(link, follow_redirects=False)
+    assert gate.status_code == 303
+    assert gate.headers["location"].startswith("/site-passcode")
+    passed = client.post("/site-passcode", data={"passcode": "letmein", "next": link},
+                         follow_redirects=False)
+    assert passed.status_code == 303
+    assert passed.headers["location"] == link
+    page = client.get(link, follow_redirects=False)
+    assert page.status_code == 200
+    assert 'name="invite"' in page.text

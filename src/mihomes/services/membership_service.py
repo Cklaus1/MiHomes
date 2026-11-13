@@ -190,6 +190,14 @@ def transfer_ownership(
     The outgoing owner becomes an `admin` rather than being revoked: transferring ownership is
     not the same act as leaving, and conflating them would silently remove someone's access as a
     side effect of a handover.
+
+    **Only an admin can receive ownership** (`ONBOARDING` §8.1: *"typically promoted to admin
+    first"*, made a rule 2026-11-13). A staff member carries a property whitelist and staff-only
+    flags that an owner ignores; handing them ownership directly would leave that state dormant,
+    to silently re-apply if they were ever demoted back. Promoting first keeps it one step each.
+
+    Audited, because it is the most consequential change a membership can undergo — it moves
+    billing and the right to delete the household.
     """
     if from_membership.account_id != to_membership.account_id:
         # Not a cross-account leak risk so much as a nonsense operation, but refusing loudly
@@ -205,10 +213,27 @@ def transfer_ownership(
     if to_membership.status != "active":
         raise MembershipError("cannot transfer ownership to a revoked member")
 
-    from_membership.role = "admin"
-    session.flush()          # the account now has zero owners, inside this transaction only
-    to_membership.role = "owner"
-    session.flush()          # ...and exactly one again
+    if to_membership.role != "admin":
+        raise MembershipError(
+            "ownership can only go to an admin — make them an admin first, then transfer"
+        )
+
+    with account_context(from_membership.account_id):
+        bind_account_guc(session, from_membership.account_id)
+        from_membership.role = "admin"
+        session.flush()      # the account now has zero owners, inside this transaction only
+        to_membership.role = "owner"
+        session.flush()      # ...and exactly one again
+        record_change(
+            session,
+            entity_type="membership",
+            entity_id=to_membership.id,
+            action="transfer",  # audit_log.action is String(10)
+            changes={
+                "owner": {"old": str(from_membership.id), "new": str(to_membership.id)},
+            },
+        )
+        session.flush()
 
     return from_membership, to_membership
 

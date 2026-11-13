@@ -28,7 +28,9 @@ GoDaddy → My Products → `mihomes.ai` → DNS → Add record, once per record
 Pasting the full name creates `send.mihomes.ai.mihomes.ai`, which never verifies. Copy the
 **value** exactly as Resend shows it. For the MX record, use the priority Resend gives.
 
-Add a DMARC record as well (one per domain, for `mihomes.ai` itself):
+Add a DMARC record as well (for `mihomes.ai` itself). **GoDaddy often creates a `_dmarc`
+record by default. If one exists, edit it rather than adding a second: two DMARC records
+break DMARC.**
 
 | Type | Name | Value |
 |---|---|---|
@@ -76,7 +78,9 @@ EMAIL_FROM=MiHomes <no-reply@send.mihomes.ai>
 Restart the app (`deploy.sh` restart, as usual). Then test:
 
 1. Sign out, open `/password/reset`, enter **your own** address.
-2. The email should arrive within a minute, from `no-reply@send.mihomes.ai`.
+2. The email should arrive within a minute, from `no-reply@send.mihomes.ai`. **Check the link
+   starts with `https://` and the server's public address** (e.g. `https://evo-dev.tail6765ef.ts.net`),
+   not `http://` or `127.0.0.1`. Verification links are built the same way, so fix this before step 6.
 3. In Gmail, "Show original" should read `SPF: PASS`, `DKIM: PASS`, `DMARC: PASS`.
 4. `tail ~/.mihomes/logs/jobs/jobs-drain-outbox.log` should no longer say `RESEND_API_KEY is not set`.
 
@@ -85,7 +89,9 @@ created with, so test with that address if step 2 is still pending.
 
 ## 6. Deploy email verification
 
-Branch `email-verification` (migration `0031`). Deploy only after step 5 works on that server.
+Branch `email-verification` (migration `0031`). Merge it into `worktree-spec-build-harness`
+first (it already contains harness's tip, including the passcode gate), then deploy as usual.
+Deploy only after step 5 works on that server.
 Existing users are marked verified by the migration and notice nothing. New password signups
 get a "Confirm your email" message and cannot sign in until they click it. Google sign-ins
 are unaffected.

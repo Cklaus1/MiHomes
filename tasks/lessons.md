@@ -852,3 +852,7 @@ Review this at the start of each session.
 ## Check the production AI provider before designing anything around AI cost (2026-11-09)
 - **Mistake:** sized plan AI allowances and built per-plan model routing (Haiku/Sonnet) on the code's `DEFAULT_MODEL = claude-sonnet-5`, while the live provider was NVIDIA NIM — and memory already said "AI still NIM".
 - **Rule:** MiHomes runs ONE AI provider for every household, chosen by the developer (`ai.provider`, operator-only). Never add per-plan or per-household provider/model choice. Before any AI cost or model work, confirm the provider the founder intends for production; the code's defaults are not the product decision.
+
+## "Passcode page" means the front door, not the whole site (2026-11-13)
+- **Mistake:** asked for "a passcode page to limit access on the public domain", I gated every request; the user wanted only new users kept out — passcode on the homepage, then log in and use the app as usual.
+- **Rule:** before gating, ask *who* is being kept out. Pages already behind account sign-in need no second gate; put a pre-launch curtain only on the public entry points (`/`, `/login`, `/signup`, Google sign-in start), and let signed-in users through. When scope is ambiguous on an outward-facing change, state the scope in one line before deploying.

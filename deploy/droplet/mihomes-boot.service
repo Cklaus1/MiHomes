@@ -1,0 +1,13 @@
+[Unit]
+Description=MiHomes boot (Postgres check, cron, app start)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+KillMode=process
+ExecStart=/home/millena/.mihomes/run/boot.sh
+
+[Install]
+WantedBy=multi-user.target

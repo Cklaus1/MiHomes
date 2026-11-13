@@ -52,7 +52,7 @@ access control is still the account sign-in behind it.
 Same as evo-dev: copy `C:\Users\MillenaLim\mihomes-deploy\deploy.sh` to `/tmp` and run it as
 millena (pulls, pip installs, backs up, migrates, restarts via `sudo ~/.mihomes/run/boot.sh`).
 
-## Switch-over from evo-dev (not done yet)
+## Switch-over from evo-dev (DONE 2026-11-13 21:40 UTC: jobs armed, Telegram moved, evo-dev frozen, laptop pull repointed; Stripe dashboard webhook still to add)
 
 1. **Google Cloud Console** → the OAuth client → add redirect URI
    `https://mihomes.ai/auth/google/callback` and JavaScript origin `https://mihomes.ai`.

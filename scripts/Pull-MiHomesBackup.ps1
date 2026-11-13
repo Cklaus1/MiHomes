@@ -16,7 +16,7 @@
       Register-ScheduledTask -TaskName 'MiHomes backup pull' -Action $a -Trigger $t -Settings (New-ScheduledTaskSettingsSet -StartWhenAvailable)
 #>
 param(
-    [string]$Server = 'millena@evo-dev',
+    [string]$Server = 'millena@107.170.18.108'  # the Droplet (mihomes.ai) since 2026-11-13; evo-dev retired,
     [string]$Dest = (Join-Path $env:USERPROFILE 'MiHomes-backups'),
     [int]$Keep = 30
 )

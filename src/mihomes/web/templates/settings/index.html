@@ -327,6 +327,41 @@
       {% endfor %}
     </div>
 
+    {# Transfer ownership (2026-11-13): row 14, owner only. Only an admin can receive it
+       (`membership_service.transfer_ownership`), so only admins are offered. The typed TRANSFER
+       is re-checked by the route; the owner cannot undo this, only the new owner can. #}
+    {% if role == "owner" %}
+      {% set admins = members | selectattr("role", "equalto", "admin") | list %}
+      <div id="transfer-ownership" class="mb-6 rounded-lg border border-red-200 p-4 scroll-mt-4">
+        <h3 class="font-medium text-gray-900">Transfer ownership</h3>
+        <p class="mt-1 text-sm text-gray-600">Make another member the owner. They take over billing
+          and the right to delete or deactivate the household; you stay on as an admin. You can't
+          take it back yourself — only the new owner can transfer it again.</p>
+        {% if admins %}
+          <form method="post" action="/settings/transfer-ownership" class="mt-3 space-y-2"
+                onsubmit="return confirm('Transfer ownership? You will become an admin.')">
+            <label for="transfer-to" class="block text-sm text-gray-700">New owner</label>
+            <select id="transfer-to" name="membership_id" required
+                    class="w-full sm:w-64 border rounded-lg px-3 py-2">
+              {% for member in admins %}
+                <option value="{{ member.membership_id }}">{{ member.display_name }} ({{ member.email }})</option>
+              {% endfor %}
+            </select>
+            <label for="transfer-confirm" class="block text-sm text-gray-700">Type <strong>TRANSFER</strong> to confirm</label>
+            <input id="transfer-confirm" name="confirm" autocomplete="off" spellcheck="false" required
+                   class="w-full sm:w-64 border rounded-lg px-3 py-2" />
+            <button type="submit" data-testid="transfer-ownership-button"
+                    class="block rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50">
+              Transfer ownership
+            </button>
+          </form>
+        {% else %}
+          <p class="mt-2 text-sm text-gray-500">Ownership can only go to an admin. Invite someone
+            as an admin, or change a member's role to Admin above, then come back here.</p>
+        {% endif %}
+      </div>
+    {% endif %}
+
     {% if pending_invites %}
       <h3 class="text-sm font-medium text-gray-700 mb-2">Invited, not yet joined</h3>
       <div class="space-y-2 mb-6">

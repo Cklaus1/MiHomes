@@ -927,6 +927,128 @@ class TestMembersSection:
         assert "/billing" not in web_client_as("admin").get("/settings").text
 
 
+class TestTransferOwnership:
+    """Row 14 through the page (2026-11-13). The service rules are in `test_membership.py`;
+    these prove the route, the confirmation, the deletion guard and the gate are wired."""
+
+    @staticmethod
+    def _roles(web_client_as):
+        from sqlalchemy import text
+
+        rows = web_client_as.connection.execute(
+            text("SELECT id, role FROM memberships WHERE status = 'active'")
+        ).all()
+        return {row.id: row.role for row in rows}
+
+    @staticmethod
+    def _transfer(client, target, confirm="TRANSFER"):
+        return client.post(
+            "/settings/transfer-ownership",
+            data={"membership_id": str(target), "confirm": confirm},
+            follow_redirects=False,
+        )
+
+    def test_owner_hands_over_to_an_admin(self, web_client_as):
+        owner = web_client_as("owner")
+        admin = web_client_as("admin")
+
+        response = self._transfer(owner, admin.membership_id)
+
+        assert response.status_code == 303
+        assert "ownership_transferred" in response.headers["location"]
+        roles = self._roles(web_client_as)
+        assert roles[admin.membership_id] == "owner"
+        assert roles[owner.membership_id] == "admin", "the old owner stays, as an admin"
+        assert list(roles.values()).count("owner") == 1
+
+    def test_the_transfer_is_audited(self, web_client_as):
+        from sqlalchemy import text
+
+        owner = web_client_as("owner")
+        admin = web_client_as("admin")
+        self._transfer(owner, admin.membership_id)
+
+        row = web_client_as.connection.execute(
+            text("SELECT entity_id FROM audit_log WHERE action = 'transfer'")
+        ).one()
+        assert row.entity_id == admin.membership_id
+
+    def test_the_old_owner_cannot_transfer_again(self, web_client_as):
+        owner = web_client_as("owner")
+        admin = web_client_as("admin")
+        self._transfer(owner, admin.membership_id)
+
+        page = owner.get("/settings").text
+        assert "/settings/transfer-ownership" not in page
+        assert self._transfer(owner, owner.membership_id).status_code == 403
+        assert "/settings/transfer-ownership" in admin.get("/settings").text
+
+    def test_admin_and_staff_are_refused(self, web_client_as):
+        web_client_as("owner")
+        admin = web_client_as("admin")
+        staff = web_client_as("staff", scoped_to=[])
+
+        assert self._transfer(admin, admin.membership_id).status_code == 403
+        assert self._transfer(staff, admin.membership_id).status_code == 403
+
+    def test_a_wrong_confirmation_changes_nothing(self, web_client_as):
+        owner = web_client_as("owner")
+        admin = web_client_as("admin")
+
+        for typed in ("", "transfer please", "DELETE"):
+            response = self._transfer(owner, admin.membership_id, confirm=typed)
+            assert response.status_code == 400
+            assert "Type TRANSFER" in response.text
+        assert self._roles(web_client_as)[owner.membership_id] == "owner"
+
+    def test_a_staff_member_cannot_receive_it(self, web_client_as):
+        owner = web_client_as("owner")
+        staff = web_client_as("staff", scoped_to=[])
+
+        response = self._transfer(owner, staff.membership_id)
+
+        assert response.status_code == 400
+        assert "make them an admin first" in response.text
+        assert self._roles(web_client_as)[staff.membership_id] == "staff"
+
+    def test_yourself_and_strangers(self, web_client_as):
+        owner = web_client_as("owner")
+
+        assert self._transfer(owner, owner.membership_id).status_code == 400
+        assert self._transfer(owner, uuid.uuid4()).status_code == 404
+
+    def test_refused_while_deletion_is_scheduled(self, web_client_as, account_a):
+        from datetime import datetime, timedelta, timezone
+
+        from mihomes.models.account_deletion import AccountDeletionRequest
+
+        owner = web_client_as("owner")
+        admin = web_client_as("admin")
+        now = datetime.now(timezone.utc)
+        web_client_as.seed(lambda s: s.add(AccountDeletionRequest(
+            account_id=account_a, requested_at=now, requested_by_user_id=owner.user_id,
+            purge_after=now + timedelta(days=30),
+        )))
+
+        response = self._transfer(owner, admin.membership_id)
+
+        assert response.status_code == 400
+        assert "scheduled for deletion" in response.text
+        assert self._roles(web_client_as)[admin.membership_id] == "admin"
+
+    def test_only_admins_are_offered(self, web_client_as):
+        owner = web_client_as("owner")
+        page = owner.get("/settings").text
+        assert "Ownership can only go to an admin" in page, "no admin yet: say how to get one"
+
+        admin = web_client_as("admin")
+        staff = web_client_as("staff", scoped_to=[])
+        page = owner.get("/settings").text
+        picker = page.split('id="transfer-to"', 1)[1].split("</select>", 1)[0]
+        assert str(admin.membership_id) in picker
+        assert str(staff.membership_id) not in picker
+
+
 class TestStaffPropertyAccess:
     """The staff whitelist **through the page** — the access-control half of the feature.
 

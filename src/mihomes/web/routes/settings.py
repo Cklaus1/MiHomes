@@ -141,6 +141,7 @@ _NOTICES = {
     "calendar_import_on": "Google Calendar import turned on — events they add in Google become appointments",
     "calendar_import_off": "Google Calendar import turned off — their calendar still receives updates",
     "member_removed": "Access removed",
+    "ownership_transferred": "Ownership transferred — you are now an admin",
     "invite_revoked": "Invitation revoked",
     "telegram_unlinked": "Telegram unlinked",
     "deletion_requested": "Account deletion scheduled",
@@ -858,6 +859,53 @@ def revoke_member(
         return _member_error(request, db, principal, str(exc))
 
     return RedirectResponse("/settings?notice=member_removed#members", status_code=303)
+
+
+@router.post("/settings/transfer-ownership")
+@declares("account.transfer", Access.ACCOUNT)
+def transfer_ownership_route(
+    request: Request,
+    membership_id: uuid.UUID = Form(...),
+    confirm: str = Form(""),
+    principal=require_authenticated(),
+    db: Session = Depends(get_db),
+):
+    """Row 14 — hand the household to an admin (2026-11-13). Owner only, by the matrix.
+
+    The rules (active admin of this account, not yourself) are the service's; this adds two of
+    its own. A typed confirmation, checked here rather than only in the page, because the owner
+    cannot take it back — only the new owner can. And a refusal while account deletion is
+    scheduled: the new owner would inherit a household already counting down to erasure.
+    """
+    from mihomes.models.membership import Membership
+    from mihomes.services import membership_service
+
+    target = _member_in_account(db, principal, membership_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    if confirm.strip().upper() != "TRANSFER":
+        return _member_error(request, db, principal, "Type TRANSFER to confirm the handover.")
+
+    if _pending_deletion(db, principal.account_id) is not None:
+        return _member_error(
+            request, db, principal,
+            "This account is scheduled for deletion. Cancel the deletion before transferring "
+            "ownership.",
+        )
+
+    actor = db.get(Membership, principal.membership_id)
+    if actor is None:  # pragma: no cover - a resolved principal always has one
+        raise HTTPException(status_code=404, detail="Not found")
+
+    try:
+        membership_service.transfer_ownership(db, actor, target)
+        db.commit()
+    except membership_service.MembershipError as exc:
+        db.rollback()
+        return _member_error(request, db, principal, str(exc))
+
+    return RedirectResponse("/settings?notice=ownership_transferred#members", status_code=303)
 
 
 @router.post("/settings/invites/{invite_id}/revoke")

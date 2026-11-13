@@ -17,8 +17,11 @@ unset = today's behaviour.
       nightly cleanup cannot delete the interest list.
 - [x] CLI: `mihomes waitlist list`, `mihomes waitlist invite EMAIL [--days N]`.
 - [x] Tests (`tests/integration/test_waitlist_mode.py`, 16); runbook `docs/deploy/WAITLIST-MODE.md`.
-- [ ] Deploy (user): merge into harness, `alembic -n landing upgrade head` on the Droplet (table
-      missing there), set the env var, decide whether to lift the site passcode.
+- [x] DEPLOYED to Droplet mihomes.ai 2026-11-13 20:46 UTC (harness fast-forwarded to 36310a9;
+      backup pre-waitlist-20261113-2045.sql; waitlist table created; app role `mihomes` owns it).
+      Verified live: waitlist form on /, /signup → /#waitlist, stranger POST 403, tester link 200,
+      POST /waitlist stores a row; probe rows/users removed.
+- [ ] User decision: lift the site passcode so the public can see the waitlist?
 - Found, not fixed: pre-sign-in team-invite lookup (`invite_service.find_pending`) is an unscoped
       read that the code itself says only works as a superuser; not tested under the app role.
 

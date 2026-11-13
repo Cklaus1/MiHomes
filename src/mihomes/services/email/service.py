@@ -287,6 +287,24 @@ class EmailService:
             klass="transactional",
         )
 
+    def send_email_verification(
+        self, to: str, *, verify_url: str, expires_in: str = "24 hours",
+    ) -> None:
+        """The confirm-your-address link sent at signup (2026-11-13). **Carries the only copy of
+        the plaintext token**, like the reset link.
+
+        `transactional`: suppressing it would leave a new user unable to ever get in. Sent with
+        no account bound (the person has none yet), so `_send` delivers it inline rather than
+        through the outbox. That matters on a server with scheduled jobs off, where queued mail
+        would never leave.
+        """
+        self._send(
+            to,
+            "email_verification",
+            {"verify_url": verify_url, "expires_in": expires_in},
+            klass="transactional",
+        )
+
     def send_sign_in_method_changed(self, to: str, *, change: str, settings_url: str) -> None:
         """"A password was added", "Google was connected" — the security notice (2026-10-19).
 

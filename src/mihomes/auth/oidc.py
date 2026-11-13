@@ -181,25 +181,42 @@ def upsert_user(db: DbSession, claims: IdentityClaims) -> User:
         # *different* sub is a different Google identity, not this one. `.first()` because
         # databases from before SPEC-010's guard can hold duplicates on one address.
         password_holder = db.execute(
-            select(User.id)
+            select(User)
             .where(
                 func.lower(User.email) == claims.email.strip().lower(),
                 User.password_hash.isnot(None),
                 User.google_sub.is_(None),
             )
             .limit(1)
-        ).first()
-        if password_holder is not None:
+        ).scalars().first()
+        if password_holder is not None and password_holder.email_verified_at is not None:
             raise PasswordAccountExists()
 
-        user = User(
-            id=uuid.uuid4(),
-            google_sub=claims.subject,
-            email=claims.email,
-            name=claims.name,
-            avatar_url=claims.picture,
-        )
-        db.add(user)
+        if password_holder is not None:
+            # **An unverified password row is a claim nobody proved** (2026-11-13). Google has
+            # just proved this address, so Google wins. The row becomes this Google identity and
+            # its password is cleared, so whoever typed it (perhaps a squatter) cannot sign in
+            # with it. It has no memberships to inherit: an unverified user never had a session.
+            user = password_holder
+            user.google_sub = claims.subject
+            user.password_hash = None
+            user.password_set_at = None
+            user.name = claims.name or user.name
+            user.avatar_url = claims.picture
+        else:
+            user = User(
+                id=uuid.uuid4(),
+                google_sub=claims.subject,
+                email=claims.email,
+                name=claims.name,
+                avatar_url=claims.picture,
+            )
+            db.add(user)
+        # `email_verified` is enforced above, so every Google user is verified on arrival.
+        from mihomes.auth.email_verification import mark_verified
+
+        db.flush()
+        mark_verified(db, user)
     else:
         # Refreshed on every sign-in: display fields drift, and `sub` is what identity is keyed on,
         # so updating them cannot move the account to a different person.

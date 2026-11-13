@@ -32,6 +32,8 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 
+from tests.integration.verify_helpers import confirm_email
+
 PASSWORD = "correct horse battery staple"
 
 _HTML = {
@@ -94,7 +96,8 @@ def rls_app(_pg_engine):
             conn.execute(
                 text(
                     "insert into users (id, email, name, password_hash, password_set_at, "
-                    "created_at) values (:u, 'owner@example.com', 'Owner', :h, now(), now())"
+                    "created_at, email_verified_at) "
+                    "values (:u, 'owner@example.com', 'Owner', :h, now(), now(), now())"
                 ),
                 {"u": user_id, "h": hash_password(PASSWORD)},
             )
@@ -351,7 +354,7 @@ def test_an_unbound_session_does_not_bounce_between_root_and_onboarding(rls_app)
     )
 
 
-def test_a_brand_new_user_can_add_their_first_home(rls_app):
+def test_a_brand_new_user_can_add_their_first_home(rls_app, mailbox):
     """Signup → create account → add first home, as a role RLS applies to.
 
     **This is the mandatory path, and it was broken for every new user.** `add_property` bound
@@ -377,7 +380,9 @@ def test_a_brand_new_user_can_add_their_first_home(rls_app):
         data={"email": email, "password": PASSWORD, "name": "Newcomer"},
         headers=_HTML,
     )
-    assert signup.status_code == 303, f"signup did not take: {signup.status_code}"
+    assert signup.status_code == 200, f"signup did not take: {signup.status_code}"
+    confirmed = confirm_email(client, mailbox, email, headers=_HTML)
+    assert confirmed.status_code == 303, f"confirming did not sign in: {confirmed.status_code}"
 
     account = client.post(
         "/onboarding/account",

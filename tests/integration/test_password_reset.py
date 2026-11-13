@@ -94,6 +94,8 @@ def _make_user(client, email: str, password: str = OLD_PASSWORD) -> uuid.UUID:
     s = client._Session()
     try:
         user = create_password_user(s, email=email, password=password)
+        # Verified: these tests sign in afterwards, and their subject is reset, not signup.
+        user.email_verified_at = datetime.now(timezone.utc)
         s.commit()
         return user.id
     finally:

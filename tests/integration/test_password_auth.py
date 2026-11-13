@@ -23,6 +23,7 @@ writes into.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from urllib.parse import quote
 
 import pytest
@@ -42,6 +43,7 @@ from mihomes.models.user import User
 from mihomes.tenancy import account_context
 from mihomes.web.app import create_app
 from mihomes.web.deps import get_db
+from tests.integration.verify_helpers import confirm_email
 
 GOOD_PASSWORD = "a-perfectly-fine-passphrase"
 
@@ -101,6 +103,9 @@ def _make_user(client, email: str, password: str = GOOD_PASSWORD) -> uuid.UUID:
     s = client._Session()
     try:
         user = create_password_user(s, email=email, password=password)
+        # Verified, because this file's subject is signing in. Signup's own verification step
+        # is covered by `test_signup_creates_user` and `test_email_verification.py`.
+        user.email_verified_at = datetime.now(timezone.utc)
         s.commit()
         return user.id
     finally:
@@ -109,8 +114,9 @@ def _make_user(client, email: str, password: str = GOOD_PASSWORD) -> uuid.UUID:
 
 # ── A6 — signup ───────────────────────────────────────────────────────────────
 
-def test_signup_creates_user(client):
-    """**A6** — `/signup` creates a password user and routes to the onboarding wizard.
+def test_signup_creates_user(client, mailbox):
+    """**A6** — `/signup` creates an **unverified** password user, mails a link, and signs no one
+    in. The link then signs them in and routes to the onboarding wizard.
 
     Not to `/`: a brand-new user has no membership, and `/` raises 403 "No account selected"
     for exactly that state. Sending them there would make the reward for registering an error
@@ -122,9 +128,14 @@ def test_signup_creates_user(client):
         follow_redirects=False,
     )
 
-    assert r.status_code == 303, r.text
-    assert r.headers["location"] == "/onboarding/", "a new user must land in the wizard"
-    assert r.cookies.get(SESSION_COOKIE), "signup did not sign the new user in"
+    assert r.status_code == 200, r.text
+    assert "Check your email" in r.text
+    assert not r.cookies.get(SESSION_COOKIE), "signup signed in a user who has not confirmed"
+
+    confirmed = confirm_email(client, mailbox, "new@example.com")
+    assert confirmed.status_code == 303, confirmed.text
+    assert confirmed.headers["location"] == "/onboarding/", "a new user must land in the wizard"
+    assert confirmed.cookies.get(SESSION_COOKIE), "confirming did not sign the new user in"
 
     s = client._Session()
     try:
@@ -649,7 +660,7 @@ def test_a_successful_login_clears_the_counter_at_the_route(client):
 
 # ── A14 — the invite path (G6) ────────────────────────────────────────────────
 
-def test_invitee_without_google(client):
+def test_invitee_without_google(client, mailbox):
     """**A14** — `ONBOARDING §11 Q3`, answered: an invitee with no Google account accepts by
     signing up with a password.
 
@@ -734,9 +745,14 @@ def test_invitee_without_google(client):
         },
         follow_redirects=False,
     )
+    assert r.status_code == 200, r.text
+    assert not r.cookies.get(SESSION_COOKIE)
+
+    # The emailed link must carry the invitation through confirmation.
+    r = confirm_email(client, mailbox, "newcomer@example.com")
     assert r.status_code == 303, r.text
     assert r.headers["location"] == f"/invite/{token}", (
-        f"signup sent the invitee to {r.headers['location']!r} rather than back to their "
+        f"confirming sent the invitee to {r.headers['location']!r} rather than back to their "
         "invitation — they land in the wizard and create a second, empty account"
     )
 

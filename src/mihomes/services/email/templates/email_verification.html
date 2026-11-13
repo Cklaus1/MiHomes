@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block subject %}Confirm your email for MiHomes{% endblock %}
+
+{% block content %}
+  <p style="margin:0 0 16px;">Hi,</p>
+
+  <p style="margin:0 0 24px;">
+    Thanks for signing up for MiHomes. Confirm this is your email address to finish creating
+    your account.
+  </p>
+
+  <p style="margin:0 0 28px;">
+    <a href="{{ verify_url }}"
+       style="display:inline-block;background:#1c1c1a;color:#ffffff;
+              text-decoration:none;padding:12px 22px;border-radius:6px;
+              font-weight:500;">
+      Confirm my email
+    </a>
+  </p>
+
+  <p style="margin:0 0 24px;">
+    This link expires in {{ expires_in }}. If it has expired, sign in and we'll send you a new one.
+  </p>
+
+  <p style="margin:0;font-size:14px;color:#6b6b66;">
+    If you didn't sign up for MiHomes, you can ignore this email. The account won't be
+    activated without this confirmation.
+  </p>
+{% endblock %}

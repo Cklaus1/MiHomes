@@ -69,6 +69,8 @@ __all__ = [
 #             matters, because they imply different things about what may be added later:
 #             a before-context table must stay readable account-less, whereas a property-of-
 #             an-address table must stay readable ACROSS accounts.
+#   email_verification_tokens
+#             The reset token's reason: confirming an address happens before sign-in.
 GLOBAL_TABLES = frozenset(
     {
         "users",
@@ -78,6 +80,7 @@ GLOBAL_TABLES = frozenset(
         "processed_webhook_events",
         "email_suppressions",
         "password_reset_tokens",
+        "email_verification_tokens",
     }
 )
 

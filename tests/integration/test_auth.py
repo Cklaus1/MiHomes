@@ -291,7 +291,12 @@ def test_identity_is_keyed_on_sub_not_email(db):
 
 
 def _make_password_user(db, email: str) -> User:
-    user = User(id=uuid.uuid4(), google_sub=None, email=email, password_hash="scrypt$x")
+    # Verified: an *unverified* password row is claimed by Google instead of refusing it
+    # (`test_email_verification.py::test_google_claims_an_unverified_password_row`).
+    user = User(
+        id=uuid.uuid4(), google_sub=None, email=email, password_hash="scrypt$x",
+        email_verified_at=datetime.now(timezone.utc),
+    )
     db.add(user)
     db.flush()
     return user

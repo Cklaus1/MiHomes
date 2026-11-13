@@ -1,0 +1,71 @@
+{# Email verification (2026-11-13). Standalone (`_auth_layout.html`): an unverified person has no
+   session by design. One template, four modes:
+
+   * `sent`    — after signup or a resend. The message is the same whatever the address.
+   * `pending` — signed in with the right password before confirming. No session was created.
+   * `confirm` — the link from the email. A button, not an automatic confirm, because mail
+                 scanners open GET links and would otherwise use the link up.
+   * `dead`    — wrong, used or expired link. #}
+{% extends "_auth_layout.html" %}
+{% block title %}Confirm your email — MiHomes{% endblock %}
+
+{% block card %}
+        {% if mode == "confirm" %}
+        <h1 class="text-lg font-semibold text-gray-900">Confirm your email</h1>
+        <p class="text-sm text-gray-500 mt-1 mb-6">One click and your account is ready.</p>
+        <form method="post" action="/verify-email/{{ token }}">
+          {% if next %}<input type="hidden" name="next" value="{{ next }}" />{% endif %}
+          <button type="submit" autofocus
+                  class="w-full p-3 rounded-lg bg-gray-900 text-white text-sm font-medium
+                         hover:bg-gray-800 transition-colors">
+            Confirm my email
+          </button>
+        </form>
+        {% else %}
+          {% if mode == "dead" %}
+          <h1 class="text-lg font-semibold text-gray-900">That link has expired</h1>
+          <div role="alert" tabindex="-1" autofocus class="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+            Confirmation links expire after 24 hours and can only be used once. Enter your email
+            and we'll send a new one.
+          </div>
+          {% elif mode == "pending" %}
+          <h1 class="text-lg font-semibold text-gray-900">Confirm your email first</h1>
+          <div role="status" class="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
+            We've sent a confirmation link to <strong>{{ email }}</strong>. Click it to finish
+            signing in.
+          </div>
+          {% else %}
+          <h1 class="text-lg font-semibold text-gray-900">Check your email</h1>
+          <div role="status" class="mt-4 rounded-lg border border-green-200 bg-green-50 px-3 py-2.5 text-sm text-green-900">
+            {% if email %}If <strong>{{ email }}</strong> needs confirming, a link is on its way.{% else %}If that email needs confirming, a link is on its way.{% endif %}
+            Click it to finish creating your account.
+          </div>
+          {% endif %}
+
+          <p class="text-sm text-gray-500 mt-4">
+            Nothing yet? Check your spam folder, or send another link.
+          </p>
+          <form method="post" action="/verify-email/resend" class="space-y-3 mt-4">
+            {% if next %}<input type="hidden" name="next" value="{{ next }}" />{% endif %}
+            {% if email %}
+            <input type="hidden" name="email" value="{{ email }}" />
+            {% else %}
+            <label for="email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+            <input type="email" name="email" id="email" required autocomplete="email"
+                   class="w-full p-3 rounded-lg border border-gray-300 text-sm
+                          focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent" />
+            {% endif %}
+            <button type="submit"
+                    class="w-full p-3 rounded-lg border border-gray-300 bg-white text-gray-900 text-sm font-medium
+                           hover:bg-gray-50 transition-colors">
+              Send a new link
+            </button>
+          </form>
+        {% endif %}
+{% endblock %}
+
+{% block below %}
+      <p class="text-center text-sm text-gray-500 mt-6">
+        <a href="/login" class="font-medium text-gray-900 underline hover:no-underline">Back to sign in</a>
+      </p>
+{% endblock %}

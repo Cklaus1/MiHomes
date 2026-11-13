@@ -312,6 +312,7 @@ def _entity_classes() -> dict[type, EntityClass]:
     from mihomes.models.email_delivery import EmailDelivery
     from mihomes.models.email_outbox import EmailOutbox
     from mihomes.models.email_suppression import EmailSuppression
+    from mihomes.models.email_verification_token import EmailVerificationToken
     from mihomes.models.event import Event, EventGuest, Guest
     from mihomes.models.gateway_link_token import GatewayLinkToken
     from mihomes.models.insurance import InsurancePolicy
@@ -500,6 +501,8 @@ def _entity_classes() -> dict[type, EntityClass]:
         # It carries no `account_id`, like `email_suppressions` and unlike the webhook ledger,
         # so it needs no "the nullable column is not tenancy" caveat either.
         PasswordResetToken: EntityClass.GLOBAL,
+        # The confirm-your-address link: read before sign-in, exactly like the reset token.
+        EmailVerificationToken: EntityClass.GLOBAL,
 
 
         # SPEC-004 §4.2 — the AI usage meter. `ACCOUNT_LEVEL` ("✗ for staff"), and the fit is

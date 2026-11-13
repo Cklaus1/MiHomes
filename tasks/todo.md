@@ -1,5 +1,36 @@
 # MiHomes — Project State & Next Actions
 
+## Email verification at signup (2026-11-13, branch `email-verification`)
+Decisions (user): Resend for all mail (free plan to start), build verification first.
+Design: an unverified password user **never gets a session**. The gate sits at session creation,
+not in middleware.
+- [x] Migration 0031: `users.email_verified_at` (existing rows backfilled to `created_at`) +
+      `email_verification_tokens` (sha256 hash, 24h, single-use, the reset-token pattern).
+- [x] `auth/email_verification.py`: issue / verify / redeem; redeem stamps the user, burns
+      every live token for them.
+- [x] Signup: create the unverified user, mail the link, render "check your inbox" (no session).
+      A provider failure is logged, never a 500.
+- [x] Login: right password + unverified renders "confirm your email first" with a resend
+      button, no session. Wrong password is unchanged (no oracle).
+- [x] `GET /verify-email/{token}` shows a Confirm button. `POST` redeems, signs in, and goes
+      to `next` (checked by `safe_next`) or onboarding. A POST, because mail scanners prefetch
+      GET links.
+- [x] `POST /verify-email/resend`: throttled, same response whatever the address.
+- [x] Password reset redeem also verifies (it proves the mailbox).
+- [x] Google: new users are verified. An **unverified** password row on the address is
+      claimed by Google (password cleared) rather than blocking sign-in (anti-squat).
+- [x] Squatting: re-signup on an unverified address still says "already registered". The owner
+      recovers via reset, which replaces the squatter's password. Overwrite-on-re-signup was
+      rejected: an attacker re-signing after the owner would have the owner's click activate
+      the attacker's password.
+- [x] `EmailService.send_email_verification` (transactional) + template.
+- [x] Tests: unit + integration; existing signup tests rewritten for the new flow.
+- Follow-ups (not this branch): re-verify on a Settings email change; nightly purge of
+  unverified users older than N days; bounce/complaint webhook.
+- Runbook for the Resend/GoDaddy steps: `docs/deploy/EMAIL-RESEND.md`.
+- **Deploy order:** Resend key live and a password reset tested on the server first.
+  Otherwise every new signup is stranded at "check your inbox".
+
 ## Terms of Service + Privacy Policy (2026-11-09, branch `legal-pages`) — SPEC-001 O1
 Decisions (user): drafts plus a publish switch (counsel reviews before anything goes live). All
 database dumps on evo-dev are kept 14 days, including the pre-deploy ones.

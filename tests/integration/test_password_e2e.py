@@ -35,6 +35,7 @@ from mihomes.models.session import Session as SessionRow
 from mihomes.models.user import User
 from mihomes.web.app import create_app
 from mihomes.web.deps import get_db
+from tests.integration.verify_helpers import confirm_email
 
 EMAIL = "journey@example.com"
 FIRST_PASSWORD = "the-first-passphrase"
@@ -117,17 +118,21 @@ def _user_id(client):
 def test_exit_criterion(client, mail):
     """**A15** — the whole journey, on the real routes, as one person in one browser."""
 
-    # ── 1. signup ────────────────────────────────────────────────────────────
+    # ── 1. signup, then the emailed confirmation link ────────────────────────
     r = client.post(
         "/signup",
         data={"email": EMAIL, "password": FIRST_PASSWORD, "name": "Journey Person"},
         follow_redirects=False,
     )
+    assert r.status_code == 200, r.text
+    assert not client.cookies.get(SESSION_COOKIE), "signup signed in an unconfirmed user"
+
+    r = confirm_email(client, mail, EMAIL)
     assert r.status_code == 303, r.text
     assert r.headers["location"] == "/onboarding/", (
         "a new account did not land in the wizard"
     )
-    assert client.cookies.get(SESSION_COOKIE), "signup did not sign the new user in"
+    assert client.cookies.get(SESSION_COOKIE), "confirming did not sign the new user in"
 
     user_id = _user_id(client)
     assert _live_sessions(client, user_id) == 1
@@ -300,7 +305,7 @@ def test_the_reset_link_survives_a_full_round_trip_only_once(client, mail):
     ).status_code == 401
 
 
-def test_sign_in_does_not_guess_between_several_accounts(client):
+def test_sign_in_does_not_guess_between_several_accounts(client, mail):
     """Binding happens only when there is **exactly one** membership.
 
     With two, picking one would drop the user into whichever estate the query happened to
@@ -321,6 +326,8 @@ def test_sign_in_does_not_guess_between_several_accounts(client):
         data={"email": "twoaccounts@example.com", "password": FIRST_PASSWORD},
         follow_redirects=False,
     )
+    confirm_email(client, mail, "twoaccounts@example.com")
+    client.cookies.clear()
     uid = _user_id_for(client, "twoaccounts@example.com")
 
     # **Exactly two active memberships, and no session left over from signup.**

@@ -37,6 +37,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
+from mihomes.auth.email_verification import mark_verified
 from mihomes.auth.password_identity import find_password_user, set_password
 from mihomes.auth.sessions import revoke_all_sessions
 from mihomes.models.password_reset_token import PasswordResetToken
@@ -148,6 +149,11 @@ def redeem_reset_token(db: DbSession, raw: str, new_password: str):
 
     row.used_at = datetime.now(timezone.utc)
     db.flush()
+
+    # The reset link reached this inbox, which proves the address as well as the verify link
+    # does. This is also how the owner of a squatted, unverified address gets in: their reset
+    # replaces the squatter's password and verifies the account in one step.
+    mark_verified(db, user)
 
     # A13. Every session, not just the current one — the whole point is evicting someone else.
     revoke_all_sessions(db, user.id)

@@ -536,6 +536,7 @@ def scrub_user(session: Session, user_id) -> bool:
     invite, an audit entry), and the row without those fields is no longer anyone. Used by the
     purge and by "Delete my profile". Returns False when there is no such user.
     """
+    from mihomes.models.email_verification_token import EmailVerificationToken
     from mihomes.models.password_reset_token import PasswordResetToken
     from mihomes.models.session import Session as LoginSession
     from mihomes.models.user import User
@@ -554,5 +555,7 @@ def scrub_user(session: Session, user_id) -> bool:
         LoginSession.__table__.c.user_id == user_id))
     session.execute(sa.delete(PasswordResetToken.__table__).where(
         PasswordResetToken.__table__.c.user_id == user_id))
+    session.execute(sa.delete(EmailVerificationToken.__table__).where(
+        EmailVerificationToken.__table__.c.user_id == user_id))
     session.flush()
     return True

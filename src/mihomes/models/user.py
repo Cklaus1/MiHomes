@@ -55,6 +55,13 @@ class User(Base):
     # Not decorative: it distinguishes "never had a password" from "set long ago", and it is
     # what a future "your password was changed" notice or rotation policy reads.
     password_set_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # When this person proved they control `email` (2026-11-13). NULL means a password signup
+    # whose confirmation link has not been clicked yet, and such a user is never given a
+    # session. Google users are stamped on creation, since `oidc.py` refuses an unverified
+    # Google address. Rows from before migration 0031 were backfilled to `created_at`.
+    email_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

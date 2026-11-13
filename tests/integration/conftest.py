@@ -283,3 +283,11 @@ def unbound_client(_pg_engine, account_a):
         yield make, connection
     finally:
         stack.close()
+
+
+@pytest.fixture
+def mailbox(monkeypatch):
+    """Every email sent during the test, via the console provider (see `verify_helpers.py`)."""
+    from tests.integration.verify_helpers import install_mailbox
+
+    return install_mailbox(monkeypatch)

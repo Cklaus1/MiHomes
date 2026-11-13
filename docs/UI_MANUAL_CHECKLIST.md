@@ -109,6 +109,7 @@ static tests do cover them directly.
 | `team/invite.html` | — | 21 | ☐ | ☐ | ☐ |
 | `templates.html` | /templates/ | 184 | ☐ | ☐ | ☐ |
 | `vendors.html` | /vendors/ | 982 | ☐ | ☐ | ☐ |
+| `verify_email.html` | /verify-email/{token}, after /signup | 71 | ☐ | ☐ | ☐ |
 | `work_orders.html` | /work-orders/ | 462 | ☐ | ☐ | ☐ |
 
 ## Notes

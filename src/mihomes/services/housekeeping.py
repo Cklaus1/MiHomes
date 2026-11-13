@@ -98,6 +98,7 @@ def prune_account(session: Session, *, now: datetime | None = None) -> dict[str,
 
 def prune_global(session: Session, *, now: datetime | None = None) -> dict[str, int]:
     """Delete expired sign-in rows and stale waitlist data. Returns counts; caller commits."""
+    from mihomes.models.email_verification_token import EmailVerificationToken
     from mihomes.models.password_reset_token import PasswordResetToken
     from mihomes.models.session import Session as SignInSession
     from mihomes.models.waitlist import Waitlist
@@ -110,6 +111,9 @@ def prune_global(session: Session, *, now: datetime | None = None) -> dict[str, 
     return {
         "sessions": run(delete(SignInSession).where(SignInSession.expires_at < now)),
         "reset_links": run(delete(PasswordResetToken).where(PasswordResetToken.expires_at < now)),
+        "verify_links": run(
+            delete(EmailVerificationToken).where(EmailVerificationToken.expires_at < now)
+        ),
         "waitlist_unconfirmed": run(delete(Waitlist).where(
             Waitlist.confirmed_at.is_(None),
             Waitlist.created_at < now - WAITLIST_UNCONFIRMED,

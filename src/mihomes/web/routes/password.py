@@ -16,11 +16,20 @@ much more helpful it would be. It is the natural thing to write and it is the de
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta, timezone
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
+from mihomes.auth.email_verification import (
+    find_unverified_password_user,
+    issue_verification_token,
+    redeem_verification_token,
+    verify_verification_token,
+)
 from mihomes.auth.password_identity import (
     MIN_PASSWORD_LENGTH,
     EmailAlreadyRegistered,
@@ -94,7 +103,11 @@ def signup(
     name: str = Form(""),
     next: str = Form(""),
 ):
-    """**A6** — create the user, then go to `/onboarding/`.
+    """**A6** — create the user, then **email a confirmation link instead of signing in**.
+
+    Since 2026-11-13 the new user is unverified and gets no session. They land on "check your
+    inbox", and the link (`/verify-email/{token}`) is what signs them in. `next` rides along in
+    the link, so an invitee still ends up back on their invitation.
 
     Unlike sign-in, sign-up *does* distinguish its failures: "that email is already registered"
     is information the person in front of the form needs, and they can obtain it anyway by
@@ -120,17 +133,11 @@ def signup(
             status_code=400,
         )
 
-    # **A14 — an invitee lands back on their invitation, not in the wizard.** Someone arriving
-    # from `/invite/{token}` has an account waiting for them; sending them to `/onboarding/` to
-    # create a second one is the wrong destination, and the invitation is then lost.
-    #
-    # Otherwise: a brand-new user has no membership, so the wizard is right. Passed explicitly
-    # rather than left to `destination_for`, because signup is the one path where the answer is
-    # never `/` and relying on the lookup would make that a coincidence.
-    destination = safe_next(next) or "/onboarding/"
-    response = establish_session(db, request, user.id, destination=destination)
+    # A14's invitee still lands back on their invitation: `next` travels inside the link, and
+    # `verify_email_complete` hands it to `establish_session`.
     db.commit()
-    return response
+    _send_verification(db, request, user, next)
+    return _verify_page(request, "sent", email=user.email, next=next)
 
 
 @router.post("/login")
@@ -179,6 +186,15 @@ def login(
     # A10 — the counter resets, or someone who mistyped twice today is locked out by a third
     # mistake next week. Per-email only; see `clear_attempts` for why the IP counter survives.
     clear_attempts(db, email=email)
+
+    # **The right password is not enough until the address is confirmed** (2026-11-13). Only
+    # someone who knows the password reaches this branch, so saying "confirm your email" here
+    # reveals nothing to an attacker. A fresh link goes out (rate-limited by
+    # `_send_verification`), so a person whose first link expired is not stuck.
+    if user.email_verified_at is None:
+        db.commit()
+        _send_verification(db, request, user, next)
+        return _verify_page(request, "pending", email=user.email, next=next, status_code=403)
 
     # `next` is validated by `safe_next`, so a crafted link cannot turn sign-in into an open
     # redirect. `None` falls through to the usual `/` vs `/onboarding/` choice.
@@ -402,5 +418,123 @@ def reset_complete(
     # *after* the revocation above, so the person completing the reset keeps this one and loses
     # every other.
     response = establish_session(db, request, user.id)
+    db.commit()
+    return response
+
+
+# ── Email verification (2026-11-13) ─────────────────────────────────────────
+
+#: A second link for the same person inside this window is not sent. Without it, the resend
+#: button and repeated sign-ins are a way to flood a stranger's inbox.
+RESEND_COOLDOWN = timedelta(seconds=60)
+
+
+def _send_verification(db: DbSession, request: Request, user, next: str = "") -> None:
+    """Mint a link and mail it, unless one went out within `RESEND_COOLDOWN`. **Commits.**
+
+    The send is inline (no account is bound, so `EmailService` skips the outbox), and a provider
+    fault is logged, never raised. A missing `RESEND_API_KEY` must not turn signup into a 500;
+    the person can press "Send a new link" once the key is set.
+    """
+    from mihomes.models.email_verification_token import EmailVerificationToken
+
+    latest = db.execute(
+        select(EmailVerificationToken.created_at)
+        .where(EmailVerificationToken.user_id == user.id)
+        .order_by(EmailVerificationToken.created_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if latest is not None:
+        if latest.tzinfo is None:
+            latest = latest.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) - latest < RESEND_COOLDOWN:
+            return
+
+    raw = issue_verification_token(db, user.id)
+    db.commit()
+
+    url = f"{_public_base(request)}/verify-email/{raw}"
+    if safe_next(next):
+        url += "?" + urlencode({"next": safe_next(next)})
+    try:
+        EmailService(get_email_provider(), session=db).send_email_verification(
+            user.email, verify_url=url
+        )
+    except EmailProviderError:
+        logger.exception("verification mail could not be sent to a new account")
+
+
+def _verify_page(
+    request: Request, mode: str, *, email: str = "", next: str = "", token: str = "",
+    status_code: int = 200,
+):
+    """The one page for every verification state; see `verify_email.html` for the modes."""
+    return templates.TemplateResponse(
+        request,
+        "verify_email.html",
+        {"mode": mode, "email": email, "next": safe_next(next) or "", "token": token},
+        status_code=status_code,
+    )
+
+
+# Declared before `/verify-email/{token}`: FastAPI matches in order, and the path parameter
+# would otherwise capture the literal "resend".
+@router.post("/verify-email/resend")
+def verify_email_resend(
+    request: Request,
+    db: DbSession = Depends(get_db),
+    email: str = Form(...),
+    next: str = Form(""),
+):
+    """Send another link. **The same response whatever the address** (the reset route's A11).
+
+    Throttled like reset: an unknown address counts as a failure, so the limit engages at the
+    same point whether or not the account exists. A real address is capped by the cooldown.
+    """
+    ip = request.client.host if request.client else "unknown"
+    try:
+        check_login_attempt(db, email=email, ip=ip)
+    except TooManyAttempts:
+        return _verify_page(request, "sent", email=email, next=next)
+
+    user = find_unverified_password_user(db, email)
+    if user is not None:
+        _send_verification(db, request, user, next)
+    else:
+        record_failure(db, email=email, ip=ip)
+        db.commit()
+    return _verify_page(request, "sent", email=email, next=next)
+
+
+@router.get("/verify-email/{token}")
+def verify_email_form(
+    request: Request, token: str, db: DbSession = Depends(get_db), next: str = "",
+):
+    """The link from the email. Shows a Confirm button; it does **not** confirm on GET.
+
+    Mail systems' link scanners (Outlook Safe Links and others) fetch every URL in a message.
+    Confirming here would let a scanner use the link up, and the person would click a dead one.
+    """
+    if verify_verification_token(db, token) is None:
+        # A signed-in visitor (confirmed on another device, or an old email) has nothing to fix.
+        if lookup_session(db, request.cookies.get(SESSION_COOKIE)) is not None:
+            return RedirectResponse("/", status_code=303)
+        return _verify_page(request, "dead", next=next, status_code=400)
+    return _verify_page(request, "confirm", token=token, next=next)
+
+
+@router.post("/verify-email/{token}")
+def verify_email_complete(
+    request: Request, token: str, db: DbSession = Depends(get_db), next: str = Form(""),
+):
+    """Confirm the address, burn every link for this person, and sign them in.
+
+    `next=None` lets `destination_for` choose: a brand-new user has no membership, so the
+    onboarding wizard. An invitee's `next` brings them back to `/invite/{token}` (A14).
+    """
+    user = redeem_verification_token(db, token)
+    if user is None:
+        return _verify_page(request, "dead", next=next, status_code=400)
+    response = establish_session(db, request, user.id, destination=safe_next(next))
     db.commit()
     return response

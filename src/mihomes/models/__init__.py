@@ -116,6 +116,9 @@ from mihomes.models.email_outbox import EmailOutbox  # noqa: E402, F401
 from mihomes.models.email_suppression import (  # noqa: E402, F401
     EmailSuppression,
 )
+from mihomes.models.email_verification_token import (  # noqa: E402, F401
+    EmailVerificationToken,
+)
 from mihomes.models.event import Event, EventGuest, Guest  # noqa: E402, F401
 from mihomes.models.gateway_link_token import (  # noqa: E402, F401
     GatewayLinkToken,

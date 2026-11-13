@@ -26,6 +26,9 @@ def client(monkeypatch):
             Route("/webhooks/stripe", _ok, methods=["POST"]),
             Route("/unsubscribe", _ok, methods=["GET", "POST"]),
             Route("/static/app.css", _ok),
+            Route("/manifest.webmanifest", _ok),
+            Route("/sw.js", _ok),
+            Route("/invite/{token}", _ok),
         ]
     )
     app.add_middleware(SitePasscodeMiddleware)
@@ -123,3 +126,17 @@ def test_machine_callers_and_static_bypass_the_gate(client, monkeypatch):
     assert client.post("/webhooks/stripe").status_code == 200
     assert client.post("/unsubscribe").status_code == 200
     assert client.get("/static/app.css").status_code == 200
+    # Manifest is fetched without cookies; gating it would break PWA install.
+    assert client.get("/manifest.webmanifest").status_code == 200
+    assert client.get("/sw.js").status_code == 200
+
+
+def test_invite_link_survives_the_gate(client, monkeypatch):
+    """An emailed invite is gated, but the token rides through `next` to the invite page."""
+    monkeypatch.setenv("MIHOMES_SITE_PASSCODE", "opensesame")
+    gate = client.get("/invite/abc123").headers["location"]
+    nxt = gate.split("next=", 1)[1]
+    from urllib.parse import unquote
+
+    resp = client.post(GATE_PATH, data={"passcode": "opensesame", "next": unquote(nxt)})
+    assert resp.headers["location"] == "/invite/abc123"

@@ -38,6 +38,9 @@ _WRONG_CODE_DELAY = 1.0  # seconds; slows guessing without blocking other reques
 
 # Package assets (CSS, icons) are public anyway and the gate page may use them.
 _STATIC_PREFIX = "/static/"
+# Browsers fetch the web-app manifest *without* cookies, so gating it would break PWA install.
+# Both are public metadata/JS that reveal no estate data.
+_PUBLIC_PATHS = frozenset({"/manifest.webmanifest", "/sw.js"})
 
 
 def configured_passcode() -> str:
@@ -53,7 +56,9 @@ def _exempt(path: str) -> bool:
     from mihomes.web.routes.unsubscribe import UNSUBSCRIBE_PATH_PREFIX
     from mihomes.web.routes.webhooks import WEBHOOK_PATH_PREFIX
 
-    return path.startswith((WEBHOOK_PATH_PREFIX, UNSUBSCRIBE_PATH_PREFIX, _STATIC_PREFIX))
+    return path in _PUBLIC_PATHS or path.startswith(
+        (WEBHOOK_PATH_PREFIX, UNSUBSCRIBE_PATH_PREFIX, _STATIC_PREFIX)
+    )
 
 
 def _dest(raw: str) -> str:

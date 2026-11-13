@@ -32,11 +32,17 @@ Until `~/.mihomes/run/LIVE` exists, `boot.sh` installs only `pg-backup.sh` (02:3
 
 While still building, the whole site sits behind one shared passcode
 (`src/mihomes/web/site_passcode.py`). Every page — landing, login, signup — asks for it first;
-a correct code sets a 30-day cookie. Webhooks (`/webhooks/…`), `/unsubscribe` and `/static/`
-are exempt so Stripe/Telegram keep working.
+a correct code sets a 30-day cookie. Webhooks (`/webhooks/…`), `/unsubscribe`, `/static/`,
+`/manifest.webmanifest` and `/sw.js` are exempt so Stripe/Telegram and PWA install keep working.
+Invite and password-reset links are gated, but the link survives: enter the code and you land on it
+— so give invitees the passcode too.
 
-- **Turn on / change:** add `MIHOMES_SITE_PASSCODE=<code>` to `~/.mihomes/run/web.env`, then
-  `sudo ~/.mihomes/run/boot.sh`. Changing the code signs every browser out of the curtain.
+- **Turn on / change:** add `MIHOMES_SITE_PASSCODE=<code>` to `~/.mihomes/run/web.env` — **no
+  quotes, no spaces** (`boot.sh` passes lines through literally) — then stop the app
+  (`pkill -f '[b]in/mihomes-dev'`) and `sudo ~/.mihomes/run/boot.sh`. Changing the code signs
+  every browser out of the curtain.
+- **Before live Stripe / Google OAuth verification:** reviewers need the public homepage, Terms
+  and Privacy — lift the curtain (or exempt those pages) then.
 - **Turn off (launch):** delete that line and re-run boot.
 
 Use a long code (wrong guesses are only slowed by 1 s). It is a curtain, not security — real

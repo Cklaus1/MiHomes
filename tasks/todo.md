@@ -1,5 +1,27 @@
 # MiHomes — Project State & Next Actions
 
+## Waitlist mode — invite-only signup (2026-11-13, branch `waitlist-mode`)
+Ask (user): replace open signup with a waitlist to gauge interest; existing test accounts still
+sign in; invite testers behind the scenes. One env switch, `MIHOMES_SIGNUP_MODE=waitlist`;
+unset = today's behaviour.
+- [x] `auth/signup_gate.py`: `waitlist_mode()`, signed tester-invite links (HMAC over email +
+      expiry, `MIHOMES_SECRET_KEY`, no table), `may_create_account()` = tester link for that email
+      OR a pending `/invite/{token}` (from `next`, or the cookie on the Google path).
+- [x] `/signup` GET/POST refuse new accounts without one of those (redirect to `/#waitlist`).
+- [x] Google callback: only *creating* a user is gated; existing users sign in as before. A tester
+      link's token rides a short-lived cookie set by `/signup` so Google sign-up works too.
+- [x] Homepage + login page: waitlist form / "Join the waitlist" instead of "Start free" /
+      "Create an account". `POST /waitlist` in the product app (rate-limited, same response for
+      every address, no confirmation email — mail is not live).
+- [x] Housekeeping: only purge unconfirmed rows that were actually *sent* a confirmation, so the
+      nightly cleanup cannot delete the interest list.
+- [x] CLI: `mihomes waitlist list`, `mihomes waitlist invite EMAIL [--days N]`.
+- [x] Tests (`tests/integration/test_waitlist_mode.py`, 16); runbook `docs/deploy/WAITLIST-MODE.md`.
+- [ ] Deploy (user): merge into harness, `alembic -n landing upgrade head` on the Droplet (table
+      missing there), set the env var, decide whether to lift the site passcode.
+- Found, not fixed: pre-sign-in team-invite lookup (`invite_service.find_pending`) is an unscoped
+      read that the code itself says only works as a superuser; not tested under the app role.
+
 ## Terms of Service + Privacy Policy (2026-11-09, branch `legal-pages`) — SPEC-001 O1
 Decisions (user): drafts plus a publish switch (counsel reviews before anything goes live). All
 database dumps on evo-dev are kept 14 days, including the pre-deploy ones.

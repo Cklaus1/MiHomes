@@ -70,6 +70,11 @@ PERMANENT_ALLOWLIST: dict[str, str] = {
         "HMAC over the body. The account is established *inside* the handler by "
         "`resolve_sender`, which is the one legitimately unscoped lookup (D11/§5.1)."
     ),
+    "mihomes.web.routes.waitlist": (
+        "Joining the waitlist is what a person does *instead of* having an account — while "
+        "signup is invite-only (`MIHOMES_SIGNUP_MODE=waitlist`) there is no identity to require. "
+        "It writes one global `waitlist` row and returns the same page for every address (N3)."
+    ),
     "mihomes.web.routes.unsubscribe": (
         "A mail client is not a user either. RFC 8058's one-click POST arrives from the "
         "provider's infrastructure with no cookie and no principal, and the recipient may not "
@@ -144,6 +149,11 @@ ALLOWLIST_MECHANISMS: dict[str, str] = {
         "signs nothing, so this authenticates the *caller*, not the bytes — anyone holding the "
         "secret can forge a body. An unset secret refuses every request rather than accepting "
         "them (fail closed)"
+    ),
+    "mihomes.web.routes.waitlist": (
+        "none, by design: there is no account to authenticate. Bounded instead — a per-IP token "
+        "bucket, inputs clipped to column widths, and one identical response whatever the "
+        "address, so it can neither be flooded nor used to learn who is on the list"
     ),
     "mihomes.web.routes.unsubscribe": (
         "HMAC token over the normalized email address, against MIHOMES_SECRET_KEY — verified "

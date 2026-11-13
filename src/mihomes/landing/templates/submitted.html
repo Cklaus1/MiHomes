@@ -1,11 +1,19 @@
 {% extends "base.html" %}
-{% block title %}Check your email — MiHomes{% endblock %}
+{% block title %}{% if no_email %}You're on the list{% else %}Check your email{% endif %} — MiHomes{% endblock %}
 
 {% block content %}
   {# N3: this page is rendered IDENTICALLY for a new address, an existing
      unconfirmed one, an already-confirmed one, and one past the resend ceiling.
      Any wording that distinguishes them turns POST /waitlist into an
      email-enumeration oracle. Do not add "you're already on the list". #}
+  {% if no_email %}
+  {# Product app, waitlist mode: no confirmation email is sent, so do not promise one. #}
+  <h1>You're on the list</h1>
+  <p class="lede">
+    Thanks for your interest in MiHomes. We're opening access in stages and will be in
+    touch when your spot opens.
+  </p>
+  {% else %}
   <h1>Check your email</h1>
   <p class="lede">
     If that address can receive mail, a confirmation link is on its way. Click it
@@ -15,4 +23,5 @@
     Nothing arrived after a few minutes? Check spam, then try again with the same
     address.
   </p>
+  {% endif %}
 {% endblock %}

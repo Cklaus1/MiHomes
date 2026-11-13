@@ -94,8 +94,17 @@
 {% block below %}
       {# The standard wording, now with somewhere to go: `/signup` exists (SPEC-010 Step 3), so
          "Create an account" is a real link rather than a promise the page cannot keep. #}
+      {# Waitlist mode: new accounts need an invitation, so a stranger is pointed at the waitlist.
+         A team invitee (arriving with `next=/invite/...`) still gets the signup link. #}
+      {% if waitlist_mode() and not (next or '').startswith('/invite/') %}
+      <p class="text-center text-sm text-gray-500 mt-6">
+        New here?
+        <a href="/#waitlist" class="font-medium text-gray-900 underline hover:no-underline">Join the waitlist.</a>
+      </p>
+      {% else %}
       <p class="text-center text-sm text-gray-500 mt-6">
         New here?
         <a href="/signup{% if next %}?next={{ next | urlencode }}{% endif %}" class="font-medium text-gray-900 underline hover:no-underline">Create an account.</a>
       </p>
+      {% endif %}
 {% endblock %}

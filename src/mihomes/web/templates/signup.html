@@ -24,6 +24,8 @@
              server-side by `safe_next`, never trusted as given: an unchecked value here
              makes this page an open redirector. #}
           {% if next %}<input type="hidden" name="next" value="{{ next }}" />{% endif %}
+          {# Waitlist mode: a tester invite link's token, checked against the email on submit. #}
+          {% if invite %}<input type="hidden" name="invite" value="{{ invite }}" />{% endif %}
           <div>
             <label for="name" class="block text-sm font-medium text-gray-700 mb-1">
               Name <span class="font-normal text-gray-500">(optional)</span>

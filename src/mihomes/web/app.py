@@ -54,6 +54,7 @@ from mihomes.web.routes import password as password_route
 from mihomes.web.routes import privacy as privacy_route
 from mihomes.web.routes import pwa as pwa_route
 from mihomes.web.routes import unsubscribe as unsubscribe_route
+from mihomes.web.routes import waitlist as waitlist_route
 from mihomes.web.routes import weather as weather_route
 from mihomes.web.routes import webhooks as webhooks_route
 from mihomes.web.security import HostAndOriginGuardMiddleware
@@ -99,7 +100,13 @@ def render_marketing_page(request: Request) -> str:
         for key in ("utm_campaign", "utm_source", "utm_medium")
         if key in request.query_params
     }
-    return render_page("index.html", {"utm": utm, **MARKETING_LINKS})
+    from mihomes.auth.signup_gate import waitlist_mode
+
+    links = dict(MARKETING_LINKS)
+    if waitlist_mode():
+        # No "Start free": the waitlist form takes its place (`auth/signup_gate.py`).
+        links.update(signup_url=None, waitlist_mode=True)
+    return render_page("index.html", {"utm": utm, **links})
 
 
 @asynccontextmanager
@@ -225,6 +232,9 @@ def create_app() -> FastAPI:
     # a user, so there is no cookie, principal or account for the matrix to consult. It is
     # authenticated by an HMAC token over the address (N9) — see the module docstring.
     app.include_router(unsubscribe_route.router)
+    # Waitlist mode's sign-up form (`MIHOMES_SIGNUP_MODE=waitlist`). Public like unsubscribe: the
+    # visitor has no account — that is the point. Mounted always; harmless when the mode is off.
+    app.include_router(waitlist_route.router)
     # Sign-in / sign-out (G12). No prefix: these paths are fixed by the OAuth redirect URI
     # registered with Google, so they cannot move without reconfiguring the provider.
     app.include_router(auth_route.router)

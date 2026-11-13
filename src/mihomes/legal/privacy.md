@@ -53,7 +53,7 @@ If you add information about other people (for example a housekeeper's phone num
 - If you turn on browser notifications: the push address your browser gives us and its user agent.
 
 **The waiting list** (our public website)
-- Email, name, number of homes, whether you have staff, how you found us (campaign tags, referrer), and the IP address and browser details at sign-up. The IP address and browser details are deleted after 30 days; a sign-up that is never confirmed is deleted entirely after 30 days.
+- Email, name, number of homes, whether you have staff, how you found us (campaign tags, referrer), and the IP address and browser details at sign-up. The IP address and browser details are deleted after 30 days; a sign-up we asked you to confirm by email and that is never confirmed is deleted entirely after 30 days.
 
 We use IP addresses briefly, in memory, to limit repeated sign-in attempts and form submissions. They are not stored for that purpose.
 

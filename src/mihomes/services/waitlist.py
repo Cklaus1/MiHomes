@@ -28,6 +28,7 @@ from mihomes.models.waitlist import Waitlist
 
 __all__ = [
     "CONFIRM_TOKEN_TTL",
+    "add",
     "MAX_CONFIRM_SENDS",
     "confirm",
     "confirmed_count",
@@ -81,7 +82,7 @@ def _as_utc(value: datetime | None) -> datetime | None:
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
-def signup(
+def add(
     session: Session,
     *,
     email: str,
@@ -93,12 +94,11 @@ def signup(
     referred_by: str | None = None,
     signup_ip: str | None = None,
     user_agent: str | None = None,
-) -> tuple[Waitlist, str | None]:
-    """Create or update a waitlist row. Idempotent per email (GTM:206 'upsert on repeat').
+) -> Waitlist:
+    """Create or update the row for ``email`` — the upsert half of `signup`, with no token.
 
-    Returns (row, raw_confirm_token). The raw token is returned exactly once, for the
-    email; only its hash is persisted. Returns (row, None) when the row is already
-    confirmed — an already-confirmed signup does not get a new token.
+    Used directly by the product app's waitlist mode, which sends no confirmation email.
+    Raises ValueError for an implausible address.
     """
     address = normalize_email(email)
     row = session.execute(
@@ -126,7 +126,34 @@ def signup(
         for field in _UTM_FIELDS:
             if utm.get(field) is not None:
                 setattr(row, field, utm[field])
+    session.flush()
+    return row
 
+
+def signup(
+    session: Session,
+    *,
+    email: str,
+    name: str | None = None,
+    num_homes: str | None = None,
+    has_staff: bool | None = None,
+    source: str = "form",
+    utm: dict[str, str] | None = None,
+    referred_by: str | None = None,
+    signup_ip: str | None = None,
+    user_agent: str | None = None,
+) -> tuple[Waitlist, str | None]:
+    """Create or update a waitlist row. Idempotent per email (GTM:206 'upsert on repeat').
+
+    Returns (row, raw_confirm_token). The raw token is returned exactly once, for the
+    email; only its hash is persisted. Returns (row, None) when the row is already
+    confirmed — an already-confirmed signup does not get a new token.
+    """
+    row = add(
+        session, email=email, name=name, num_homes=num_homes, has_staff=has_staff,
+        source=source, utm=utm, referred_by=referred_by, signup_ip=signup_ip,
+        user_agent=user_agent,
+    )
     # Already confirmed: nothing to send, and re-tokenizing would invalidate
     # nothing useful while letting a stranger reset someone else's token.
     if row.confirmed_at is not None:

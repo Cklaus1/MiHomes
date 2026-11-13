@@ -111,6 +111,12 @@ def _time_label(t) -> str:
 
 templates.env.filters["time_label"] = _time_label
 
+# Waitlist mode (`auth/signup_gate.py`): pages that offer "Create an account" ask this instead of
+# every route passing a flag. A callable, so it reads the env per render like the gate does.
+from mihomes.auth.signup_gate import waitlist_mode as _waitlist_mode  # noqa: E402
+
+templates.env.globals["waitlist_mode"] = _waitlist_mode
+
 
 def _localtime(dt, fmt: str = "%b %d, %H:%M") -> str:
     """A stored instant in the estate's time zone (naive = UTC), formatted. '' for None."""

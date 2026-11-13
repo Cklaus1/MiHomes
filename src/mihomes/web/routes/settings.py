@@ -902,7 +902,8 @@ def transfer_ownership_route(
         membership_service.transfer_ownership(db, actor, target)
         db.commit()
     except membership_service.MembershipError as exc:
-        db.rollback()
+        # Every refusal is raised before anything is written, so there is nothing to roll back
+        # (and a rollback would drop the transaction-local tenant GUC the re-render reads with).
         return _member_error(request, db, principal, str(exc))
 
     return RedirectResponse("/settings?notice=ownership_transferred#members", status_code=303)

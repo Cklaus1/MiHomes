@@ -590,3 +590,71 @@ def test_a_plan_denial_answers_json_for_an_api_caller(rls_app):
     body = response.json()
     assert body["error"] == "plan_required", body
     assert body["upgrade_target"] == "pro", body
+
+
+def _add_admin(account_id):
+    """A second member, an admin, written as the app role (RLS applies) — returns its id."""
+    import mihomes.db as db_module
+
+    user_id, membership_id = uuid.uuid4(), uuid.uuid4()
+    with db_module._engine.begin() as conn:
+        conn.execute(
+            text("select set_config('app.current_account', :a, true)"), {"a": str(account_id)}
+        )
+        conn.execute(
+            text("insert into users (id, email, name, created_at) "
+                 "values (:u, 'heir@example.com', 'Heir', now())"),
+            {"u": user_id},
+        )
+        conn.execute(
+            text("insert into memberships (id, user_id, account_id, role, status) "
+                 "values (:i, :u, :a, 'admin', 'active')"),
+            {"i": membership_id, "u": user_id, "a": account_id},
+        )
+    return membership_id
+
+
+def test_transferring_ownership_works_end_to_end(rls_app):
+    """Two membership UPDATEs and an audit INSERT, all tenant-table writes, under RLS."""
+    client, account_id = rls_app
+    heir = _add_admin(account_id)
+    _sign_in(client)
+
+    response = client.post(
+        "/settings/transfer-ownership",
+        data={"membership_id": str(heir), "confirm": "TRANSFER"},
+        headers=_HTML,
+    )
+    assert response.status_code == 303, response.text
+
+    import mihomes.db as db_module
+
+    with db_module._engine.begin() as conn:
+        conn.execute(
+            text("select set_config('app.current_account', :a, true)"), {"a": str(account_id)}
+        )
+        roles = dict(conn.execute(text("select id, role from memberships")).all())
+        assert roles[heir] == "owner"
+        assert sorted(roles.values()) == ["admin", "owner"]
+        assert conn.execute(
+            text("select count(*) from audit_log where action = 'transfer'")
+        ).scalar() == 1, "the transfer committed without an audit row"
+
+    # The ex-owner is now an admin and still gets in.
+    assert client.get("/settings", headers=_HTML).status_code == 200
+
+
+def test_a_refused_transfer_still_renders_the_members_list(rls_app):
+    """The refusal re-renders the page in the same request — it must still see the tenant."""
+    client, account_id = rls_app
+    heir = _add_admin(account_id)
+    _sign_in(client)
+
+    response = client.post(
+        "/settings/transfer-ownership",
+        data={"membership_id": str(heir), "confirm": "nope"},
+        headers=_HTML,
+    )
+    assert response.status_code == 400
+    assert "Type TRANSFER" in response.text
+    assert "heir@example.com" in response.text, "the members list rendered empty under RLS"

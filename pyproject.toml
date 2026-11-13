@@ -53,6 +53,12 @@ dependencies = [
     # by D2: nothing else in the tree imports it, which is what makes the provider swappable and
     # lets `FakeBillingProvider` cover every criterion without a live Stripe account.
     "stripe>=11.0",
+    # Imported directly but never declared — they only reached evo-dev's venv by accident
+    # (older `anthropic` releases pulled httpx in; openai was installed by hand). A fresh install
+    # on the mihomes.ai Droplet (2026-11-13) lacked both: /settings 500'd (personal_calendar
+    # google_client → httpx) and every NIM/OpenRouter AI call would have failed (openai SDK).
+    "httpx>=0.27",
+    "openai>=1.0",
 ]
 
 [project.optional-dependencies]

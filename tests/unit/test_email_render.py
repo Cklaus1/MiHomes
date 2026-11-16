@@ -110,3 +110,40 @@ def test_autoescape_is_on():
     )
     assert "<script>alert(1)</script>" not in html
     assert "&lt;script&gt;" in html
+
+
+# ── The footer reason (2026-11-16) ───────────────────────────────────────────────────────────
+
+_WAITLIST_REASON = "asked to join the MiHomes waitlist"
+
+
+def test_only_the_waitlist_email_says_you_joined_the_waitlist():
+    """The shared footer used to tell every recipient "you asked to join the MiHomes waitlist",
+    including someone resetting a password or accepting a staff invite. Every template except
+    the waitlist confirmation must now render without that sentence, in both parts."""
+    from pathlib import Path
+
+    from jinja2 import ChainableUndefined
+
+    from mihomes.services.email import render as render_module
+
+    templates = sorted(
+        p.stem for p in (Path(render_module.__file__).parent / "templates").glob("*.html")
+        if p.stem != "base"
+    )
+    assert "password_reset" in templates and "staff_invite" in templates
+
+    env = render_module._get_env()
+    original = env.undefined
+    env.undefined = ChainableUndefined  # render with missing context, we only read the footer
+    try:
+        for name in templates:
+            _, html, text = render_template(name, {})
+            if name == "waitlist_confirmation":
+                assert _WAITLIST_REASON in html and _WAITLIST_REASON in text
+            else:
+                assert _WAITLIST_REASON not in html, f"{name}.html still claims a waitlist signup"
+                assert _WAITLIST_REASON not in text, f"{name}.txt still claims a waitlist signup"
+                assert "mihomes.ai" in html, f"{name}.html lost the neutral footer"
+    finally:
+        env.undefined = original

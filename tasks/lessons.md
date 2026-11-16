@@ -26,6 +26,13 @@ Review this at the start of each session.
   Gitignore them instead. `src/web/` in `.gitignore` was a stale path that never matched.
 
 ## PRD Process
+- **"Similar to <product>" means the user-facing experience of that product, not its plumbing.**
+  (2026-11-11: "integrate Ring + smart devices like Home Assistant" was first written as an
+  alerts/Issues feed with live view deferred to Phase C. The user wanted HA's control panel: Ring
+  live on the dashboard with alerts on it, and every integration visible and controllable.) Before
+  writing requirements, restate the headline screen in one sentence ("the user opens X and sees Y
+  doing Z") and make Phase A deliver exactly that, with constraints worked around rather than
+  used as reasons to defer it.
 - Always renumber ALL section cross-references when inserting new sections (not just headers)
 - When doing find/replace on section numbers, do it in reverse order (highest first) to avoid cascading replacements (e.g., 6→7→8→9 chains)
 - Anonymize real names in examples before committing to a public repo

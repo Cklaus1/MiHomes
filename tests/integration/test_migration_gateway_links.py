@@ -26,6 +26,7 @@ from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
 
 from alembic import command
+from tests.pg_url import pg_url
 
 pytestmark = pytest.mark.skipif(
     not os.environ.get("TEST_DATABASE_URL"),
@@ -54,11 +55,11 @@ EXPECTED_COLUMNS = {
 
 def _admin_url() -> str:
     # `+psycopg` is required: a bare `postgresql://` resolves to psycopg2, not installed here.
-    return "postgresql+psycopg://postgres@localhost:5432/postgres"
+    return pg_url("postgres")
 
 
 def _scratch_url(name: str) -> str:
-    return f"postgresql+psycopg://postgres@localhost:5432/{name}"
+    return pg_url(name)
 
 
 @pytest.fixture

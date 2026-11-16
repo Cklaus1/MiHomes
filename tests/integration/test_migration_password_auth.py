@@ -25,6 +25,7 @@ from sqlalchemy import create_engine, text
 
 from alembic import command
 from tests.integration.test_pg_baseline import _config
+from tests.pg_url import pg_url
 
 pytestmark = pytest.mark.skipif(
     not os.environ.get("TEST_DATABASE_URL"),
@@ -33,7 +34,7 @@ pytestmark = pytest.mark.skipif(
 
 
 def _admin_url() -> str:
-    return "postgresql+psycopg://postgres@localhost:5432/postgres"
+    return pg_url("postgres")
 
 
 @pytest.fixture
@@ -43,7 +44,7 @@ def scratch_db():
     admin = create_engine(_admin_url(), isolation_level="AUTOCOMMIT", future=True)
     with admin.connect() as c:
         c.execute(text(f'CREATE DATABASE "{name}"'))
-    url = f"postgresql+psycopg://postgres@localhost:5432/{name}"
+    url = pg_url(name)
     try:
         yield url
     finally:

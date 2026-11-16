@@ -55,12 +55,12 @@ def rls_app(_pg_engine):
 
     name = f"mihomes_rlsreq{uuid.uuid4().hex[:8]}"
     admin = create_engine(
-        str(_pg_engine.url.set(database="postgres")), isolation_level="AUTOCOMMIT", future=True
+        _pg_engine.url.set(database="postgres").render_as_string(hide_password=False), isolation_level="AUTOCOMMIT", future=True
     )
     with admin.connect() as conn:
         conn.exec_driver_sql(f'CREATE DATABASE "{name}"')
 
-    owner_url = str(_pg_engine.url.set(database=name))
+    owner_url = _pg_engine.url.set(database=name).render_as_string(hide_password=False)
     owner = create_engine(owner_url, future=True)
     account_id = uuid.uuid4()
     try:
@@ -137,7 +137,7 @@ def rls_app(_pg_engine):
 
     import mihomes.db as db_module
 
-    app_url = str(make_url(owner_url).set(username=APP_ROLE, password=APP_PASSWORD))
+    app_url = make_url(owner_url).set(username=APP_ROLE, password=APP_PASSWORD).render_as_string(hide_password=False)
     saved_engine, saved_factory = db_module._engine, db_module._SessionLocal
     db_module._engine = create_engine(app_url, future=True)
     db_module._SessionLocal = None

@@ -19,8 +19,9 @@ Revises: 0006_user_last_used_account
 from typing import Sequence, Union
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision: str = "0007_telegram_links"
 down_revision: Union[str, None] = "0006_user_last_used_account"

@@ -17,8 +17,9 @@ Revises: 0005_invite_property_ids
 from typing import Sequence, Union
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision: str = "0006_user_last_used_account"
 down_revision: Union[str, None] = "0005_invite_property_ids"

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import text
 from typer.testing import CliRunner
@@ -101,7 +101,9 @@ def test_job_twice_is_noop(app_engine, _pg_engine, estate, monkeypatch):
 
     e = estate
     r = rooms(app_engine, e)
-    post(app_engine, _pg_engine, e, r["dm"], e.owner, "cli", age=OLD)
+    # The CLI runs on the real clock, so backdate from it, not the helpers' fixed NOW: a post
+    # aged from NOW falls outside NOTIFY_HORIZON (48h) two days after NOW, and the job skips it.
+    post(app_engine, _pg_engine, e, r["dm"], e.owner, "cli", age=OLD, now=datetime.now(UTC))
     # As on evo-dev: no email provider configured at all. The job only enqueues, so it must
     # still succeed (it failed every account here before 2026-10-30).
     monkeypatch.delenv("EMAIL_PROVIDER", raising=False)

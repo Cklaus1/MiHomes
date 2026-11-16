@@ -653,7 +653,10 @@ def test_signin_rotates_the_session_id(client, provider):
         planted, _row = create_session(s, user.id)
         s.commit()
 
-    # Present the planted cookie and sign in again.
+    # Present the planted cookie and sign in again. Drop the first sign-in's cookie first: `set`
+    # adds a second same-named cookie rather than replacing it, the jar keeps sending the
+    # original, and the planted id is never presented, so it is never revoked either.
+    client.cookies.delete(SESSION_COOKIE)
     client.cookies.set(SESSION_COOKIE, planted)
     client.get("/auth/google/start", follow_redirects=False)
     state = client.cookies.get("mihomes_oauth_state")

@@ -10,6 +10,11 @@ The unit tests never built a provider from a real account, which is how it survi
 
 from __future__ import annotations
 
+import os
+
+import pytest
+
+from mihomes import db
 from mihomes.services.ai import provider as provider_mod
 from mihomes.services.metering.ai_wrapper import MeteredProvider
 from mihomes.tenancy.context import account_context
@@ -18,6 +23,21 @@ from mihomes.tenancy.context import account_context
 class _Fake:
     def complete(self, system_prompt, query, context_data=None, attachments=None):
         return "ok"
+
+
+@pytest.fixture(autouse=True)
+def _pin_engine_to_test_db():
+    """`get_provider()` loads the account through `mihomes.db.get_session()`, which follows
+    `DATABASE_URL`. `cli_database` (conftest, session-scoped) repoints that at its own database
+    once any CLI module has run, while `account_a` lives in `TEST_DATABASE_URL`, so in a full run
+    the lookup found no account. Same fix as `test_dedup`: bind the engine explicitly."""
+    prev_engine, prev_factory = db._engine, db._SessionLocal
+    engine = db.get_engine(os.environ["TEST_DATABASE_URL"])
+    try:
+        yield
+    finally:
+        engine.dispose()
+        db._engine, db._SessionLocal = prev_engine, prev_factory
 
 
 def test_factory_account_is_readable_after_the_session_closes(account_a, monkeypatch):

@@ -390,3 +390,118 @@ def test_multi_account_is_covered_without_polluting_the_shared_database(jobs_cli
         with get_session() as session:
             session.query(Account).filter(Account.id == extra_id).delete()
             session.commit()
+
+
+# ── The trial-ending email (2026-11-17) ─────────────────────────────────────────────────────
+
+
+def _trial_with_owner(session, account_a, *, ends_in: timedelta, homes: int = 0):
+    """`account_a` on a Pro trial ending `ends_in` from now, with an owner to mail and N homes."""
+    import uuid as _uuid
+
+    from mihomes.ids import new_id
+    from mihomes.models.membership import Membership
+    from mihomes.models.user import User
+    from mihomes.services.property import create_property
+
+    user = User(id=new_id(), google_sub=f"sub-trial-{_uuid.uuid4().hex[:8]}",
+                email="trial-owner@example.com", name="Trial Owner",
+                email_verified_at=datetime.now(UTC))
+    session.add(user)
+    session.flush()
+    session.add(Membership(id=new_id(), account_id=account_a, user_id=user.id,
+                           role="owner", status="active"))
+    account = session.get(Account, account_a)
+    account.plan = "pro"
+    account.subscription_status = "trialing"
+    account.trial_ends_at = datetime.now(UTC) + ends_in
+    account.trial_used_at = datetime.now(UTC) - timedelta(days=12)
+    session.commit()
+    for n in range(homes):
+        create_property(session, f"Trial Home {n + 1}")
+    session.commit()
+    return account
+
+
+def _trial_rows(session):
+    from mihomes.models.email_outbox import EmailOutbox
+
+    return session.query(EmailOutbox).filter(EmailOutbox.template == "trial_ending").all()
+
+
+class TestTrialEndingEmail:
+    def test_queued_once_with_the_over_limit_numbers(self, session, account_a, monkeypatch):
+        """Inside the 3-day window: one email to the owner, saying what changes, and only once
+        however many nightly runs see the trial."""
+        import json
+
+        from mihomes.cli.jobs import _send_trial_ending
+
+        monkeypatch.setenv("EMAIL_PROVIDER", "console")
+        account = _trial_with_owner(session, account_a, ends_in=timedelta(days=2, hours=5), homes=3)
+
+        assert _send_trial_ending(session, account, 2) is True
+        assert _send_trial_ending(session, account, 2) is False, "a second night queued a copy"
+        assert _send_trial_ending(session, account, 1) is False
+
+        rows = _trial_rows(session)
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.to_address == "trial-owner@example.com"
+        assert row.klass == "transactional"
+        context = json.loads(row.context) if isinstance(row.context, str) else row.context
+        assert context["days_left"] == 2
+        assert context["home_count"] == 3 and context["max_homes"] == 1
+        assert context["over_limit"] is True
+        assert context["billing_url"].endswith("/billing")
+
+    def test_the_email_renders_with_what_the_job_queues(self, session, account_a, monkeypatch):
+        """The queued context is what the drain renders, so render it as the drain would."""
+        import json
+
+        from mihomes.cli.jobs import _send_trial_ending
+        from mihomes.services.email.render import render_template
+
+        monkeypatch.setenv("EMAIL_PROVIDER", "console")
+        account = _trial_with_owner(session, account_a, ends_in=timedelta(days=3), homes=2)
+        _send_trial_ending(session, account, 3)
+        row = _trial_rows(session)[0]
+        context = json.loads(row.context) if isinstance(row.context, str) else row.context
+
+        subject, html, text = render_template("trial_ending", context)
+        assert subject == "Your MiHomes trial ends in 3 days"
+        assert "You currently have 2 homes and free covers 1." in html
+        assert "Keep Pro" in html
+
+    def test_a_failed_send_is_retried_the_next_night(self, session, account_a, monkeypatch):
+        """No row on failure, so the next run sends it rather than treating it as done."""
+        from mihomes.cli import jobs
+
+        monkeypatch.setenv("EMAIL_PROVIDER", "console")
+        account = _trial_with_owner(session, account_a, ends_in=timedelta(days=2))
+
+        def boom(*_a, **_k):
+            raise RuntimeError("provider down")
+
+        from mihomes.services.email.service import EmailService
+        monkeypatch.setattr(EmailService, "send_trial_ending", boom)
+        assert jobs._send_trial_ending(session, account, 2) is False
+        assert _trial_rows(session) == []
+
+        monkeypatch.undo()
+        monkeypatch.setenv("EMAIL_PROVIDER", "console")
+        account = session.get(Account, account_a)
+        assert jobs._send_trial_ending(session, account, 2) is True
+        assert len(_trial_rows(session)) == 1
+
+    def test_no_owner_means_no_email_and_no_crash(self, session, account_a, monkeypatch):
+        from mihomes.cli.jobs import _send_trial_ending
+
+        monkeypatch.setenv("EMAIL_PROVIDER", "console")
+        account = session.get(Account, account_a)
+        account.plan = "pro"
+        account.subscription_status = "trialing"
+        account.trial_ends_at = datetime.now(UTC) + timedelta(days=2)
+        session.commit()
+        assert _send_trial_ending(session, account, 2) is False
+        assert _trial_rows(session) == []

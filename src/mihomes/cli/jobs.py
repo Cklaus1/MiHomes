@@ -649,7 +649,7 @@ def trial_sweep(
     from datetime import UTC, datetime
 
     now = datetime.now(UTC)
-    expired = ending_soon = 0
+    expired = ending_soon = notified = 0
 
     for account_id, _customer_id in _accounts_with_trials():
         with _account_session(account_id) as (session, account):
@@ -661,13 +661,65 @@ def trial_sweep(
                 if not dry_run:
                     _expire_trial(session, account)
             elif remaining <= TRIAL_ENDING_WINDOW_DAYS:
-                # Step 15 sends the email; this counts what it will send to. Split so a failure
-                # in the mail path cannot mark a trial as notified without notifying anyone.
                 ending_soon += 1
+                if not dry_run and _send_trial_ending(session, account, remaining):
+                    notified += 1
 
     verb = "would expire" if dry_run else "expired"
     rprint(f"Trial sweep: {verb} {expired}; {ending_soon} ending within "
-           f"{TRIAL_ENDING_WINDOW_DAYS} days.")
+           f"{TRIAL_ENDING_WINDOW_DAYS} days; {notified} trial-ending email(s) queued.")
+
+
+def _send_trial_ending(session, account, remaining_days: int) -> bool:
+    """Queue the "your trial ends in N days" email, **once per trial** (2026-11-17).
+
+    Returns True when an email was queued now.
+
+    **Once is decided by the outbox, not by a flag.** The sweep runs nightly and the window is
+    three days, so without a check the owner would get three copies. The record of having emailed
+    is the outbox row itself (queued, sent or failed), looked up in this account's own rows. That
+    is also why a failure here records nothing: if enqueueing raises, there is no row, and the
+    next night tries again. A flag set before the send could mark a trial as notified without
+    notifying anyone; a flag set after could be missed by a crash in between.
+
+    Each account has at most one trial ever (`trial_used_at`), so "any trial_ending row for this
+    account" means "this trial". The cleanup job keeps sent rows 90 days, far longer than the
+    three-day window.
+    """
+    from sqlalchemy import select
+
+    from mihomes.models.email_outbox import EmailOutbox
+    from mihomes.services.billing.cancel import downgrade_consequences
+    from mihomes.services.billing.service import _billing_email, _billing_url
+    from mihomes.services.email import get_email_provider
+    from mihomes.services.email.service import EmailService
+
+    already = session.execute(
+        select(EmailOutbox.id)
+        .where(EmailOutbox.account_id == account.id, EmailOutbox.template == "trial_ending")
+        .limit(1)
+    ).first()
+    if already is not None:
+        return False
+
+    try:
+        after = downgrade_consequences(session, account, "free")
+        ends = account.trial_ends_at
+        EmailService(get_email_provider(), session=session).send_trial_ending(
+            _billing_email(session, account),
+            days_left=max(1, remaining_days),
+            ends_on=f"{ends.day} {ends:%B %Y}",
+            billing_url=_billing_url(),
+            home_count=after["homes"],
+            max_homes=after["target_homes"],
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        logger.exception("trial-sweep: trial-ending email not queued for account %s", account.id)
+        return False
+    logger.info("trial-sweep: trial-ending email queued for account %s", account.id)
+    return True
 
 
 #: How far ahead the sweep flags a trial as ending.

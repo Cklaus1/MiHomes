@@ -270,9 +270,14 @@ def apply_subscription_state(
     # A subscription that has ended has nothing left to cancel — clear the flag, or the page
     # keeps saying "Ends X, then Free" after it already has.
     wanted = False if account.subscription_status == "canceled" else bool(state.cancel_at_period_end)
+    newly_cancelling = False
     if (state.provider_subscription_id is not None or account.subscription_status == "canceled") and (
         bool(account.cancel_at_period_end) != wanted
     ):
+        # A cancel MiHomes did not already know about: made in the Stripe portal, or caught up by
+        # the reconcile sweep. One made with our own Cancel button set the flag first, so it shows
+        # no change here and is not emailed twice (`cancel.cancel_plan` sends that one).
+        newly_cancelling = wanted
         account.cancel_at_period_end = wanted
         changed = True
 
@@ -282,7 +287,34 @@ def apply_subscription_state(
             "subscription state applied: account=%s plan=%s status=%s",
             account.id, account.plan, account.subscription_status,
         )
+    if newly_cancelling:
+        notify_cancellation(session, account)
     return changed
+
+
+def notify_cancellation(session: Session, account: Account) -> None:
+    """Email the owner that the subscription will end at the period end (2026-11-17).
+
+    Called once per cancel decision: by `cancel.cancel_plan` for our own Cancel button, and by
+    `apply_subscription_state` for a cancel MiHomes learns of from Stripe. **Never raises**: the
+    cancellation has already been committed, and a mail problem must not turn it into an error
+    page or a failed webhook (which Stripe would retry, applying nothing new).
+    """
+    try:
+        from mihomes.services.email import get_email_provider
+        from mihomes.services.email.service import EmailService
+
+        ends = account.current_period_end
+        EmailService(get_email_provider(), session=session).send_subscription_cancelled(
+            _billing_email(session, account),
+            plan=account.plan,
+            billing_url=_billing_url(),
+            active_until=f"{ends.day} {ends:%B %Y}" if ends else None,
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        logger.exception("cancellation email not queued for account %s", account.id)
 
 
 def start_checkout(

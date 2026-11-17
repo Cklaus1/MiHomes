@@ -427,7 +427,9 @@ class EmailService:
 
     def send_subscription_cancelled(self, to: str, *, plan: str, billing_url: str,
                                     active_until: str | None = None) -> None:
-        """`customer.subscription.deleted` — cancelled, and what that actually means.
+        """Cancelled at period end, and what that actually means. Sent when the cancel is made
+        (our Cancel button, or the Stripe portal via `customer.subscription.updated`), not when the
+        subscription finally ends, because that is when the customer wants confirmation.
 
         `active_until` matters: §4.4 says cancellation takes effect **at period end**, not
         instantly, because the customer has already paid for the rest of the period. Omitting it

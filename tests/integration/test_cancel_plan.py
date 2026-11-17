@@ -185,3 +185,95 @@ def test_nothing_is_deleted(session, account):
 
     cancel_plan(session, account, provider=RecordingProvider())
     assert session.query(Property).count() == before
+
+
+# ── The cancellation email (2026-11-17) ──────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def owned(session, account, monkeypatch):
+    """`account` with an owner to email, on the console provider."""
+    import uuid as _uuid
+
+    from mihomes.ids import new_id
+    from mihomes.models.membership import Membership
+    from mihomes.models.user import User
+
+    monkeypatch.setenv("EMAIL_PROVIDER", "console")
+    user = User(id=new_id(), google_sub=f"sub-cancel-{_uuid.uuid4().hex[:8]}",
+                email="cancel-owner@example.com", email_verified_at=datetime.now(UTC))
+    session.add(user)
+    session.flush()
+    session.add(Membership(id=new_id(), account_id=account.id, user_id=user.id,
+                           role="owner", status="active"))
+    session.commit()
+    return account
+
+
+def _cancel_mails(session):
+    import json
+
+    from mihomes.models.email_outbox import EmailOutbox
+
+    rows = session.query(EmailOutbox).filter(EmailOutbox.template == "subscription_cancelled").all()
+    return [(r.to_address, json.loads(r.context) if isinstance(r.context, str) else r.context)
+            for r in rows]
+
+
+def test_our_cancel_button_emails_once_even_after_stripe_confirms(session, owned):
+    _pay(session, owned)
+    cancel_plan(session, owned, provider=RecordingProvider())
+    # Stripe's own confirmation of the same cancel must not send a second email.
+    state = SubscriptionState("sub_1", "pro", "active", owned.current_period_end, True)
+    apply_subscription_state(session, owned, state)
+
+    mails = _cancel_mails(session)
+    assert len(mails) == 1, mails
+    to, ctx = mails[0]
+    assert to == "cancel-owner@example.com"
+    end = owned.current_period_end
+    assert ctx["plan"] == "pro" and ctx["active_until"] == f"{end.day} {end:%B %Y}"
+    assert ctx["billing_url"].endswith("/billing")
+
+
+def test_a_cancel_made_in_the_stripe_portal_is_emailed(session, owned):
+    _pay(session, owned)
+    state = SubscriptionState("sub_1", "pro", "active", owned.current_period_end, True)
+    apply_subscription_state(session, owned, state)
+    apply_subscription_state(session, owned, state)  # Stripe redelivers: still one email
+    assert len(_cancel_mails(session)) == 1
+
+
+def test_no_email_when_the_period_simply_ends_or_for_a_trial(session, owned):
+    # A trial (no subscription) is dropped to Free at once and is not "a cancelled subscription".
+    cancel_plan(session, owned, provider=RecordingProvider())
+    assert _cancel_mails(session) == []
+
+    # The subscription ending at the period end is not a new cancel decision.
+    owned.plan, owned.subscription_status = "pro", "active"
+    session.commit()
+    _pay(session, owned)
+    ended = SubscriptionState("sub_1", "pro", "canceled", owned.current_period_end, False)
+    apply_subscription_state(session, owned, ended)
+    assert _cancel_mails(session) == []
+
+
+def test_undo_then_cancel_again_emails_again(session, owned):
+    _pay(session, owned)
+    provider = RecordingProvider()
+    cancel_plan(session, owned, provider=provider)
+    resume_plan(session, owned, provider=provider)
+    cancel_plan(session, owned, provider=provider)
+    assert len(_cancel_mails(session)) == 2
+
+
+def test_the_email_renders_from_what_is_queued(session, owned):
+    from mihomes.services.email.render import render_template
+
+    _pay(session, owned)
+    cancel_plan(session, owned, provider=RecordingProvider())
+    _, ctx = _cancel_mails(session)[0]
+    subject, html, _ = render_template("subscription_cancelled", ctx)
+    assert subject == "Your MiHomes subscription has been cancelled"
+    assert f"You keep Pro until <strong>{ctx['active_until']}</strong>" in html
+    assert "Resubscribe" in html

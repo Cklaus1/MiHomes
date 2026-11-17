@@ -129,6 +129,11 @@ def cancel_plan(session: Session, account: Account, *, provider=None) -> str:
         account.cancel_at_period_end = True
         session.commit()
         logger.info("cancel at period end requested for account %s", account.id)
+        # The flag is already set, so the webhook that follows sees no change and does not
+        # email again. A trial or hand-set plan (below) has no subscription and gets no email.
+        from mihomes.services.billing.service import notify_cancellation
+
+        notify_cancellation(session, account)
         return "at_period_end"
 
     # No subscription: a trial or a hand-set plan. Same fields as `_expire_trial`, and

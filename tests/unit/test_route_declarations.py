@@ -96,6 +96,10 @@ PERMANENT_ALLOWLIST: dict[str, str] = {
         "`/chat/`) and must be fetchable without cookies (a manifest fetch carries none by "
         "default, so one behind authentication breaks install). Both are fixed files with no "
         "input and no tenant data — the `/healthz` argument."
+    ),    "mihomes.web.routes.seo": (
+        "2026-11-17. `/robots.txt`, `/sitemap.xml` and Google's `google<token>.html` must sit at "
+        "the site root and be fetchable by crawlers, which carry no cookies. Fixed text or public "
+        "facts only (site address, which legal pages are published) — the `pwa` argument."
     ),
 }
 
@@ -166,6 +170,10 @@ ALLOWLIST_MECHANISMS: dict[str, str] = {
     "mihomes.web.routes.pwa": (
         "nothing — fixed bytes, no input, no data: the service worker script and the manifest, "
         "the same files for every visitor"
+    ),    "mihomes.web.routes.seo": (
+        "nothing — public text only. The verification route answers solely for filenames listed "
+        "in MIHOMES_GOOGLE_SITE_VERIFICATION and 404s otherwise, because the file's content is "
+        "derivable from its name: answering for any `google*.html` would let anyone claim the domain"
     ),
 }
 

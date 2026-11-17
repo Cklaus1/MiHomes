@@ -53,6 +53,7 @@ from mihomes.web.routes import library as library_route
 from mihomes.web.routes import password as password_route
 from mihomes.web.routes import privacy as privacy_route
 from mihomes.web.routes import pwa as pwa_route
+from mihomes.web.routes import seo as seo_route
 from mihomes.web.routes import unsubscribe as unsubscribe_route
 from mihomes.web.routes import waitlist as waitlist_route
 from mihomes.web.routes import weather as weather_route
@@ -260,6 +261,8 @@ def create_app() -> FastAPI:
     app.include_router(chat.router, prefix="/chat")
     # SPEC-014 D12: root-scoped service worker + manifest, permanently undeclared (fixed bytes).
     app.include_router(pwa_route.router)
+    # robots.txt, sitemap.xml, Google site verification — root-level, public, no tenant data.
+    app.include_router(seo_route.router)
     app.include_router(inventory_route.router, prefix="/inventory")
     app.include_router(calendar_route.router, prefix="/calendar")
 

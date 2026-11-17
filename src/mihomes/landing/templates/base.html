@@ -6,6 +6,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}MiHomes{% endblock %}</title>
+  <meta name="description" content="{% block description %}The AI-first command center for multi-home owners. Manage properties, staff, vendors, maintenance and budgets in one place, prioritized by an AI estate manager.{% endblock %}">
+  <meta property="og:site_name" content="MiHomes">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="{{ self.title() }}">
+  <meta property="og:description" content="{{ self.description() }}">
+  <meta name="twitter:card" content="summary">
   {# Only the standalone landing app serves this file; the product app's /static is a
      different directory. `hero_src` being defined signals that deployment. #}
   {% if hero_src is not defined %}

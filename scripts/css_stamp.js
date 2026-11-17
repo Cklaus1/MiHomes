@@ -41,7 +41,9 @@ const h = crypto.createHash("sha256");
 for (const file of sources) {
   // Relative POSIX path, so a Windows checkout and a Linux CI agree.
   h.update(path.relative(ROOT, file).split(path.sep).join("/"));
-  h.update(fs.readFileSync(file));
+  // CRLF -> LF: a Windows checkout (core.autocrlf=true) has CRLF in the working tree while CI
+  // has the committed LF bytes. Hashing raw bytes made every stamp written on Windows wrong.
+  h.update(fs.readFileSync(file).toString("utf8").replace(/\r\n/g, "\n"));
 }
 
 const digest = h.digest("hex");

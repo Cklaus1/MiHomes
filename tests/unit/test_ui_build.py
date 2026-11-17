@@ -128,7 +128,8 @@ def _expected_stamp() -> str:
     h = hashlib.sha256()
     for f in sources:
         h.update(f.relative_to(ROOT).as_posix().encode("utf-8"))
-        h.update(f.read_bytes())
+        # CRLF -> LF, matching css_stamp.js: a Windows checkout and CI must hash the same text.
+        h.update(f.read_bytes().replace(b"\r\n", b"\n"))
     return h.hexdigest()
 
 

@@ -25,8 +25,10 @@ not in middleware.
       the attacker's password.
 - [x] `EmailService.send_email_verification` (transactional) + template.
 - [x] Tests: unit + integration; existing signup tests rewritten for the new flow.
+- [x] 2026-11-17: "Email confirmed. Welcome to MiHomes." one-time banner after confirming; nightly
+      clean-up deletes unconfirmed password sign-ups after 30 days (guards: no session, no membership).
 - Follow-ups (not this branch): re-verify on a Settings email change; nightly purge of
-  unverified users older than N days; bounce/complaint webhook.
+  (done above); bounce/complaint webhook.
 - Runbook for the Resend/GoDaddy steps: `docs/deploy/EMAIL-RESEND.md`.
 - **Deploy order:** Resend key live and a password reset tested on the server first.
   Otherwise every new signup is stranded at "check your inbox".

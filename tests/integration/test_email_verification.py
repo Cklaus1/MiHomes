@@ -363,3 +363,77 @@ def test_expired_links_are_pruned(client, mailbox):
         left = s.execute(select(func.count()).select_from(EmailVerificationToken)).scalar_one()
     assert counts["verify_links"] >= 1
     assert left == 0
+
+
+# ── "Email confirmed" notice (2026-11-17) ───────────────────────────────────────
+
+def test_confirming_shows_a_one_time_confirmed_notice(client, mailbox):
+    _signup(client, "notice@example.com")
+    r = confirm_email(client, mailbox, "notice@example.com")
+    assert r.status_code == 303
+    assert client.cookies.get("mihomes_notice") == "email_confirmed"
+
+    landed = client.get(r.headers["location"], follow_redirects=True)
+    assert landed.status_code == 200
+    assert "Email confirmed. Welcome to MiHomes." in landed.text
+    # The page clears the cookie itself, so the banner shows once.
+    assert 'document.cookie = "mihomes_notice=; Max-Age=0' in landed.text
+
+
+def test_no_notice_without_the_cookie(client):
+    assert "Email confirmed" not in client.get("/login").text
+
+
+# ── 30-day clean-up of unconfirmed accounts (2026-11-17) ────────────────────────
+
+def _age(client, email: str, days: int) -> None:
+    with client._Session() as s:
+        s.execute(
+            text("UPDATE users SET created_at = now() - make_interval(days => :d) "
+                 "WHERE lower(email) = :e"),
+            {"d": days, "e": email.lower()},
+        )
+        s.commit()
+
+
+def _exists(client, email: str) -> bool:
+    with client._Session() as s:
+        return s.execute(
+            select(func.count()).select_from(User).where(func.lower(User.email) == email.lower())
+        ).scalar_one() == 1
+
+
+def test_unconfirmed_accounts_are_removed_after_30_days_and_nothing_else(client, mailbox):
+    # Removed: unconfirmed, password, 31 days old.
+    _signup(client, "stale@example.com")
+    _age(client, "stale@example.com", 31)
+    # Kept: unconfirmed but only 29 days old.
+    _signup(client, "recent@example.com")
+    _age(client, "recent@example.com", 29)
+    # Kept: confirmed, and old.
+    _signup(client, "confirmed@example.com")
+    confirm_email(client, mailbox, "confirmed@example.com")
+    client.cookies.clear()
+    _age(client, "confirmed@example.com", 400)
+    # Kept: an old Google user (confirmed by Google).
+    with client._Session() as s:
+        upsert_user(s, IdentityClaims(subject="old-google", email="google@example.com"))
+        s.commit()
+    _age(client, "google@example.com", 400)
+    # Kept: unconfirmed and old, but somehow holding a session (the guard, not the invariant).
+    _signup(client, "guarded@example.com")
+    _age(client, "guarded@example.com", 31)
+    from mihomes.auth.sessions import create_session
+    with client._Session() as s:
+        create_session(s, _user(client, "guarded@example.com").id)
+        s.commit()
+
+    with client._Session() as s:
+        counts = prune_global(s)
+        s.commit()
+
+    assert counts["unconfirmed_accounts"] == 1
+    assert not _exists(client, "stale@example.com")
+    for kept in ("recent@example.com", "confirmed@example.com", "google@example.com",
+                 "guarded@example.com"):
+        assert _exists(client, kept), f"{kept} was deleted"

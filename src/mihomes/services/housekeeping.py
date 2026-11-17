@@ -11,6 +11,7 @@ household asked for. The periods were decided by the founder on 2026-11-10:
 | Waitlist sign-ups sent a confirmation email and never confirmed | 30 days |
 | Waitlist IP address and browser details | 30 days (confirmed sign-ups keep the rest) |
 | Sign-in sessions, password-reset links, Telegram link codes | until they expire |
+| Password sign-ups that never confirmed their email (2026-11-17) | 30 days |
 
 Mail still **waiting** to send is never touched, nor is the unsubscribe list (`email_suppressions`),
 which must outlive everything so an unsubscribed address is never mailed again.
@@ -35,6 +36,7 @@ __all__ = [
     "EMAIL_RETENTION",
     "MESSENGER_DEFAULT_YEARS",
     "WAITLIST_TRACKING",
+    "UNCONFIRMED_ACCOUNT",
     "WAITLIST_UNCONFIRMED",
     "messenger_retention",
     "prune_account",
@@ -44,6 +46,7 @@ __all__ = [
 MESSENGER_DEFAULT_YEARS = 1
 EMAIL_RETENTION = timedelta(days=90)
 WAITLIST_UNCONFIRMED = timedelta(days=30)
+UNCONFIRMED_ACCOUNT = timedelta(days=30)
 WAITLIST_TRACKING = timedelta(days=30)
 
 
@@ -108,7 +111,7 @@ def prune_global(session: Session, *, now: datetime | None = None) -> dict[str, 
     def run(statement) -> int:
         return session.execute(statement).rowcount or 0
 
-    return {
+    counts = {
         "sessions": run(delete(SignInSession).where(SignInSession.expires_at < now)),
         "reset_links": run(delete(PasswordResetToken).where(PasswordResetToken.expires_at < now)),
         "verify_links": run(
@@ -131,3 +134,43 @@ def prune_global(session: Session, *, now: datetime | None = None) -> dict[str, 
             .values(signup_ip=None, user_agent=None)
         ),
     }
+    counts["unconfirmed_accounts"] = _purge_unconfirmed_accounts(session, now)
+    return counts
+
+
+def _purge_unconfirmed_accounts(session: Session, now: datetime) -> int:
+    """Delete password sign-ups that never confirmed their email, 30 days on (2026-11-17).
+
+    Such an account was never usable: an unconfirmed user is never given a session, so it can
+    hold no household, no membership and no data. Each condition below is a separate guard
+    rather than trusting that invariant alone, because a wrong delete here removes a person:
+
+    * `email_verified_at IS NULL`: never confirmed. Every pre-0031 user was backfilled as
+      confirmed, so no existing account qualifies.
+    * a password and **no** Google identity: a Google user is confirmed by Google.
+    * no sign-in session row, ever surviving, and no membership row.
+
+    The membership check may see nothing under RLS on the app role, which is why it is only one
+    guard among several. Run in a savepoint, so a failure here (a foreign key nobody expected)
+    is logged and skipped instead of rolling back the rest of the nightly clean-up.
+    """
+    from sqlalchemy import text
+
+    try:
+        with session.begin_nested():
+            result = session.execute(
+                text(
+                    "DELETE FROM users u "
+                    "WHERE u.email_verified_at IS NULL "
+                    "  AND u.password_hash IS NOT NULL "
+                    "  AND u.google_sub IS NULL "
+                    "  AND u.created_at < :cutoff "
+                    "  AND NOT EXISTS (SELECT 1 FROM sessions s WHERE s.user_id = u.id) "
+                    "  AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)"
+                ),
+                {"cutoff": now - UNCONFIRMED_ACCOUNT},
+            )
+            return result.rowcount or 0
+    except Exception:
+        logger.exception("cleanup: could not remove unconfirmed accounts; skipped")
+        return 0

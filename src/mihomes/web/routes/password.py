@@ -471,6 +471,11 @@ def reset_complete(
 #: button and repeated sign-ins are a way to flood a stranger's inbox.
 RESEND_COOLDOWN = timedelta(seconds=60)
 
+#: One-time notice shown after confirming (see `partials/_notice.html`). Five minutes covers the
+#: redirect chain into onboarding; the banner clears it on first display.
+NOTICE_COOKIE = "mihomes_notice"
+NOTICE_MAX_AGE = 300
+
 
 def _send_verification(db: DbSession, request: Request, user, next: str = "") -> None:
     """Mint a link and mail it, unless one went out within `RESEND_COOLDOWN`. **Commits.**
@@ -580,4 +585,9 @@ def verify_email_complete(
         return _verify_page(request, "dead", next=next, status_code=400)
     response = establish_session(db, request, user.id, destination=safe_next(next))
     db.commit()
+    # "Email confirmed. Welcome to MiHomes." on whichever page they land (`partials/_notice.html`).
+    set_auth_cookie(
+        response, request, NOTICE_COOKIE, "email_confirmed",
+        max_age=NOTICE_MAX_AGE, http_only=False,
+    )
     return response

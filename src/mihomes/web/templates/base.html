@@ -241,6 +241,7 @@
         {# Trial banner, fetched as its own request after the page loads. The first version read
            the account while rendering every page and, when that read failed, hung the whole app
            (6628d39). Loaded this way a failure only leaves this slot empty. #}
+        {% include "partials/_notice.html" %}
         <div id="trial-banner" hx-get="/trial-status" hx-trigger="load" hx-swap="innerHTML"></div>
         {% if error %}
         <div class="mb-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

@@ -1,0 +1,14 @@
+{# One-time notice after a redirect (2026-11-17). Today only "email_confirmed", set by
+   `password.verify_email_complete` on the response that signs a newly confirmed person in.
+
+   The cookie is shown once and then cleared by the script below, wherever the person lands
+   (the onboarding wizard, an invitation, the dashboard). It also expires on its own within
+   5 minutes, so a browser without script sees it at most until then. It carries no data, only
+   which message to show, so it is not httpOnly. #}
+{% if request and request.cookies.get("mihomes_notice") == "email_confirmed" %}
+<div role="status" class="mb-4 flex items-start gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-900">
+  <svg class="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+  <span>Email confirmed. Welcome to MiHomes.</span>
+</div>
+<script>document.cookie = "mihomes_notice=; Max-Age=0; path=/; SameSite=Lax";</script>
+{% endif %}

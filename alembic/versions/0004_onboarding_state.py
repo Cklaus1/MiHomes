@@ -14,8 +14,9 @@ Revises: 0003_documents_staff_visible
 from typing import Sequence, Union
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision: str = "0004_onboarding_state"
 down_revision: Union[str, None] = "0003_documents_staff_visible"

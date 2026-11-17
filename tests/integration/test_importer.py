@@ -109,12 +109,12 @@ def target(_pg_engine):
     """
     name = f"mihomes_import_t{uuid.uuid4().hex[:10]}"
     admin = create_engine(
-        str(_pg_engine.url.set(database="postgres")), isolation_level="AUTOCOMMIT", future=True
+        _pg_engine.url.set(database="postgres").render_as_string(hide_password=False), isolation_level="AUTOCOMMIT", future=True
     )
     with admin.connect() as conn:
         conn.exec_driver_sql(f'CREATE DATABASE "{name}"')
 
-    url = str(_pg_engine.url.set(database=name))
+    url = _pg_engine.url.set(database=name).render_as_string(hide_password=False)
     engine = create_engine(url, future=True)
 
     from mihomes.models import Base
@@ -590,12 +590,12 @@ def target_rls(_pg_engine):
 
     name = f"mihomes_import_rls{uuid.uuid4().hex[:8]}"
     admin = create_engine(
-        str(_pg_engine.url.set(database="postgres")), isolation_level="AUTOCOMMIT", future=True
+        _pg_engine.url.set(database="postgres").render_as_string(hide_password=False), isolation_level="AUTOCOMMIT", future=True
     )
     with admin.connect() as conn:
         conn.exec_driver_sql(f'CREATE DATABASE "{name}"')
 
-    owner_url = str(_pg_engine.url.set(database=name))
+    owner_url = _pg_engine.url.set(database=name).render_as_string(hide_password=False)
     owner_engine = create_engine(owner_url, future=True)
 
     from mihomes.models import Base

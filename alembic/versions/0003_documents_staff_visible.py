@@ -23,6 +23,7 @@ Revises: 0002_rls
 from typing import Sequence, Union
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "0003_documents_staff_visible"

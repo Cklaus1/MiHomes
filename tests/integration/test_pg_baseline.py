@@ -26,6 +26,7 @@ from sqlalchemy import create_engine, text
 from alembic import command
 from mihomes.models import Base
 from mihomes.tenancy.drift_guard import parent_links
+from tests.pg_url import pg_url
 
 pytestmark = pytest.mark.skipif(
     not os.environ.get("TEST_DATABASE_URL"),
@@ -41,11 +42,11 @@ NOT_IN_THIS_TREE = {"waitlist", "dummy"}
 def _admin_url() -> str:
     # `+psycopg` is required: a bare `postgresql://` URL resolves to psycopg2, which is
     # not installed here (the project uses psycopg 3).
-    return "postgresql+psycopg://postgres@localhost:5432/postgres"
+    return pg_url("postgres")
 
 
 def _scratch_url(name: str) -> str:
-    return f"postgresql+psycopg://postgres@localhost:5432/{name}"
+    return pg_url(name)
 
 
 @pytest.fixture

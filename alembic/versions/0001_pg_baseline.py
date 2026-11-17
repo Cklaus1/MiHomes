@@ -33,14 +33,13 @@ standalone one-table database owned by the separate `alembic_landing/` tree, and
 """
 from typing import Sequence, Union
 
-from alembic import op
 import sqlalchemy as sa
 
 # Autogenerate renders the custom Money type as a fully-qualified
 # `mihomes.type.money.Money()` but does not emit an import for it, so the generated
 # file raises NameError on the first Money column without this.
 import mihomes.type.money  # noqa: F401
-
+from alembic import op
 from mihomes.models import Base
 from mihomes.tenancy.drift_guard import (
     DRIFT_GUARD_FUNCTION,

@@ -15,7 +15,6 @@ silent-corruption bugs lived.
 import pytest
 
 from mihomes.services.ai import reports as reports_mod
-from mihomes.services.ai import tools as tools_mod
 from mihomes.services.ai.tools import _EXECUTORS, execute_tool
 from mihomes.services.demo import load_demo_data
 
@@ -37,6 +36,8 @@ def seeded(session, monkeypatch):
     # Any get_provider() call (reports.py) yields the stub, and a fake key lets
     # the api-key lookup succeed without touching a real credential store.
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    # The configured provider is NIM now; without its key the lookup fails before the stub.
+    monkeypatch.setenv("NVIDIA_API_KEY", "test-key")
     monkeypatch.setattr(reports_mod, "get_provider", lambda *a, **k: _StubProvider())
     return session
 

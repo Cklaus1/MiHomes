@@ -66,7 +66,7 @@ def ops_db():
         conn.exec_driver_sql(f'DROP DATABASE IF EXISTS "{ops_database}"')
         conn.exec_driver_sql(f'CREATE DATABASE "{ops_database}"')
 
-    ops_url = str(url.set(database=ops_database))
+    ops_url = url.set(database=ops_database).render_as_string(hide_password=False)
     previous = os.environ.get("DATABASE_URL")
     os.environ["DATABASE_URL"] = ops_url
     db_mod.dispose_engine()

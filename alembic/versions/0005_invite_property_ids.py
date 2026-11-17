@@ -17,6 +17,7 @@ Revises: 0004_onboarding_state
 from typing import Sequence, Union
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "0005_invite_property_ids"

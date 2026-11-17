@@ -28,7 +28,6 @@ measured on this cluster.
 from typing import Sequence, Union
 
 from alembic import op
-
 from mihomes.tenancy.rls import drop_statements, rls_statements
 
 # revision identifiers, used by Alembic.

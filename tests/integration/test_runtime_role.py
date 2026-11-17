@@ -50,7 +50,7 @@ def test_rejects_bypassrls_even_without_superuser(_pg_engine):
         conn.exec_driver_sql(f"GRANT USAGE ON SCHEMA public TO {role}")
         conn.commit()
 
-    url = make_url(str(_pg_engine.url)).set(username=role, password=role)
+    url = make_url(_pg_engine.url.render_as_string(hide_password=False)).set(username=role, password=role)
     engine = create_engine(url, future=True)
     try:
         with pytest.raises(PrivilegedRoleError) as exc:

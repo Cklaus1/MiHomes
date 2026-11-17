@@ -119,7 +119,7 @@ def stripe_env(monkeypatch, _pg_engine):
     # variable alone left this test failing exactly as before, which is how the cache was found.
     import mihomes.db as db_mod
 
-    monkeypatch.setenv("DATABASE_URL", str(_pg_engine.url))
+    monkeypatch.setenv("DATABASE_URL", _pg_engine.url.render_as_string(hide_password=False))
     db_mod.dispose_engine()
     yield "price_pro_monthly_test"
     # Drop it again on the way out so the next test rebuilds against whatever it expects.

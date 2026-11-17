@@ -300,7 +300,7 @@ def cli_database():
         conn.exec_driver_sql(f'DROP DATABASE IF EXISTS "{cli_db}"')
         conn.exec_driver_sql(f'CREATE DATABASE "{cli_db}"')
 
-    cli_url = str(url.set(database=cli_db))
+    cli_url = url.set(database=cli_db).render_as_string(hide_password=False)
     previous = os.environ.get("DATABASE_URL")
     os.environ["DATABASE_URL"] = cli_url
     # The global engine may already be bound to the previous URL.

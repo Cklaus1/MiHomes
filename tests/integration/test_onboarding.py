@@ -292,12 +292,12 @@ def test_create_account_step_writes_its_owner_membership_under_rls(_pg_engine):
 
     name = f"mihomes_onbrls{_uuid.uuid4().hex[:8]}"
     admin = create_engine(
-        str(_pg_engine.url.set(database="postgres")), isolation_level="AUTOCOMMIT", future=True
+        _pg_engine.url.set(database="postgres").render_as_string(hide_password=False), isolation_level="AUTOCOMMIT", future=True
     )
     with admin.connect() as conn:
         conn.exec_driver_sql(f'CREATE DATABASE "{name}"')
 
-    owner_url = str(_pg_engine.url.set(database=name))
+    owner_url = _pg_engine.url.set(database=name).render_as_string(hide_password=False)
     owner = create_engine(owner_url, future=True)
     try:
         from mihomes.models import Base

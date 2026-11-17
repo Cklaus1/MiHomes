@@ -50,7 +50,7 @@ def two_account_db():
         conn.exec_driver_sql(f'DROP DATABASE IF EXISTS "{two_db}"')
         conn.exec_driver_sql(f'CREATE DATABASE "{two_db}"')
 
-    two_url = str(url.set(database=two_db))
+    two_url = url.set(database=two_db).render_as_string(hide_password=False)
     previous = os.environ.get("DATABASE_URL")
     os.environ["DATABASE_URL"] = two_url
     db_mod.dispose_engine()

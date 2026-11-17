@@ -71,6 +71,12 @@ jobs:
       TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/mihomes_test
       # ConsoleProvider sends nothing. A real key here would mail strangers from CI.
       EMAIL_PROVIDER: console
+      # The landing (waitlist) tests need their OWN database: they assert it holds only the
+      # waitlist tables, and on the shared one they see every tenant table. Created below.
+      LANDING_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/mihomes_landing_test
+      # Required by the app at startup and to sign unsubscribe links. Test-only value: it
+      # protects nothing, and production sets its own.
+      MIHOMES_SECRET_KEY: kfePQLnTLF_2YvC8DrAyFvakJs7IaDF1Htw7LgD74u0=
 
     steps:
       - uses: actions/checkout@v4
@@ -121,6 +127,9 @@ jobs:
           if [ -z "$files" ]; then echo "no spec-introduced .py files changed"; exit 0; fi
           echo "$files"
           echo "$files" | xargs ruff check
+
+      - name: Create the landing test database
+        run: PGPASSWORD=postgres psql -h localhost -U postgres -c "CREATE DATABASE mihomes_landing_test"
 
       - name: Test
         # -q matches how the gates are run locally, so the numbers are comparable.

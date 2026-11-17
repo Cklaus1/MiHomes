@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_button.html" import button %}
 
 {% block subject %}Action needed — MiHomes {{ plan|capitalize }} payment still outstanding{% endblock %}
 
@@ -23,12 +24,7 @@
     payment goes through.
   </p>
 
-  <p style="margin:0 0 28px;">
-    <a href="{{ billing_url }}"
-       style="display:inline-block;background:#1c1c1a;color:#ffffff;
-              text-decoration:none;padding:12px 22px;border-radius:6px;
-              font-weight:500;">Update payment method</a>
-  </p>
+  {{ button(billing_url, "Update payment method") }}
 
   <p style="margin:0;color:#6b6b66;font-size:14px;">
     Trouble with the card, or need an invoice instead? Reply to this email and we

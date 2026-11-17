@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_button.html" import button %}
 
 {% block subject %}Your MiHomes receipt — {{ plan|capitalize }}{% endblock %}
 
@@ -26,12 +27,7 @@
     {% endif %}
   </table>
 
-  <p style="margin:0 0 28px;">
-    <a href="{{ billing_url }}"
-       style="display:inline-block;background:#1c1c1a;color:#ffffff;
-              text-decoration:none;padding:12px 22px;border-radius:6px;
-              font-weight:500;">View billing</a>
-  </p>
+  {{ button(billing_url, "View billing") }}
 
   <p style="margin:0;color:#6b6b66;font-size:14px;">
     Nothing to do — this is just your record of the payment.

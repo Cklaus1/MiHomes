@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_button.html" import button %}
 
 {% block subject %}Confirm your email for MiHomes{% endblock %}
 
@@ -10,14 +11,7 @@
     your account.
   </p>
 
-  <p style="margin:0 0 28px;">
-    <a href="{{ verify_url }}"
-       style="display:inline-block;background:#1c1c1a;color:#ffffff;
-              text-decoration:none;padding:12px 22px;border-radius:6px;
-              font-weight:500;">
-      Confirm my email
-    </a>
-  </p>
+  {{ button(verify_url, "Confirm my email") }}
 
   <p style="margin:0 0 24px;">
     This link expires in {{ expires_in }}. If it has expired, sign in and we'll send you a new one.

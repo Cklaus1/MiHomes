@@ -129,7 +129,7 @@ def test_only_the_waitlist_email_says_you_joined_the_waitlist():
 
     templates = sorted(
         p.stem for p in (Path(render_module.__file__).parent / "templates").glob("*.html")
-        if p.stem != "base"
+        if p.stem != "base" and not p.stem.startswith("_")  # `_button.html` is a macro
     )
     assert "password_reset" in templates and "staff_invite" in templates
 
@@ -147,3 +147,37 @@ def test_only_the_waitlist_email_says_you_joined_the_waitlist():
                 assert "mihomes.ai" in html, f"{name}.html lost the neutral footer"
     finally:
         env.undefined = original
+
+
+# ── Buttons that survive Outlook (2026-11-17) ─────────────────────────────────────────────────
+
+def test_every_button_is_a_table_cell_outlook_can_draw():
+    """Desktop Outlook drew the old styled-link buttons as plain text ("Confirm my email" with no
+    button). Every email's button must now be a `<td bgcolor>` holding the real link, and no
+    template may fall back to the old styled link."""
+    import re
+    from pathlib import Path
+
+    from jinja2 import ChainableUndefined
+
+    from mihomes.services.email import render as render_module
+
+    folder = Path(render_module.__file__).parent / "templates"
+    old_style = "display:inline-block;background"
+    for path in folder.glob("*.html"):
+        if path.name != "_button.html":
+            assert old_style not in path.read_text(encoding="utf-8"), f"{path.name} has an old button"
+
+    env = render_module._get_env()
+    original = env.undefined
+    env.undefined = ChainableUndefined
+    try:
+        url = "https://mihomes.ai/verify-email/TOKEN?next=%2Finvite%2Fabc&x=1"
+        _, html, _ = render_template("email_verification", {"verify_url": url, "expires_in": "24 hours"})
+    finally:
+        env.undefined = original
+    cell = re.search(r'<td[^>]*bgcolor="#1c1c1a"[^>]*>\s*<a href="([^"]+)"[^>]*>([^<]+)</a>', html)
+    assert cell, "the button is not a table cell"
+    assert cell.group(1) == url.replace("&", "&amp;"), cell.group(1)
+    assert cell.group(2).strip() == "Confirm my email"
+    assert "mso-padding-alt" in html

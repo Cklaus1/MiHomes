@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_button.html" import button %}
 
 {% block subject %}Welcome to MiHomes{% endblock %}
 
@@ -13,14 +14,7 @@
     run them.
   </p>
 
-  <p style="margin:0 0 28px;">
-    <a href="{{ dashboard_url }}"
-       style="display:inline-block;background:#1c1c1a;color:#ffffff;
-              text-decoration:none;padding:12px 22px;border-radius:6px;
-              font-weight:500;">
-      Open your dashboard
-    </a>
-  </p>
+  {{ button(dashboard_url, "Open your dashboard") }}
 
   {# ONBOARDING:143 — billing never blocks onboarding, and D7 makes every Phase 2
      account free. Saying so here avoids the "when do I get charged" email. #}

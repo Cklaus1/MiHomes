@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_button.html" import button %}
 
 {% block subject %}A sign-in method changed on your MiHomes account{% endblock %}
 
@@ -9,14 +10,7 @@
     {{ change }} on your MiHomes account.
   </p>
 
-  <p style="margin:0 0 28px;">
-    <a href="{{ settings_url }}"
-       style="display:inline-block;background:#1c1c1a;color:#ffffff;
-              text-decoration:none;padding:12px 22px;border-radius:6px;
-              font-weight:500;">
-      Review sign-in methods
-    </a>
-  </p>
+  {{ button(settings_url, "Review sign-in methods") }}
 
   <p style="margin:0;font-size:14px;color:#6b6b66;">
     If this wasn't you, reset your password straight away and sign out of all devices from

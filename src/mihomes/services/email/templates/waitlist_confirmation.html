@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_button.html" import button %}
 
 {% block subject %}Confirm your MiHomes waitlist spot{% endblock %}
 
@@ -12,14 +13,7 @@
     save your place on the waitlist.
   </p>
 
-  <p style="margin:0 0 28px;">
-    <a href="{{ confirm_url }}"
-       style="display:inline-block;background:#1c1c1a;color:#ffffff;
-              text-decoration:none;padding:12px 22px;border-radius:6px;
-              font-weight:500;">
-      Confirm my email
-    </a>
-  </p>
+  {{ button(confirm_url, "Confirm my email") }}
 
   {# O2 is open (§1.3): the founding-member offer terms are undecided, so this
      says only that one exists. Do NOT invent terms here — the page makes the

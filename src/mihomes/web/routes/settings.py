@@ -668,19 +668,20 @@ def invite_member(
     principal=require_authenticated(),
     db: Session = Depends(get_db),
 ):
-    """Invite someone, and **show the link exactly once**.
+    """Invite someone: **email them the link**, and show it once on the page as a backup.
 
     `create_invite` returns `(invite, raw_token)` and persists only the hash, so the plaintext
-    token exists for precisely this moment in the process. The route at `team.py:114` discards
-    it and there is no invite email template, which makes an invitation there a row, a consumed
-    seat, and a link nobody can retrieve — the feature appears to work and does nothing.
+    token exists for precisely this moment in the process. It goes two places: into the
+    `staff_invite` email, queued in the same transaction as the invite (so a rolled-back invite
+    never mails a dead link; `drain-outbox` sends it within minutes), and onto this page, once.
 
-    So this renders rather than redirects, and the template shows the link with copy saying it
-    will not be shown again. That is the truth about a value that is hashed at rest, and it is
-    the honest version of the feature until an invite email exists to carry it.
+    The on-page copy stays because the email can fail without the inviter knowing: a spam
+    folder, a mistyped address, an unconfigured provider. The notice says plainly whether the
+    email was queued, because saying "emailed" when it was not would be the feature appearing
+    to work and doing nothing.
 
-    The audit row is tenant-owned, so the account is bound around the call — the pairing
-    `services/account.py` documents and `update_profile_route` above already follows.
+    The audit and outbox rows are tenant-owned, so the account is bound around the call — the
+    pairing `services/account.py` documents and `update_profile_route` above already follows.
     """
     from mihomes.services import invite_service
     from mihomes.tenancy import account_context
@@ -692,6 +693,8 @@ def invite_member(
             invite, raw_token = invite_service.create_invite(
                 db, principal.account_id, principal.user_id, email, role, property_ids
             )
+            link = f"{str(request.base_url).rstrip('/')}/invite/{raw_token}"
+            emailed = _email_invite(db, principal, invite, link)
             db.commit()
     except invite_service.InviteError as exc:
         # Covers the seat cap and A21's "a staff invite needs a property" alike. Both are
@@ -702,13 +705,43 @@ def invite_member(
             invite_form={"email": email, "role": role, "property_ids": property_ids},
         )
 
-    link = f"{str(request.base_url).rstrip('/')}/invite/{raw_token}"
     return templates.TemplateResponse(
         request,
         "settings/index.html",
         _page_context(db, principal, invite_link=link, invite_email=invite.email,
-                      notice="Invitation created"),
+                      invite_emailed=emailed,
+                      notice="Invitation sent" if emailed else "Invitation created"),
     )
+
+
+def _email_invite(db: Session, principal, invite, link: str) -> bool:
+    """Queue the invitation email; return whether it was queued.
+
+    Never raises: the invite row is valid and its link is on the page, so a mail failure must
+    degrade to "copy the link" rather than lose the invitation. `EmailProviderError` covers an
+    unset or rejected `RESEND_API_KEY`, which `get_email_provider` raises on construction.
+    """
+    import logging
+
+    from mihomes.models.account import Account
+    from mihomes.models.user import User
+    from mihomes.services.email import EmailService, get_email_provider
+    from mihomes.services.email.provider import EmailProviderError
+
+    account = db.get(Account, principal.account_id)
+    inviter = db.get(User, principal.user_id)
+    try:
+        EmailService(get_email_provider(), session=db).send_staff_invite(
+            invite.email,
+            account_name=account.name if account is not None else "an estate",
+            accept_url=link,
+            role=invite.role,
+            inviter_name=(inviter.name or inviter.email) if inviter is not None else None,
+        )
+    except EmailProviderError:
+        logging.getLogger(__name__).exception("invite email could not be queued")
+        return False
+    return True
 
 
 @router.post("/settings/members/{membership_id}/role")

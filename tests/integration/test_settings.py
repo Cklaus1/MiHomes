@@ -855,6 +855,52 @@ class TestMembersSection:
         assert "/invite/" in response.text, "the invitation link must be shown"
         assert "newcomer@example.com" in response.text
 
+    def test_invite_emails_the_invitee(self, web_client_as, monkeypatch):
+        """2026-11-18: the invitation is emailed, not only shown. The queued mail must carry the
+        same link the page shows — the token exists nowhere else, so a mismatch strands it."""
+        import json
+        import re
+
+        from sqlalchemy import text
+
+        monkeypatch.setenv("EMAIL_PROVIDER", "console")
+        client = web_client_as("owner")
+        response = client.post(
+            "/settings/members/invite",
+            data={"email": "emailed@example.com", "role": "admin"},
+        )
+
+        assert response.status_code == 200
+        assert "Invitation emailed to emailed@example.com" in response.text
+        shown = re.search(r'id="invite-link" readonly value="([^"]+)"', response.text).group(1)
+
+        rows = web_client_as.connection.execute(
+            text("SELECT template, klass, context FROM email_outbox WHERE to_address = :to"),
+            {"to": "emailed@example.com"},
+        ).all()
+        assert len(rows) == 1
+        assert rows[0].template == "staff_invite"
+        assert rows[0].klass == "transactional", "an invite must never be suppressed"
+        context = json.loads(rows[0].context)
+        assert context["accept_url"] == shown
+        assert context["role"] == "admin"
+
+    def test_invite_without_a_mail_provider_says_so(self, web_client_as, monkeypatch):
+        """No `RESEND_API_KEY`: the invite still exists and the page says to send the link by
+        hand, rather than claiming an email that was never queued."""
+        monkeypatch.setenv("EMAIL_PROVIDER", "resend")
+        monkeypatch.delenv("RESEND_API_KEY", raising=False)
+        client = web_client_as("owner")
+        response = client.post(
+            "/settings/members/invite",
+            data={"email": "nomail@example.com", "role": "admin"},
+        )
+
+        assert response.status_code == 200
+        assert "/invite/" in response.text
+        assert "could not be sent" in response.text
+        assert "Invitation emailed" not in response.text
+
     def test_staff_invite_without_properties_is_refused_on_the_page(self, web_client_as):
         """A21/D3 surfaces as a form error rather than a 500."""
         client = web_client_as("owner")

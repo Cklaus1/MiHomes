@@ -195,14 +195,20 @@
         {{ members_error }}</p>
     {% endif %}
 
-    {# The link exists only here. `create_invite` stores a hash, so this value is unrecoverable
-       once the page is gone — which the copy says plainly rather than implying the invitation
-       was emailed, because no invite email exists yet. #}
+    {# `create_invite` stores a hash, so this link is unrecoverable once the page is gone. It is
+       shown even when the invitation was emailed, as a backup for a spam folder or a typo; the
+       copy says which case this is rather than implying an email that was never queued. #}
     {% if invite_link %}
       <div class="mb-4 rounded-lg border border-green-300 bg-green-50 px-3 py-3">
-        <p class="text-sm text-green-900 font-medium">Invitation created for {{ invite_email }}</p>
-        <p class="mt-1 text-xs text-green-800">Send them this link. It is not shown again, and it
-          is not emailed automatically — copy it now.</p>
+        {% if invite_emailed %}
+          <p class="text-sm text-green-900 font-medium">Invitation emailed to {{ invite_email }}</p>
+          <p class="mt-1 text-xs text-green-800">It should arrive within a few minutes. If it
+            doesn't, you can send them this link yourself — it is not shown again.</p>
+        {% else %}
+          <p class="text-sm text-green-900 font-medium">Invitation created for {{ invite_email }}</p>
+          <p class="mt-1 text-xs text-green-800">The invitation email could not be sent. Send them
+            this link yourself — it is not shown again, so copy it now.</p>
+        {% endif %}
         <label for="invite-link" class="sr-only">Invitation link</label>
         <input id="invite-link" readonly value="{{ invite_link }}" onclick="this.select()" autofocus
                class="mt-2 w-full border border-green-300 rounded px-2 py-1 font-mono text-xs bg-white" />

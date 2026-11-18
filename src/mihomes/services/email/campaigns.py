@@ -43,6 +43,7 @@ from mihomes.models.email_campaign import CampaignEnrolment
 
 __all__ = [
     "ONBOARDING",
+    "PAUSED",
     "SEQUENCES",
     "complete",
     "due_sends",
@@ -70,6 +71,17 @@ ONBOARDING: tuple[tuple[str, timedelta], ...] = (
 SEQUENCES: dict[str, tuple[tuple[str, timedelta], ...]] = {
     "onboarding": ONBOARDING,
 }
+
+#: Campaigns that send nothing for now (2026-11-18). The founder paused onboarding until the
+#: real wording replaces the placeholder templates: the first placeholder email had already gone
+#: out once Resend was live. A paused campaign still **enrols** new accounts (so nobody is
+#: missed) but sends no step and advances no enrolment.
+#:
+#: **Before un-pausing, decide what happens to accounts enrolled during the pause.** Steps fall
+#: due by time since enrolment, so a household that signed up three weeks ago would get its
+#: "day 1" email weeks late, then the rest on consecutive nights. Completing those stale
+#: enrolments in the same change is probably right.
+PAUSED: frozenset[str] = frozenset({"onboarding"})
 
 
 def sequence_length(campaign: str) -> int:
@@ -166,6 +178,8 @@ def send_due_steps(session: Session, email_service, *, now: datetime) -> int:
     """
     sent = 0
     for enrolment in due_sends(session, now=now):
+        if enrolment.campaign in PAUSED:
+            continue  # not sent, not advanced: it stays due for when the campaign resumes
         sequence = SEQUENCES[enrolment.campaign]
         template, _delay = sequence[enrolment.step]
 

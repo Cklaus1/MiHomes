@@ -30,6 +30,9 @@ from mihomes.services.email.campaigns import (
     send_due_steps,
     sequence_length,
 )
+
+#: The setting as shipped, read at import, before the autouse fixture below lifts every pause.
+from mihomes.services.email.campaigns import PAUSED as SHIPPED_PAUSED  # noqa: E402
 from mihomes.services.email.provider import EmailResult
 from mihomes.tenancy.context import account_context
 
@@ -71,6 +74,18 @@ def owner(session, account_a):
     )
     session.flush()
     return f"{user_id}@example.com"
+
+
+@pytest.fixture(autouse=True)
+def _campaigns_unpaused(monkeypatch):
+    """These tests are about the drip machinery, so they run with every campaign live.
+
+    Onboarding is paused in production until the founder's wording lands (`campaigns.PAUSED`,
+    2026-11-18); `test_a_paused_campaign_sends_nothing_and_keeps_its_place` covers the pause.
+    """
+    from mihomes.services.email import campaigns
+
+    monkeypatch.setattr(campaigns, "PAUSED", frozenset())
 
 
 def _service(session):
@@ -322,3 +337,25 @@ def test_every_step_has_both_templates(template):
 
     subject, html, text = render_template(template, {"campaign": "onboarding", "step": 1})
     assert subject and html and text
+
+
+def test_a_paused_campaign_sends_nothing_and_keeps_its_place(session, account_a, owner, monkeypatch):
+    """Paused: new accounts still enrol, nothing is sent, and nobody is moved past a step, so the
+    sequence picks up where it was when it resumes."""
+    from mihomes.services.email import campaigns
+
+    monkeypatch.setattr(campaigns, "PAUSED", frozenset({"onboarding"}))
+    _provider, service = _service(session)
+
+    with account_context(account_a):
+        enrol(session, account_a, "onboarding", now=NOW)
+        assert send_due_steps(session, service, now=NOW + timedelta(days=30)) == 0
+        row = session.execute(sa.select(CampaignEnrolment)).scalars().one()
+        assert row.step == 0 and row.completed_at is None
+
+    assert _queued(session, account_a) == []
+
+
+def test_onboarding_is_paused_until_the_real_wording_lands():
+    """Guard for the shipped setting: un-pausing must be a deliberate edit, made with the copy."""
+    assert "onboarding" in SHIPPED_PAUSED

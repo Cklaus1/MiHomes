@@ -249,9 +249,11 @@ def drips(
         try:
             with _account_session(account_id) as (session, _account):
                 if dry_run:
-                    from mihomes.services.email.campaigns import due_sends
+                    from mihomes.services.email.campaigns import PAUSED, due_sends
 
-                    advanced += len(due_sends(session, now=now))
+                    advanced += sum(
+                        1 for e in due_sends(session, now=now) if e.campaign not in PAUSED
+                    )
                     continue
                 advanced += send_due_steps(
                     session, EmailService(get_email_provider(), session=session), now=now
@@ -262,7 +264,10 @@ def drips(
             logger.exception("drips: failed for account %s", account_id)
 
     verb = "would advance" if dry_run else "advanced"
-    rprint(f"Drips: {verb} {advanced} enrolment(s); {failed} failed.")
+    from mihomes.services.email.campaigns import PAUSED
+
+    paused = f" Paused: {', '.join(sorted(PAUSED))}." if PAUSED else ""
+    rprint(f"Drips: {verb} {advanced} enrolment(s); {failed} failed.{paused}")
 
 
 @app.command("weekly-digest")

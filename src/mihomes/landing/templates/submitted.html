@@ -1,11 +1,30 @@
 {% extends "base.html" %}
 {% block title %}{% if no_email %}You're on the list{% else %}Check your email{% endif %} — MiHomes{% endblock %}
 
+{% block head_extra %}
+<style>
+  .done{width:56px;height:56px;border-radius:16px;display:grid;place-items:center;margin:0 0 26px;
+        background:linear-gradient(135deg,#38bdf8,#0369a1);
+        box-shadow:0 10px 24px -8px rgba(2,132,199,.6)}
+  .done svg{width:28px;height:28px}
+  .next{list-style:none;padding:0;margin:30px 0 34px;display:grid;gap:12px}
+  .next li{display:flex;gap:14px;align-items:flex-start;background:#fff;border:1px solid var(--line);
+           border-radius:14px;padding:16px 18px;box-shadow:var(--shadow)}
+  .next b{flex:none;width:26px;height:26px;border-radius:8px;display:grid;place-items:center;
+          background:var(--brand-tint);color:var(--brand-dark);font-size:13px}
+  .next span{color:var(--body);font-size:15.5px;line-height:1.5}
+  .next strong{color:var(--ink)}
+</style>
+{% endblock %}
+
 {% block content %}
   {# N3: this page is rendered IDENTICALLY for a new address, an existing
      unconfirmed one, an already-confirmed one, and one past the resend ceiling.
      Any wording that distinguishes them turns POST /waitlist into an
      email-enumeration oracle. Do not add "you're already on the list". #}
+  <div class="done">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+  </div>
   {% if no_email %}
   {# Product app, waitlist mode: no confirmation email is sent, so do not promise one. #}
   <h1>You're on the list</h1>
@@ -13,6 +32,11 @@
     Thanks for your interest in MiHomes. We're opening access in stages and will be in
     touch when your spot opens.
   </p>
+  <ol class="next">
+    <li><b>1</b><span><strong>We open access in stages,</strong> a few people at a time.</span></li>
+    <li><b>2</b><span><strong>You get an email</strong> with your personal invitation link when your spot opens.</span></li>
+    <li><b>3</b><span><strong>Add your homes</strong> and invite your team — your AI estate manager takes it from there.</span></li>
+  </ol>
   {% else %}
   <h1>Check your email</h1>
   <p class="lede">
@@ -24,4 +48,5 @@
     address.
   </p>
   {% endif %}
+  <p style="margin-top:28px"><a class="btn btn-ghost" href="/">← Back to MiHomes</a></p>
 {% endblock %}

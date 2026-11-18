@@ -102,8 +102,11 @@ def render_marketing_page(request: Request) -> str:
         if key in request.query_params
     }
     from mihomes.auth.signup_gate import waitlist_mode
+    from mihomes.web.routes.seo import base_url
 
     links = dict(MARKETING_LINKS)
+    # Link-preview card (web/static/og-image.png). Absolute, because that is what platforms fetch.
+    links["og_image"] = f"{base_url()}/static/og-image.png"
     if waitlist_mode():
         # No "Start free": the waitlist form takes its place (`auth/signup_gate.py`).
         links.update(signup_url=None, waitlist_mode=True)

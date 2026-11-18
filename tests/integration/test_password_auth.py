@@ -446,7 +446,7 @@ def test_unconfigured_google_is_hidden_away_from_localhost(client, monkeypatch):
     r = client.get("/login")
 
     assert "/auth/google/start" not in r.text
-    assert "Home Management" in r.text
+    assert "Every home, under control." in r.text
 
     elsewhere = templates.get_template("login.html").render(
         oauth_configured=False, oauth_setup_hint=False, error="", next=""

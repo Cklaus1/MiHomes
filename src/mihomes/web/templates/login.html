@@ -29,14 +29,14 @@
             <input type="email" name="email" id="email" required autocomplete="email"
                    value="{{ email or '' }}"
                    class="w-full p-3 rounded-lg border border-gray-300 text-sm
-                          focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent" />
+                          focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent" />
           </div>
           <div>
             <label for="password" class="block text-sm font-medium text-gray-700 mb-1">Password</label>
             <input type="password" name="password" id="password" required autocomplete="current-password"
                    {% if error %}aria-invalid="true" aria-describedby="signin-error" autofocus{% endif %}
                    class="w-full p-3 rounded-lg border border-gray-300 text-sm
-                          focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent" />
+                          focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent" />
             {# Below the field, not beside the label. You reach for "Forgot?" *after* trying a
                password and finding it wrong, so it belongs where the eye already is — and the
                label row now matches the Email field above it. #}
@@ -45,8 +45,8 @@
             </div>
           </div>
           <button type="submit"
-                  class="w-full p-3 rounded-lg bg-gray-900 text-white text-sm font-medium
-                         hover:bg-gray-800 transition-colors">
+                  class="w-full p-3 rounded-lg bg-brand-600 text-white text-sm font-semibold shadow-sm
+                         hover:bg-brand-700 transition-colors">
             Sign in
           </button>
         </form>

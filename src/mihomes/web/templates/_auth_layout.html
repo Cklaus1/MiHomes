@@ -17,15 +17,23 @@
   <title>{% block title %}MiHomes{% endblock %}</title>
   <link rel="stylesheet" href="/static/app.css" />
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png" />
 </head>
-<body class="h-full">
+{# Same soft brand wash as the marketing page, so the step from mihomes.ai to "Sign in" does
+   not feel like a different product. #}
+<body class="h-full bg-gradient-to-b from-brand-50 via-white to-gray-50">
   <div class="min-h-full flex flex-col items-center justify-center px-4 py-12">
 
     <div class="w-full {{ card_width or 'max-w-sm' }}">
-      <div class="text-center mb-8">
-        <p class="text-2xl font-semibold tracking-tight text-gray-900">MiHomes</p>
-        <p class="text-sm text-gray-500 mt-1">Home Management</p>
-      </div>
+      <a href="/" class="flex flex-col items-center text-center mb-8 no-underline">
+        <span class="inline-flex items-center gap-2.5">
+          <span class="grid place-items-center w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 shadow-md">
+            <svg viewBox="0 0 24 24" class="w-5 h-5" fill="none" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9.5h13V10"/><path d="M10 19.5v-5h4v5"/></svg>
+          </span>
+          <span class="text-2xl font-bold tracking-tight text-gray-900">MiHomes</span>
+        </span>
+        <span class="text-sm text-gray-500 mt-2">Every home, under control.</span>
+      </a>
 
       {% include "partials/_notice.html" %}
 

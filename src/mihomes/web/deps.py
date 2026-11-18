@@ -118,6 +118,26 @@ from mihomes.auth.signup_gate import waitlist_mode as _waitlist_mode  # noqa: E4
 templates.env.globals["waitlist_mode"] = _waitlist_mode
 
 
+def _css_version() -> str:
+    """Short content hash of the compiled stylesheet, for `/static/app.css?v=...`.
+
+    StaticFiles sends no Cache-Control, so browsers guess how long to keep app.css and a deploy
+    that adds classes can render against the old file for hours (seen 2026-11-18: the sign-in
+    logo tile went invisible). A URL that changes with the file makes the new one load at once.
+    Computed once per process; every deploy restarts the app.
+    """
+    import hashlib
+
+    try:
+        css = (Path(__file__).parent / "static" / "app.css").read_bytes()
+    except OSError:
+        return "0"
+    return hashlib.sha256(css).hexdigest()[:12]
+
+
+templates.env.globals["css_version"] = _css_version()
+
+
 def _localtime(dt, fmt: str = "%b %d, %H:%M") -> str:
     """A stored instant in the estate's time zone (naive = UTC), formatted. '' for None."""
     from mihomes.services.localtime import to_local

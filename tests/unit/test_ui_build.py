@@ -85,7 +85,8 @@ def test_the_compiled_stylesheet_is_actually_linked():
     rendering the app unstyled. §0.5b: every negative gets a positive.
     """
     base = (TEMPLATES / "base.html").read_text(encoding="utf-8")
-    assert re.search(r'<link[^>]+href="/static/app\.css"', base), (
+    # `?v=` is the cache-busting content hash (`css_version` in web/deps.py).
+    assert re.search(r'<link[^>]+href="/static/app\.css(?:\?v=[^"]*)?"', base), (
         "base.html does not link the compiled stylesheet. A12 passes on a page with no CSS "
         "whatsoever, which is why this arm exists"
     )

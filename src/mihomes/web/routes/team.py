@@ -84,8 +84,53 @@ def accept(request: Request, token: str, db: Session = Depends(get_db)):
             status_code=400,
         )
 
+    _notify_inviter(db, token, membership, user)
     _select(db, request, membership.account_id, user.id)
     return RedirectResponse("/", status_code=303)
+
+
+def _notify_inviter(db: Session, token: str, membership, user) -> None:
+    """Tell whoever sent the invitation that it was accepted, with §6.3's mismatch notice.
+
+    Queued in the acceptance's own transaction, under the account it just joined (`accept_invite`
+    has already bound that account's GUC). Never raises: the membership is real either way, and
+    a missing mail provider must not turn a successful join into an error page. No inviter (an
+    invite minted outside the web app) means no one to tell.
+    """
+    import logging
+
+    from sqlalchemy import select
+
+    from mihomes.models.account import Account
+    from mihomes.models.invite import Invite
+    from mihomes.services.email import EmailService, get_email_provider
+    from mihomes.services.email.provider import EmailProviderError
+    from mihomes.tenancy import account_context
+
+    inviter = db.get(User, membership.invited_by) if membership.invited_by else None
+    if inviter is None or not inviter.email:
+        return
+    try:
+        with account_context(membership.account_id):
+            invite = db.execute(
+                select(Invite).where(Invite.token_hash == invite_service.hash_token(token))
+            ).scalar_one_or_none()
+            account = db.get(Account, membership.account_id)
+            EmailService(get_email_provider(), session=db).send_invite_accepted(
+                inviter.email,
+                account_name=account.name if account is not None else "your estate",
+                member_email=user.email,
+                role=membership.role,
+                # Only on a real mismatch: the template compares exactly, and a capital letter
+                # would otherwise raise a false "accepted by someone else" warning.
+                invited_email=(
+                    invite.email
+                    if invite is not None and invite_service.email_mismatch(invite, user)
+                    else None
+                ),
+            )
+    except EmailProviderError:
+        logging.getLogger(__name__).exception("invite-accepted email could not be queued")
 
 
 @router.post("/accounts/switch")

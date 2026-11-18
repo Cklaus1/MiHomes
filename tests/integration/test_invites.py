@@ -551,3 +551,76 @@ class TestSeatRace:
 
         with pytest.raises(SeatLimitReached):
             create_invite(session, account_a, None, "nope@example.com", "admin", [])
+
+
+class TestUnderTheAppRole:
+    """2026-11-18: a fresh invite link said "no longer valid" on mihomes.ai.
+
+    Every other test here runs as `postgres`, a superuser, which bypasses RLS, so none of them
+    can see whether the token lookup survives `FORCE ROW LEVEL SECURITY` under the role
+    production uses. The invitee has no account bound (the invitation is what discovers one), so
+    an unscoped read sees zero rows there and every valid link looks dead. Same defect class as
+    the Telegram gateway's `/link CODE` (0024_gateway_bootstrap_policies).
+    """
+
+    @pytest.fixture
+    def committed_invite(self, _pg_engine, account_a):
+        """A real invite and a separate invitee user, committed so a second engine sees them."""
+        raw = f"app-role-{uuid.uuid4().hex}"
+        invitee_id = uuid.uuid4()
+        invite_id = uuid.uuid4()
+        with _pg_engine.begin() as conn:
+            conn.execute(
+                text("INSERT INTO users (id, google_sub, email) VALUES (:id, :sub, :email)"),
+                {"id": invitee_id, "sub": f"sub-{invitee_id.hex[:12]}",
+                 "email": f"invitee-{invitee_id.hex[:8]}@example.com"},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO invites (id, account_id, email, role, property_ids, token_hash,"
+                    " expires_at, status) VALUES (:id, :a, :email, 'admin', '[]', :h, :exp,"
+                    " 'pending')"
+                ),
+                {"id": invite_id, "a": account_a, "email": "invitee@example.com",
+                 "h": hash_token(raw), "exp": datetime.now(timezone.utc) + INVITE_TTL},
+            )
+        yield raw, invitee_id, invite_id
+        with _pg_engine.begin() as conn:
+            conn.execute(text("DELETE FROM memberships WHERE user_id = :u"), {"u": invitee_id})
+            conn.execute(text("DELETE FROM invites WHERE id = :i"), {"i": invite_id})
+            conn.execute(text("DELETE FROM users WHERE id = :u"), {"u": invitee_id})
+
+    def test_a_fresh_invite_is_found(self, app_engine, committed_invite):
+        from sqlalchemy.orm import Session
+
+        raw, _invitee, invite_id = committed_invite
+        with Session(app_engine) as s:
+            invite = invite_service.find_pending(s, raw)
+            assert invite is not None and invite.id == invite_id
+
+    def test_a_fresh_invite_can_be_accepted(self, app_engine, _pg_engine, committed_invite,
+                                            account_a):
+        from sqlalchemy.orm import Session
+
+        raw, invitee_id, invite_id = committed_invite
+        with Session(app_engine) as s:
+            membership = accept_invite(s, raw, s.get(User, invitee_id))
+            granted = membership.account_id  # read before commit expires it
+            s.commit()
+        assert granted == account_a
+
+        with _pg_engine.connect() as conn:
+            status = conn.execute(
+                text("SELECT status FROM invites WHERE id = :i"), {"i": invite_id}
+            ).scalar_one()
+            role = conn.execute(
+                text("SELECT role FROM memberships WHERE user_id = :u"), {"u": invitee_id}
+            ).scalar_one()
+        assert (status, role) == ("accepted", "admin")
+
+    def test_an_unknown_token_still_finds_nothing(self, app_engine, committed_invite):
+        """The widened read is for one hash only: a wrong token must not see the row."""
+        from sqlalchemy.orm import Session
+
+        with Session(app_engine) as s:
+            assert invite_service.find_pending(s, "not-the-token") is None

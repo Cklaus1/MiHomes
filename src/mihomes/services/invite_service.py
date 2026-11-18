@@ -225,7 +225,13 @@ def find_pending(session: Session, token: str) -> Invite | None:
     Isolation is unaffected. The token is 256 bits of `secrets` output and its hash is unique,
     so this selects at most the row whose secret the caller already holds — it cannot enumerate,
     and every later read of that account goes through the scoped path.
+
+    **Under the production role "unscoped" still means RLS** (2026-11-18): the table is FORCE
+    RLS, so the read needs `_bind_token`'s one-hash policy or it sees zero rows and every valid
+    link reads as "no longer valid". The superuser test fixtures cannot see that;
+    `test_invites.py::TestUnderTheAppRole` can.
     """
+    _bind_token(session, token)
     row = session.execute(
         select(_INVITES).where(_INVITES.c.token_hash == hash_token(token))
     ).one_or_none()
@@ -277,6 +283,7 @@ def accept_invite(session: Session, token: str, user) -> Membership:
     # Unscoped discovery, then scoped work — see `find_pending` and `_INVITES` for why this
     # cannot be an ORM select. An invitee is authenticated but has no account bound: the
     # invitation is what is about to give them one.
+    _bind_token(session, token)
     _row = session.execute(
         select(_INVITES.c.id, _INVITES.c.account_id).where(
             _INVITES.c.token_hash == hash_token(token)
@@ -291,9 +298,20 @@ def accept_invite(session: Session, token: str, user) -> Membership:
     # are ordinary tenant work and must go through the normal filter, or they would be a second
     # carve-out rather than one.
     from mihomes.tenancy import account_context
+    from mihomes.tenancy.connection import bind_account_guc
 
     with account_context(_row.account_id):
+        # The ContextVar stamps new rows; the GUC is what RLS checks, and this request's
+        # transaction opened before the account was known (see `bind_account_guc`).
+        bind_account_guc(session, _row.account_id)
         return _accept_locked(session, _row.id, user)
+
+
+def _bind_token(session: Session, token: str) -> None:
+    """Let this transaction see the one invite whose hash matches `token` (migration 0032)."""
+    from mihomes.tenancy.connection import INVITE_TOKEN_GUC, bind_gateway_guc
+
+    bind_gateway_guc(session, INVITE_TOKEN_GUC, hash_token(token))
 
 
 def _accept_locked(session: Session, invite_id, user) -> Membership:

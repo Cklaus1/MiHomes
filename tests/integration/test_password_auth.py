@@ -22,6 +22,7 @@ writes into.
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timezone
 from urllib.parse import quote
@@ -786,6 +787,18 @@ def test_invitee_without_google(client, mailbox):
         assert membership.role == "staff", (
             "the invitation's role was not applied — the invitee joined with the wrong access"
         )
+
+        # 2026-11-18: the inviter is told, in the acceptance's own transaction. Same address
+        # as invited, so no mismatch warning is carried.
+        notices = s.execute(
+            text("SELECT context FROM email_outbox WHERE to_address = 'owner@example.com'"
+                 " AND template = 'invite_accepted'")
+        ).scalars().all()
+        assert len(notices) == 1, "the inviter was not told the invitation was accepted"
+        context = json.loads(notices[0])
+        assert context["member_email"] == "newcomer@example.com"
+        assert context["role"] == "staff"
+        assert context["invited_email"] is None
     finally:
         s.close()
 

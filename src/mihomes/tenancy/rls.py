@@ -97,11 +97,16 @@ MEMBERSHIPS_TABLE = "memberships"
 _TG_USER = "(SELECT NULLIF(current_setting('app.gateway_telegram_user', true), '')::bigint)"
 _LINK_HASH = "(SELECT NULLIF(current_setting('app.gateway_link_token_hash', true), ''))"
 _TG_CHAT = "(SELECT NULLIF(current_setting('app.gateway_telegram_chat', true), '')::bigint)"
+_INVITE_HASH = "(SELECT NULLIF(current_setting('app.invite_token_hash', true), ''))"
 GATEWAY_BOOTSTRAP_POLICIES: dict[str, tuple[str, str]] = {
     "telegram_links": ("telegram_links_gateway_sender", f"telegram_user_id = {_TG_USER}"),
     "gateway_link_tokens": ("gateway_link_tokens_by_hash", f"token_hash = {_LINK_HASH}"),
     # Which account a group chat belongs to — the group-binding counterpart of the sender read.
     "telegram_chat_bindings": ("telegram_chat_bindings_gateway_chat", f"chat_id = {_TG_CHAT}"),
+    # A team invitation link (2026-11-18, migration 0032). Not a chat gateway, but the identical
+    # shape: the invitee holds only a token, and finding the account is what the read is for.
+    # Without it every valid link read as "no longer valid" under the production role.
+    "invites": ("invites_by_token_hash", f"token_hash = {_INVITE_HASH}"),
 }
 
 

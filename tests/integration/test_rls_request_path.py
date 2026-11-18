@@ -663,3 +663,59 @@ def test_a_refused_transfer_still_renders_the_members_list(rls_app):
     assert response.status_code == 400
     assert "Type TRANSFER" in response.text
     assert "heir@example.com" in response.text, "the members list rendered empty under RLS"
+
+
+def test_an_invitation_works_end_to_end(rls_app, mailbox):
+    """Invite → signed-out invitee signs up from the link → confirms → accepts, under RLS.
+
+    2026-11-18: on mihomes.ai a link minted seconds earlier said "This invitation is no longer
+    valid". The token lookup runs before any account is bound, and under this role it saw zero
+    rows (fixed by the `invites_by_token_hash` policy, migration 0032). Every other invite test
+    runs as a superuser, which is why the suite stayed green.
+    """
+    import re
+
+    import mihomes.db as db_module
+
+    client, account_id = rls_app
+    _sign_in(client)
+    created = client.post(
+        "/settings/members/invite",
+        data={"email": "joiner@example.com", "role": "admin"},
+        headers=_HTML,
+    )
+    assert created.status_code == 200, created.text
+    assert "Invitation emailed to joiner@example.com" in created.text
+    link = re.search(r'id="invite-link" readonly value="([^"]+)"', created.text).group(1)
+    path = link.removeprefix("http://localhost:5000")
+
+    client.cookies.clear()  # the invitee is someone else, in another browser
+    landing = client.get(path, headers=_HTML)
+    assert landing.status_code == 303 and landing.headers["location"].startswith("/login")
+
+    signup = client.post(
+        "/signup",
+        data={"email": "joiner@example.com", "password": PASSWORD, "next": path},
+        headers=_HTML,
+    )
+    assert signup.status_code == 200, signup.text
+    confirmed = confirm_email(client, mailbox, "joiner@example.com", headers=_HTML)
+    assert confirmed.headers.get("location") == path
+
+    page = client.get(path, headers=_HTML)
+    assert "no longer valid" not in page.text, "a fresh invitation was unreadable under RLS"
+    assert "invited to Old Name" in page.text
+
+    accepted = client.post(f"{path}/accept", headers=_HTML)
+    assert accepted.status_code == 303, accepted.text
+
+    with db_module._engine.begin() as conn:
+        conn.execute(
+            text("select set_config('app.current_account', :a, true)"), {"a": str(account_id)}
+        )
+        assert conn.execute(text("select status from invites")).scalar_one() == "accepted"
+        roles = sorted(conn.execute(text("select role from memberships")).scalars())
+        assert roles == ["admin", "owner"]
+        outbox = dict(conn.execute(text("select template, to_address from email_outbox")).all())
+    assert outbox.get("staff_invite") == "joiner@example.com"
+    assert outbox.get("invite_accepted") == "owner@example.com"

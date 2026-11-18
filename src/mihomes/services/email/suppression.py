@@ -40,6 +40,7 @@ from mihomes.models.email_suppression import SUPPRESSION_REASONS, EmailSuppressi
 __all__ = [
     "InvalidUnsubscribeToken",
     "unsubscribe_headers",
+    "unsubscribe_link",
     "is_suppressed",
     "suppress",
     "unsubscribe_token",
@@ -112,14 +113,21 @@ def unsubscribe_headers(address: str) -> dict[str, str]:
     headers at send time and `service.py` already imports `outbox`, so building them there
     would be a circular import. Measured, not predicted — the first version raised one.
     """
+    return {
+        "List-Unsubscribe": f"<{unsubscribe_link(address)}>",
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+    }
+
+
+def unsubscribe_link(address: str) -> str:
+    """The signed `/unsubscribe` page for one address: the header's URL, and a visible footer
+    link for email that promises "leave any time" (the waitlist welcome, 2026-11-18). The page
+    asks before it acts, so a mail scanner opening the link unsubscribes nobody."""
     from urllib.parse import urlencode
 
     base = os.environ.get(UNSUBSCRIBE_BASE_URL_ENV, DEFAULT_BASE_URL).rstrip("/")
     query = urlencode({"email": address, "token": unsubscribe_token(address)})
-    return {
-        "List-Unsubscribe": f"<{base}/unsubscribe?{query}>",
-        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
-    }
+    return f"{base}/unsubscribe?{query}"
 
 
 def is_suppressed(session: Session, address: str) -> bool:

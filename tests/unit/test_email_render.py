@@ -139,8 +139,8 @@ def test_only_the_waitlist_email_says_you_joined_the_waitlist():
     try:
         for name in templates:
             _, html, text = render_template(name, {})
-            if name == "waitlist_confirmation":
-                assert _WAITLIST_REASON in html and _WAITLIST_REASON in text
+            if name in ("waitlist_confirmation", "waitlist_welcome"):
+                assert "MiHomes waitlist" in html and "MiHomes waitlist" in text
             else:
                 assert _WAITLIST_REASON not in html, f"{name}.html still claims a waitlist signup"
                 assert _WAITLIST_REASON not in text, f"{name}.txt still claims a waitlist signup"

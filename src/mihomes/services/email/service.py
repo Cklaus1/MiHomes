@@ -225,6 +225,25 @@ class EmailService:
 
     # ── SPEC-003 §6 Step 12 — the three Phase 2 mail types ────────────────────
 
+    def send_waitlist_welcome(self, to: str, *, name: str | None, site_url: str) -> None:
+        """"You're on the MiHomes waitlist" (2026-11-18), sent once when someone joins.
+
+        Replaces the double opt-in confirmation on mihomes.ai: the founder chose a thank-you
+        that says what is coming over a link to click. **`transactional`**: it answers the
+        person's own request a moment ago. Later launch updates to the list are marketing and
+        must go out as `lifecycle`, which honours unsubscribes.
+
+        Carries a visible unsubscribe link because it promises "leave the list any time".
+        """
+        from mihomes.services.email.suppression import unsubscribe_link
+
+        self._send(
+            to,
+            "waitlist_welcome",
+            {"name": name, "site_url": site_url, "unsubscribe_url": unsubscribe_link(to)},
+            klass="transactional",
+        )
+
     def send_welcome(self, to: str, *, account_name: str, dashboard_url: str,
                      name: str | None = None) -> None:
         """Sent once, when onboarding creates the account (Step 11)."""

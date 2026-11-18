@@ -312,3 +312,65 @@ def test_tester_link_survives_the_site_passcode_screen(monkeypatch, client):
     page = client.get(link, follow_redirects=False)
     assert page.status_code == 200
     assert 'name="invite"' in page.text
+
+
+# ── The waitlist welcome email (2026-11-18) ──────────────────────────────────────────────────
+
+
+@pytest.fixture
+def fresh_rate_limit(monkeypatch):
+    """The form's per-IP bucket is module state; these tests post several times."""
+    from mihomes.landing.ratelimit import TokenBucket
+    from mihomes.web.routes import waitlist as waitlist_route
+
+    monkeypatch.setattr(waitlist_route, "_bucket", TokenBucket())
+
+
+def test_joining_sends_the_welcome_email_once(client, mailbox, fresh_rate_limit):
+    """A new address gets "You're on the MiHomes waitlist" with its name, what is coming, and a
+    working unsubscribe link. A repeat submission (the same person, or someone typing a
+    stranger's address again) sends nothing more."""
+    from urllib.parse import parse_qs, urlsplit
+
+    from mihomes.services.email.suppression import verify_unsubscribe_token
+
+    first = client.post("/waitlist", data={"email": "New.Fan@Example.com", "name": "Robin"})
+    client.post("/waitlist", data={"email": "new.fan@example.com", "num_homes": "2-3"})
+    mine = [m for m in mailbox if m["to"] == "new.fan@example.com"]
+    assert len(mine) == 1, f"{len(mine)} welcome emails for one address"
+
+    msg = mine[0]
+    assert msg["subject"] == "You're on the MiHomes waitlist"
+    assert "Hi Robin," in msg["html"]
+    assert "founding-member offer" in msg["html"]
+    assert "No spam" in msg["text"]
+    assert first.status_code == 200 and "on the list" in first.text
+
+    import html as _html
+    import re
+    link = _html.unescape(re.search(r'href="([^"]*/unsubscribe\?[^"]+)"', msg["html"]).group(1))
+    query = parse_qs(urlsplit(link).query)
+    assert query["email"] == ["new.fan@example.com"]
+    verify_unsubscribe_token("new.fan@example.com", query["token"][0])  # raises if forged
+    assert client.get(urlsplit(link).path + "?" + urlsplit(link).query).status_code == 200
+
+
+def test_a_bad_address_or_a_mail_failure_sends_nothing_and_looks_the_same(
+    client, mailbox, monkeypatch, fresh_rate_limit
+):
+    ok = client.post("/waitlist", data={"email": "fine@example.com"})
+    bad = client.post("/waitlist", data={"email": "not-an-address"})
+    assert [m["to"] for m in mailbox] == ["fine@example.com"]
+
+    from mihomes.services.email.service import EmailService
+
+    def boom(*_a, **_k):
+        raise RuntimeError("provider down")
+
+    monkeypatch.setattr(EmailService, "send_waitlist_welcome", boom)
+    down = client.post("/waitlist", data={"email": "later@example.com"})
+    assert ok.text == bad.text == down.text, "the page must not reveal what happened"
+    with client._Session() as s:
+        assert s.execute(
+            select(func.count()).select_from(Waitlist).where(Waitlist.email == "later@example.com")
+        ).scalar_one() == 1, "a mail failure lost the signup"

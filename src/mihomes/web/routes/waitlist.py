@@ -6,9 +6,10 @@ The Phase 0 landing app has the same route; this one is what the homepage posts 
 
 Two differences from the landing route, both deliberate:
 
-* **No confirmation email.** Mail is not live yet, and a confirmation nobody receives would
-  leave every row unconfirmed. Rows are stored as they arrive; housekeeping only purges
-  unconfirmed rows that were actually *sent* a confirmation, so these are kept.
+* **A thank-you email, not a confirmation** (2026-11-18). A new address gets "You're on the
+  MiHomes waitlist" once; nothing to click. Rows are never marked as sent a confirmation, so
+  housekeeping (which purges only rows that were sent one and never confirmed) keeps them.
+  A repeat submission sends nothing, so the form cannot be used to mail a stranger repeatedly.
 * **One page for every outcome** (§7-N3, unchanged): a new address, a repeat and a malformed one
   all get the same "you're on the list" page, so the form cannot be used to test which
   addresses are already on it.
@@ -20,9 +21,11 @@ import logging
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from mihomes.landing.ratelimit import TokenBucket, client_ip
+from mihomes.models.waitlist import Waitlist
 from mihomes.web.deps import get_db
 
 logger = logging.getLogger(__name__)
@@ -63,7 +66,11 @@ def join_waitlist(
     try:
         if len(email) > 320:
             raise ValueError("email too long")
-        waitlist_service.add(
+        address = waitlist_service.normalize_email(email)
+        is_new = db.execute(
+            select(Waitlist.id).where(Waitlist.email == address)
+        ).first() is None
+        row = waitlist_service.add(
             db,
             email=email,
             name=name.strip()[:200] or None,
@@ -75,8 +82,23 @@ def join_waitlist(
             user_agent=request.headers.get("user-agent"),
         )
         db.commit()
+        if is_new:
+            _send_welcome(db, request, row.email, row.name)
     except ValueError:
         # Malformed address: same page, no row (N3).
         logger.info("waitlist: rejected an implausible address")
 
     return HTMLResponse(render_page("submitted.html", {"no_email": True}))
+
+
+def _send_welcome(db: Session, request: Request, address: str, name: str | None) -> None:
+    """Send "You're on the MiHomes waitlist". **Never raises**: the row is saved, and the page
+    must look the same whether or not mail went out (N3), so a provider fault is only logged."""
+    from mihomes.services.email import EmailService, get_email_provider
+
+    try:
+        EmailService(get_email_provider(), session=db).send_waitlist_welcome(
+            address, name=name, site_url=str(request.base_url).rstrip("/")
+        )
+    except Exception:
+        logger.exception("waitlist: welcome email not sent")

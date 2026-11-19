@@ -1,6 +1,6 @@
 ---
 title: Terms of Service
-version: draft-2026-11-09
+version: draft-2026-11-19
 effective_date:
 ---
 **DRAFT for counsel review. Not in effect.** Describes MiHomes as a production service for its customers. Every statement must be true of the live service on the day this is published; items in [BRACKETS] must be filled in or decided first.
@@ -47,13 +47,25 @@ The Telegram bot (and, when available, WhatsApp) works through those companies' 
 
 # Plans, trials and billing
 
-- **Plans.** MiHomes has a Free plan and paid plans with different limits on homes, members and AI use. Current plans and prices are shown on the [PRICING PAGE].
-- **Trial.** New households can try a paid plan free for 14 days, once. At the end of the trial the household moves to the Free plan unless you choose a paid plan.
+- **Plans.** MiHomes has a Free plan and paid plans with different limits on homes, members and monthly AI use (measured in AI tokens). Current plans and prices are shown on the [PRICING PAGE]. When a household reaches its monthly AI allowance, AI features pause until the next month or an upgrade.
+- **Trial.** Each household can try Pro or Estate free for 14 days, once. No card is needed, and nothing is charged: at the end of the trial the household moves to the Free plan unless you choose a paid plan.
 - **Payment.** Paid plans are billed in advance, monthly or annually, through Stripe, and renew automatically until cancelled. Taxes may apply.
-- **Failed payments.** If a payment fails, we email reminders and retry over about two weeks; if it still fails, the household moves to the Free plan.
+- **Failed payments.** If a payment fails, we email you, at once and again after 3, 7 and 14 days, while Stripe retries the payment. If it is still unpaid after about two weeks, the household moves to the Free plan. [CONFIRM: the Stripe dashboard retry schedule, and what Stripe does when retries run out, match this paragraph.]
 - **Cancelling.** You can cancel in Settings at any time. You keep the paid plan until the end of the period you've paid for, then move to the Free plan. Nothing is deleted; homes over the Free limit become read-only until you upgrade or remove some.
-- **Refunds.** [DECISION: refund policy. Currently: no refunds for partial periods, and deactivating a household cancels its subscription immediately without a refund for the rest of the period.]
 - **Price changes.** We will give at least [30] days' notice of a price change for an existing subscription.
+
+# Refunds
+
+[DECISION: refund policy. The text below is the recommended option (B). Alternatives: (A) no refunds at all, as the app behaves today; (C) also refund the unused part of an annual plan when a household is deactivated or deleted. Every refund is issued by hand in the Stripe dashboard; the app has no refund feature.]
+
+- **Try before you pay.** Every household can use Pro or Estate free for 14 days, with no card, before paying anything.
+- **Monthly plans** are not refunded for part of a month. When you cancel, you keep the plan until the end of the month you've paid for.
+- **Annual plans.** If you ask within 14 days of being charged for a new annual plan or an annual renewal, we will refund that payment in full and move the household to the Free plan. After 14 days, annual payments are not refunded for the rest of the year; when you cancel, you keep the plan until the end of the year you've paid for.
+- **Deactivating** a household cancels its paid plan straight away. The rest of the period is not refunded, except under the annual-plan rule above.
+- **Deleting** a household cancels its paid plan straight away, without a refund for the rest of the period except under the annual-plan rule above. [DECISION: today a paid plan keeps billing during the 30-day undo period and is only cancelled when the data is erased; the delete screen should cancel at the request, or warn the owner to cancel first.]
+- **Our mistakes.** If we charge you by mistake, charge you twice, or MiHomes is unavailable for a long period, contact us and we will put it right, including by refund.
+- **How to ask.** Email [SUPPORT CONTACT EMAIL] from the account owner's address. Refunds go back to the original payment method through Stripe, normally within 5 to 10 business days.
+- **Your legal rights.** Nothing here limits a refund or cancellation right that the law gives you. [COUNSEL: the EU/UK 14-day right of withdrawal for digital services (and the express consent and acknowledgement needed to start a paid plan straight away), and any state automatic-renewal rules for annual plans.]
 
 # Ending your use of MiHomes
 

@@ -1,6 +1,6 @@
 ---
 title: Privacy Policy
-version: draft-2026-11-09
+version: draft-2026-11-19
 effective_date:
 ---
 **DRAFT for counsel review. Not in effect.** Describes MiHomes as a production service for its customers. Every statement must be true of the live service on the day this is published; items in [BRACKETS] must be filled in or decided first.
@@ -23,7 +23,9 @@ If you add information about other people (for example a housekeeper's phone num
 **When you sign up and sign in**
 - Name, email address and, if you use Google sign-in, your Google account identifier and profile picture address.
 - A password, stored only as a one-way hash, if you set one.
+- Whether and when you confirmed your email address. We email a confirmation link when you sign up with a password.
 - Your role in each household (owner, admin or staff) and who invited you.
+- If a household invites you: your email address and the invitation, which we email to you.
 - A sign-in session: a random identifier (we store only a hash of it), when it was created and last used. We do not store your IP address or browser details with your session.
 
 **What your household adds**
@@ -74,12 +76,12 @@ Only these service providers, and only what each needs:
 - **Stripe**: payments and subscriptions.
 - **Google**: sign-in, if you choose it; Google Calendar, if you connect it. Calendar events we create include the title, description and the **property's address**.
 - **Telegram**: messages to and from the bot, if you use it.
-- **AI providers**: your question, attachments and relevant household context. We use NVIDIA (NIM), the same provider for every household. [COUNSEL: check each provider's data-use and retention terms, and state whether they may train on submitted data.]
+- **AI providers**: your question, attached images and files, and relevant household context. We send them through OpenRouter, which passes them to Anthropic's Claude models; the same for every household. [COUNSEL: check OpenRouter's and Anthropic's data-use and retention terms, confirm OpenRouter's logging and prompt-training settings are off on our account, and state whether either may train on submitted data.]
 - **Resend**: sending email.
 - **Browser push services** (Google, Mozilla, Apple, Microsoft): delivering notifications you turned on.
 - **OpenStreetMap (Nominatim) and Open-Meteo**: weather for your property. The **property address** is sent to OpenStreetMap to find its location, and the coordinates to Open-Meteo.
 - **jsDelivr**: some pages load open-source scripts from this content network, which sees your IP address when they load.
-- **Hosting and storage**: MiHomes, its database, uploaded files and backups run on [PRODUCTION HOSTING: cloud provider, or servers operated by MiHomes], in [DATA REGION(S)]. Your data is not kept on personal computers.
+- **Hosting and storage**: MiHomes, its database, uploaded files and backups run on servers we rent from DigitalOcean, in New York, United States. Your data is not kept on personal computers. [CONFIRM: DigitalOcean New York is the launch host, and the nightly copy of the database to a laptop has been switched off.]
 
 We may also disclose data if the law requires it, or to protect people's safety or our rights.
 
@@ -92,6 +94,9 @@ We use only the cookies MiHomes needs to work:
 - **mihomes_session**: keeps you signed in. 14 days.
 - **mihomes_csrf**: protects forms against cross-site attacks. 14 days.
 - **Google sign-in cookies** (mihomes_oauth_state, mihomes_oauth_verifier, mihomes_oauth_intent, oauth_state): used only during a Google sign-in, for up to 10 minutes.
+- **mihomes_signup_invite**: carries a household invitation through sign-up. 30 minutes.
+- **mihomes_trial_intent**: remembers which plan you chose to try while you sign up. 1 day.
+- **mihomes_notice**: shows a one-time message, such as "Email confirmed". 5 minutes.
 
 Your browser also remembers a few display choices on your own device (for example which task view or vendor tab you last used, and your current AI conversation). We use no advertising or analytics cookies.
 
@@ -104,6 +109,7 @@ Your browser also remembers a few display choices on your own device (for exampl
 - **Backups:** we back up the database every night, encrypted, within our hosting ([BACKUP LOCATION AND REGION]). Each backup is deleted after **[14] days**. Erasing data removes it from MiHomes straight away, but backups made before the erasure still contain it until they reach that age, so erased data is fully gone **within [14] days**. Backups are used only to recover from a failure, and only authorised MiHomes staff can access them; if one were ever restored, erasures made since it was taken would be applied again.
 - **Telegram group messages** shown on the Conversations page are deleted after 1 year.
 - **Emails:** copies of sent emails and their delivery results are deleted 90 days after sending. The unsubscribe list is kept.
+- **Unconfirmed sign-ups:** if you sign up with a password and never confirm your email address, the account is deleted after 30 days.
 - **Shorter-lived data:** sign-in sessions expire after 14 days, password-reset links after 1 hour, invitations after 7 days, Telegram link codes after 15 minutes, and the chat activity log behind live updates after 7 days; expired records are deleted every night. Server logs rotate and are overwritten.
 
 # Your rights

@@ -1437,13 +1437,19 @@ Decided by user: drop the waitlist; everyone can sign up free now. Pro and Estat
 14-day no-card trial (app-managed, one trial per account ever). Trial buttons on the landing plan
 cards and on the billing page.
 
-- [ ] `trial.py`: `start_trial` / `maybe_start_trial` take `plan` (pro | estate; anything else refused)
-- [ ] `POST /billing/trial` takes `plan`; billing page: trial button on Pro and Estate cards;
+- [x] `trial.py`: `start_trial` / `maybe_start_trial` take `plan` (pro | estate; anything else refused)
+- [x] `POST /billing/trial` takes `plan`; billing page: trial button on Pro and Estate cards;
       `/billing?trial=estate` shows a "Start your 14-day Estate trial" callout (one deliberate click)
-- [ ] Landing (open mode): "Try for free" CTAs; Pro/Estate cards get "Try … free for 14 days" →
-      `/signup?next=/billing?trial=<plan>`; plans note + FAQ drop "opening in stages"
-- [ ] Sign-up carries `next` for Google too (cookie through the OAuth round trip); `/signup` when
-      already signed in goes to `next`
-- [ ] Trial wording names the plan (trial-ending email, banner)
-- [ ] Tests; landing + billing + auth + trial suites on Postgres
+- [x] Landing (open mode): "Try for free" CTAs; Pro/Estate cards get "Try … free for 14 days" →
+      `/signup?trial=<plan>`; plans note + FAQ drop "opening in stages"
+- [x] `/signup?trial=<plan>` parks the choice in a 1-day cookie; onboarding's create-account step
+      starts that trial (new users have no account until then, so `next=/billing` would 403 — and
+      a cookie also survives Google sign-in). Already signed in → `/billing?trial=<plan>`; the
+      signup page's "Sign in" link carries `next=/billing?trial=<plan>` for existing users
+- [x] Trial wording names the plan (trial-ending email, banner)
+- [x] Tests; landing + billing + auth + trial suites on Postgres
 - [ ] Deploy (when user says): unset `MIHOMES_SIGNUP_MODE` in Droplet web.env + deploy.sh
+
+**Review (2026-11-19):** 15 new tests (test_open_signup_trials.py) pass; 666 related pass on Postgres.
+8 failures all also fail on base (chat digest, jobs x2, landing DB x2, email class, waitlist-service
+order-dependent x2). Landing plan cards checked in a browser screenshot.

@@ -181,7 +181,25 @@ def create_account(
     if current is not None:
         set_current_account(db, current.session_id, account.id)
 
-    return RedirectResponse("/onboarding/", status_code=303)
+    response = RedirectResponse("/onboarding/", status_code=303)
+    _start_chosen_trial(db, request, account, response)
+    return response
+
+
+def _start_chosen_trial(db: Session, request: Request, account, response) -> None:
+    """Start the trial the person picked on the landing page (`/signup?trial=<plan>`), if any.
+
+    The account was created a moment ago, so this is the earliest point a trial can exist. The
+    cookie is cleared either way, so a later account made in the same browser does not inherit
+    it. `accounts` is a global table, so the write needs no tenant binding.
+    """
+    from mihomes.services.billing.trial import TRIAL_INTENT_COOKIE, start_trial, trial_plan
+
+    plan = trial_plan(request.cookies.get(TRIAL_INTENT_COOKIE))
+    if plan is None:
+        return
+    response.delete_cookie(TRIAL_INTENT_COOKIE, path="/")
+    start_trial(db, account, plan=plan)
 
 
 @router.post("/property")

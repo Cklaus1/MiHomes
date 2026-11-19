@@ -12,6 +12,24 @@
     <p role="status" class="rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-green-800">{{ notice }}</p>
   {% endif %}
 
+  {# `?trial=<plan>` from the landing page's "Try … free" buttons, for someone already signed in.
+     One deliberate click — a GET never starts a trial. #}
+  {% if trial_offer %}
+    {% if trial_available %}
+      <div data-testid="trial-offer" class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
+        <p class="text-sm text-blue-900"><strong>Try {{ trial_offer|capitalize }} free for 14 days.</strong> No card needed — you go back to Free afterwards unless you choose a plan.</p>
+        <form method="post" action="/billing/trial">
+          <input type="hidden" name="action" value="landing_offer">
+          <input type="hidden" name="next" value="/">
+          <input type="hidden" name="plan" value="{{ trial_offer }}">
+          <button type="submit" class="rounded-lg bg-brand-700 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-800">Start {{ trial_offer|capitalize }} trial</button>
+        </form>
+      </div>
+    {% elif status != "trialing" %}
+      <p data-testid="trial-offer-used" role="status" class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">This account has already used its free trial — choose a plan below to upgrade.</p>
+    {% endif %}
+  {% endif %}
+
   {# past_due keeps full access during the grace window (D10) — saying so is the difference
      between a user who updates their card and one who thinks they are locked out. #}
   {% if status == "past_due" %}
@@ -167,11 +185,12 @@
         </form>
         {# The same one-click trial the upgrade prompts offer (`/billing/trial`), shown only while
            this account can still start one — so a Free owner can try Pro without a card. #}
-        {% if plan.key == "pro" and trial_available %}
+        {% if plan.key in ("pro", "estate") and trial_available %}
           <form method="post" action="/billing/trial" class="-mt-2">
             <input type="hidden" name="action" value="billing_page">
             <input type="hidden" name="next" value="/billing">
-            <button type="submit" data-testid="start-trial"
+            <input type="hidden" name="plan" value="{{ plan.key }}">
+            <button type="submit" data-testid="start-trial{% if plan.key != 'pro' %}-{{ plan.key }}{% endif %}"
                     class="w-full min-h-[44px] rounded-lg px-4 text-sm font-semibold text-brand-700 underline hover:text-brand-800">
               Start 14-day free trial — no card needed
             </button>

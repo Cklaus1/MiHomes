@@ -10,7 +10,12 @@
 {% block card %}
         <h1 class="text-lg font-semibold text-gray-900">Create an account</h1>
         <p class="text-sm text-gray-500 mt-1 mb-6">
+          {% if trial_choice %}
+          Your 14-day {{ trial_choice|capitalize }} trial starts when your account is set up — no
+          card needed. You'll set up your first property next.
+          {% else %}
           You'll set up your first property next.
+          {% endif %}
         </p>
 
         {% if error %}
@@ -94,6 +99,7 @@
 {% block below %}
       <p class="text-center text-sm text-gray-500 mt-6">
         Already have an account?
-        <a href="/login{% if next %}?next={{ next | urlencode }}{% endif %}" class="font-medium text-gray-900 underline hover:no-underline">Sign in.</a>
+        {% set login_next = signin_next or next %}
+        <a href="/login{% if login_next %}?next={{ login_next | urlencode }}{% endif %}" class="font-medium text-gray-900 underline hover:no-underline">Sign in.</a>
       </p>
 {% endblock %}

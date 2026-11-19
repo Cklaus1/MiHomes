@@ -83,8 +83,13 @@ def signup_form(
     next: str = "",
     email: str = "",
     invite: str = "",
+    trial: str = "",
 ):
     """The registration form — and the destination `login.html` has been promising.
+
+    **`?trial=pro|estate`** (the landing page's plan buttons) parks that choice in a cookie for
+    onboarding to start once the account exists. Someone already signed in goes to the billing
+    page's trial button instead, and the "Sign in" link here carries them there too.
 
     Until now `/signup` did not exist, so the login page could only say "the button above
     creates your account" (c9e2b77): the standard "Create an account" wording would have read
@@ -94,8 +99,17 @@ def signup_form(
     link (`?email=&invite=`) or a team invite in `next`. Anyone else goes to the waitlist. The
     invitation is also parked in a short-lived cookie so "Sign up with Google" honours it.
     """
+    from mihomes.services.billing.trial import (
+        TRIAL_INTENT_COOKIE,
+        TRIAL_INTENT_MAX_AGE,
+        trial_plan,
+    )
+
+    trial_choice = trial_plan(trial)
     if lookup_session(db, request.cookies.get(SESSION_COOKIE)) is not None:
-        return RedirectResponse("/", status_code=303)
+        return RedirectResponse(
+            f"/billing?trial={trial_choice}" if trial_choice else "/", status_code=303
+        )
     next_path = safe_next(next) or ""
     team_token = signup_gate.team_token_from_next(next_path)
     if signup_gate.waitlist_mode() and not signup_gate.may_create_account(
@@ -112,8 +126,14 @@ def signup_form(
             "email": email,
             "invite": invite,
             "oauth_configured": _oauth_configured(),
+            "trial_choice": trial_choice,
+            "signin_next": next_path or (f"/billing?trial={trial_choice}" if trial_choice else ""),
         },
     )
+    if trial_choice:
+        set_auth_cookie(
+            response, request, TRIAL_INTENT_COOKIE, trial_choice, max_age=TRIAL_INTENT_MAX_AGE
+        )
     if signup_gate.waitlist_mode():
         set_auth_cookie(
             response, request, signup_gate.INVITE_COOKIE,

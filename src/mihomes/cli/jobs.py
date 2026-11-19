@@ -717,6 +717,7 @@ def _send_trial_ending(session, account, remaining_days: int) -> bool:
             billing_url=_billing_url(),
             home_count=after["homes"],
             max_homes=after["target_homes"],
+            plan_name=(account.plan or "pro").capitalize(),
         )
         session.commit()
     except Exception:

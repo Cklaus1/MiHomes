@@ -8,10 +8,10 @@ from mihomes.services.ai.provider import AIAuthError, _construct
 
 
 def test_factory_builds_openrouter_with_its_own_endpoint():
-    p = _construct("openrouter", "sk-or-test", "deepseek/deepseek-chat")
+    p = _construct("openrouter", "sk-or-test", "anthropic/claude-haiku-5.5")
     assert isinstance(p, OpenRouterProvider)
     assert str(p.client.base_url).rstrip("/") == "https://openrouter.ai/api/v1"
-    assert p.model == "deepseek/deepseek-chat"
+    assert p.model == "anthropic/claude-haiku-5.5"
     assert p.supports_images is False
 
 
@@ -21,7 +21,7 @@ def test_openrouter_reads_its_own_env_key(monkeypatch):
     monkeypatch.setenv("NVIDIA_API_KEY", "nvapi-should-not-be-used")
     p = OpenRouterProvider()
     assert p.api_key == "sk-or-env"
-    assert p.model == "deepseek/deepseek-chat"
+    assert p.model == "anthropic/claude-haiku-5.5"
 
 
 def test_openrouter_missing_key_names_openrouter(monkeypatch):

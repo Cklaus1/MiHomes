@@ -62,6 +62,6 @@ def get_ai_model(session: Session, provider: str = "nim") -> str:
         "openai": "gpt-4o",
         "ollama": "llama3.1",
         "nim": "meta/muse-glimmer-30b",
-        "openrouter": "deepseek/deepseek-chat",
+        "openrouter": "anthropic/claude-haiku-5.5",
     }
     return defaults.get(provider, DEFAULT_MODEL)

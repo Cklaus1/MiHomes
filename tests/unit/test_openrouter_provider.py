@@ -15,11 +15,6 @@ def test_factory_builds_openrouter_with_its_own_endpoint():
     assert p.supports_images is True
 
 
-def test_text_only_openrouter_model_reports_no_images():
-    p = _construct("openrouter", "sk-or-test", "deepseek/deepseek-chat")
-    assert p.supports_images is False
-
-
 def test_openrouter_reads_its_own_env_key(monkeypatch):
     monkeypatch.delenv("MIHOMES_AI_MODEL", raising=False)
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-env")

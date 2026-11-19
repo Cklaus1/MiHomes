@@ -863,3 +863,7 @@ Review this at the start of each session.
 ## "Passcode page" means the front door, not the whole site (2026-11-13)
 - **Mistake:** asked for "a passcode page to limit access on the public domain", I gated every request; the user wanted only new users kept out — passcode on the homepage, then log in and use the app as usual.
 - **Rule:** before gating, ask *who* is being kept out. Pages already behind account sign-in need no second gate; put a pre-launch curtain only on the public entry points (`/`, `/login`, `/signup`, Google sign-in start), and let signed-in users through. When scope is ambiguous on an outward-facing change, state the scope in one line before deploying.
+
+## AI model is developer-only (2026-11-19)
+- **Correction:** I made OpenRouter's `supports_images` depend on the configured model "in case someone points it at a text-only model". User: the model is a developer-only edit, not a setting.
+- **Rule:** Don't add runtime guards for operator/developer-only choices (AI provider/model). Set the fixed value and leave a one-line comment saying what to change if the developer switches models.

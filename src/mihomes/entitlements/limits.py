@@ -16,8 +16,13 @@ resolve against something other than the live binding.
 
 **Launch numbers, decided 2026-11-09** (SPEC-004 O1): Pro $19/mo or $190/yr, Estate $49/mo or
 $490/yr. The prices themselves live in Stripe (see `services/billing/prices.py`); this table
-owns the limits. Every plan uses the same AI — one provider and model set by MiHomes (NVIDIA
-NIM), never chosen by a household — so plans differ only in how many AI calls they include.
+owns the limits. Every plan uses the same AI — one provider and model set by MiHomes (Claude
+Haiku via OpenRouter, a developer-only choice), never chosen by a household — so plans differ
+only in how much AI they include.
+
+**AI is capped in tokens, not calls (2026-11-19).** Tokens in + out count equally. A call count
+let one long-context request cost as much as fifty short ones; tokens track what the AI actually
+costs. `ai_usage_label` is the plain-words name shown beside the number on the plan cards.
 They are literals rather than env vars deliberately — C11: a price id is deployment identity and
 must be env, but the limits are product definition, already committed and drift-gated here, and
 moving them to env would make the plan table unreadable for no safety gain.
@@ -53,7 +58,8 @@ PLAN_LIMITS: dict[str, dict[str, Any]] = {
         "max_seats": 3,
         "staff_invites_allowed": False,
         "roles_allowed": frozenset({"owner", "admin"}),
-        "ai_calls_per_month": 100,
+        "ai_tokens_per_month": 500_000,
+        "ai_usage_label": "Light AI use",
         "ai_overage_buffer_pct": 0,
         "ai_priority": "standard",
         "vendor_ratings": False,
@@ -68,7 +74,8 @@ PLAN_LIMITS: dict[str, dict[str, Any]] = {
         "max_seats": 10,
         "staff_invites_allowed": True,
         "roles_allowed": frozenset({"owner", "admin", "staff"}),
-        "ai_calls_per_month": 1_500,
+        "ai_tokens_per_month": 10_000_000,
+        "ai_usage_label": "Standard AI use",
         "ai_overage_buffer_pct": 20,
         "ai_priority": "standard",
         "vendor_ratings": True,
@@ -88,7 +95,8 @@ PLAN_LIMITS: dict[str, dict[str, Any]] = {
         "max_seats": 50,
         "staff_invites_allowed": True,
         "roles_allowed": frozenset({"owner", "admin", "staff"}),
-        "ai_calls_per_month": 3_000,
+        "ai_tokens_per_month": 20_000_000,
+        "ai_usage_label": "Heavy AI use",
         "ai_overage_buffer_pct": 20,
         "ai_priority": "priority",
         "vendor_ratings": True,

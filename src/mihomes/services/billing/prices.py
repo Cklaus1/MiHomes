@@ -12,7 +12,7 @@ and only the customer notices.
 
 **Env vars, never literals, and this half is not negotiable (O1, §1.3, C11).** A price id is
 deployment identity: test-mode and live-mode ids differ, and a literal shipped to production is a
-real charge at the wrong price. The *limits* (`max_homes`, `ai_calls_per_month`) are the opposite
+real charge at the wrong price. The *limits* (`max_homes`, `ai_tokens_per_month`) are the opposite
 — product definition, already committed in `entitlements/limits.py` and drift-gated there. The
 harness records that split as C11 because the two look like the same question and are not.
 

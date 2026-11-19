@@ -30,7 +30,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Integer, String, UniqueConstraint
+from sqlalchemy import BigInteger, Date, DateTime, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -102,11 +102,16 @@ class AIUsageRollup(Base, TenantOwned):
     # on the 20th. Free accounts have no anniversary and use the calendar month.
     period_start: Mapped[date] = mapped_column(Date, nullable=False)
     period_end: Mapped[date] = mapped_column(Date, nullable=False)
+    # Telemetry since 2026-11-19: the cap is `tokens_used` (in + out). Calls are still counted
+    # so "how many requests" stays answerable.
     calls_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    tokens_used: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
 
     # Set when the 80% / 100% nudges are sent, so each fires **once** per period (§5.3). Columns
     # rather than a derived check because "have we already told them" is a fact about what was
-    # sent, and recomputing it from `calls_used` would re-send on every call past the threshold.
+    # sent, and recomputing it from `tokens_used` would re-send on every call past the threshold.
     warned_80_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -115,4 +120,7 @@ class AIUsageRollup(Base, TenantOwned):
     )
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return f"<AIUsageRollup {self.period_start} calls={self.calls_used}>"
+        return (
+            f"<AIUsageRollup {self.period_start} calls={self.calls_used} "
+            f"tokens={self.tokens_used}>"
+        )

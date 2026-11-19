@@ -49,15 +49,15 @@ class TestTheCeilingReachesTheUser:
         account.subscription_status = "active"
         session.flush()
 
-        cap = PLAN_LIMITS["free"]["ai_calls_per_month"]
+        cap = PLAN_LIMITS["free"]["ai_tokens_per_month"]
 
         assert not isinstance(
             check_and_reserve(session, account, entry_point="web.agent"), Denied
         ), "a fresh Free account must be allowed to use AI"
 
-        for _ in range(cap):
+        for _ in range(5):
             record_usage(session, account, entry_point="web.agent", provider="Claude",
-                         method="complete")
+                         method="complete", tokens_in=cap // 10, tokens_out=cap // 10)
 
         decision = check_and_reserve(session, account, entry_point="web.agent")
         assert isinstance(decision, Denied), f"{cap} of {cap} used and still allowed"
@@ -74,13 +74,13 @@ class TestTheCeilingReachesTheUser:
         from mihomes.web.routes.ai import _ai_error, _plan_message
 
         decision = Denied(
-            reason="AI paused until 2026-09-30 — 200 of 200 calls used this period.",
+            reason="AI paused until 2026-09-30 — 500k of 500k AI tokens used this period.",
             upgrade_target="pro",
-            limit=200,
+            limit=500_000,
         )
         message = _plan_message(EntitlementError(decision))
 
-        assert "200 of 200" in message, "the user needs the numbers to know what happened"
+        assert "500k of 500k" in message, "the user needs the numbers to know what happened"
         assert "Pro" in message, "PRICING rule 4 — name the plan that would allow it"
         assert "/billing" in message, "and give them somewhere to go"
 
@@ -97,24 +97,26 @@ class TestRecordUsage:
         account = session.get(Account, account_a)
 
         record_usage(session, account, entry_point="web.agent", provider="Claude",
-                     method="complete")
+                     method="complete", tokens_in=1_200, tokens_out=300)
 
-        assert current_usage(session, account) == 1
+        assert current_usage(session, account) == 1_500, "the cap counts tokens in + out"
 
     def test_each_call_writes_an_event(self, session, account_a):
         """The event log is the audit trail A11 rests on — `entry_point` is how a later reader
         proves which paths were metered, so the row has to exist per call, not per period."""
         account = session.get(Account, account_a)
 
-        record_usage(session, account, entry_point="cli.ai", provider="Claude", method="stream")
+        record_usage(session, account, entry_point="cli.ai", provider="Claude", method="stream",
+                     tokens_in=10, tokens_out=5)
         record_usage(session, account, entry_point="gateway.review", provider="Claude",
-                     method="structured_output")
+                     method="structured_output", tokens_in=20, tokens_out=7)
 
         events = session.query(AIUsageEvent).filter(
             AIUsageEvent.account_id == account.id
         ).all()
         assert {e.entry_point for e in events} == {"cli.ai", "gateway.review"}
-        assert current_usage(session, account) == 2
+        assert {(e.tokens_in, e.tokens_out) for e in events} == {(10, 5), (20, 7)}
+        assert current_usage(session, account) == 42
 
     def test_one_rollup_per_period(self, session, account_a):
         """Many calls, one counter row — the point of materializing (D18)."""
@@ -162,11 +164,11 @@ class TestArchiveDoesNotResetUsage:
         session.commit()
 
         record_usage(session, account, entry_point="web.agent", provider="Claude",
-                     method="complete")
+                     method="complete", tokens_in=100, tokens_out=50)
         record_usage(session, account, entry_point="web.agent", provider="Claude",
-                     method="complete")
+                     method="complete", tokens_in=100, tokens_out=50)
         before = current_usage(session, account)
-        assert before == 2
+        assert before == 300
 
         # What archive.py does (`:191-199`): select, copy, DELETE.
         session.query(AIConversation).delete()
@@ -178,7 +180,7 @@ class TestArchiveDoesNotResetUsage:
             "the archive DELETE did not run — A13's assertion would then be vacuous"
         )
         assert current_usage(session, account) == before, (
-            "archiving must not reduce calls_used — a derived counter would reset here, "
+            "archiving must not reduce tokens_used — a derived counter would reset here, "
             "handing the customer their quota back (D18/F10/A13)"
         )
 

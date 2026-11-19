@@ -77,13 +77,23 @@ def _count(n: int, one: str, many: str) -> str:
     return f"{n:,} {one if n == 1 else many}"
 
 
+def _ai_allowance(limits: dict) -> str:
+    """"Standard AI use · 10M tokens a month" — plain words first, the real number after."""
+    from mihomes.services.metering.meter import format_tokens
+
+    return (
+        f"{limits['ai_usage_label']} · {format_tokens(limits['ai_tokens_per_month'])} "
+        "AI tokens a month"
+    )
+
+
 def _features(limits: dict) -> list[tuple[bool, str]]:
     """(included, label) — a plan's §3.1 row in words a household would use."""
     return [
         (True, _count(limits["max_homes"], "home", "homes")),
         (True, _count(limits["max_seats"], "seat", "seats") + " for family and team"),
         (limits["staff_invites_allowed"], "Invite household staff"),
-        (True, _count(limits["ai_calls_per_month"], "AI request", "AI requests") + " a month"),
+        (True, _ai_allowance(limits)),
         (limits["vendor_ratings"], "Vendor ratings"),
         (limits["work_order_scheduling"], "Work-order scheduling"),
         (limits["predictive_maintenance"], "Predictive maintenance"),

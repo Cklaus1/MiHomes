@@ -48,6 +48,33 @@ __all__ = ["MeteredProvider"]
 #: call sites from the tree, not from this list.
 METERED_METHODS = ("complete", "structured_output", "stream")
 
+#: Rough tokens an image costs a vision model. Only used when the vendor reports no usage.
+_IMAGE_TOKENS_ESTIMATE = 1_600
+
+
+def _estimate_tokens(args, kwargs, result) -> tuple[int, int]:
+    """About 4 characters a token, over every text argument sent and the text that came back.
+
+    The fallback for a call whose usage the vendor did not report. Deliberately rough: its only
+    job is to make sure such a call still counts against the allowance.
+    """
+    import json
+
+    sent = 0
+    for value in list(args) + list(kwargs.values()):
+        if isinstance(value, str):
+            sent += len(value)
+        elif isinstance(value, dict):
+            sent += len(json.dumps(value, default=str))
+        elif isinstance(value, list):
+            for att in value:
+                if getattr(att, "is_image", False):
+                    sent += _IMAGE_TOKENS_ESTIMATE * 4
+                else:
+                    sent += len(getattr(att, "text_content", "") or "")
+    received = len(result if isinstance(result, str) else json.dumps(result, default=str))
+    return max(1, sent // 4), max(1, received // 4)
+
 
 class MeteredProvider:
     """Proxies an `AIProvider`, recording one usage event per dispatch.
@@ -72,26 +99,52 @@ class MeteredProvider:
     def complete(self, *args, **kwargs):
         self._check()
         result = self._provider.complete(*args, **kwargs)
-        self._record("complete")
+        self._record("complete", self._tokens(args, kwargs, result))
         return result
 
     def structured_output(self, *args, **kwargs):
         self._check()
         result = self._provider.structured_output(*args, **kwargs)
-        self._record("structured_output")
+        self._record("structured_output", self._tokens(args, kwargs, result))
         return result
 
     def stream(self, *args, **kwargs):
-        """Metered **once per call**, not per token.
+        """Checked now, recorded **once, after the stream ends** — that is when its tokens are known.
 
-        `PRICING` §5.1 bills calls, and a stream is one call that happens to arrive in pieces —
-        counting tokens here would charge a long answer as hundreds of calls. Recorded before
-        the generator is consumed, so a caller that abandons the stream halfway is still counted:
-        the request was made and the provider billed for it.
+        The ceiling check stays eager (here, not inside the generator) so a denied call raises
+        before any streaming starts, as before. The record moves to the generator's `finally`:
+        a caller that abandons the stream halfway is still counted (the provider billed for it),
+        with whatever usage is known, or an estimate of what was sent and received. A stream that
+        fails before producing anything is not counted, matching `complete`.
         """
         self._check()
-        self._record("stream")
-        return self._provider.stream(*args, **kwargs)
+        return self._metered_stream(args, kwargs)
+
+    def _metered_stream(self, args, kwargs):
+        pieces: list[str] = []
+        failed = False
+        try:
+            for chunk in self._provider.stream(*args, **kwargs):
+                pieces.append(chunk)
+                yield chunk
+        except Exception:
+            failed = True
+            raise
+        finally:
+            # GeneratorExit (an abandoned stream) is a BaseException, so `failed` stays False.
+            if not failed or pieces:
+                self._record("stream", self._tokens(args, kwargs, "".join(pieces)))
+
+    def _tokens(self, args, kwargs, result) -> tuple[int, int]:
+        """`(tokens_in, tokens_out)`: the vendor's count, or an estimate — **never zero**.
+
+        A provider that returned no usage (Ollama, an abandoned stream, a vendor that dropped the
+        field) must still use up allowance, or a missing usage block would mean unlimited AI.
+        """
+        usage = getattr(self._provider, "last_usage", None)
+        if usage is not None:
+            return usage
+        return _estimate_tokens(args, kwargs, result)
 
     # -- full-surface proxying (F8) -----------------------------------------------------
 
@@ -172,7 +225,7 @@ class MeteredProvider:
 
             raise EntitlementError(decision)
 
-    def _record(self, method: str) -> None:
+    def _record(self, method: str, tokens: tuple[int, int] | None = None) -> None:
         """Write the usage event. **Never raises into the caller.**
 
         A metering failure must not break the feature the user is paying for: the answer has
@@ -194,6 +247,8 @@ class MeteredProvider:
                     entry_point=self._entry_point,
                     provider=type(self._provider).__name__,
                     method=method,
+                    tokens_in=tokens[0] if tokens else None,
+                    tokens_out=tokens[1] if tokens else None,
                 )
         except Exception:
             logger.exception(

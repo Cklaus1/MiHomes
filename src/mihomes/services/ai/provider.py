@@ -19,6 +19,27 @@ TRUNCATION_MARKER = (
 )
 
 
+def token_usage(response) -> tuple[int, int] | None:
+    """`(tokens_in, tokens_out)` from a vendor response, or None when it carries no usage.
+
+    The AI meter caps households by tokens, so every provider stores this on `last_usage` after
+    each call. Reads both shapes: OpenAI-compatible (`prompt_tokens`/`completion_tokens`, used by
+    NIM, OpenRouter and OpenAI) and Anthropic (`input_tokens`/`output_tokens`).
+    """
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return None
+    tokens_in = getattr(usage, "prompt_tokens", None)
+    if tokens_in is None:
+        tokens_in = getattr(usage, "input_tokens", None)
+    tokens_out = getattr(usage, "completion_tokens", None)
+    if tokens_out is None:
+        tokens_out = getattr(usage, "output_tokens", None)
+    if tokens_in is None and tokens_out is None:
+        return None
+    return int(tokens_in or 0), int(tokens_out or 0)
+
+
 class AIProviderError(Exception):
     """Base exception for AI provider errors."""
     pass

@@ -68,7 +68,7 @@ class TestTheEightStatuses:
         assert limits["max_homes"] == expected["max_homes"], (
             f"{vendor!r} must resolve to {effective} entitlements (BILLING §5)"
         )
-        assert limits["ai_calls_per_month"] == expected["ai_calls_per_month"]
+        assert limits["ai_tokens_per_month"] == expected["ai_tokens_per_month"]
 
     def test_the_table_covers_every_status_stripe_sends(self):
         """The set itself, so a missing row cannot hide behind the parametrisation.

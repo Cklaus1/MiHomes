@@ -23,13 +23,14 @@ from mihomes.models.ai_usage import AIUsageRollup
 from mihomes.services.metering.meter import (
     billing_period,
     check_and_reserve,
+    format_tokens,
     hard_ceiling,
     record_usage,
 )
 
 
-def _spend(session, account, calls: int) -> None:
-    """Drive the counter to `calls` by writing the rollup directly.
+def _spend(session, account, tokens: int) -> None:
+    """Drive the counter to `tokens` by writing the rollup directly.
 
     Calling `record_usage` 200 times would work and would make this file's runtime absurd. The
     rollup *is* the counter (D18), so setting it is equivalent — and `test_the_counter_moves` in
@@ -45,7 +46,7 @@ def _spend(session, account, calls: int) -> None:
             account_id=account.id, period_start=start, period_end=end, calls_used=0,
         )
         session.add(rollup)
-    rollup.calls_used = calls
+    rollup.tokens_used = tokens
     session.commit()
 
 
@@ -77,11 +78,11 @@ class TestTheThreeRegions:
     def test_ceiling_and_nudges(self, session, pro_account):
         """**A14** — the ceiling denies, the soft cap does not, and each nudge fires once.
 
-        Pro's buffer is 20%, so 3,000 calls is the soft cap and 3,600 the ceiling. The middle
+        Pro's buffer is 20%, so 10M tokens is the soft cap and 12M the ceiling. The middle
         region is the one worth asserting: at 3,000 the customer is *over their plan* and AI
         still works, which is the policy §5.3 chose over a hard wall.
         """
-        cap = PLAN_LIMITS["pro"]["ai_calls_per_month"]
+        cap = PLAN_LIMITS["pro"]["ai_tokens_per_month"]
         ceiling = hard_ceiling(pro_account)
         assert ceiling > cap, "Pro's 20% buffer must put the ceiling above the soft cap"
 
@@ -113,9 +114,9 @@ class TestTheThreeRegions:
         too, and "borrow 20% from a plan that pays nothing" is exactly the generous-looking bug
         that costs money.
         """
-        assert hard_ceiling(free_account) == PLAN_LIMITS["free"]["ai_calls_per_month"]
+        assert hard_ceiling(free_account) == PLAN_LIMITS["free"]["ai_tokens_per_month"]
 
-        _spend(session, free_account, PLAN_LIMITS["free"]["ai_calls_per_month"])
+        _spend(session, free_account, PLAN_LIMITS["free"]["ai_tokens_per_month"])
         assert isinstance(
             check_and_reserve(session, free_account, entry_point="web.agent"), Denied
         )
@@ -124,12 +125,13 @@ class TestTheThreeRegions:
         """§5.3: the user sees *"AI paused until &lt;resets_at&gt;"* with their meter and reset
         date. A bare "limit reached" leaves them with no idea whether to wait an hour or a month.
         """
-        _spend(session, free_account, 500)
+        cap = PLAN_LIMITS["free"]["ai_tokens_per_month"]
+        _spend(session, free_account, cap)
         decision = check_and_reserve(session, free_account, entry_point="web.agent")
 
         _start, end = billing_period(free_account)
         assert end.isoformat() in decision.reason
-        assert str(PLAN_LIMITS["free"]["ai_calls_per_month"]) in decision.reason
+        assert f"{format_tokens(cap)} of {format_tokens(cap)} AI tokens" in decision.reason
 
 
 class TestNudges:
@@ -141,7 +143,7 @@ class TestNudges:
         a notification storm aimed precisely at the heaviest users, who are the best upgrade
         candidates.
         """
-        cap = PLAN_LIMITS["pro"]["ai_calls_per_month"]
+        cap = PLAN_LIMITS["pro"]["ai_tokens_per_month"]
         start, _end = billing_period(pro_account)
 
         _spend(session, pro_account, int(cap * 0.8))
@@ -187,7 +189,7 @@ class TestNudges:
         marker unset, so the 80% nudge would fire in a *later* period and read as a false alarm
         about usage that had already been billed.
         """
-        cap = PLAN_LIMITS["pro"]["ai_calls_per_month"]
+        cap = PLAN_LIMITS["pro"]["ai_tokens_per_month"]
         start, _end = billing_period(pro_account)
 
         _spend(session, pro_account, cap)
@@ -218,7 +220,7 @@ class TestSystemCallsAreExempt:
             def complete(self, *a, **k):
                 return "ok"
 
-        _spend(session, free_account, 10_000)  # far past any ceiling
+        _spend(session, free_account, 10**10)  # far past any ceiling
 
         system_provider = MeteredProvider(
             _Stub(), session_factory=None, account=None, entry_point="system.nightly",
@@ -231,7 +233,7 @@ class TestSystemCallsAreExempt:
     def test_a_user_call_at_the_same_usage_is_denied(self, session, free_account):
         """The control for A15. Without it, a wrapper that never denied *anything* would pass —
         and the exemption would be indistinguishable from the ceiling being broken."""
-        _spend(session, free_account, 10_000)
+        _spend(session, free_account, 10**10)
         assert isinstance(
             check_and_reserve(session, free_account, entry_point="web.agent"), Denied
         )
@@ -275,7 +277,8 @@ class TestConcurrentAtTheCap:
                     acct = worker.get(Account, account_a)
                     both_ready.wait()
                     record_usage(worker, acct, entry_point="web.agent",
-                                 provider="Claude", method="complete")
+                                 provider="Claude", method="complete",
+                                 tokens_in=700, tokens_out=300)
             except BaseException as exc:  # noqa: BLE001 - reported, not swallowed
                 errors.append(exc)
 
@@ -297,6 +300,7 @@ class TestConcurrentAtTheCap:
                 AIUsageRollup.period_start == start,
             ).one()
             used = rollup.calls_used
+            tokens = rollup.tokens_used
 
             check.query(AIUsageRollup).filter(
                 AIUsageRollup.account_id == account_a
@@ -314,6 +318,9 @@ class TestConcurrentAtTheCap:
             f"the counter lost an increment under concurrency ({used} != 2) — two threads read "
             "the same calls_used and both wrote back +1"
         )
+        assert tokens == 2_000, (
+            f"the token counter lost an increment under concurrency ({tokens} != 2000)"
+        )
 
 
 class TestUsageReport:
@@ -324,19 +331,19 @@ class TestUsageReport:
         would render a bar that is always empty and read as "0 of 3000 used" rather than "not
         measured". The meter exists now, so the number is a measurement.
         """
-        _spend(session, pro_account, 42)
-        report = usage(pro_account, "ai_calls", session=session)
+        _spend(session, pro_account, 42_000)
+        report = usage(pro_account, "ai_tokens", session=session)
 
-        assert report.used == 42
-        assert report.limit == PLAN_LIMITS["pro"]["ai_calls_per_month"]
+        assert report.used == 42_000
+        assert report.limit == PLAN_LIMITS["pro"]["ai_tokens_per_month"]
         assert report.resets_at is not None
 
     def test_the_two_argument_signature_still_works(self, pro_account):
         """SPEC-003 §5.3 requires this signature *"character-for-character"*, so `session` is
         keyword-only and optional. Without one the report is honest rather than wrong: the real
         limit, and `used=0` because nothing was read."""
-        report = usage(pro_account, "ai_calls")
-        assert report.limit == PLAN_LIMITS["pro"]["ai_calls_per_month"]
+        report = usage(pro_account, "ai_tokens")
+        assert report.limit == PLAN_LIMITS["pro"]["ai_tokens_per_month"]
         assert report.used == 0
 
     def test_an_unknown_meter_is_not_measured(self, session, pro_account):

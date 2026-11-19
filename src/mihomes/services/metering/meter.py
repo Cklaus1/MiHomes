@@ -1,9 +1,8 @@
 """The AI usage meter — record a call, read the counter, resolve the billing period.
 
-`PRICING` §5.1 bills **calls, not tokens**, so the counter is the billing unit and the event log's
-token columns are telemetry. §10 records the consequence honestly: a user sending very long
-contexts costs materially more per call than the pricing model assumes, and nothing acts on that
-until metered billing (Phase 4+).
+**The cap is tokens, not calls (2026-11-19).** It was calls (`PRICING` §5.1), and §10 recorded the
+flaw: a long-context request cost many times a short one and counted the same. Each call now adds
+its tokens in + out to `tokens_used`; `calls_used` is still incremented as telemetry.
 
 ## Why the increment shares the event's transaction
 
@@ -33,7 +32,22 @@ from mihomes.models.ai_usage import AIUsageEvent, AIUsageRollup
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["billing_period", "check_and_reserve", "current_usage", "record_usage"]
+__all__ = [
+    "billing_period",
+    "check_and_reserve",
+    "current_usage",
+    "format_tokens",
+    "record_usage",
+]
+
+
+def format_tokens(n: int) -> str:
+    """Token counts the way people read them: 500k, 10M, 1.2M, 950."""
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}".rstrip("0").rstrip(".") + "M"
+    if n >= 1_000:
+        return f"{n / 1_000:.1f}".rstrip("0").rstrip(".") + "k"
+    return str(n)
 
 
 def billing_period(account, today: date | None = None) -> tuple[date, date]:
@@ -113,12 +127,13 @@ def record_usage(
         )
     )
     rollup.calls_used += 1
+    rollup.tokens_used += (tokens_in or 0) + (tokens_out or 0)
     session.commit()
     return rollup
 
 
 def current_usage(session: Session, account) -> int:
-    """Calls used in the current billing period. **Reads the rollup, never the event log.**
+    """Tokens used in the current billing period. **Reads the rollup, never the event log.**
 
     A `COUNT(*)` over `ai_usage_events` would be correct and would also grow linearly on the hot
     path of every AI call — the reason D18 materializes the counter in the first place.
@@ -128,7 +143,7 @@ def current_usage(session: Session, account) -> int:
     """
     start, _end = billing_period(account)
     used = session.execute(
-        select(AIUsageRollup.calls_used).where(
+        select(AIUsageRollup.tokens_used).where(
             AIUsageRollup.account_id == account.id,
             AIUsageRollup.period_start == start,
         )
@@ -137,22 +152,25 @@ def current_usage(session: Session, account) -> int:
 
 
 def hard_ceiling(account) -> int:
-    """`ai_calls_per_month × (1 + ai_overage_buffer_pct/100)` — `PRICING` §5.3.
+    """`ai_tokens_per_month × (1 + ai_overage_buffer_pct/100)` — `PRICING` §5.3.
 
     **Not the limit.** The limit is the soft cap: past it, AI keeps working through the buffer
     with an upgrade banner, because *"a hard wall at exactly the limit punishes the most engaged
     users — our best upgrade candidates — and creates a bad moment."* The ceiling exists purely to
     bound worst-case Claude spend.
 
-    Free's buffer is **0%**, so its soft cap and ceiling coincide at 200: there is no revenue to
+    Free's buffer is **0%**, so its soft cap and ceiling coincide at 500k tokens: there is no revenue to
     offset the cost of letting it run over. That is a deliberate asymmetry, not an oversight.
+
+    One call can overshoot by its own size: the check runs before dispatch, and a call's tokens
+    are only known after it returns.
     """
     from mihomes.entitlements.limits import limits_for
 
     limits = limits_for(
         getattr(account, "plan", "free"), getattr(account, "subscription_status", None)
     )
-    cap = limits.get("ai_calls_per_month", 0)
+    cap = limits.get("ai_tokens_per_month", 0)
     buffer_pct = limits.get("ai_overage_buffer_pct", 0)
     return int(cap * (1 + buffer_pct / 100))
 
@@ -187,7 +205,7 @@ def check_and_reserve(session: Session, account, *, entry_point: str):
     limits = limits_for(
         getattr(account, "plan", "free"), getattr(account, "subscription_status", None)
     )
-    soft_cap = limits.get("ai_calls_per_month", 0)
+    soft_cap = limits.get("ai_tokens_per_month", 0)
     ceiling = hard_ceiling(account)
     used = current_usage(session, account)
 
@@ -199,8 +217,8 @@ def check_and_reserve(session: Session, account, *, entry_point: str):
 
         return Denied(
             reason=(
-                f"AI paused until {resets_at.isoformat()} — {used} of {soft_cap} calls used "
-                f"this period. Upgrade to continue."
+                f"AI paused until {resets_at.isoformat()} — {format_tokens(used)} of "
+                f"{format_tokens(soft_cap)} AI tokens used this period. Upgrade to continue."
             ),
             upgrade_target=UPGRADE_PATH.get(getattr(account, "plan", "free")),
             limit=soft_cap,

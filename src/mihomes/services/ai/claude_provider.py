@@ -15,6 +15,7 @@ from mihomes.services.ai.provider import (
     AIAuthError,
     AIProviderError,
     AIRateLimitError,
+    token_usage,
 )
 
 
@@ -49,6 +50,9 @@ class ClaudeProvider:
     # H13: Claude forwards image attachments to the model as real image blocks.
     supports_images: bool = True
 
+    #: `(tokens_in, tokens_out)` of the most recent call, read by the AI meter (see NIMProvider).
+    last_usage: tuple[int, int] | None = None
+
     def __init__(self, api_key: str | None = None, model: str | None = None):
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
         if not self.api_key:
@@ -67,6 +71,7 @@ class ClaudeProvider:
         attachments: list[Attachment] | None = None,
     ) -> str:
         """Send a completion request to Claude, with optional file attachments."""
+        self.last_usage = None
         text = user_message
         if context_data:
             text = f"{text}\n\n<estate_data>\n{context_data}\n</estate_data>"
@@ -100,13 +105,14 @@ class ClaudeProvider:
                 system=system_prompt,
                 messages=[{"role": "user", "content": content}],
             )
+            self.last_usage = token_usage(response)
             return _extract_text(response)
         except anthropic.AuthenticationError as e:
-            raise AIAuthError(f"Invalid API key: {e}")
+            raise AIAuthError(f"Invalid API key: {e}") from e
         except anthropic.RateLimitError as e:
-            raise AIRateLimitError(f"Rate limited: {e}")
+            raise AIRateLimitError(f"Rate limited: {e}") from e
         except anthropic.APIError as e:
-            raise AIProviderError(f"Claude API error: {e}")
+            raise AIProviderError(f"Claude API error: {e}") from e
 
     def stream(
         self,
@@ -116,6 +122,7 @@ class ClaudeProvider:
         attachments: list[Attachment] | None = None,
     ) -> Iterator[str]:
         """Stream tokens from Claude API."""
+        self.last_usage = None
         text = user_message
         if context_data:
             text = f"{text}\n\n<estate_data>\n{context_data}\n</estate_data>"
@@ -151,12 +158,13 @@ class ClaudeProvider:
             ) as stream:
                 for chunk in stream.text_stream:
                     yield chunk
+                self.last_usage = token_usage(stream.get_final_message())
         except anthropic.AuthenticationError as e:
-            raise AIAuthError(f"Invalid API key: {e}")
+            raise AIAuthError(f"Invalid API key: {e}") from e
         except anthropic.RateLimitError as e:
-            raise AIRateLimitError(f"Rate limited: {e}")
+            raise AIRateLimitError(f"Rate limited: {e}") from e
         except anthropic.APIError as e:
-            raise AIProviderError(f"Claude API error: {e}")
+            raise AIProviderError(f"Claude API error: {e}") from e
 
     def structured_output(
         self,
@@ -167,6 +175,7 @@ class ClaudeProvider:
         attachments: list[Attachment] | None = None,
     ) -> dict:
         """Request structured output from Claude using tool_use."""
+        self.last_usage = None
         message_content = user_message
         if context_data:
             message_content = f"{user_message}\n\n<data>\n{context_data}\n</data>"
@@ -210,6 +219,7 @@ class ClaudeProvider:
                 tools=[tool],
                 tool_choice={"type": "tool", "name": "structured_response"},
             )
+            self.last_usage = token_usage(response)
 
             for block in response.content:
                 if block.type == "tool_use":
@@ -223,13 +233,13 @@ class ClaudeProvider:
             raise AIProviderError("No structured output in Claude response")
 
         except anthropic.AuthenticationError as e:
-            raise AIAuthError(f"Invalid API key: {e}")
+            raise AIAuthError(f"Invalid API key: {e}") from e
         except anthropic.RateLimitError as e:
-            raise AIRateLimitError(f"Rate limited: {e}")
+            raise AIRateLimitError(f"Rate limited: {e}") from e
         except anthropic.APIError as e:
-            raise AIProviderError(f"Claude API error: {e}")
+            raise AIProviderError(f"Claude API error: {e}") from e
         except json.JSONDecodeError as e:
             # Include partial response for debugging
             text_blocks = [b.text for b in response.content if hasattr(b, 'text')] if 'response' in dir() else []
             preview = text_blocks[0][:200] if text_blocks else "no text"
-            raise AIProviderError(f"Failed to parse structured output from Claude. Response: {preview}")
+            raise AIProviderError(f"Failed to parse structured output from Claude. Response: {preview}") from e

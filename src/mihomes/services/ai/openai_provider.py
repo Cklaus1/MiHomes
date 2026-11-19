@@ -3,7 +3,12 @@
 import json
 import os
 
-from mihomes.services.ai.provider import AIAuthError, AIProviderError, AIRateLimitError
+from mihomes.services.ai.provider import (
+    AIAuthError,
+    AIProviderError,
+    AIRateLimitError,
+    token_usage,
+)
 
 try:
     import openai
@@ -18,6 +23,9 @@ class OpenAIProvider:
     # structured_output) — it never sends real image data, so it must not be
     # used for vision tasks like room scans.
     supports_images: bool = False
+
+    #: `(tokens_in, tokens_out)` of the most recent call, read by the AI meter (see NIMProvider).
+    last_usage: tuple[int, int] | None = None
 
     def __init__(self, api_key: str | None = None, model: str | None = None):
         if openai is None:
@@ -40,6 +48,7 @@ class OpenAIProvider:
         context_data: str | None = None,
         attachments=None,
     ) -> str:
+        self.last_usage = None
         message_content = user_message
         if attachments:
             from mihomes.services.ai.file_processor import attachments_to_text_block
@@ -56,15 +65,16 @@ class OpenAIProvider:
                     {"role": "user", "content": message_content},
                 ],
             )
+            self.last_usage = token_usage(response)
             # L10: message.content is Optional per the OpenAI schema (None on a
             # refusal/tool-only turn); the -> str contract must not leak None.
             return response.choices[0].message.content or ""
         except openai.AuthenticationError as e:
-            raise AIAuthError(f"Invalid API key: {e}")
+            raise AIAuthError(f"Invalid API key: {e}") from e
         except openai.RateLimitError as e:
-            raise AIRateLimitError(f"Rate limited: {e}")
+            raise AIRateLimitError(f"Rate limited: {e}") from e
         except openai.APIError as e:
-            raise AIProviderError(f"OpenAI API error: {e}")
+            raise AIProviderError(f"OpenAI API error: {e}") from e
 
     def stream(
         self,
@@ -74,6 +84,7 @@ class OpenAIProvider:
         attachments=None,
     ):
         """Stream tokens from OpenAI."""
+        self.last_usage = None
         message_content = user_message
         if attachments:
             from mihomes.services.ai.file_processor import attachments_to_text_block
@@ -90,18 +101,21 @@ class OpenAIProvider:
                     {"role": "user", "content": message_content},
                 ],
                 stream=True,
+                stream_options={"include_usage": True},
             )
             for chunk in response:
+                if getattr(chunk, "usage", None) is not None:
+                    self.last_usage = token_usage(chunk)
                 if chunk.choices:
                     delta = chunk.choices[0].delta.content
                     if delta:
                         yield delta
         except openai.AuthenticationError as e:
-            raise AIAuthError(f"Invalid API key: {e}")
+            raise AIAuthError(f"Invalid API key: {e}") from e
         except openai.RateLimitError as e:
-            raise AIRateLimitError(f"Rate limited: {e}")
+            raise AIRateLimitError(f"Rate limited: {e}") from e
         except openai.APIError as e:
-            raise AIProviderError(f"OpenAI API error: {e}")
+            raise AIProviderError(f"OpenAI API error: {e}") from e
 
     def structured_output(
         self,
@@ -111,6 +125,7 @@ class OpenAIProvider:
         context_data: str | None = None,
         attachments=None,
     ) -> dict:
+        self.last_usage = None
         message_content = user_message
         if context_data:
             message_content = f"{user_message}\n\n<data>\n{context_data}\n</data>"
@@ -135,6 +150,7 @@ class OpenAIProvider:
                 tools=[tool],
                 tool_choice={"type": "function", "function": {"name": "structured_response"}},
             )
+            self.last_usage = token_usage(response)
 
             msg = response.choices[0].message
             if msg.tool_calls:
@@ -144,10 +160,10 @@ class OpenAIProvider:
 
             raise AIProviderError("No structured output in OpenAI response")
         except openai.AuthenticationError as e:
-            raise AIAuthError(f"Invalid API key: {e}")
+            raise AIAuthError(f"Invalid API key: {e}") from e
         except openai.RateLimitError as e:
-            raise AIRateLimitError(f"Rate limited: {e}")
+            raise AIRateLimitError(f"Rate limited: {e}") from e
         except openai.APIError as e:
-            raise AIProviderError(f"OpenAI API error: {e}")
-        except json.JSONDecodeError:
-            raise AIProviderError("Failed to parse structured output from OpenAI")
+            raise AIProviderError(f"OpenAI API error: {e}") from e
+        except json.JSONDecodeError as e:
+            raise AIProviderError("Failed to parse structured output from OpenAI") from e

@@ -3,7 +3,12 @@
 import json
 import os
 
-from mihomes.services.ai.provider import AIAuthError, AIProviderError, AIRateLimitError
+from mihomes.services.ai.provider import (
+    AIAuthError,
+    AIProviderError,
+    AIRateLimitError,
+    token_usage,
+)
 
 try:
     import openai
@@ -34,6 +39,10 @@ class NIMProvider:
 
     # H13: NIM's _build_content forwards real image_url blocks to the model.
     supports_images: bool = True
+
+    #: `(tokens_in, tokens_out)` of the most recent call, read by the AI meter. None until a call
+    #: returns usage; reset at the start of every call so a failed call never reports stale counts.
+    last_usage: tuple[int, int] | None = None
 
     def __init__(self, api_key: str | None = None, model: str | None = None):
         if openai is None:
@@ -94,6 +103,7 @@ class NIMProvider:
         attachments=None,
     ) -> str:
         """Send a completion request to NVIDIA NIM."""
+        self.last_usage = None
         text = user_message
         if context_data:
             text = f"{text}\n\n<estate_data>\n{context_data}\n</estate_data>"
@@ -107,6 +117,7 @@ class NIMProvider:
                     {"role": "user", "content": self._build_content(text, attachments)},
                 ],
             )
+            self.last_usage = token_usage(response)
             return response.choices[0].message.content
         except openai.AuthenticationError as e:
             raise AIAuthError(f"Invalid {self.LABEL} API key: {e}") from e
@@ -123,6 +134,7 @@ class NIMProvider:
         attachments=None,
     ):
         """Stream tokens from NVIDIA NIM."""
+        self.last_usage = None
         text = user_message
         if context_data:
             text = f"{text}\n\n<estate_data>\n{context_data}\n</estate_data>"
@@ -136,8 +148,13 @@ class NIMProvider:
                     {"role": "user", "content": self._build_content(text, attachments)},
                 ],
                 stream=True,
+                # The usage arrives on a final chunk with no `choices`; without this option
+                # a streamed answer would reach the meter with no token count at all.
+                stream_options={"include_usage": True},
             )
             for chunk in response:
+                if getattr(chunk, "usage", None) is not None:
+                    self.last_usage = token_usage(chunk)
                 if chunk.choices:
                     delta = chunk.choices[0].delta.content
                     if delta:
@@ -158,6 +175,7 @@ class NIMProvider:
         attachments=None,
     ) -> dict:
         """Request structured JSON output from NIM."""
+        self.last_usage = None
         text = user_message
         if context_data:
             text = f"{text}\n\n<estate_data>\n{context_data}\n</estate_data>"
@@ -178,6 +196,7 @@ class NIMProvider:
                 ],
                 response_format={"type": "json_object"},
             )
+            self.last_usage = token_usage(response)
             text = response.choices[0].message.content.strip()
             return json.loads(text)
         except openai.AuthenticationError as e:

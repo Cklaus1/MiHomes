@@ -312,6 +312,6 @@ class TestUsageIsMeasured:
         §5.3 requires *"character-for-character"* has nothing to read from. The real
         measurement is covered by `test_overage.py::test_usage_returns_a_real_measurement`.
         """
-        report = usage(FakeAccount(plan="free"), "ai_calls")
+        report = usage(FakeAccount(plan="free"), "ai_tokens")
         assert report.used == 0
-        assert report.limit == PLAN_LIMITS["free"]["ai_calls_per_month"]
+        assert report.limit == PLAN_LIMITS["free"]["ai_tokens_per_month"]

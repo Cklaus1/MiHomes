@@ -257,7 +257,7 @@ def usage(account, meter: str, *, session=None) -> UsageReport:
 #: One entry today. Declared as a map rather than an `if` so a second metered resource is a data
 #: change, and an unknown meter resolves to `limit=None` — "not measured" — instead of silently
 #: borrowing the AI limit.
-_METER_LIMIT_KEYS = {"ai_calls": "ai_calls_per_month"}
+_METER_LIMIT_KEYS = {"ai_tokens": "ai_tokens_per_month"}
 
 
 def check_entitlement(account, feature: str) -> Allowed:

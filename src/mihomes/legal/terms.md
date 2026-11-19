@@ -48,7 +48,7 @@ The Telegram bot (and, when available, WhatsApp) works through those companies' 
 # Plans, trials and billing
 
 - **Plans.** MiHomes has a Free plan and paid plans with different limits on homes, members and monthly AI use (measured in AI tokens). Current plans and prices are shown on the [PRICING PAGE]. When a household reaches its monthly AI allowance, AI features pause until the next month or an upgrade.
-- **Trial.** Each household can try Pro or Estate free for 14 days, once. No card is needed, and nothing is charged: at the end of the trial the household moves to the Free plan unless you choose a paid plan.
+- **Trial.** Each household can try Pro or Estate free for 30 days (one month), once. No card is needed, and nothing is charged: at the end of the trial the household moves to the Free plan unless you choose a paid plan.
 - **Payment.** Paid plans are billed in advance, monthly or annually, through Stripe, and renew automatically until cancelled. Taxes may apply.
 - **Failed payments.** If a payment fails, we email you, at once and again after 3, 7 and 14 days, while Stripe retries the payment. If it is still unpaid after about two weeks, the household moves to the Free plan. [CONFIRM: the Stripe dashboard retry schedule, and what Stripe does when retries run out, match this paragraph.]
 - **Cancelling.** You can cancel in Settings at any time. You keep the paid plan until the end of the period you've paid for, then move to the Free plan. Nothing is deleted; homes over the Free limit become read-only until you upgrade or remove some.
@@ -56,9 +56,7 @@ The Telegram bot (and, when available, WhatsApp) works through those companies' 
 
 # Refunds
 
-[DECISION: refund policy. The text below is the recommended option (B). Alternatives: (A) no refunds at all, as the app behaves today; (C) also refund the unused part of an annual plan when a household is deactivated or deleted. Every refund is issued by hand in the Stripe dashboard; the app has no refund feature.]
-
-- **Try before you pay.** Every household can use Pro or Estate free for 14 days, with no card, before paying anything.
+- **Try before you pay.** Every household can use Pro or Estate free for 30 days (one month), with no card, before paying anything.
 - **Monthly plans** are not refunded for part of a month. When you cancel, you keep the plan until the end of the month you've paid for.
 - **Annual plans.** If you ask within 14 days of being charged for a new annual plan or an annual renewal, we will refund that payment in full and move the household to the Free plan. After 14 days, annual payments are not refunded for the rest of the year; when you cancel, you keep the plan until the end of the year you've paid for.
 - **Deactivating** a household cancels its paid plan straight away. The rest of the period is not refunded, except under the annual-plan rule above.

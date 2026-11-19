@@ -387,7 +387,7 @@ def start_trial(
     principal=require_authenticated(),
     db: Session = Depends(get_db),
 ):
-    """The upgrade prompt's **Start 14-day Pro trial** button — `PRICING` §4.1's one-click start.
+    """The upgrade prompt's **Start 30-day Pro trial** button — `PRICING` §4.1's one-click start.
 
     The gates refuse and show the prompt; this is the only thing that starts a trial, so a trial
     is always something the owner chose. `maybe_start_trial` enforces one trial per account and

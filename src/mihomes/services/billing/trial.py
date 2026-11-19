@@ -1,4 +1,4 @@
-"""The app-managed trial — 14 days of Pro or Estate, no card, one per account ever (F3, D4).
+"""The app-managed trial — 30 days of Pro or Estate, no card, one per account ever (F3, D4).
 
 **Pro and Estate both start with a trial (2026-11-19).** It was Pro only. The landing page's plan
 cards send people to `/signup?trial=<plan>`, which parks the choice in `TRIAL_INTENT_COOKIE`; the
@@ -58,12 +58,12 @@ __all__ = [
     "trial_plan",
 ]
 
-#: `PRICING` §4.2 — a 14-day Pro trial, confirmed as the launch length on 2026-11-09 (O1).
+#: `PRICING` §4.2's trial, lengthened from 14 to 30 days on 2026-11-19 (founder decision).
 #:
 #: A literal rather than an env var for the same reason the plan limits are (C11): trial length is
 #: product definition, already committed, and moving it to the environment would make it invisible
 #: to anyone reading the policy.
-TRIAL_DAYS = 14
+TRIAL_DAYS = 30
 
 #: The plan a trial grants when none is named — the upgrade prompts, which sell Pro.
 TRIAL_PLAN = "pro"

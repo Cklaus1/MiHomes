@@ -45,7 +45,7 @@ def _check_home_entitlement(session: Session) -> None:
         # **The gate refuses; it does not start a trial.** It used to (`maybe_start_trial` here),
         # which meant a Free user adding a 2nd home was silently flipped to Pro-on-trial with
         # nothing on screen — the cap looked broken. §4.1 asks for a *choice*: "Adding another
-        # home is a Pro feature. Start your 14-day Pro trial." The trial now starts only when the
+        # home is a Pro feature. Start your 30-day Pro trial." The trial now starts only when the
         # user presses that button (`POST /billing/trial`), still at the moment of intent §4.2
         # wants, but with consent.
         from mihomes.services.billing.trial import trial_available

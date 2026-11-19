@@ -1,0 +1,11 @@
+Hi,
+
+{{ member_email }} accepted your invitation and joined {{ account_name }} as {% if role == "admin" %}an administrator{% else %}a team member{% endif %}.
+{% if invited_email and invited_email != member_email %}
+
+NOTE: this invitation was sent to {{ invited_email }} but was accepted by
+{{ member_email }}. If that isn't who you expected, remove their access from
+your team settings.
+{% endif %}
+
+You can review and change what they can see at any time in your team settings.

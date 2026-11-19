@@ -3,16 +3,23 @@
 import json
 import logging
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
+from mihomes.authz.actions import Access
+from mihomes.authz.declare import declares
 from mihomes.models.document import DocumentType
 from mihomes.services import document as doc_svc
 from mihomes.services import property as prop_svc
 from mihomes.services.ai.file_processor import Attachment, process_upload
+from mihomes.services.localtime import today as local_today
+
+# The AI ceiling raises this from inside the provider wrapper. Imported from where it is
+# defined rather than re-exported, so `except` here matches the object that is actually raised.
+from mihomes.services.property import EntitlementError
 from mihomes.web.deps import get_db, templates
 from mihomes.web.forms import save_document_text
 
@@ -45,8 +52,22 @@ ROLE_DISPLAY = {
     "security": "Security",
 }
 
-_AI_ERROR_HINT = "AI provider not configured. Run `mihomes ai setup` in the CLI to set your API key."
-_AI_INVALID_KEY_HINT = "API key is invalid or rejected. Run `mihomes ai setup` in the CLI to update your API key."
+# SPEC-003 §3/Step 15 — these told a *browser* user to "run `mihomes ai setup` in the CLI",
+# which SPEC-002 D1 had already made impossible: the CLI is an operator tool and there is no
+# user-facing one. The advice was not merely unhelpful, it was unfollowable. Pointing at Settings
+# was no better: the AI provider and its key are set by MiHomes for every household (operator-only
+# `ai.*`, decided 2026-11-09), so there is nothing a household can change. Say so.
+#
+# G6.4 deferred this deliberately rather than deleting it early: removing the wrong advice before
+# the right destination existed would have left a worse message than the wrong one.
+_AI_ERROR_HINT = (
+    "The AI assistant isn't available right now. It's run by MiHomes, so there's nothing to "
+    "set up on your side — please try again later."
+)
+_AI_INVALID_KEY_HINT = (
+    "The AI assistant isn't available right now. It's run by MiHomes, so there's nothing to "
+    "change on your side — please try again later."
+)
 
 
 def _session_property_slug(context_summary: str | None) -> str:
@@ -63,16 +84,36 @@ def _session_property_slug(context_summary: str | None) -> str:
 
 
 def _list_sessions(db: Session) -> list[dict]:
-    """Return the most recent 50 sessions, one entry per session_id."""
+    """Return the most recent 50 sessions, one entry per session_id.
+
+    **Grouped on `created_at`, not on `id`, and that is not a substitution.** This function used to
+    take `func.min(AIConversation.id)` to find each session's first message — which worked only
+    because `id` was a sequential integer, making "smallest id in the group" accidentally mean
+    "earliest row". SPEC-002 G6.1 converted every primary key to UUIDv7 and Postgres has no
+    `min(uuid)`, so `/ai/` and `/ai/sessions-panel` returned 500 to **every** role, owners
+    included, from that conversion until this fix.
+
+    `created_at` is the column that carried the ordering intent the whole time. UUIDv7 is
+    time-ordered as well, so a v7-aware aggregate could answer the same question — but relying on
+    that would re-encode the same accident that broke this once already.
+
+    The join is on `(session_id, created_at)` rather than on the id, because the id is precisely
+    what the aggregate can no longer produce. A session with two messages sharing a `created_at`
+    to the microsecond would yield two rows; `DISTINCT ON` would be the airtight form, but it is
+    Postgres-specific syntax for a collision that requires two inserts in the same transaction at
+    identical timestamps, and the duplicate would be cosmetic (one sidebar entry twice) rather
+    than wrong.
+    """
     from sqlalchemy import func
 
     from mihomes.models.ai_conversation import AIConversation
 
-    # Subquery: for each session_id get min(id), max(created_at), count
+    # Per session_id: when it started (identifies the first message), when it was last touched
+    # (sort key), and how many messages it holds.
     sub = (
         db.query(
-            AIConversation.session_id,
-            func.min(AIConversation.id).label("first_id"),
+            AIConversation.session_id.label("session_id"),
+            func.min(AIConversation.created_at).label("first_at"),
             func.max(AIConversation.created_at).label("last_at"),
             func.count(AIConversation.id).label("msg_count"),
         )
@@ -82,7 +123,11 @@ def _list_sessions(db: Session) -> list[dict]:
 
     rows = (
         db.query(AIConversation, sub.c.last_at, sub.c.msg_count)
-        .join(sub, AIConversation.id == sub.c.first_id)
+        .join(
+            sub,
+            (AIConversation.session_id == sub.c.session_id)
+            & (AIConversation.created_at == sub.c.first_at),
+        )
         .order_by(sub.c.last_at.desc())
         .limit(50)
         .all()
@@ -106,7 +151,7 @@ def _list_sessions(db: Session) -> list[dict]:
 
 def _group_sessions(sessions: list[dict]) -> list[tuple[str, list[dict]]]:
     """Group sessions into Today / Yesterday / Last 7 days / Older, omitting empty groups."""
-    today = date.today()
+    today = local_today()
     yesterday = today - timedelta(days=1)
     week_ago = today - timedelta(days=7)
 
@@ -165,6 +210,20 @@ async def _read_attachments(files: list[UploadFile]) -> list[Attachment]:
     return result
 
 
+async def _attachments_or_error(files: list[UploadFile]) -> tuple[list[Attachment], str | None]:
+    """`_read_attachments`, with a cap breach returned as the message to show.
+
+    Kept apart from the AI call's own try: a too-large upload is the user's to fix and reads as
+    such ("Please attach at most 6 files"), not as "AI request failed: …", which is the wording
+    for a provider fault.
+    """
+    try:
+        return await _read_attachments(files), None
+    except ValueError as e:
+        logger.info("ai attachments rejected: %s", e)
+        return [], str(e)
+
+
 def _ai_error(msg: str) -> str:
     lower = msg.lower()
     if any(k in lower for k in ("not found", "not configured", "no provider", "run: mihomes")):
@@ -174,7 +233,65 @@ def _ai_error(msg: str) -> str:
     return f"AI request failed: {msg}"
 
 
+def _plan_message(exc) -> str:
+    """The message for a plan denial, read off the decision rather than parsed out of a string.
+
+    **Every AI route wraps its call in `except Exception` and renders `_ai_error(str(e))`.** That
+    is right for a provider failure and wrong for the monthly ceiling: `MeteredProvider._check`
+    raises `EntitlementError` carrying a `Denied` — *"AI paused until 2026-09-30 — 200 of 200
+    calls used this period. Upgrade to continue."* — and `_ai_error` turned it into *"AI request
+    failed: …"*, the phrasing it uses for a broken provider. So hitting your plan limit read as
+    the AI being down, and the `upgrade_target` was discarded on the way.
+
+    Matched by exception class, never by keyword. `_ai_error` classifies by substring because a
+    provider error arrives as prose and there is nothing else to go on; a plan denial arrives as
+    a typed object, and sniffing its text would throw away the structure that makes it
+    actionable.
+
+    These routes answer with HTMX fragments, so the app-level 402 handler cannot help — swapping
+    a full page into a chat bubble is worse than the wrong words. The message goes where the
+    error text already goes; only its wording and its source change.
+    """
+    reason, target = _plan_parts(exc)
+    if target:
+        return f"{reason} See plans at /billing to move to {target.capitalize()}."
+    return reason
+
+
+def _plan_parts(exc) -> tuple[str, str | None]:
+    """(reason, upgrade_target) off a plan denial — the structured form of `_plan_message`.
+
+    The chat stream and the report panel render the denial as a notice with a real "See plans"
+    link, so they need the pieces rather than a sentence with "/billing" spelled out in it.
+    """
+    decision = getattr(exc, "decision", None)
+    reason = getattr(decision, "reason", None) or str(exc)
+    return reason, getattr(decision, "upgrade_target", None)
+
+
+def _plan_event(exc) -> dict:
+    """The SSE payload for a plan denial: `{"plan": reason, "upgrade": target}`.
+
+    A distinct key, not `e`: the client shows it as a plan notice with a link to /billing, not as
+    "Unable to get a response" — the AI is not broken, the allowance is used up.
+    """
+    reason, target = _plan_parts(exc)
+    return {"plan": reason, "upgrade": target or ""}
+
+
+def _sse_once(payload: dict) -> StreamingResponse:
+    """A complete one-event stream — for failures known before any token is generated."""
+
+    def _gen():
+        yield f"data: {json.dumps(payload)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(_gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 @router.get("/")
+@declares("ai.use", Access.COLLECTION)
 def ai_page(request: Request, db: Session = Depends(get_db)):
     from mihomes.models.work_order import WorkOrder, WorkOrderStatus
 
@@ -195,10 +312,38 @@ def ai_page(request: Request, db: Session = Depends(get_db)):
         "roles": ROLES,
         "work_orders": work_orders,
         "session_groups": session_groups,
+        # The client checks a picked set against the same caps before it uploads anything.
+        "max_attach_files": _MAX_ATTACH_FILES,
+        "max_attach_bytes": _MAX_ATTACH_TOTAL_BYTES,
+        "max_attach_mb": _MAX_ATTACH_TOTAL_BYTES // (1024 * 1024),
     })
 
 
+# ---------------------------------------------------------------------------------------
+# The transcript store — NOT the assistant. SPEC-003 G17.
+#
+# The four routes below read, rename and delete *saved conversations*, and they used to declare
+# `ai.use` like the rest of this module. Row 18 grants `ai.use` to staff as SCOPED, so a scoped
+# housekeeper could GET /ai/sessions/{id} and read an owner's answer verbatim — including the
+# financial ones G10 spent a whole group keeping out of the live path. G10 scoped the *question*;
+# the **transcript of an already-answered question** is a stored row, and no scope reaches it:
+# `AIConversation` is ACCOUNT_LEVEL, which has no query-layer enforcement, and it carries no
+# author column at all (`role` is the AI persona — "financial", "estate_manager" — not the member
+# who asked). So there is nothing to scope *by* even in principle.
+#
+# `audit.view` (row 17) is the honest key available today: account-level, denied to staff, and
+# "read the account's historical record" is what these routes do. It is **approximate** — the
+# right answer is a `transcript.view` key, or an author column so a member can read their own
+# history. Recorded in `opportunities.md`; same shape as G6's four other approximate declarations.
+#
+# `/ai/` and `/ai/ask` deliberately keep `ai.use`: staff *may* use the assistant, and denying
+# that to fix this would break a capability the matrix grants — the over-correction /library/
+# avoided.
+# ---------------------------------------------------------------------------------------
+
+
 @router.get("/sessions-panel", response_class=HTMLResponse)
+@declares("audit.view", Access.ACCOUNT)
 def ai_sessions_panel(request: Request, db: Session = Depends(get_db)):
     sessions = _list_sessions(db)
     session_groups = _group_sessions(sessions)
@@ -208,6 +353,7 @@ def ai_sessions_panel(request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/sessions/{session_id}", response_class=JSONResponse)
+@declares("audit.view", Access.ACCOUNT)
 def ai_session_messages(session_id: str, db: Session = Depends(get_db)):
     from mihomes.models.ai_conversation import AIConversation
 
@@ -224,6 +370,7 @@ def ai_session_messages(session_id: str, db: Session = Depends(get_db)):
 
 
 @router.delete("/sessions/{session_id}", response_class=JSONResponse)
+@declares("audit.view", Access.ACCOUNT)
 def ai_delete_session(session_id: str, db: Session = Depends(get_db)):
     from mihomes.models.ai_conversation import AIConversation
 
@@ -233,6 +380,7 @@ def ai_delete_session(session_id: str, db: Session = Depends(get_db)):
 
 
 @router.patch("/sessions/{session_id}/name", response_class=JSONResponse)
+@declares("audit.view", Access.ACCOUNT)
 async def ai_rename_session(session_id: str, request: Request, db: Session = Depends(get_db)):
     from mihomes.models.ai_conversation import AIConversation
 
@@ -251,6 +399,7 @@ async def ai_rename_session(session_id: str, request: Request, db: Session = Dep
 
 
 @router.post("/ask", response_class=HTMLResponse)
+@declares("ai.use", Access.COLLECTION)
 async def ai_ask(
     request: Request,
     query: str = Form(...),
@@ -261,17 +410,25 @@ async def ai_ask(
 ):
     from mihomes.services.ai.orchestrator import ask
 
-    error = None
     response_text = ""
     active_role = ""
 
-    try:
-        attachments = await _read_attachments(files)
-        resp = ask(db, query, role=role or None, property_slug=property_id or None, attachments=attachments or None)
-        response_text = resp.text
-        active_role = resp.role
-    except Exception as e:
-        error = _ai_error(str(e))
+    attachments, error = await _attachments_or_error(files)
+    if error is None:
+        try:
+            resp = ask(db, query, role=role or None, property_slug=property_id or None, attachments=attachments or None)
+            response_text = resp.text
+            active_role = resp.role
+        except EntitlementError as e:
+            # `info`, not `exception`: a plan ceiling refusing is the product working, and a stack
+            # trace would file it alongside the provider outages an operator is watching for.
+            logger.info("ai ask denied by plan: %s", getattr(e, "decision", e))
+            error = _plan_message(e)
+        except Exception as e:
+            # N15: degraded deliberately (the user sees the error) but never silently — an AI
+            # provider that is down must be visible to an operator, not only to whoever asked.
+            logger.exception("ai ask failed")
+            error = _ai_error(str(e))
 
     return templates.TemplateResponse(request, "partials/ai_message.html", {
         "query": query,
@@ -282,6 +439,7 @@ async def ai_ask(
 
 
 @router.post("/situation-report", response_class=HTMLResponse)
+@declares("ai.use", Access.COLLECTION)
 async def situation_report(
     request: Request,
     subject: str = Form(""),
@@ -293,20 +451,25 @@ async def situation_report(
 ):
     from mihomes.services.ai.reports import generate_situation_report
 
-    error = None
+    plan_denied = False
     report_text = ""
-    try:
-        attachments = await _read_attachments(files)
-        resp = generate_situation_report(
-            db, content,
-            subject=subject,
-            work_order_slug=work_order_slug or None,
-            property_slug=property_slug or None,
-            attachments=attachments or None,
-        )
-        report_text = resp.text
-    except Exception as e:
-        error = _ai_error(str(e))
+    attachments, error = await _attachments_or_error(files)
+    if error is None:
+        try:
+            resp = generate_situation_report(
+                db, content,
+                subject=subject,
+                work_order_slug=work_order_slug or None,
+                property_slug=property_slug or None,
+                attachments=attachments or None,
+            )
+            report_text = resp.text
+        except EntitlementError as e:
+            logger.info("ai report denied by plan: %s", getattr(e, "decision", e))
+            error, plan_denied = _plan_parts(e)[0], True
+        except Exception as e:
+            logger.exception("ai report failed")  # N15
+            error = _ai_error(str(e))
 
     return templates.TemplateResponse(request, "partials/report_output.html", {
         "report_type": "Situation Report",
@@ -315,10 +478,12 @@ async def situation_report(
         "generated_at": datetime.now().strftime("%B %d, %Y at %I:%M %p"),
         "property_slug": property_slug or "",
         "error": error,
+        "plan_denied": plan_denied,
     })
 
 
 @router.post("/estate-digest", response_class=HTMLResponse)
+@declares("ai.use", Access.COLLECTION)
 async def estate_digest(
     request: Request,
     period: str = Form("this_week"),
@@ -328,7 +493,7 @@ async def estate_digest(
 ):
     from mihomes.services.ai.reports import generate_estate_digest
 
-    today = date.today()
+    today = local_today()
 
     period_map = {
         "this_week":  (today - timedelta(days=today.weekday()), today, "This Week"),
@@ -345,18 +510,23 @@ async def estate_digest(
     }
     start, end, period_label = period_map.get(period, (today - timedelta(days=7), today, "Last 7 Days"))
 
-    error = None
+    plan_denied = False
     report_text = ""
-    try:
-        attachments = await _read_attachments(files)
-        resp = generate_estate_digest(
-            db, start, end,
-            property_slug=property_slug or None,
-            attachments=attachments or None,
-        )
-        report_text = resp.text
-    except Exception as e:
-        error = _ai_error(str(e))
+    attachments, error = await _attachments_or_error(files)
+    if error is None:
+        try:
+            resp = generate_estate_digest(
+                db, start, end,
+                property_slug=property_slug or None,
+                attachments=attachments or None,
+            )
+            report_text = resp.text
+        except EntitlementError as e:
+            logger.info("ai digest denied by plan: %s", getattr(e, "decision", e))
+            error, plan_denied = _plan_parts(e)[0], True
+        except Exception as e:
+            logger.exception("ai report failed")  # N15
+            error = _ai_error(str(e))
 
     return templates.TemplateResponse(request, "partials/report_output.html", {
         "report_type": "Estate Digest",
@@ -365,10 +535,12 @@ async def estate_digest(
         "generated_at": datetime.now().strftime("%B %d, %Y at %I:%M %p"),
         "property_slug": property_slug or "",
         "error": error,
+        "plan_denied": plan_denied,
     })
 
 
 @router.post("/ask-stream")
+@declares("ai.use", Access.COLLECTION)
 async def ai_ask_stream(
     request: Request,
     query: str = Form(...),
@@ -385,8 +557,11 @@ async def ai_ask_stream(
 
     session_id = session_id or str(uuid.uuid4())
 
+    attachments, attach_error = await _attachments_or_error(files)
+    if attach_error:
+        return _sse_once({"e": attach_error})
+
     try:
-        attachments = await _read_attachments(files)
         provider_name = get_ai_provider_name(db)
         api_key = get_ai_api_key(db, provider_name)
         model = get_ai_model(db, provider_name)
@@ -399,21 +574,30 @@ async def ai_ask_stream(
             )
         else:
             system_prompt = primary_role.system_prompt
+    except EntitlementError as e:
+        # Returns here too: this branch used to fall through to `_generate()` with
+        # `system_prompt`/`roles` unbound, so the denial surfaced as a NameError mid-stream.
+        logger.info("ai stream denied by plan: %s", getattr(e, "decision", e))
+        return _sse_once(_plan_event(e))
     except Exception as e:
-        error_msg = _ai_error(str(e))
-
-        def _err_gen():
-            yield f"data: {json.dumps({'e': error_msg})}\n\n"
-            yield "data: [DONE]\n\n"
-
-        return StreamingResponse(_err_gen(), media_type="text/event-stream",
-                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+        logger.exception("ai stream setup failed")  # N15
+        return _sse_once({"e": _ai_error(str(e))})
 
     import asyncio
+    import contextvars
 
     async def _generate():
         loop = asyncio.get_event_loop()
         queue: asyncio.Queue = asyncio.Queue()
+
+        # SPEC-002: the tenant is carried in a ContextVar, and `run_in_executor` does
+        # NOT propagate context to the worker (unlike `asyncio.to_thread`, which copies
+        # it). Without this the worker's `current_account` is unset, the G8.3 insert
+        # listener fails closed with LookupError, and the conversation save below is
+        # swallowed by the `except Exception` — the stream would still look fine to the
+        # user while silently persisting nothing. Capture the request's context here and
+        # run the worker inside a copy of it.
+        ctx = contextvars.copy_context()
 
         def _run_sync():
             # H14: the streaming work runs in a worker thread. It opens its own
@@ -461,13 +645,20 @@ async def ai_ask_stream(
                         provider=provider_name,
                         model=model,
                     ))
+            except EntitlementError as exc:
+                # The ceiling can be reached here as well as at setup: the worker is where the
+                # provider is actually invoked, so `MeteredProvider._check` fires inside this
+                # thread. Travels as the same SSE "error" event the stream already knows how to
+                # render — a 402 has nowhere to go once the stream is open.
+                logger.info("ai stream worker denied by plan: %s", getattr(exc, "decision", exc))
+                loop.call_soon_threadsafe(queue.put_nowait, ("plan", _plan_event(exc)))
             except Exception as exc:
                 logger.exception("ai_ask_stream worker failed")
                 loop.call_soon_threadsafe(queue.put_nowait, ("error", _ai_error(str(exc))))
             finally:
                 loop.call_soon_threadsafe(queue.put_nowait, (None, None))
 
-        future = loop.run_in_executor(None, _run_sync)
+        future = loop.run_in_executor(None, ctx.run, _run_sync)
 
         while True:
             msg_type, msg_data = await queue.get()
@@ -477,8 +668,11 @@ async def ai_ask_stream(
                 yield f"data: {json.dumps({'t': msg_data})}\n\n"
             elif msg_type == "status":
                 yield f"data: {json.dumps({'status': msg_data})}\n\n"
+            elif msg_type == "plan":
+                yield f"data: {json.dumps(msg_data)}\n\n"
             elif msg_type == "error":
-                yield f"data: {json.dumps({'e': _ai_error(msg_data)})}\n\n"
+                # Already worded by `_ai_error` in the worker — wrapping again doubled the prefix.
+                yield f"data: {json.dumps({'e': msg_data})}\n\n"
 
         yield "data: [DONE]\n\n"
         await future
@@ -491,6 +685,7 @@ async def ai_ask_stream(
 
 
 @router.post("/save-report", response_class=HTMLResponse)
+@declares("ai.use", Access.COLLECTION)
 async def save_report(
     request: Request,
     report_type: str = Form(...),

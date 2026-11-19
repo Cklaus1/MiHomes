@@ -29,7 +29,14 @@ app = typer.Typer(
 
 
 @app.callback(invoke_without_command=True)
-def main(ctx: typer.Context):
+def main(
+    ctx: typer.Context,
+    account: str = typer.Option(
+        None,
+        "--account",
+        help="Account slug to operate on. Optional when the install has exactly one account.",
+    ),
+):
     """MiHomes — AI-first multi-home estate management."""
     from mihomes.config import is_initialized
     from mihomes.logging_config import setup_logging
@@ -43,6 +50,59 @@ def main(ctx: typer.Context):
     if not is_initialized():
         rprint("[yellow]MiHomes is not initialized. Run:[/yellow] [bold]mihomes init[/bold]")
         raise typer.Exit(1)
+
+    # **`jobs` binds no tenant, and must not** — SPEC-004 Step 12 (D15).
+    #
+    # `_bind_account` refuses to proceed on a multi-account install without `--account`, which is
+    # right for every other command: they operate *inside* one estate, and guessing which would be
+    # a cross-tenant write. The billing sweeps operate *across* estates — reconciling one account
+    # is not a partial success, it is the wrong thing — so requiring a tenant here made
+    # `mihomes jobs` unreachable on exactly the installs it exists for.
+    #
+    # Found by running the command rather than by testing the service functions it wraps: the
+    # sweep logic was green while the entrypoint could not be invoked at all.
+    #
+    # **`cron` is the same shape, found the same way.** `mihomes cron setup` prints crontab
+    # lines and reads nothing — but it inherited the tenant gate, so on a multi-account install
+    # the one command that tells an operator what to schedule exited 1. Found by SPEC-005 A15
+    # invoking it, not by reading: every test of its output had constructed the panel directly.
+    # **`ga-readiness` is the third instance, found the same way a third time.** It parses
+    # `SAAS_PRD.md` and reads no database at all, but inherited the tenant gate — so on a
+    # multi-account install the command that answers "can we launch" exited 1 with a list of
+    # account slugs. Caught by A33 *invoking* it; every check of its content had called
+    # `render()` directly, which is the same blind spot that hid the `cron` bug (BD7).
+    # `waitlist` is the fourth: the waitlist is a global table, not any one estate's.
+    if ctx.invoked_subcommand in ("jobs", "cron", "ga-readiness", "waitlist"):
+        return
+
+    _bind_account(ctx, account)
+
+
+def _bind_account(ctx: typer.Context, slug: str | None) -> None:
+    """Bind the tenant for the whole command (G13).
+
+    Every write stamps `account_id` from this ContextVar and raises `LookupError` without it, so
+    a CLI process that never binds one cannot write at all — which is exactly what launch gate
+    S3 recorded.
+
+    **`ctx.with_resource`, not a bare `.set()`.** Click closes the resource when the command's
+    context ends, so the ContextVar is reset on the way out — including when the command raises.
+    Setting the ContextVar and never resetting it happens to work in a process that exits
+    immediately, and quietly stops working the moment anything invokes the CLI in-process, which
+    is precisely what `CliRunner` does in 48 tests.
+    """
+    from mihomes.db import get_session
+    from mihomes.tenancy import account_context
+    from mihomes.tenancy.bootstrap import AccountResolutionError, resolve_account
+
+    try:
+        with get_session() as session:
+            account_id = resolve_account(session, slug)
+    except AccountResolutionError as e:
+        rprint(f"[red]{e}[/red]")
+        raise typer.Exit(1) from None
+
+    ctx.with_resource(account_context(account_id))
 
 
 @app.command("help")
@@ -138,6 +198,33 @@ def version_cmd():
     rprint(f"Database: {DB_PATH} ({'exists' if is_initialized() else 'not initialized'})")
 
 
+@app.command("ga-readiness")
+def ga_readiness_cmd():
+    """Where GA stands, against `SAAS_PRD.md`'s own definition of done (SPEC-005 Step 17).
+
+    **Reports what is outstanding, and exits 1 when anything is.** A command that always exits 0
+    is one an operator stops reading; the exit code is what lets "are we ready" be asked by
+    something other than a person.
+
+    It does **not** claim the blocked gates can be closed from here — three are founder
+    decisions and one is a legal document. What it guarantees is that none of them is silently
+    absent, which is A33's actual claim.
+    """
+    from mihomes.services.ga_readiness import Status, ga_gates, render
+
+    # **`print`, not `rprint`.** The bullets are markdown copied verbatim from the PRD and two of
+    # them open with `**[regression check, not new work]**` — Rich parses `[...]` as a style tag
+    # and *deletes* it, so the operator saw a gate with its most important qualifier silently
+    # removed. Measured: A33's "every bullet reaches the operator" assertion failed on exactly
+    # those two. Escaping would work; not asking Rich to render untrusted document text is
+    # simpler and cannot regress.
+    print(render())
+
+    outstanding = [g for g in ga_gates() if g.status is not Status.MET]
+    if outstanding:
+        raise typer.Exit(code=1)
+
+
 # Register sub-apps
 from mihomes.cli.alerts import app as alerts_app  # noqa: E402
 from mihomes.cli.budget import budget_app, expense_app  # noqa: E402
@@ -166,9 +253,11 @@ app.add_typer(alerts_app, name="alerts")
 
 from mihomes.cli.audit import app as audit_app  # noqa: E402
 from mihomes.cli.dashboard import app as dashboard_app  # noqa: E402
+from mihomes.cli.import_cmd import app as import_app  # noqa: E402
 
 app.add_typer(dashboard_app, name="dashboard")
 app.add_typer(audit_app, name="audit")
+app.add_typer(import_app, name="import")
 
 # Phase 1b sub-apps
 from mihomes.cli.backup import app as backup_app  # noqa: E402
@@ -193,8 +282,18 @@ app.add_typer(doctor_app, name="doctor")
 from mihomes.cli.ai import app as ai_app  # noqa: E402
 from mihomes.cli.cron import app as cron_app  # noqa: E402
 
+# SPEC-004 Step 12 (D15) — `jobs trial-sweep` / `jobs reconcile`. Unlike every other command
+# group, these sweep *across* accounts and bind tenant context per account inside the loop, so
+# they must not be given a `--account` option: there is no single tenant for them to run as.
+from mihomes.cli.jobs import app as jobs_app  # noqa: E402
+
 app.add_typer(ai_app, name="ai")
 app.add_typer(cron_app, name="cron")
+app.add_typer(jobs_app, name="jobs")
+
+from mihomes.cli.waitlist import app as waitlist_app  # noqa: E402
+
+app.add_typer(waitlist_app, name="waitlist")
 
 # Phase 3a sub-apps
 from mihomes.cli.asset import app as asset_app  # noqa: E402

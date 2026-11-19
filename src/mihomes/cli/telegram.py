@@ -1,6 +1,7 @@
 """Telegram CLI commands — bot setup, chat linking, monitoring, and review."""
 
 import json
+import logging
 import os
 import signal
 import subprocess
@@ -17,7 +18,6 @@ from rich.table import Table
 from mihomes.cli.formatters import console, format_error, format_success, severity_color
 from mihomes.db import get_session
 from mihomes.services.gateways.telegram.client import TelegramClient, TelegramError
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -263,6 +263,114 @@ def send_message(
 
 
 # ---------------------------------------------------------------------------
+# webhook registration — deploy-time, platform-level (one bot for every account)
+# ---------------------------------------------------------------------------
+
+#: The ports Telegram will deliver webhooks to (Bot API setWebhook docs).
+_TELEGRAM_WEBHOOK_PORTS = (443, 80, 88, 8443)
+_WEBHOOK_PATH = "/webhooks/telegram"
+
+
+def _platform_client() -> TelegramClient:
+    """The bot the webhook route replies as — `TELEGRAM_BOT_TOKEN`, never an account's config.
+
+    Registering a webhook for a different bot than the server replies with would leave every
+    update unanswerable, so there is deliberately no fallback to `telegram.bot_token` here.
+    """
+    from mihomes.services.gateways.telegram.client import platform_bot_token
+
+    token = platform_bot_token()
+    if not token:
+        raise TelegramError("TELEGRAM_BOT_TOKEN is not set in this environment.")
+    return TelegramClient(token)
+
+
+def webhook_url_problem(url: str) -> str | None:
+    """Why Telegram would refuse `url`, or why our route would never see it; None if fine."""
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        return "Telegram only delivers webhooks over https."
+    if not parsed.hostname:
+        return "The URL has no host."
+    port = parsed.port or 443
+    if port not in _TELEGRAM_WEBHOOK_PORTS:
+        return f"Telegram only delivers to ports {', '.join(map(str, _TELEGRAM_WEBHOOK_PORTS))}."
+    if parsed.path.rstrip("/") != _WEBHOOK_PATH:
+        return f"The path must be {_WEBHOOK_PATH} — that is where the route listens."
+    return None
+
+
+def webhook_secret_problem(secret: str) -> str | None:
+    """Telegram's rule for secret_token: 1-256 of A-Z a-z 0-9 _ -."""
+    import re
+
+    if not secret:
+        return "TELEGRAM_WEBHOOK_SECRET is not set — the route refuses every update without it."
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,256}", secret):
+        return "TELEGRAM_WEBHOOK_SECRET may only use A-Z a-z 0-9 _ - (1-256 characters)."
+    return None
+
+
+@app.command("set-webhook")
+def set_webhook_cmd(
+    url: str = typer.Option(..., "--url", help=f"Public https URL ending in {_WEBHOOK_PATH}"),
+    drop_pending: bool = typer.Option(False, "--drop-pending", help="Discard updates queued at Telegram"),
+):
+    """Register the webhook with Telegram. Reads TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET.
+
+    Once set, Telegram refuses getUpdates — stop any `telegram monitor` poller first.
+    """
+    secret = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "")
+    problem = webhook_url_problem(url) or webhook_secret_problem(secret)
+    if problem:
+        format_error(problem)
+        raise typer.Exit(1)
+    try:
+        _platform_client().set_webhook(url, secret, drop_pending=drop_pending)
+    except TelegramError as e:
+        format_error(str(e))
+        raise typer.Exit(1) from e
+    format_success(f"Webhook set: {url}")
+    console.print("[dim]Check delivery with: mihomes telegram webhook-info[/dim]")
+
+
+@app.command("delete-webhook")
+def delete_webhook_cmd(
+    drop_pending: bool = typer.Option(False, "--drop-pending", help="Discard updates queued at Telegram"),
+):
+    """Unregister the webhook (polling with `telegram monitor` works again afterwards)."""
+    try:
+        _platform_client().delete_webhook(drop_pending=drop_pending)
+    except TelegramError as e:
+        format_error(str(e))
+        raise typer.Exit(1) from e
+    format_success("Webhook deleted")
+
+
+@app.command("webhook-info")
+def webhook_info_cmd():
+    """Show Telegram's view of the webhook: URL, queue length, and the last delivery error."""
+    try:
+        info = _platform_client().get_webhook_info()
+    except TelegramError as e:
+        format_error(str(e))
+        raise typer.Exit(1) from e
+
+    table = Table(show_header=False, box=None)
+    table.add_row("URL", info.get("url") or "[yellow](none — not registered)[/yellow]")
+    table.add_row("Pending updates", str(info.get("pending_update_count", 0)))
+    table.add_row("Allowed updates", ", ".join(info.get("allowed_updates") or []) or "(all)")
+    if info.get("last_error_date"):
+        when = datetime.fromtimestamp(info["last_error_date"], tz=timezone.utc).isoformat()
+        table.add_row("Last error", f"[red]{info.get('last_error_message', '')}[/red] ({when})")
+    else:
+        table.add_row("Last error", "[green]none[/green]")
+    console.print(table)
+
+
+# ---------------------------------------------------------------------------
 # monitor
 # ---------------------------------------------------------------------------
 
@@ -271,11 +379,28 @@ def monitor(
     interval: int = typer.Option(15, "--interval", "-i", help="Poll interval in seconds"),
     property: Optional[str] = typer.Option(None, "--property", "-p", help="Scope to a property slug"),
 ):
-    """Monitor linked Telegram groups and auto-respond with AI analysis.
+    """Monitor linked Telegram groups and auto-respond with AI analysis. **DEPRECATED.**
 
     Polls for new messages, logs issues/tasks, and sends AI advisory replies
     back into the group. Press Ctrl+C to stop.
+
+    **SPEC-006 Step 6 — superseded by `POST /webhooks/telegram`, and deliberately still
+    runnable.** The webhook is the supported transport: it needs no supervised process, and
+    Telegram delivers rather than being asked. This loop remains because D14 keeps a fallback
+    and **O2 is open** — where a webhook terminates for a *local* install (no public hostname,
+    no TLS) is a founder decision, and until it is made, polling is the only transport some
+    deployments have. Carried as U3.
+
+    Running both at once is safe rather than merely discouraged (A17): this loop and the
+    webhook share one `ProcessedIdStore` under `PROCESSED_IDS_KEY`, so whichever sees an
+    update first records it and the other skips it. Telegram additionally refuses
+    `getUpdates` while a webhook is registered — but that is Telegram's behaviour, not this
+    system's guarantee, and the WhatsApp path has no equivalent (N6).
     """
+    console.print(
+        "[yellow]⚠[/yellow] [dim]`monitor` is deprecated — the supported transport is the "
+        "webhook (POST /webhooks/telegram). Kept runnable while O2 is open (SPEC-006 U3).[/dim]"
+    )
     from mihomes.services.gateways.telegram.responder import process_and_respond
 
     try:
@@ -295,7 +420,17 @@ def monitor(
 
     # One shared, insertion-ordered store per gateway (M22/M23): the extractor
     # uses this same key, and pruning drops the oldest ids, never the newest.
-    _id_store = ProcessedIdStore("telegram.processed_ids", cap=2000)
+    # SPEC-006 A17: the **same key and cap** the webhook route uses, imported rather than
+    # retyped. That shared store is what makes "the webhook and a running poller cannot both
+    # process one update" true — whichever transport sees an update first records it, and the
+    # other skips it. A local key or a different cap makes the two stores disagree about what
+    # has been handled, which is the M22 defect this module already suffered once.
+    from mihomes.services.gateways.telegram.extractor import (
+        MAX_PROCESSED_IDS,
+        PROCESSED_IDS_KEY,
+    )
+
+    _id_store = ProcessedIdStore(PROCESSED_IDS_KEY, cap=MAX_PROCESSED_IDS)
     # M21 poison guard: quarantine updates that repeatedly crash processing.
     _poison = PoisonGuard("telegram", max_attempts=3)
     processed_ids: set = set(_id_store.load())

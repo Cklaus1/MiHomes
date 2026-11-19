@@ -1,0 +1,665 @@
+"""The authenticated request path, exercised as a **non-superuser** so RLS actually applies.
+
+**Why this file exists.** Six membership reads across three modules run *before* a tenant is
+bound — session lookup, principal resolution, sign-in's account binding, account
+re-verification — and five of them were missing the `app.current_user` GUC that RLS's
+`membership_self` policy keys on. The reads returned zero rows for a user with a perfectly good
+membership, and the symptoms did not look like one bug:
+
+  * `lookup_session` returned `None`, so every request read as unauthenticated and **the
+    browser bounced back to `/login` in a loop** — including immediately after a successful
+    sign-in.
+  * `resolve_principal` found nothing and raised 403, leaving the user **stuck on the onboarding
+    wizard** with no other page reachable.
+  * `sole_account_for` found nothing, so the session was never bound to an account at sign-in.
+  * `/alerts/badge` answered 403 on a timer, flooding the log.
+
+**Every one was invisible to the other 2800 tests**, because `conftest`'s fixtures connect as
+`postgres` — a superuser, to whom RLS does not apply at all (`rls.py` records that
+measurement). The policies were present in every test database and bound to nothing.
+
+So this file is not "more coverage of the same paths". It is the *only* place the suite drives a
+real request as a role the policies apply to, which is the shape of every install that is not a
+test. It asserts RLS is enforced before it asserts anything else, so it cannot quietly stop
+testing what it exists to test.
+"""
+
+from __future__ import annotations
+
+import uuid
+
+import pytest
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
+
+from tests.integration.verify_helpers import confirm_email
+
+PASSWORD = "correct horse battery staple"
+
+_HTML = {
+    "Accept": "text/html",
+    "Origin": "http://localhost:5000",
+    "Sec-Fetch-Site": "same-origin",
+}
+
+
+@pytest.fixture
+def rls_app(_pg_engine):
+    """An app whose engine connects as a **non-superuser**, with one owner and one property.
+
+    Yields `(TestClient, account_id)`. Onboarding is marked finished so the client lands on the
+    dashboard rather than the wizard — the state a returning user is in, which is precisely the
+    state the login loop broke.
+    """
+    from sqlalchemy.orm import Session as OrmSession
+
+    from tests.conftest import APP_PASSWORD, APP_ROLE
+
+    name = f"mihomes_rlsreq{uuid.uuid4().hex[:8]}"
+    admin = create_engine(
+        _pg_engine.url.set(database="postgres").render_as_string(hide_password=False), isolation_level="AUTOCOMMIT", future=True
+    )
+    with admin.connect() as conn:
+        conn.exec_driver_sql(f'CREATE DATABASE "{name}"')
+
+    owner_url = _pg_engine.url.set(database=name).render_as_string(hide_password=False)
+    owner = create_engine(owner_url, future=True)
+    account_id = uuid.uuid4()
+    try:
+        from mihomes.auth.passwords import hash_password
+        from mihomes.models import Base
+        from mihomes.services import onboarding_service as onb
+
+        Base.metadata.create_all(owner)
+
+        with owner.begin() as conn:
+            enforced = conn.execute(
+                text(
+                    "select relrowsecurity, relforcerowsecurity "
+                    "from pg_class where relname = 'memberships'"
+                )
+            ).one()
+            assert enforced == (True, True), (
+                "RLS is not enforced in this fixture — every assertion below would pass "
+                "against policies bound to nothing, which is the exact blind spot this file "
+                "exists to close"
+            )
+
+            user_id = uuid.uuid4()
+            conn.execute(
+                text(
+                    "insert into accounts (id, slug, name, type, plan, subscription_status) "
+                    "values (:a, 'belle', 'Old Name', 'household', 'estate', 'active')"
+                ),
+                {"a": account_id},
+            )
+            conn.execute(
+                text(
+                    "insert into users (id, email, name, password_hash, password_set_at, "
+                    "created_at, email_verified_at) "
+                    "values (:u, 'owner@example.com', 'Owner', :h, now(), now(), now())"
+                ),
+                {"u": user_id, "h": hash_password(PASSWORD)},
+            )
+            conn.execute(
+                text("select set_config('app.current_account', :a, true)"),
+                {"a": str(account_id)},
+            )
+            conn.execute(
+                text(
+                    "insert into memberships (id, user_id, account_id, role, status) "
+                    "values (:i, :u, :a, 'owner', 'active')"
+                ),
+                {"i": uuid.uuid4(), "u": user_id, "a": account_id},
+            )
+            conn.execute(
+                text(
+                    "insert into properties (id, account_id, slug, name, property_type, "
+                    "status, currency, occupied, created_at) values "
+                    "(:i, :a, 'main', 'Main House', 'PRIMARY', 'OPEN', 'USD', true, now())"
+                ),
+                {"i": uuid.uuid4(), "a": account_id},
+            )
+
+        with OrmSession(owner) as s:
+            onb.complete_step(s, account_id, onb.STEP_CREATE_ACCOUNT)
+            onb.complete_step(s, account_id, onb.STEP_ADD_HOME)
+            onb.finish(s, account_id)
+            s.commit()
+
+        with owner.begin() as conn:
+            for stmt in (
+                f"GRANT USAGE ON SCHEMA public TO {APP_ROLE}",
+                "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public "
+                f"TO {APP_ROLE}",
+                f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {APP_ROLE}",
+            ):
+                conn.exec_driver_sql(stmt)
+    finally:
+        owner.dispose()
+
+    import mihomes.db as db_module
+
+    app_url = make_url(owner_url).set(username=APP_ROLE, password=APP_PASSWORD).render_as_string(hide_password=False)
+    saved_engine, saved_factory = db_module._engine, db_module._SessionLocal
+    db_module._engine = create_engine(app_url, future=True)
+    db_module._SessionLocal = None
+
+    from fastapi.testclient import TestClient
+
+    from mihomes.web.app import app
+
+    client = TestClient(app, base_url="http://localhost:5000", follow_redirects=False)
+    try:
+        yield client, account_id
+    finally:
+        db_module._engine.dispose()
+        db_module._engine, db_module._SessionLocal = saved_engine, saved_factory
+        with admin.connect() as conn:
+            conn.exec_driver_sql(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                f"WHERE datname = '{name}' AND pid <> pg_backend_pid()"
+            )
+            conn.exec_driver_sql(f'DROP DATABASE IF EXISTS "{name}"')
+        admin.dispose()
+
+
+def _sign_in(client):
+    return client.post(
+        "/login",
+        data={"email": "owner@example.com", "password": PASSWORD},
+        headers=_HTML,
+    )
+
+
+def test_sign_in_lands_on_the_dashboard_not_the_wizard(rls_app):
+    """`destination_for` reads memberships; unbound, it sent a returning owner to onboarding."""
+    client, _ = rls_app
+    response = _sign_in(client)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/", (
+        "an existing member was sent somewhere other than the dashboard after sign-in"
+    )
+
+
+def test_the_session_survives_the_next_request(rls_app):
+    """**The login loop.**
+
+    `lookup_session` re-reads the membership on *every* request. Unbound, it returned `None`,
+    the request read as unauthenticated, and the browser was sent back to `/login` — from which
+    signing in again produced the same thing. A 303 to `/login` here is that loop.
+    """
+    client, _ = rls_app
+    _sign_in(client)
+
+    response = client.get("/", headers=_HTML)
+    assert response.status_code == 200, (
+        f"the request after sign-in answered {response.status_code} "
+        f"(location: {response.headers.get('location')!r}) — the session did not survive, "
+        f"which is the /login loop"
+    )
+
+
+@pytest.mark.parametrize("path", ["/", "/settings", "/alerts/badge", "/properties/"])
+def test_authenticated_pages_render(rls_app, path):
+    """A spread of route classes: dashboard, ACCOUNT, a polled partial, and a COLLECTION list.
+
+    `/alerts/badge` is here because the dashboard polls it on a timer, so its 403 arrived
+    dozens of times a minute in the log and was the loudest symptom of the quietest bug.
+    """
+    client, _ = rls_app
+    _sign_in(client)
+
+    response = client.get(path, headers=_HTML)
+    assert response.status_code == 200, (
+        f"{path} answered {response.status_code} "
+        f"(location: {response.headers.get('location')!r}) for a signed-in owner"
+    )
+
+
+def test_renaming_the_estate_works_end_to_end(rls_app):
+    """The rename, including its audit row — which is itself a tenant-table write.
+
+    With only the ContextVar bound and not the GUC, the rename committed and the audit insert
+    was refused: the estate was renamed and the trail recording it was not, which is the one
+    outcome an audit trail must never have.
+    """
+    client, account_id = rls_app
+    _sign_in(client)
+
+    response = client.post(
+        "/settings/account", data={"name": "Belle Estate"}, headers=_HTML
+    )
+    assert response.status_code == 303, response.text
+
+    page = client.get("/settings", headers=_HTML)
+    assert page.status_code == 200
+    assert "Belle Estate" in page.text
+
+    import mihomes.db as db_module
+
+    with db_module._engine.begin() as conn:
+        conn.execute(
+            text("select set_config('app.current_account', :a, true)"),
+            {"a": str(account_id)},
+        )
+        assert conn.execute(text("select name from accounts")).scalar() == "Belle Estate"
+        assert conn.execute(text("select slug from accounts")).scalar() == "belle", (
+            "the slug changed — every `--account belle` invocation now fails"
+        )
+        rename_rows = conn.execute(
+            text("select count(*) from audit_log where action = 'rename'")
+        ).scalar()
+        assert rename_rows == 1, "the rename committed without an audit row"
+
+
+def test_onboarding_resume_does_not_500_without_a_state_row(rls_app):
+    """**`GET /onboarding/` 500'd for an existing member, so the wizard was inescapable.**
+
+    `get_state` lazily inserts the account's `onboarding_state` row on first read. That table is
+    tenant-owned, and `account_context` sets only the ContextVar — RLS's `WITH CHECK` compares
+    against `current_setting('app.current_account')`, stamped at `after_begin` before the request
+    knew its account. So the INSERT was refused:
+
+        InsufficientPrivilege: new row violates row-level security policy
+        for table "onboarding_state"
+
+    This is the state a member reaches when their membership was created outside the wizard (a
+    CLI bootstrap, the importer, a repair script): account and property exist, the onboarding
+    row does not. The fixture deliberately leaves it absent, so the lazy insert runs here.
+    """
+    client, _ = rls_app
+    _sign_in(client)
+
+    response = client.get("/onboarding/", headers=_HTML)
+    assert response.status_code < 500, (
+        f"/onboarding/ answered {response.status_code} — the lazy onboarding_state insert was "
+        f"refused, and the wizard can be neither completed nor escaped"
+    )
+
+
+def test_the_wizard_does_not_mint_a_second_account_for_a_member(rls_app):
+    """`_account_for` reads memberships pre-tenant; unbound it reported "no account".
+
+    The idempotency guard in `create_account` then fell through and tried to create a *second*
+    account for someone who already owned one — which is how a rename attempt became a 500 and,
+    worse, nearly a forked estate.
+    """
+    import mihomes.db as db_module
+
+    client, _ = rls_app
+    _sign_in(client)
+
+    # **Unbind the session's account first.** `_account_for` is only consulted on a session that
+    # has not resolved one — the state a member is in when their membership was created outside
+    # the wizard. With the account already bound, `resolve_principal` answers first and the
+    # guard is never reached, so the test would pass against the bug.
+    with db_module._engine.begin() as conn:
+        conn.execute(text("update sessions set current_account_id = null"))
+
+    client.post(
+        "/onboarding/account",
+        data={"name": "Should Not Create This", "account_type": "household"},
+        headers=_HTML,
+    )
+
+    with db_module._engine.begin() as conn:
+        accounts = conn.execute(text("select count(*) from accounts")).scalar()
+    assert accounts == 1, (
+        f"{accounts} accounts exist — the wizard minted another one for an existing member, "
+        f"stranding their data on the first"
+    )
+
+
+def test_an_unbound_session_does_not_bounce_between_root_and_onboarding(rls_app):
+    """**The redirect loop**, and it was half my own making.
+
+    `/` requires a bound account and answers 403 `NO_ACCOUNT_SELECTED` without one, which the
+    403 handler turns into a redirect to `/onboarding/`. But onboarding is *finished* for this
+    account, so `resume` redirected straight back to `/`. The two routes then bounced off each
+    other forever, and the log is just the same two lines alternating:
+
+        GET /            303 See Other   -> /onboarding/
+        GET /onboarding/ 303 See Other   -> /
+
+    Before the 403 handler existed this was a dead end (a bare JSON 403) rather than a loop, so
+    adding the redirect required onboarding to *resolve* the missing binding instead of handing
+    the request back unchanged. This test is what pins that pairing.
+
+    Reachable whenever a membership was created outside the wizard — a CLI bootstrap, the
+    importer, a repair script — because only `establish_session` and `_select_account` bind an
+    account, and neither of those ran.
+    """
+    import mihomes.db as db_module
+
+    client, _ = rls_app
+    _sign_in(client)
+
+    with db_module._engine.begin() as conn:
+        conn.execute(text("update sessions set current_account_id = null"))
+
+    path = "/"
+    for _ in range(6):
+        response = client.get(path, headers=_HTML)
+        if response.status_code != 303:
+            break
+        path = response.headers["location"]
+    else:
+        pytest.fail(
+            "still redirecting after 6 hops — / and /onboarding/ are bouncing off each other"
+        )
+
+    assert response.status_code == 200, (
+        f"the chain from / settled on {response.status_code} at {path!r} rather than rendering"
+    )
+
+
+def test_a_brand_new_user_can_add_their_first_home(rls_app, mailbox):
+    """Signup → create account → add first home, as a role RLS applies to.
+
+    **This is the mandatory path, and it was broken for every new user.** `add_property` bound
+    the account through `account_context` alone, which sets the `account_id` stamp but not the
+    `app.current_account` GUC that RLS's `WITH CHECK` compares against — and the GUC is stamped
+    at `after_begin`, before this request knew its account, because the account is created one
+    step earlier in the same sitting. The insert was refused:
+
+        InsufficientPrivilege: new row violates row-level security policy for table "properties"
+
+    `STEP_ADD_HOME` is in `MANDATORY_STEPS` and the wizard will not advance past it, so a new
+    user could not finish signing up at all — a 500 on the third screen, every time.
+
+    The existing fixture cannot catch this: it inserts an account and property directly and
+    marks onboarding finished, so it never drives step 3. This walks the wizard instead, which
+    is the only way the missing binding shows up.
+    """
+    client, _ = rls_app
+
+    email = f"newcomer-{uuid.uuid4().hex[:8]}@example.com"
+    signup = client.post(
+        "/signup",
+        data={"email": email, "password": PASSWORD, "name": "Newcomer"},
+        headers=_HTML,
+    )
+    assert signup.status_code == 200, f"signup did not take: {signup.status_code}"
+    confirmed = confirm_email(client, mailbox, email, headers=_HTML)
+    assert confirmed.status_code == 303, f"confirming did not sign in: {confirmed.status_code}"
+
+    account = client.post(
+        "/onboarding/account",
+        data={"name": "The Newcomer Household", "account_type": "household"},
+        headers=_HTML,
+    )
+    assert account.status_code == 303, f"step 2 did not take: {account.status_code}"
+
+    # The assertion this file exists for. A 500 here is the RLS refusal above; anything other
+    # than the redirect means the wizard cannot advance past its one unskippable step.
+    home = client.post(
+        "/onboarding/property",
+        data={"name": "First Home", "address": ""},
+        headers=_HTML,
+    )
+    assert home.status_code == 303, (
+        f"adding the first home returned {home.status_code} — a brand-new user cannot complete "
+        "onboarding, which is the state every signup lands in"
+    )
+
+    client.post("/onboarding/finish", data={}, headers=_HTML)
+    dashboard = client.get("/", headers=_HTML)
+    assert dashboard.status_code == 200, (
+        f"the new user did not reach a dashboard ({dashboard.status_code})"
+    )
+    assert "First Home" in dashboard.text, "the home they just added is not on their dashboard"
+
+
+def test_a_plan_limit_renders_an_upgrade_prompt_not_a_500(rls_app):
+    """A Free account past its home cap gets 402 and the plan that would allow it.
+
+    **Every gate in the product refused correctly and then rendered as a crash.** Five services
+    raise `EntitlementError`; `web/app.py` registered no handler for it, so a correct refusal
+    fell through to the catch-all and produced *"Something went wrong"* with a request id. To
+    the user that is indistinguishable from the product being broken, and `PRICING` rule 4 — the
+    rule that every denial names the plan that would allow it — reached nobody.
+
+    The fixture's account is `estate` with one property, so it is put on `free` here (whose cap
+    is 1) and its trial marked spent. **`trial_used_at` matters**: without it the first denied
+    `property.add` starts the no-card trial (§4.2), the gate is re-asked, and the second home is
+    *allowed* — which is the product working as designed and would make this test pass while
+    asserting nothing about the handler.
+    """
+    import mihomes.db as db_module
+
+    client, account_id = rls_app
+    _sign_in(client)
+
+    with db_module._engine.begin() as conn:
+        conn.execute(
+            text(
+                "update accounts set plan = 'free', subscription_status = 'active',"
+                " trial_used_at = now() where id = :a"
+            ),
+            {"a": account_id},
+        )
+
+    response = client.post(
+        "/properties/", data={"name": "Second Home"}, headers=_HTML
+    )
+
+    assert response.status_code == 402, (
+        f"a plan denial answered {response.status_code}, not 402 — a 500 here is the bug this "
+        "test exists for: the gate fires, and the user sees a crash instead of a paywall"
+    )
+    assert "pro" in response.text.lower(), (
+        "the refusal must name the plan that would allow it (PRICING rule 4)"
+    )
+
+    # And the write really was refused — a paywall that renders while the row lands is worse
+    # than no paywall, because the limit then means nothing.
+    #
+    # **The tenant has to be bound to count.** This engine connects as the app role, which RLS
+    # applies to, so an unbound connection sees zero rows for every account — including the one
+    # property the fixture created. Counting without `app.current_account` set reads as "the
+    # denial worked" no matter what happened, which is the blind spot this whole file exists to
+    # avoid.
+    with db_module._engine.begin() as conn:
+        conn.execute(
+            text("select set_config('app.current_account', :a, true)"), {"a": str(account_id)}
+        )
+        homes = conn.execute(
+            text("select count(*) from properties where account_id = :a"), {"a": account_id}
+        ).scalar_one()
+    assert homes == 1, f"expected the fixture's single home, found {homes}"
+
+
+def test_a_free_account_inviting_staff_gets_the_paywall_not_a_form_error(rls_app):
+    """The staff-invite gate reaches the browser as an upgrade prompt.
+
+    The route that creates invites (`settings.py`) catches `InviteError` and re-renders the
+    form with the message inline. That is right for "this staff invite needs a
+    property" and wrong for a plan limit — it would turn a paywall into a validation error with
+    nothing to click. The gate raises `EntitlementError` instead, which those handlers do not
+    catch, so it reaches the app-level handler added in `5502c90`.
+    """
+    import mihomes.db as db_module
+
+    client, account_id = rls_app
+    _sign_in(client)
+
+    with db_module._engine.begin() as conn:
+        conn.execute(
+            text(
+                "update accounts set plan = 'free', subscription_status = 'active'"
+                " where id = :a"
+            ),
+            {"a": account_id},
+        )
+        conn.execute(
+            text("select set_config('app.current_account', :a, true)"), {"a": str(account_id)}
+        )
+        property_id = conn.execute(
+            text("select id from properties where account_id = :a limit 1"), {"a": account_id}
+        ).scalar_one()
+
+    # `/settings/members/invite` since 2026-10-21: the `/team/invites` form that used to be the
+    # other caller was removed (it discarded the invite link), and `/team` now redirects here.
+    response = client.post(
+        "/settings/members/invite",
+        data={"email": "helper@example.com", "role": "staff", "property_ids": str(property_id)},
+        headers=_HTML,
+    )
+
+    assert response.status_code == 402, (
+        f"a Free account inviting staff got {response.status_code}; 400 means the form "
+        "swallowed it as a validation error, 500 means nothing caught it at all"
+    )
+    assert "pro" in response.text.lower()
+
+
+def test_the_vendors_page_offers_ratings_only_when_the_plan_includes_them(rls_app):
+    """Free sees the upgrade offer where the rating form goes; Estate sees the form.
+
+    Both halves matter. Gating on a context key that a route forgets to pass would make the
+    control vanish for *everyone* — Jinja renders an undefined name as falsy — so the Estate
+    case is what proves the flag is actually reaching the template rather than the page simply
+    never showing the form any more.
+
+    The paywall in `rate_vendor` is untouched and still refuses a direct POST. This only stops
+    the product from offering something it will then refuse.
+    """
+    import mihomes.db as db_module
+
+    client, account_id = rls_app
+    _sign_in(client)
+
+    with db_module._engine.begin() as conn:
+        conn.execute(
+            text("select set_config('app.current_account', :a, true)"), {"a": str(account_id)}
+        )
+        conn.execute(
+            text(
+                "insert into vendors (id, account_id, slug, company_name, active, created_at)"
+                " values (:i, :a, 'acme', 'Acme Plumbing', true, now())"
+            ),
+            {"i": uuid.uuid4(), "a": account_id},
+        )
+
+    # The fixture's account is `estate`, which includes ratings.
+    page = client.get("/vendors/", headers=_HTML)
+    assert page.status_code == 200
+    assert "/rate" in page.text, "an Estate account should be offered the rating form"
+
+    with db_module._engine.begin() as conn:
+        conn.execute(
+            text("update accounts set plan = 'free', subscription_status = 'active'"
+                 " where id = :a"),
+            {"a": account_id},
+        )
+
+    page = client.get("/vendors/", headers=_HTML)
+    assert page.status_code == 200
+    assert "/rate" not in page.text, (
+        "a Free account was still offered the rating form, which the service will refuse"
+    )
+    assert "included in" in page.text and "Pro" in page.text, (
+        "the offer should say what the feature costs, not simply disappear"
+    )
+
+
+def test_a_plan_denial_answers_json_for_an_api_caller(rls_app):
+    """The same denial, asked for as JSON, keeps the 402 contract `privacy.py` established.
+
+    `{"error": "plan_required", "reason": ..., "upgrade_target": ...}` — the shape the audit
+    export already returns. Two shapes for one condition would mean every client handling
+    paywalls twice.
+    """
+    import mihomes.db as db_module
+
+    client, account_id = rls_app
+    _sign_in(client)
+
+    with db_module._engine.begin() as conn:
+        conn.execute(
+            text(
+                "update accounts set plan = 'free', subscription_status = 'active',"
+                " trial_used_at = now() where id = :a"
+            ),
+            {"a": account_id},
+        )
+
+    response = client.post(
+        "/properties/",
+        data={"name": "Second Home"},
+        headers={**_HTML, "Accept": "application/json"},
+    )
+
+    assert response.status_code == 402
+    body = response.json()
+    assert body["error"] == "plan_required", body
+    assert body["upgrade_target"] == "pro", body
+
+
+def _add_admin(account_id):
+    """A second member, an admin, written as the app role (RLS applies) — returns its id."""
+    import mihomes.db as db_module
+
+    user_id, membership_id = uuid.uuid4(), uuid.uuid4()
+    with db_module._engine.begin() as conn:
+        conn.execute(
+            text("select set_config('app.current_account', :a, true)"), {"a": str(account_id)}
+        )
+        conn.execute(
+            text("insert into users (id, email, name, created_at) "
+                 "values (:u, 'heir@example.com', 'Heir', now())"),
+            {"u": user_id},
+        )
+        conn.execute(
+            text("insert into memberships (id, user_id, account_id, role, status) "
+                 "values (:i, :u, :a, 'admin', 'active')"),
+            {"i": membership_id, "u": user_id, "a": account_id},
+        )
+    return membership_id
+
+
+def test_transferring_ownership_works_end_to_end(rls_app):
+    """Two membership UPDATEs and an audit INSERT, all tenant-table writes, under RLS."""
+    client, account_id = rls_app
+    heir = _add_admin(account_id)
+    _sign_in(client)
+
+    response = client.post(
+        "/settings/transfer-ownership",
+        data={"membership_id": str(heir), "confirm": "TRANSFER"},
+        headers=_HTML,
+    )
+    assert response.status_code == 303, response.text
+
+    import mihomes.db as db_module
+
+    with db_module._engine.begin() as conn:
+        conn.execute(
+            text("select set_config('app.current_account', :a, true)"), {"a": str(account_id)}
+        )
+        roles = dict(conn.execute(text("select id, role from memberships")).all())
+        assert roles[heir] == "owner"
+        assert sorted(roles.values()) == ["admin", "owner"]
+        assert conn.execute(
+            text("select count(*) from audit_log where action = 'transfer'")
+        ).scalar() == 1, "the transfer committed without an audit row"
+
+    # The ex-owner is now an admin and still gets in.
+    assert client.get("/settings", headers=_HTML).status_code == 200
+
+
+def test_a_refused_transfer_still_renders_the_members_list(rls_app):
+    """The refusal re-renders the page in the same request — it must still see the tenant."""
+    client, account_id = rls_app
+    heir = _add_admin(account_id)
+    _sign_in(client)
+
+    response = client.post(
+        "/settings/transfer-ownership",
+        data={"membership_id": str(heir), "confirm": "nope"},
+        headers=_HTML,
+    )
+    assert response.status_code == 400
+    assert "Type TRANSFER" in response.text
+    assert "heir@example.com" in response.text, "the members list rendered empty under RLS"

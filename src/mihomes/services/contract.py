@@ -8,7 +8,9 @@ from mihomes.models.contract import Contract
 from mihomes.models.property import Property
 from mihomes.models.vendor import Vendor
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
-from mihomes.services.slug import resolve_identifier
+from mihomes.services.localtime import today as local_today
+from mihomes.services.money import resolve_currency
+from mihomes.services.slug import get_by_id, resolve_identifier
 from mihomes.services.update_helpers import safe_update
 
 
@@ -24,7 +26,7 @@ def create_contract(
     notice_period_days: int = 30,
     billing_frequency: str | None = None,
     cost: float | None = None,
-    currency: str = "USD",
+    currency: str | None = None,
     notes: str | None = None,
 ) -> Contract:
     vendor = resolve_identifier(session, Vendor, vendor_id_or_slug)
@@ -33,7 +35,8 @@ def create_contract(
         vendor_id=vendor.id, property_id=prop.id, start_date=start_date,
         end_date=end_date, service_category=service_category,
         auto_renew=auto_renew, notice_period_days=notice_period_days,
-        billing_frequency=billing_frequency, cost=cost, currency=currency, notes=notes,
+        billing_frequency=billing_frequency, cost=cost,
+        currency=resolve_currency(session, currency), notes=notes,
     )
     session.add(contract)
     session.flush()
@@ -52,13 +55,13 @@ def list_contracts(
         prop = resolve_identifier(session, Property, property_id_or_slug)
         query = query.filter(Contract.property_id == prop.id)
     if expiring_days:
-        cutoff = date.today() + timedelta(days=expiring_days)
+        cutoff = local_today() + timedelta(days=expiring_days)
         query = query.filter(Contract.end_date.is_not(None), Contract.end_date <= cutoff)
     return query.order_by(Contract.end_date.asc().nullslast()).all()
 
 
 def update_contract(session: Session, contract_id: int, **kwargs) -> Contract:
-    contract = session.get(Contract, contract_id)
+    contract = get_by_id(session, Contract, contract_id)
     if contract is None:
         raise ValueError(f"Contract {contract_id} not found")
     old_snap = snapshot_instance(contract)
@@ -71,7 +74,7 @@ def update_contract(session: Session, contract_id: int, **kwargs) -> Contract:
 
 
 def delete_contract(session: Session, contract_id: int) -> None:
-    contract = session.get(Contract, contract_id)
+    contract = get_by_id(session, Contract, contract_id)
     if contract is None:
         raise ValueError(f"Contract {contract_id} not found")
     record_change(session, "contract", contract.id, "delete", snapshot_instance(contract))

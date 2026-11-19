@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block title %}Chat — MiHomes{% endblock %}
+{% block heading %}Chat{% endblock %}
+{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">Your estate's group chats and direct messages</p>{% endblock %}
+
+{% block content %}
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+  <div class="lg:col-span-1">
+    {% include "partials/chat/_sidebar_list.html" %}
+  </div>
+  <section class="hidden lg:flex lg:col-span-2 bg-white rounded-xl border border-dashed border-gray-300 p-10 items-center justify-center text-center">
+    <div>
+      <div class="text-3xl mb-3" aria-hidden="true">💬</div>
+      <div class="text-gray-800 font-medium">Pick a conversation</div>
+      <p class="text-gray-500 text-sm mt-1 max-w-sm">
+        <strong>General</strong> is the whole estate. Each home has its own chat for the people who work there,
+        and you can message anyone directly.
+      </p>
+    </div>
+  </section>
+</div>
+{% endblock %}

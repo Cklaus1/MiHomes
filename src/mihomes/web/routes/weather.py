@@ -1,5 +1,6 @@
 """Weather routes — widget and AI-powered alert/task generation."""
 
+import logging
 import re
 from collections import defaultdict
 
@@ -7,8 +8,9 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
+from mihomes.authz.actions import Access
+from mihomes.authz.declare import declares
 from mihomes.web.deps import get_db, templates
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -43,14 +45,23 @@ def _extract_zip(address: str | None) -> str:
 
 
 def _group_by_zip(properties) -> list[dict]:
-    """Return list of {zip, props} dicts, preserving insertion order."""
+    """Return list of {zip, props} dicts, preserving insertion order.
+
+    Properties sharing a ZIP share one forecast card. A property **without** a ZIP is its own
+    group (2026-10-15): pooling every ZIP-less property into one "—" bucket let a single
+    geocodable address lend its forecast to properties that have no usable location at all,
+    which is exactly the "no location → no weather" rule this widget now follows.
+    """
     buckets: dict[str, list] = defaultdict(list)
     for prop in properties:
-        buckets[_extract_zip(prop.address)].append(prop)
-    return [{"zip": z, "props": ps} for z, ps in buckets.items()]
+        zip_code = _extract_zip(prop.address)
+        key = zip_code if zip_code != "—" else f"—:{id(prop)}"
+        buckets[key].append(prop)
+    return [{"zip": k.split(":")[0], "props": ps} for k, ps in buckets.items()]
 
 
 @router.get("", response_class=HTMLResponse)
+@declares("property.view", Access.COLLECTION)
 def weather_widget(request: Request, db: Session = Depends(get_db)):
     """Return the weather widget partial — loaded lazily by the dashboard."""
     from mihomes.models.property import Property
@@ -65,14 +76,21 @@ def weather_widget(request: Request, db: Session = Depends(get_db)):
             try:
                 forecast = get_forecast_for_property(db, prop)
             except Exception:
+                # N15: the page degrades to no forecast, which is correct; a provider outage
+                # that leaves no trace anywhere is not.
+                logger.exception("weather forecast failed for property %s", prop.slug)
                 forecast = None
             if forecast:
                 break
+        # A property with no address, or one that doesn't geocode, shows no weather — it gets no
+        # card rather than a "❓" placeholder (2026-10-15).
+        if forecast is None:
+            continue
         groups.append({
             "zip": group["zip"],
             "props": group["props"],
             "forecast": forecast,
-            "icon": _icon(forecast.current.weather_code) if forecast else "❓",
+            "icon": _icon(forecast.current.weather_code),
         })
     db.commit()  # persist any cached lat/lon
 
@@ -83,11 +101,12 @@ def weather_widget(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/analyze", response_class=HTMLResponse)
+@declares("property.view", Access.COLLECTION)
 def weather_analyze(request: Request, db: Session = Depends(get_db)):
     """Run weather alert generation + AI task suggestions for all properties."""
     from mihomes.models.property import Property
-    from mihomes.services.weather import get_forecast_for_property, generate_weather_alerts
-    from mihomes.services.weather_tasks import suggest_tasks_for_weather, create_tasks_from_suggestions
+    from mihomes.services.weather import generate_weather_alerts, get_forecast_for_property
+    from mihomes.services.weather_tasks import create_tasks_from_suggestions, suggest_tasks_for_weather
 
     properties = db.query(Property).all()
     groups = []
@@ -109,17 +128,22 @@ def weather_analyze(request: Request, db: Session = Depends(get_db)):
             try:
                 forecast = get_forecast_for_property(db, prop)
             except Exception:
+                # N15: the page degrades to no forecast, which is correct; a provider outage
+                # that leaves no trace anywhere is not.
+                logger.exception("weather forecast failed for property %s", prop.slug)
                 forecast = None
             if forecast:
                 break
+        if forecast is None:
+            continue
         groups.append({
             "zip": group["zip"],
             "props": group["props"],
             "forecast": forecast,
-            "icon": _icon(forecast.current.weather_code) if forecast else "❓",
+            "icon": _icon(forecast.current.weather_code),
         })
 
-        if forecast is None or ai_error:
+        if ai_error:
             continue
 
         # Only generate AI tasks for the primary property in each zip group
@@ -134,6 +158,7 @@ def weather_analyze(request: Request, db: Session = Depends(get_db)):
                     "tasks": [t.title for t in created],
                 })
         except Exception as e:
+            logger.exception("weather AI advice failed")  # N15
             err = str(e)
             if "api_key" in err.lower() or "apikey" in err.lower() or "unauthorized" in err.lower() or "authentication" in err.lower():
                 ai_error = "AI API key not configured. Set it via CLI: mihomes config set anthropic.api_key <key>"

@@ -108,7 +108,7 @@ MoSCoW, each tied to an existing MiHomes entity/feature.
 | **P1 / Should** | Proactive notifications (task due, critical issue, low stock, appointment reminder) | task, issue, consumable, appointment, `alert` model | Outbound push to the right linked user, role-scoped. |
 | **P1 / Should** | Voice note → transcription → task/issue | task, issue | Download `voice`/`audio`, transcribe, feed into `analyze_messages`. |
 | **P1 / Should** | NL queries via AI advisor in DM | `ai/orchestrator.ask` | Already exists for group questions; extend to authenticated DMs with role/home scope. |
-| **P1 / Should** | Staff-scoped bot experience | `membership_home_scopes` | A housekeeper's chat only sees/acts on their assigned home. |
+| **P1 / Should** | Staff-scoped bot experience | `membership_property_scopes` | A housekeeper's chat only sees/acts on their assigned home. |
 | **P2 / Could** | `/help` + in-chat onboarding | — | Command menu via `setMyCommands`; guided first-run. |
 | **P2 / Could** | Digest customization (frequency, content, per-user) | consumable digest, budget | Owner/admin configurable; currently hard-coded weekly Monday. |
 | **P2 / Could** | Location sharing for property check-ins | property, staff | Staff "on-site" check-in via Telegram location. |
@@ -136,7 +136,7 @@ A user in two accounts (e.g. an estate manager for two families, per `ONBOARDING
 
 ### 4.3 Staff scoping
 
-Staff links carry `membership_home_scopes`. A staff user's actions and queries are restricted to their assigned home(s); a group chat linked to a home they aren't scoped to yields a 404-style "not found" (never revealing existence — matches `ONBOARDING_AUTH_RBAC.md` §9.4 step 4).
+Staff links carry `membership_property_scopes`. A staff user's actions and queries are restricted to their assigned home(s); a group chat linked to a home they aren't scoped to yields a 404-style "not found" (never revealing existence — matches `ONBOARDING_AUTH_RBAC.md` §9.4 step 4).
 
 ---
 
@@ -155,8 +155,8 @@ Staff links carry `membership_home_scopes`. A staff user's actions and queries a
 
 ## 6. Security & Abuse
 
-- **Deny by default.** Only linked, non-revoked `telegram_user_id`s can command the bot. Messages from unknown users/chats are dropped silently (no reply that confirms the bot exists to a stranger).
-- **Per-role capability gating.** Reuse the single `require_permission(user, current_account, action, target_home)` check from `ONBOARDING_AUTH_RBAC.md` §9.4. Each responder category declares the action it needs (e.g. `expense_log` → `View finances`/manage finances; `pto_request` approval → staff-management). Staff attempting an owner/admin action get a clean "not permitted."
+- **Deny by default — once links exist.** Only linked, non-revoked `telegram_user_id`s can command the bot; messages from unknown users/chats are dropped silently (no reply that confirms the bot exists to a stranger). **Ordering caveat:** on day one *no* links exist, so enforcing this literally silences the bot for everyone including the owner. Until the linking flow has run, an unlinked sender in an already-linked chat is treated at **staff** level rather than denied outright — the narrowest role, not the widest (`../specs/SPEC-003-phase2-onboarding-team-rbac.md` D16). SPEC-006 replaces that bridge with real per-account resolution, where an unlinked sender gets a linking prompt instead of an account.
+- **Per-role capability gating.** Reuse the single `require_permission(user, current_account, action, target_property)` check from `ONBOARDING_AUTH_RBAC.md` §9.4. Each responder category declares the action it needs (e.g. `expense_log` → `View finances`/manage finances; `pto_request` approval → staff-management). Staff attempting an owner/admin action get a clean "not permitted."
 - **Token secrecy.** `telegram.bot_token` and the webhook `secret_token` are secrets — never logged, stored in the tenant/config store, rotated on suspected compromise.
 - **Webhook authenticity.** Validate the secret header + path on every POST; rate-limit and drop malformed payloads.
 - **Human-in-the-loop.** The `telegram review` queue remains the safety net for passive auto-creation — an operator can inspect AI-extracted items before they become records (`--accept`/`--auto`).
@@ -182,7 +182,7 @@ Staff links carry `membership_home_scopes`. A staff user's actions and queries a
 Mapped to the product phases in `../architecture/MULTITENANCY.md` §8 and `ONBOARDING_AUTH_RBAC.md`:
 
 - **Phase 0 (landing/waitlist)** — no Telegram work; the current single-user gateway keeps running locally as-is.
-- **Phase 1 (multitenant foundation)** — introduce `telegram_links` / `telegram_chat_links` tables with `account_id`; keep polling. No behavior change for existing local installs (the "one local install = one account" bridge, MULTITENANCY §6).
+- **Phase 1 (multitenant foundation)** — no Telegram work. The `telegram_links` tables are **not** in the Phase 1 baseline (`MULTITENANCY.md` §5.2 does not create them); they ship with the Telegram work itself as a 4+ growth bet, specced in `../specs/SPEC-006-gateways-tenancy-webhook-cloud-api.md`. *(Corrected 2026-08-05: this bullet previously created those tables in Phase 1 and cited the "one local install = one account" bridge, which was dropped — `MULTITENANCY.md` §6.)*
 - **Phase 2 (onboarding + RBAC)** — **the earliest the core Telegram multi-tenant work *can* land**, because it depends on memberships, linking-token infrastructure, and `require_permission`: `/link <code>` linking flow, RBAC-gated actions, account switch in DMs, staff scoping, webhook transport, `/help`. Caveat: `SAAS_PRD.md` §6.2/§10 classifies expanded Telegram as a **post-GA growth bet (Phase 4+)** — Phase 2 here is a dependency floor, not committed Phase 2 scope; nothing in Phases 2–4 core waits on it.
 - **Phase 3 (billing)** — plan gates: which plans get proactive notifications or voice transcription (decide in `PRICING_AND_PACKAGING.md` — its current entitlement table has **no Telegram keys yet**; add them there, not here). Note Telegram linking itself consumes **no seat** — seats are memberships, enforced at invite time (`ONBOARDING_AUTH_RBAC.md` §6.4); a link is just an identity binding for an existing seat. Staff-scoped Telegram is implicitly Pro/Estate because Free has no staff role.
 - **Phase 4 (GA)** — inline-keyboard flows polished, digest customization, multi-language, delivery/retry hardening, launch with the hosted app at **app.mihomes.ai**.

@@ -2,9 +2,9 @@
 
 Purpose: Define the plans, feature packaging, entitlement limits, and upgrade/downgrade behavior for MiHomes as it becomes a multi-tenant SaaS at mihomes.ai.
 
-Status: Draft — 2026-07-27
+Status: Draft — 2026-07-27; **launch prices, limits and trial decided 2026-11-09** (SPEC-004 O1)
 
-> Every dollar figure and quantity marked **PLACEHOLDER** is a starting point to be validated via pricing research and early-customer conversations before GA. The plan *names* (Free / Pro / Estate), roles (owner / admin / staff), and the freemium *line* (household free, business paid) are canon and should not change.
+> The prices, home/seat/AI limits and trial length below were decided on 2026-11-09 from the market research in §6. Items still marked **PLACEHOLDER** are policy details (grace length, swap cadence), not prices. The plan *names* (Free / Pro / Estate), roles (owner / admin / staff), and the freemium *line* (household free, business paid) are canon and should not change.
 
 ---
 
@@ -15,14 +15,15 @@ Three plans. **Free** for a single household, free forever. **Pro** for multi-ho
 | | **Free** | **Pro** | **Estate** |
 |---|---|---|---|
 | **Positioning** | Run your own home | Run it like a business | Run an estate with a team |
-| **Price — monthly** | $0 forever | **$20/mo** *(PLACEHOLDER — validate)* | **$60/mo** *(PLACEHOLDER — validate)* |
-| **Price — annual** | $0 | **$200/yr** (~2 mo free) *(PLACEHOLDER)* | **$600/yr** (~2 mo free) *(PLACEHOLDER)* |
-| **Homes** | **1** | up to **5** *(PLACEHOLDER)* | **Unlimited** *(fair-use, see §3)* |
-| **Seats** | **3** | **10** *(PLACEHOLDER)* | **50** *(PLACEHOLDER, fair-use)* |
+| **Price — monthly** | $0 forever | **$19/mo** | **$49/mo** |
+| **Price — annual** | $0 | **$190/yr** (2 months free) | **$490/yr** (2 months free) |
+| **Homes** | **1** | up to **3** | **Unlimited** *(fair-use, see §3)* |
+| **Seats** | **3** | **10** | **50** *(fair-use)* |
 | **Staff invites** | No | Yes | Yes |
 | **Roles available** | owner, admin | owner, admin, staff | owner, admin, staff |
-| **AI advisor** | Limited (see §3) | Full SPACE advisor | Priority AI (faster, higher limits) |
-| **AI usage / mo** | **200 calls** *(PLACEHOLDER)* | **3,000 calls** *(PLACEHOLDER)* | **15,000 calls** *(PLACEHOLDER, fair-use)* |
+| **AI advisor** | Limited (see §3) | Full SPACE advisor | Full SPACE advisor, highest allowance (same AI as every plan) |
+| **AI usage / mo** | **100 calls** | **1,500 calls** | **3,000 calls** |
+| **AI provider** | Same for every plan: NVIDIA NIM, set by MiHomes | ← | ← |
 | **Core management** | Properties, tasks, issues, vendors, inventory, documents, work orders | Everything in Free | Everything in Pro |
 | **Advanced features** | — | Vendor ratings, work-order scheduling | + Predictive maintenance, weekly AI reports, audit export, priority support |
 | **Support** | Community / docs | Email (best-effort) | Priority email + onboarding help |
@@ -72,7 +73,7 @@ See `../architecture/MULTITENANCY.md` for the account/tenant model and `../archi
 
 ### 3.1 Machine-enforceable limits
 
-These are the entitlement keys the service resolves per account. All numeric values except Free's `1 home / 3 seats` are **PLACEHOLDER** and tunable without code changes (config-driven).
+These are the entitlement keys the service resolves per account. The values are the launch numbers decided 2026-11-09; they live in one table, `src/mihomes/entitlements/limits.py`, and change there.
 
 | Entitlement key | Type | Free | Pro | Estate |
 |---|---|---|---|---|
@@ -80,11 +81,12 @@ These are the entitlement keys the service resolves per account. All numeric val
 | `max_seats` | int | **3** | 10 | 50 (fair-use) |
 | `staff_invites_allowed` | bool | `false` | `true` | `true` |
 | `roles_allowed` | set | owner, admin | owner, admin, staff | owner, admin, staff |
-| `ai_calls_per_month` | int | 200 | 3,000 | 15,000 |
+| `ai_calls_per_month` | int | 100 | 1,500 | 3,000 |
 | `ai_overage_buffer_pct` | int (%) | **0** | 20 | 20 |
-| `ai_priority` | enum | `standard` | `standard` | `priority` |
+| `ai_priority` | enum | `standard` | `standard` | `priority` *(not used: one AI for every plan, decided 2026-11-09)* |
 | `vendor_ratings` | bool | `false` | `true` | `true` |
 | `work_order_scheduling` | bool | `false` | `true` | `true` |
+| ↳ *scope of that key* | — | Covers **exactly one capability: setting `WorkOrder.due_date`.** Not `assignee_id` (no UI exposes it), and **not** `Appointment`/`/calendar` — that is a different product wearing the same word, and gating it would paywall the whole calendar plus a nightly automated job. | | |
 | `predictive_maintenance` | bool | `false` | `false` | `true` |
 | `weekly_ai_report` | bool | `false` | `false` | `true` |
 | `audit_export` | bool | `false` | `false` | `true` |
@@ -95,7 +97,7 @@ Notes:
 - Every home counts against `max_homes` regardless of who created it. Read-only (frozen) homes still count — the limit gates *having* homes, not writing to them.
 
 **Seat semantics (unambiguous):**
-- A **seat** = one `memberships` row in this account with status `active` **or** `invited` (pending). `revoked` memberships and expired/revoked invites do **not** count.
+- A **seat** = one `active` row in `memberships` **plus** one pending row in `invites` — **two tables, not one status enum.** `memberships.status` is only `active` or `revoked`; there is no `invited` status, because an invitee may have no `users` row yet and a membership requires one. `revoked` memberships and expired/revoked invites do **not** count.
 - The **owner counts** as a seat. Free's 3 seats = owner + 2 others.
 - **Pending invites consume a seat** from the moment the invite is created (so we never email an invite that can't be honored — see `ONBOARDING_AUTH_RBAC.md` §6.4). Revoking or letting an invite expire frees the seat immediately.
 - Seats are counted **per account**. A staff member working in two accounts consumes one seat in *each* account (they are two memberships). Cross-account seat sharing is Open Question #5 in `ONBOARDING_AUTH_RBAC.md`.
@@ -110,10 +112,10 @@ The service exposes two questions to the rest of the app:
 
 Rules of the contract:
 1. **One source of truth.** Plan → entitlements mapping lives in one config module, not scattered across features.
-2. **Fail closed on paid features, fail open on read.** If billing status is indeterminate, deny *new* paid actions but never block a user from reading their own data.
+2. **Fail closed on paid features; fail open on read *when billing status is indeterminate*.** If we cannot tell whether an account is paid — a webhook is late, a reconciliation is mid-flight — deny *new* paid actions but never block a user from reading their own data. **This clause is about uncertainty, not about reads in general:** a plan whose row in §3.1 is `false` may legitimately gate a read (see rule 5).
 3. **Billing status is an input.** `active`, `trialing`, `past_due`, `unpaid`, `canceled` change what the same plan is allowed to do (see §4). Status→behavior mapping is canon in `../architecture/BILLING_AND_EMAIL.md` §5: `trialing`/`active` = full plan entitlements; `past_due` = full entitlements during grace; `unpaid` = restricted (§4.3); `canceled`/`incomplete` = Free entitlements.
 4. **Deny returns an upgrade target.** Every `Denied` names the plan that would allow it, so the UI can render the right upgrade prompt.
-5. **Checks fire on state creation, not just UI.** `can()` is called at invite creation, home creation, seat activation, and AI dispatch — server-side, transactionally — so races (two concurrent invites at the seat cap) cannot exceed a limit. UI gating is a courtesy; the service check is the enforcement.
+5. **Checks fire on state creation — and on a declared read — not just in the UI.** `can()` is called at invite creation, home creation, seat activation, and AI dispatch, server-side and transactionally, so races (two concurrent invites at the seat cap) cannot exceed a limit. **This list is not exhaustive: a `false` row in §3.1 may also gate a *read*.** `vendor_ratings` is the current example — ratings have no write path, so the only thing enforceable is viewing them. A read gate must still let the page load: gate at context assembly, never by 403-ing a route that renders other things too. UI gating is a courtesy; the service check is the enforcement.
 
 ---
 
@@ -128,7 +130,7 @@ Rules of the contract:
 | Free user clicks "Add a 2nd home" | Modal: "Adding another home is a Pro feature. Start your 14-day Pro trial." → one-click trial start (no card, §4.2); Stripe Checkout only when converting to paid |
 | Free user clicks "Invite staff" | Modal: staff invites need Pro; same trial CTA |
 | Free user adds a 4th seat | Same pattern |
-| Pro user hits 6th home / Estate-only feature | Upgrade to Estate prompt |
+| Pro user hits 4th home / Estate-only feature | Upgrade to Estate prompt |
 
 The three Free→Pro triggers are canon: **2nd home, 4th seat, or inviting staff**.
 
@@ -136,11 +138,11 @@ Upgrades take effect **immediately** on successful payment/trial start; entitlem
 
 ### 4.2 Trial
 
-**Recommendation: 14-day Pro trial *(PLACEHOLDER length)*, no credit card, started on first gated action (not automatically at signup).**
+**Decided: 14-day Pro trial, no credit card, started on first gated action (not automatically at signup).**
 
 Rationale: MiHomes' value compounds over days of real use (tasks logged, AI advice acted on), so a time-boxed trial showcases it better than a feature demo. No card removes friction for the household audience, who are consumers, not procurement buyers, and maximizes top-of-funnel. Starting on first *gated action* (rather than at signup) means the trial clock runs while the user actually needs Pro — a trial that starts at signup is often burned before the 2nd home or first staff hire appears. We accept higher trial-to-nothing drop-off in exchange for volume and goodwill; the Free tier catches everyone who doesn't convert (they simply revert to Free; §4.3 restricted policy applies to any surplus homes/seats/staff created during trial). Card-required would raise conversion *rate* but shrink the funnel and clash with the "free forever household" brand promise. Revisit if trial abuse or AI cost during trials becomes material.
 
-Mechanics (must match `../architecture/BILLING_AND_EMAIL.md`): with no card there is **no Stripe subscription during the trial** — the trial is app-managed state (`plan=pro`, `billing_status=trialing`, `trial_ends_at`), and the entitlements service treats it as `trialing`. Stripe objects are created only at conversion (Checkout). Consequence: the `trial_ending` email is triggered by **our scheduler**, not Stripe's trial-will-end webhook, until/unless we move to card-required Stripe-native trials. One trial per account, ever (flag `trial_used_at` on the account) to bound abuse.
+Mechanics (must match `../architecture/BILLING_AND_EMAIL.md`): with no card there is **no Stripe subscription during the trial** — the trial is app-managed state (`plan=pro`, `subscription_status=trialing`, `trial_ends_at`), and the entitlements service treats it as `trialing`. Stripe objects are created only at conversion (Checkout). Consequence: the `trial_ending` email is triggered by **our scheduler**, not Stripe's trial-will-end webhook, until/unless we move to card-required Stripe-native trials. One trial per account, ever (flag `trial_used_at` on the account) to bound abuse.
 
 ### 4.3 Downgrade & past-due (over the new limit)
 
@@ -153,6 +155,8 @@ Sequence (past-due path; a **voluntary downgrade skips Grace** — the user chos
 | **Grace** | Days 0–14 *(PLACEHOLDER — align with Stripe Smart Retries dunning window)* while `past_due` | Full access retained. Banner: "Update payment to keep Pro features." Stripe dunning runs. Maps to Stripe `past_due` (see `../architecture/BILLING_AND_EMAIL.md` §5). |
 | **Restricted** | After grace (Stripe `unpaid`), or immediately on voluntary downgrade / cancel-at-period-end | Account moves to **read-only on the over-limit surplus**. Everything within the new plan's limits stays fully usable. |
 | **Reactivation** | Any time | Paying again instantly restores full access — nothing was deleted. |
+| **Trial expiry** | Day 0 | A no-card trial ends by **our scheduler**, not a Stripe webhook (§4.2). The account reverts to Free and lands over-limit exactly as a voluntary downgrade would. Show the home-picker **~3 days before expiry**, alongside the `trial_ending` email, so the choice is made before access changes rather than after. No Grace period — nothing was owed. |
+| **Arrived over-limit (import)** | At import | An account can reach an over-limit state without ever downgrading: `mihomes import` of a multi-property archive into a Free account. The importer **asserts `can()` per home and refuses an over-limit import** rather than creating an account this table would then have to rescue. Named here because "how did this account get over its limit" has three answers, not two. |
 
 Restricted, precisely:
 
@@ -186,7 +190,7 @@ AI is the primary variable cost (Claude API tokens). Everything else is roughly 
 
 ### 5.2 How limits are surfaced
 
-- Usage meter visible in-app: "1,240 / 3,000 AI actions this month."
+- Usage meter visible in-app: "1,240 / 1,500 AI actions this month."
 - Nudges at **80%** and **100%** of the limit.
 - The `usage()` contract (§3.2) returns `{used, limit, resets_at}` so any surface can render the meter.
 
@@ -201,7 +205,7 @@ AI is the primary variable cost (Claude API tokens). Everything else is roughly 
 | At 100% (soft cap) | AI keeps working through the plan's `ai_overage_buffer_pct` buffer (**+20%** for Pro/Estate, **0%** for Free — *(PLACEHOLDER)*; see §3.1), with a persistent upgrade banner. |
 | Beyond buffer (hard ceiling = `ai_calls_per_month × (1 + ai_overage_buffer_pct/100)`) | Every AI request is **denied by the entitlements check before the Claude call is made** — the user sees "AI paused until <resets_at> — upgrade to continue," with their usage meter and reset date. All non-AI features remain fully usable. Chat-gateway (WhatsApp/Telegram) AI requests get the same message as a reply. |
 
-Enforcement mechanics: the AI dispatch path calls `usage(account, "ai_calls")` and compares against the hard ceiling *before* invoking the provider; the metered event is recorded on dispatch (attempted calls past the ceiling are rejected, not recorded). Counting is per **account**, not per user — a 10-seat Pro account shares one 3,000-call pool. `resets_at` = billing-cycle anchor (Pro/Estate) or first of the calendar month UTC (Free).
+Enforcement mechanics: the AI dispatch path calls `usage(account, "ai_calls")` and compares against the hard ceiling *before* invoking the provider; the metered event is recorded on dispatch (attempted calls past the ceiling are rejected, not recorded). Counting is per **account**, not per user — a 10-seat Pro account shares one 1,500-call pool. `resets_at` = billing-cycle anchor (Pro/Estate) or first of the calendar month UTC (Free).
 
 Rationale: a hard wall at exactly the limit punishes the most engaged users (our best upgrade candidates) and creates a bad moment. A soft cap keeps them happy while making the value of upgrading concrete. The hard ceiling exists purely to bound worst-case Claude spend. Free's buffer is **0%** — a hard stop at 200 — since there's no revenue to offset cost.
 
@@ -209,24 +213,30 @@ Rationale: a hard wall at exactly the limit punishes the most engaged users (our
 
 ## 6. Pricing rationale & competitive context
 
-> Honest caveat: exact prices below are **PLACEHOLDER** and must be validated. This section names *category comparanda* to anchor expectations — it does **not** assert specific competitor prices, which need real research before we quote them.
+Research done 2026-11-09 from vendors' own pricing pages where possible (third-party listings marked 3P). Prices change; re-check before quoting any of these externally.
 
-Where MiHomes sits relative to adjacent categories:
+| Product | Price (USD) | Priced per | Notes |
+|---|---|---|---|
+| HomeZada | Free; Premium $118/yr; Deluxe $218/yr | Household; extra homes $98/yr | AI chats included per tier (10 / 250 / 500 a month) |
+| Prisidio | $45/yr; $150/yr | Household | Home records vault |
+| HouseFacts (3P) | $150/yr | Property | |
+| Cozi Gold | $39/yr | Family | Family organiser — the consumer floor |
+| TenantCloud | $15–60/mo | Flat | Landlord tool; 14-day trial; annual = 2 months free |
+| Buildium | $65–420/mo | Flat, by units | Property management; 14-day trial |
+| MaintainX / UpKeep | $20–75 per user/mo | User | Maintenance tools; people who only report problems are free |
+| EstateSpace | $340 / $870 / $1,100 per mo | User (10 / 30 / 50 users) | Estate and family-office software; unlimited properties; 14-day trial |
+| Nines | Not published | Property | Annual prepaid contract plus onboarding fee |
 
-| Category | Who / what | Relevance to MiHomes pricing |
-|---|---|---|
-| Household / family organizers | Shared to-do, chore, and family-calendar apps | Sets the *consumer* price ceiling — households expect low/$0. Justifies Free tier and ~$20 Pro anchor. |
-| Property management SaaS | Landlord/rental management tools (per-unit or per-door pricing) | Business tools priced per property/unit; Estate's per-home value maps here, but MiHomes is owner-side, not tenant-side. |
-| Home maintenance / home-management apps | Maintenance-tracking and home-inventory apps | Direct feature overlap (maintenance, inventory, documents); typically low consumer subscriptions. |
-| Estate / family-office software | Tools for family offices and estate/household staff management | Anchors the *high* end; these buyers pay materially more, supporting Estate at $60+ and future higher tiers. |
+Price bands: owner home apps $40–220/yr; households with staff — almost nothing published, between consumer apps (~$20/mo) and the first estate product ($340/mo); family offices $340–1,100/mo, usually annual.
 
 Pricing logic:
-- **Free** exists to win the household and build habit; its cost is bounded by tight AI limits (§5).
-- **Pro at ~$20/mo** sits at a familiar consumer-subscription price, below the pain threshold for a family already spending on their home, and above our per-account AI cost with headroom.
-- **Estate at ~$60/mo** targets buyers who already pay for staff and services; it is priced on *value* (running a team across properties), not cost. There is likely room above this for a future custom/enterprise tier.
-- **Annual ~2 months free** trades a discount for cash upfront and lower churn; validate the exact discount against take-rate.
+- **Free** wins the household and builds habit. Its AI cost is bounded by 100 calls a month.
+- **Pro at $19/mo ($190/yr)** sits just above HomeZada Premium, for owners with several homes or a little help.
+- **Estate at $49/mo ($490/yr)** — the founder's choice (2026-11-09), already set up in Stripe. It is far below the estate/family-office band ($340+/mo), which makes it an easy yes for households with staff; the research suggested ~$149, so revisit once there are paying Estate customers.
+- **Annual = 2 months free** (~17%), the common pattern in this market.
+- **14-day trial**, the norm across the comparables.
 
-All of the above requires: (1) willingness-to-pay interviews with the three personas, (2) a Claude-cost model per active account, and (3) A/B on the Pro price point post-launch.
+**AI is one provider for everyone.** MiHomes uses NVIDIA NIM, chosen and configured by MiHomes (`ai.*` is operator-only); a household never picks a provider or model, and every plan gets the same AI. Plans differ only in their monthly allowance. An advisor question is roughly 20k input and 1.5k output tokens (the agent loop runs up to 5 rounds); `ai_usage_events` records real tokens per call. Check the allowances against NIM's production cost per token, and against a month of real usage, before launch.
 
 ---
 
@@ -247,4 +257,4 @@ All of the above requires: (1) willingness-to-pay interviews with the three pers
 
 ## Phasing note
 
-The Free tier, gates, and billing UI ship in **Phase 3 (billing + entitlements)**. But the **limits in §3 are defined now** so that the entitlements service — built alongside the multitenant foundation (Phase 1) and RBAC/invites (Phase 2) — can enforce them from the start. Phase 0 (landing + waitlist) should reflect the three-plan structure and the founder-discount decision (Open Question #6). GA is Phase 4.
+The **entitlements service** ships in **Phase 2**, config-only — it exists and is called, but every account is Free and every limit reads "unlimited". The **gates and the billing UI** ship in **Phase 3**, which wires billing status in as an *input* to the same service. The **limits in §3 are defined now** so Phase 2 has real keys to declare and Phase 3 has real numbers to enforce. Phase 0 (landing + waitlist) should reflect the three-plan structure and the founder-discount decision (Open Question #6). GA is Phase 4.

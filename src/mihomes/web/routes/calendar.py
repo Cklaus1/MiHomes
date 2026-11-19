@@ -1,19 +1,22 @@
 """Calendar routes — appointments and property events in a monthly view."""
 
-from datetime import date, datetime, time, timedelta, timezone
+import logging
+from datetime import date, time, timedelta
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
+from mihomes.authz.actions import Access
+from mihomes.authz.declare import declares
 from mihomes.models.appointment import AppointmentType
 from mihomes.services import appointment as appt_svc
-from mihomes.services import contract as contract_svc
 from mihomes.services import event as event_svc
 from mihomes.services import property as prop_svc
 from mihomes.services import vendor as vendor_svc
-from mihomes.web.deps import get_db, templates
-import logging
+from mihomes.services.localtime import today as local_today
+from mihomes.web.deps import get_db, require_authenticated, templates, with_toast
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +74,7 @@ def _build_calendar_weeks(month_date: date) -> list[list[date]]:
     return weeks
 
 
-def _ctx(db: Session, month_date: date, property_id: int | None = None) -> dict:
+def _ctx(db: Session, month_date: date, property_id: str | None = None) -> dict:
     month_start = month_date.replace(day=1)
     # Last day of month
     if month_start.month == 12:
@@ -108,45 +111,11 @@ def _ctx(db: Session, month_date: date, property_id: int | None = None) -> dict:
                 day_events.setdefault(d, []).append(e)
             d = d + timedelta(days=1)
 
-    # Pull live Google Calendar events — sync times back + show external events
+    # The page used to read one machine-wide Google calendar here, live, and show it to EVERY
+    # estate (and write its times back into appointments during a GET). Retired 2026-10-30:
+    # each person now connects their own calendar from Settings, and MiHomes writes to it —
+    # it never reads it. `day_gcal` stays empty so the template needs no change.
     day_gcal: dict[date, list] = {}
-    from mihomes.services.calendar_sync import _get_provider, is_google_auth_available
-    if is_google_auth_available():
-        try:
-            provider = _get_provider()
-            start_dt = datetime(month_start.year, month_start.month, month_start.day, tzinfo=timezone.utc)
-            end_dt = datetime(month_end.year, month_end.month, month_end.day, 23, 59, tzinfo=timezone.utc)
-            raw = provider.list_events(start_dt, end_dt)
-
-            # Index appointments by gcal_event_id for fast lookup
-            appts_by_gcal_id = {a.gcal_event_id: a for a in appointments if a.gcal_event_id}
-
-            for ev in raw:
-                ev_id = ev.get("id", "")
-                ev_start = ev.get("start")
-                ev_end = ev.get("end") or ev_start
-                if not ev_start:
-                    continue
-
-                if ev.get("title", "").startswith("[MiHomes]"):
-                    # Our appointment — sync time back if Google's copy changed
-                    if ev_id in appts_by_gcal_id:
-                        appt = appts_by_gcal_id[ev_id]
-                        gcal_time = ev_start.time() if isinstance(ev_start, datetime) else None
-                        if gcal_time and gcal_time != appt.start_time:
-                            appt_svc.update_appointment(db, appt.id, start_time=gcal_time)
-                            appt.start_time = gcal_time  # update in-memory for this render
-                    continue
-
-                # External event — show on calendar
-                d = ev_start.date() if isinstance(ev_start, datetime) else ev_start
-                end_d = ev_end.date() if isinstance(ev_end, datetime) else ev_end
-                while d <= end_d and d <= month_end:
-                    if d >= month_start:
-                        day_gcal.setdefault(d, []).append(ev)
-                    d += timedelta(days=1)
-        except Exception:
-            logger.exception("_ctx: suppressed exception")
 
     # Build holiday map for the displayed month (spanning year boundary if needed)
     all_holidays = _us_holidays(month_start.year)
@@ -174,37 +143,74 @@ def _ctx(db: Session, month_date: date, property_id: int | None = None) -> dict:
         "appointments": appointments,
         "properties": prop_svc.list_properties(db),
         "vendors": vendor_svc.list_vendors(db),
-        "contracts": contract_svc.list_contracts(db),
         "appointment_types": [(t.value, t.value.replace("_", " ").title()) for t in AppointmentType],
         "type_colors": _TYPE_COLORS,
         "event_color": _EVENT_COLOR,
         "filter_property": property_id,
-        "today": date.today(),
+        "today": local_today(),
     }
 
 
 @router.get("/")
+@declares("task.manage", Access.COLLECTION)
 def calendar_view(
     request: Request,
     month: str | None = None,
-    property_id: int | None = None,
+    property_id: str | None = None,
+    open: str | None = None,
+    principal=require_authenticated(),
     db: Session = Depends(get_db),
 ):
+    target = _open_target(db, open)
     if month:
         try:
             month_date = date.fromisoformat(month + "-01")
         except ValueError:
-            month_date = date.today().replace(day=1)
+            month_date = local_today().replace(day=1)
+    elif target:
+        month_date = target[1].replace(day=1)  # the item's own month, so its window exists
     else:
-        month_date = date.today().replace(day=1)
-    return templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date, property_id))
+        month_date = local_today().replace(day=1)
+    ctx = _ctx(db, month_date, property_id)
+    ctx["open_modal"] = target[0] if target else None
+    # The Google Calendar connection, surfaced here because this is where people look for it
+    # (user, 2026-11-10); the full card stays on Settings → You.
+    from mihomes.services.personal_calendar import connect as gcal_connect
+
+    ctx["gcal"] = {
+        "configured": gcal_connect.configured(),
+        "connection": gcal_connect.own_connection(db, principal.membership_id),
+    }
+    return templates.TemplateResponse(request, "calendar.html", ctx)
+
+
+def _open_target(db: Session, raw: str | None) -> tuple[str, date] | None:
+    """`?open=appt-<id>` / `event-<id>` → (the item's modal id, its date), so a link from the
+    dashboard's Today list or from search opens that appointment rather than the month view
+    (2026-11-05). Anything else — a bad id, a deleted or out-of-scope item — is ignored."""
+    from mihomes.models.appointment import Appointment
+    from mihomes.models.event import Event
+
+    kind, _, raw_id = (raw or "").partition("-")
+    model = {"appt": Appointment, "event": Event}.get(kind)
+    if model is None:
+        return None
+    try:
+        item = db.get(model, UUID(raw_id))
+    except ValueError:
+        return None
+    if item is None:
+        return None
+    when = item.date if kind == "appt" else item.event_date
+    return f"{kind}-modal-{item.id}", when
 
 
 @router.post("/appointments/", response_class=HTMLResponse)
+@declares("task.manage", Access.ITEM)
 def create_appointment(
     request: Request,
     title: str = Form(...),
-    property_id: int = Form(...),
+    property_id: str = Form(...),
     appt_date: str = Form(...),
     vendor_id: str = Form(""),
     contract_id: str = Form(""),
@@ -224,25 +230,29 @@ def create_appointment(
         title=title,
         property_id_or_slug=str(property_id),
         appt_date=date.fromisoformat(appt_date),
-        vendor_id=int(vendor_id) if vendor_id else None,
-        contract_id=int(contract_id) if contract_id else None,
+        vendor_id=vendor_id or None,
+        contract_id=contract_id or None,
         start_time=parsed_time,
         appointment_type=appointment_type,
         notes=notes or None,
     )
     try:
-        month_date = date.fromisoformat(month + "-01") if month else date.today().replace(day=1)
+        month_date = date.fromisoformat(month + "-01") if month else local_today().replace(day=1)
     except ValueError:
-        month_date = date.today().replace(day=1)
+        month_date = local_today().replace(day=1)
     # Use the calendar's active filter, not the appointment's property
-    cal_filter = int(filter_property_id) if filter_property_id else None
-    return templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date, cal_filter))
+    cal_filter = filter_property_id or None
+    return with_toast(
+        templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date, cal_filter)),
+        "Appointment added",
+    )
 
 
 @router.post("/appointments/{appointment_id}/edit", response_class=HTMLResponse)
+@declares("task.manage", Access.ITEM)
 def edit_appointment(
     request: Request,
-    appointment_id: int,
+    appointment_id: UUID,
     title: str = Form(...),
     appt_date: str = Form(...),
     vendor_id: str = Form(""),
@@ -260,24 +270,29 @@ def edit_appointment(
     kwargs = dict(
         title=title,
         date=date.fromisoformat(appt_date),
-        vendor_id=int(vendor_id) if vendor_id else None,
-        contract_id=int(contract_id) if contract_id else None,
+        vendor_id=vendor_id or None,
         start_time=parsed_time,
         appointment_type=appointment_type,
         notes=notes or None,
     )
+    # The edit form has no contract field (and contracts are no longer created in the UI —
+    # they live in Documents since 2026-10-15). Writing `contract_id or None` here cleared an
+    # existing appointment's contract link on every edit; only change it when one is sent.
+    if contract_id:
+        kwargs["contract_id"] = contract_id
     appt_svc.update_appointment(db, appointment_id, **kwargs)
     try:
-        month_date = date.fromisoformat(month + "-01") if month else date.today().replace(day=1)
+        month_date = date.fromisoformat(month + "-01") if month else local_today().replace(day=1)
     except ValueError:
-        month_date = date.today().replace(day=1)
-    return templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date))
+        month_date = local_today().replace(day=1)
+    return with_toast(templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date)), "Appointment saved")
 
 
 @router.post("/appointments/{appointment_id}/mark-serviced", response_class=HTMLResponse)
+@declares("task.manage", Access.ITEM)
 def mark_appointment_serviced(
     request: Request,
-    appointment_id: int,
+    appointment_id: UUID,
     actual_cost: str = Form(""),
     month: str = Form(""),
     db: Session = Depends(get_db),
@@ -287,40 +302,45 @@ def mark_appointment_serviced(
             db, appointment_id,
             actual_cost=float(actual_cost) if actual_cost else None,
         )
-    except ValueError:
-        pass
+        toast, kind = "Marked serviced — cost added to the budget", "success"
+    except ValueError as exc:
+        # Was `pass`: the page redrew unchanged and the user could not tell why.
+        logger.info("mark serviced refused: %s", exc)
+        toast, kind = str(exc) or "Couldn't mark this appointment serviced.", "error"
     try:
-        month_date = date.fromisoformat(month + "-01") if month else date.today().replace(day=1)
+        month_date = date.fromisoformat(month + "-01") if month else local_today().replace(day=1)
     except ValueError:
-        month_date = date.today().replace(day=1)
-    return templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date))
+        month_date = local_today().replace(day=1)
+    return with_toast(templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date)), toast, kind)
 
 
 @router.post("/appointments/{appointment_id}/delete", response_class=HTMLResponse)
+@declares("task.manage", Access.ITEM)
 def delete_appointment(
     request: Request,
-    appointment_id: int,
+    appointment_id: UUID,
     month: str = Form(""),
     db: Session = Depends(get_db),
 ):
     appt_svc.delete_appointment(db, appointment_id)
     try:
-        month_date = date.fromisoformat(month + "-01") if month else date.today().replace(day=1)
+        month_date = date.fromisoformat(month + "-01") if month else local_today().replace(day=1)
     except ValueError:
-        month_date = date.today().replace(day=1)
-    return templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date))
+        month_date = local_today().replace(day=1)
+    return with_toast(templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date)), "Appointment deleted")
 
 
 @router.post("/events/{event_id}/delete", response_class=HTMLResponse)
+@declares("task.manage", Access.ITEM)
 def delete_event_from_calendar(
     request: Request,
-    event_id: int,
+    event_id: UUID,
     month: str = Form(""),
     db: Session = Depends(get_db),
 ):
     event_svc.delete_event(db, str(event_id))
     try:
-        month_date = date.fromisoformat(month + "-01") if month else date.today().replace(day=1)
+        month_date = date.fromisoformat(month + "-01") if month else local_today().replace(day=1)
     except ValueError:
-        month_date = date.today().replace(day=1)
-    return templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date))
+        month_date = local_today().replace(day=1)
+    return with_toast(templates.TemplateResponse(request, "calendar.html", _ctx(db, month_date)), "Event deleted")

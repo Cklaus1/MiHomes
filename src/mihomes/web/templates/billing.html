@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+{% block title %}Billing — MiHomes{% endblock %}
+{% block heading %}Billing{% endblock %}
+{% block content %}
+{% set status = account.subscription_status %}
+<div class="max-w-5xl mx-auto py-6 space-y-7">
+
+  {% if error %}
+    <p role="alert" tabindex="-1" autofocus class="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-red-800">{{ error }}</p>
+  {% endif %}
+  {% if notice %}
+    <p role="status" class="rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-green-800">{{ notice }}</p>
+  {% endif %}
+
+  {# past_due keeps full access during the grace window (D10) — saying so is the difference
+     between a user who updates their card and one who thinks they are locked out. #}
+  {% if status == "past_due" %}
+    <div role="alert" class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-orange-300 bg-orange-50 px-4 py-3">
+      <p class="text-sm text-orange-900"><strong>Your last payment didn't go through.</strong> You still have full access while we retry. Update your card to avoid interruption.</p>
+      <form method="post" action="/billing/portal">
+        <button type="submit" class="rounded-lg bg-orange-800 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-900">Update card</button>
+      </form>
+    </div>
+  {% endif %}
+
+  {# The summary: what the owner is on and pays, in words. Never a raw status value. #}
+  <section aria-label="Your plan" class="space-y-4 rounded-xl border border-gray-200 bg-white p-5">
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div class="space-y-1">
+        <div class="flex items-center gap-2">
+          <p class="text-xl font-semibold capitalize" data-testid="current-plan">{{ current_plan }}</p>
+          {% if status == "trialing" %}
+            <span class="rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-semibold text-brand-700">Free trial</span>
+          {% elif status == "past_due" %}
+            <span class="rounded-full bg-orange-100 px-2.5 py-0.5 text-xs font-semibold text-orange-800">Payment failed</span>
+          {% elif paying and account.cancel_at_period_end %}
+            <span class="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">Cancelling</span>
+          {% elif paying %}
+            <span class="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-800">Active</span>
+          {% else %}
+            <span class="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-semibold text-gray-700">Current plan</span>
+          {% endif %}
+        </div>
+        <p class="text-sm text-gray-600">
+          {%- if status == "trialing" and account.trial_ends_at -%}
+            No card needed · Trial ends {{ account.trial_ends_at|localtime("%d %b %Y") }}
+          {%- elif paying -%}
+            {{ paying_now or "Paid plan" }}
+            {%- if account.current_period_end %} · {% if account.cancel_at_period_end %}Ends{% else %}Renews{% endif %} {{ account.current_period_end.strftime("%d %b %Y") }}{% endif %}
+          {%- elif current_plan == "free" -%}
+            Free plan · Upgrade any time
+          {%- else -%}
+            Not billed
+          {%- endif -%}
+        </p>
+        <p class="text-sm text-gray-500" data-testid="card-on-file">
+          {%- if card %}{{ card }}{% else %}No card on file{% endif -%}
+        </p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        {# Saves a card with Stripe, charging nothing — the same for every owner, paying or not. #}
+        <form method="post" action="/billing/payment-method">
+          <button type="submit" data-testid="add-payment-method"
+                  class="min-h-[44px] rounded-lg border border-gray-300 px-4 text-sm font-medium text-gray-800 hover:bg-gray-50">
+            {{ "Update payment method" if card else "Add payment method" }}
+          </button>
+        </form>
+        {% if account.stripe_customer_id %}
+          {# The portal covers payment methods and invoices (BILLING §7). Changes come back as
+             webhooks, so the entitlement change travels the verified path (D1). #}
+          <form method="post" action="/billing/portal">
+            <button type="submit" class="min-h-[44px] rounded-lg border border-gray-300 px-4 text-sm font-medium text-gray-800 hover:bg-gray-50">
+              Invoices &amp; billing details
+            </button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if offer_yearly %}
+      {% set s = saving[account.plan] %}
+      <div class="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-green-50 px-4 py-3" data-testid="offer-yearly">
+        <p class="text-sm text-green-900"><strong>Switch to yearly and save {{ s.saving }} a year.</strong> Pay {{ s.annual }} once a year instead of {{ s.monthly }} every month.</p>
+        <form method="post" action="/billing/change">
+          <input type="hidden" name="plan" value="{{ account.plan }}">
+          <input type="hidden" name="interval" value="annual">
+          <button type="submit" class="rounded-lg bg-green-700 px-4 py-2 text-sm font-semibold text-white hover:bg-green-800">Switch to yearly</button>
+        </form>
+      </div>
+    {% endif %}
+
+    {# A pending cancel is about the plan the owner is on, so its undo lives in the summary. #}
+    {% for plan in plans if plan.action == "resume" %}
+      <div class="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-amber-50 px-4 py-3">
+        <p class="text-sm font-medium text-amber-900" data-testid="cancel-pending">{{ plan.note }}</p>
+        <form method="post" action="/billing/resume">
+          <button type="submit" class="rounded-lg bg-brand-700 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-800">{{ plan.action_label }}</button>
+        </form>
+      </div>
+    {% endfor %}
+  </section>
+
+  {% set buyable = plans | selectattr("action", "in", ["checkout", "change"]) | list %}
+  {% if buyable %}
+  {# One Monthly/Yearly choice for the whole page: it toggles which price each card shows and
+     which interval each card's single button sends. Without JS the page still works, on the
+     starting interval. #}
+  <div class="flex flex-col items-center gap-2" data-billing-switch data-start="{{ start_interval }}">
+    <div role="group" aria-label="Billing period" class="inline-flex gap-1 rounded-full bg-gray-200 p-1">
+      <button type="button" data-interval="monthly" aria-pressed="{{ 'true' if start_interval == 'monthly' else 'false' }}"
+              class="min-h-[44px] rounded-full px-5 text-sm font-semibold text-gray-600 aria-pressed:bg-white aria-pressed:text-gray-900 aria-pressed:shadow">Monthly</button>
+      <button type="button" data-interval="annual" aria-pressed="{{ 'true' if start_interval == 'annual' else 'false' }}"
+              class="min-h-[44px] rounded-full px-5 text-sm font-semibold text-gray-600 aria-pressed:bg-white aria-pressed:text-gray-900 aria-pressed:shadow">
+        Yearly{% if saving.get("pct") %} <span class="ml-1 text-xs font-bold text-green-700">Save {{ saving.pct }}%</span>{% endif %}
+      </button>
+    </div>
+  </div>
+  {% endif %}
+
+  {# One card per plan, built from PLAN_LIMITS by `services/billing/plans.py` — the numbers here
+     are the numbers the gates enforce. What a card's button does depends on how the account pays;
+     see that module's docstring. #}
+  <div class="grid grid-cols-1 gap-5 md:grid-cols-3">
+    {% for plan in plans %}
+    {# Only ever on an upgrade: steering someone down a plan is not what "popular" is for. #}
+    {% set featured = plan.key == "pro" and plan.action in ("checkout", "change") and plan.action_label.startswith("Upgrade") %}
+    <div data-testid="plan-{{ plan.key }}"
+         class="relative flex flex-col gap-4 rounded-2xl bg-white p-6
+                {% if plan.current %}border-2 border-brand-600{% else %}border border-gray-200{% endif %}
+                {% if featured %}shadow-lg order-first md:order-none{% endif %}
+                {% if plan.key == 'free' and not plan.current %}order-last md:order-none{% endif %}">
+      {% if featured %}
+        <span class="absolute -top-3 left-6 rounded-full bg-brand-700 px-3 py-1 text-xs font-bold text-white">Most popular</span>
+      {% endif %}
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-semibold text-gray-900">{{ plan.name }}</h2>
+        {% if plan.current %}
+          <span class="rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-semibold text-brand-700">Your plan</span>
+        {% endif %}
+      </div>
+      <p class="min-h-[2.5rem] text-sm text-gray-600">{{ plan.tagline }}</p>
+
+      <div class="min-h-[4rem]">
+        {% if plan.key == "free" %}
+          <p class="flex items-baseline gap-1.5"><span class="text-4xl font-bold tracking-tight">$0</span><span class="text-sm text-gray-500">forever</span></p>
+        {% elif plan.prices %}
+          {% for interval, p in plan.prices.items() %}
+          <div data-price-for="{{ interval }}" {% if interval != start_interval %}hidden{% endif %}>
+            <p class="flex items-baseline gap-1.5"><span class="text-4xl font-bold tracking-tight">{{ p.amount }}</span><span class="text-sm text-gray-500">{{ p.per }}</span></p>
+            <p class="mt-0.5 text-sm text-gray-600">{{ p.note }}</p>
+          </div>
+          {% endfor %}
+        {% endif %}
+      </div>
+
+      {% if plan.action in ("checkout", "change") %}
+        {# Plan and interval only — never a price id (D3/N2); the server validates both.
+           "change" is a paying account: Stripe's confirm screen, never a second checkout. #}
+        <form method="post" action="/billing/{{ plan.action }}">
+          <input type="hidden" name="plan" value="{{ plan.key }}">
+          <input type="hidden" name="interval" value="{{ start_interval }}" data-interval-input>
+          <button type="submit" data-testid="{{ plan.action }}-{{ plan.key }}"
+                  class="w-full min-h-[44px] rounded-lg px-4 text-sm font-semibold
+                         {% if featured %}bg-brand-700 text-white hover:bg-brand-800{% else %}border border-brand-700 text-brand-700 hover:bg-brand-50{% endif %}">
+            {{ plan.action_label }}
+          </button>
+        </form>
+        {# The same one-click trial the upgrade prompts offer (`/billing/trial`), shown only while
+           this account can still start one — so a Free owner can try Pro without a card. #}
+        {% if plan.key == "pro" and trial_available %}
+          <form method="post" action="/billing/trial" class="-mt-2">
+            <input type="hidden" name="action" value="billing_page">
+            <input type="hidden" name="next" value="/billing">
+            <button type="submit" data-testid="start-trial"
+                    class="w-full min-h-[44px] rounded-lg px-4 text-sm font-semibold text-brand-700 underline hover:text-brand-800">
+              Start 14-day free trial — no card needed
+            </button>
+          </form>
+        {% endif %}
+      {% elif plan.action in ("cancel", "downgrade") %}
+        {# Moving down: outlined and grey, never the brand fill, so it never competes with the
+           upgrades. Each opens a confirm page that shows the consequences first (cancel.py);
+           a paid subscription is cancelled at period end, with Keep while pending. #}
+        {% if plan.note %}<p class="-mt-2 text-center text-xs text-gray-500">{{ plan.note }}</p>{% endif %}
+        <a href="/billing/cancel{% if plan.action == 'downgrade' %}?to={{ plan.key }}{% endif %}"
+           data-testid="downgrade-{{ plan.key }}"
+           class="flex min-h-[44px] items-center justify-center rounded-lg border border-gray-300 text-sm font-semibold text-gray-700 hover:bg-gray-50">{{ plan.action_label }}</a>
+      {% elif plan.current %}
+        <p class="flex min-h-[44px] items-center justify-center rounded-lg bg-gray-100 text-sm font-semibold text-gray-600">You are on this plan</p>
+      {% elif plan.note %}
+        <p class="flex min-h-[44px] items-center justify-center text-center text-xs text-gray-500">{{ plan.note }}</p>
+      {% else %}
+        <div class="min-h-[44px]"></div>
+      {% endif %}
+
+      <ul class="space-y-2.5 text-sm text-gray-700">
+        {% if plan.plus_of %}<li class="font-semibold text-gray-900">Everything in {{ plan.plus_of }}, plus:</li>{% endif %}
+        {% for label in plan.added %}
+        <li class="flex items-start gap-2.5">
+          <svg aria-hidden="true" class="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-600" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+          <span>{{ label }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endfor %}
+  </div>
+
+  <p class="text-center text-sm text-gray-500">
+    {% if paying %}Plan changes show the prorated amount before you confirm. {% endif %}Payments are handled securely by Stripe.
+  </p>
+</div>
+
+<script>
+(function () {
+  var root = document.querySelector("[data-billing-switch]");
+  if (!root) return;
+  var buttons = root.querySelectorAll("button[data-interval]");
+  function pick(interval) {
+    buttons.forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.interval === interval)); });
+    document.querySelectorAll("[data-price-for]").forEach(function (el) { el.hidden = el.dataset.priceFor !== interval; });
+    document.querySelectorAll("[data-interval-input]").forEach(function (el) { el.value = interval; });
+  }
+  buttons.forEach(function (b) { b.addEventListener("click", function () { pick(b.dataset.interval); }); });
+})();
+</script>
+{% endblock %}

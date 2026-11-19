@@ -3,6 +3,8 @@
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
+from mihomes.authz.actions import Access
+from mihomes.authz.declare import declares
 from mihomes.services import book as book_svc
 from mihomes.services import property as prop_svc
 from mihomes.web.deps import get_db, templates
@@ -11,6 +13,7 @@ router = APIRouter()
 
 
 @router.get("/")
+@declares("inventory.manage", Access.COLLECTION)
 def library_index(request: Request, property_slug: str | None = None, db: Session = Depends(get_db)):
     properties = prop_svc.list_properties(db)
     books = book_svc.list_books(
@@ -20,7 +23,6 @@ def library_index(request: Request, property_slug: str | None = None, db: Sessio
     )
 
     # Attach property and space names for display
-    from mihomes.models.property import Property
     from mihomes.models.space import Space
     prop_map = {p.id: p for p in properties}
     space_ids = {b.space_id for b in books if b.space_id}

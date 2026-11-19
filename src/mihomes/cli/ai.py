@@ -1,6 +1,7 @@
 """AI advisory CLI commands."""
 
 import enum
+import logging
 from typing import Optional
 
 import typer
@@ -8,13 +9,10 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.markup import escape
 from rich.panel import Panel
-from rich.spinner import Spinner
-from rich.live import Live
 
 from mihomes.cli.formatters import format_error, format_success
 from mihomes.db import get_session
 from mihomes.services.ai.provider import AIAuthError, AIProviderError
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -46,10 +44,10 @@ def ask_cmd(
             console.print()
         except AIAuthError as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
         except AIProviderError as e:
             format_error(f"AI error: {e}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
 
 class ReviewFormat(str, enum.Enum):
@@ -82,10 +80,10 @@ def review_cmd(
             console.print()
         except AIAuthError as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
         except AIProviderError as e:
             format_error(f"AI error: {e}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
 
 @app.command("search")
@@ -110,10 +108,10 @@ def ai_search_cmd(
             console.print()
         except AIAuthError as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
         except AIProviderError as e:
             format_error(f"AI error: {e}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
 
 @app.command("assess-issue")
@@ -147,10 +145,10 @@ def assess_issue_cmd(
             console.print()
         except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
         except (AIAuthError, AIProviderError) as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
 
 @app.command("prioritize")
@@ -176,7 +174,7 @@ def prioritize_cmd(
             console.print()
         except (AIAuthError, AIProviderError) as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
 
 @app.command("import")
@@ -185,8 +183,8 @@ def import_cmd(
     property: Optional[str] = typer.Option(None, "--property", "-p", help="Property for tasks/issues"),
 ):
     """Paste unstructured text; AI parses it into records for confirmation."""
+
     from mihomes.services.ai.assessors import parse_import_text
-    from rich.table import Table
 
     console.print(f"\n[bold]AI Import: {entity_type}[/bold]")
     console.print("Paste your text below (press Enter twice when done):\n")
@@ -250,8 +248,8 @@ def import_cmd(
                 if not property:
                     format_error("--property required for task import")
                     raise typer.Exit(1)
+                from mihomes.models.task import RecurrenceFrequency, TaskPriority
                 from mihomes.services.task import create_task
-                from mihomes.models.task import TaskPriority, RecurrenceFrequency
                 for item in items:
                     prio = TaskPriority(item.get("priority", "medium"))
                     rec = RecurrenceFrequency(item.get("recurrence", "once"))
@@ -268,8 +266,8 @@ def import_cmd(
                 if not property:
                     format_error("--property required for issue import")
                     raise typer.Exit(1)
-                from mihomes.services.issue import create_issue
                 from mihomes.models.issue import IssueSeverity
+                from mihomes.services.issue import create_issue
                 for item in items:
                     sev = IssueSeverity(item.get("severity", "medium"))
                     create_issue(session, item["title"], property, severity=sev, description=item.get("description"))
@@ -279,10 +277,10 @@ def import_cmd(
 
         except (AIAuthError, AIProviderError) as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
         except ValueError as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
 
 @app.command("budget-review")
@@ -304,10 +302,10 @@ def budget_review_cmd(
             console.print()
         except AIAuthError as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
         except AIProviderError as e:
             format_error(f"AI error: {e}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
 
 @app.command("plan")
@@ -339,7 +337,7 @@ def plan_cmd(
             console.print()
         except (AIAuthError, AIProviderError) as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
 
 @app.command("rank-resumes")
@@ -361,10 +359,9 @@ def rank_resumes_cmd(
     Saves per-candidate notes to: knowledge/staff/candidates/
     """
     from pathlib import Path
+
     from mihomes.services import resume_ranker as ranker
     from mihomes.services.ai.provider import AIAuthError, AIProviderError
-    from rich import box
-    from rich.table import Table
 
     resume_dir = Path(folder).expanduser().resolve()
     if not resume_dir.exists():
@@ -395,7 +392,7 @@ def rank_resumes_cmd(
         jd = ranker.load_job_description(role)
     except FileNotFoundError as e:
         format_error(str(e))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     console.print(f"  Job description: [cyan]{role}[/cyan]")
     console.print(f"  Ranking top [bold]{min(top, len(readable))}[/bold] of {len(readable)} candidate(s)\n")
@@ -406,10 +403,10 @@ def rank_resumes_cmd(
             result = ranker.rank_resumes(resumes, jd, top_n=top)
     except AIAuthError as e:
         format_error(str(e))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
     except AIProviderError as e:
         format_error(f"AI error: {e}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     rankings = result.get("rankings", [])
     hiring_notes = result.get("hiring_notes", "")
@@ -473,15 +470,15 @@ def _print_rankings_rich(rankings: list[dict], hiring_notes: str) -> None:
             console.print(f"[bold]#{r['rank']} {escape(r['candidate_name'])}[/bold]  [dim]{r['overall_score']}/100[/dim]")
             console.print(f"  [dim]{escape(score_line)}[/dim]")
             if r.get("strengths"):
-                console.print(f"  [green]✓[/green] " + escape("  ·  ".join(r["strengths"][:3])))
+                console.print("  [green]✓[/green] " + escape("  ·  ".join(r["strengths"][:3])))
             if r.get("concerns"):
-                console.print(f"  [yellow]?[/yellow] " + escape("  ·  ".join(r["concerns"][:2])))
+                console.print("  [yellow]?[/yellow] " + escape("  ·  ".join(r["concerns"][:2])))
             if r.get("red_flags"):
-                console.print(f"  [red]⚠[/red] " + escape("  ·  ".join(r["red_flags"])))
+                console.print("  [red]⚠[/red] " + escape("  ·  ".join(r["red_flags"])))
             console.print()
 
     if hiring_notes:
-        console.print(f"[bold dim]── Hiring Notes ───────────────────────────────────────────[/bold dim]")
+        console.print("[bold dim]── Hiring Notes ───────────────────────────────────────────[/bold dim]")
         console.print(f"[dim]{escape(hiring_notes)}[/dim]\n")
 
 
@@ -541,7 +538,7 @@ def _print_rankings_markdown(rankings: list[dict], hiring_notes: str, role: str)
 
 @app.command("setup")
 def setup_cmd(
-    provider_arg: Optional[str] = typer.Option(None, "--provider", help="AI provider: claude, openai, nim, ollama"),
+    provider_arg: Optional[str] = typer.Option(None, "--provider", help="AI provider: claude, openai, nim, openrouter, ollama"),
     key_arg: Optional[str] = typer.Option(None, "--key", help="API key (skips interactive prompt)"),
 ):
     """Configure AI provider and API key."""
@@ -549,16 +546,19 @@ def setup_cmd(
 
     console.print("\n[bold]AI Setup[/bold]\n")
 
-    provider = provider_arg or typer.prompt("AI provider [claude/openai/nim/ollama]", default="nim")
+    provider = provider_arg or typer.prompt("AI provider [claude/openai/nim/openrouter/ollama]", default="nim")
 
     env_vars = {
         "claude": "ANTHROPIC_API_KEY",
         "openai": "OPENAI_API_KEY",
         "nim": "NVIDIA_API_KEY",
+        "openrouter": "OPENROUTER_API_KEY",
     }
 
-    if provider not in ("claude", "openai", "nim", "ollama"):
-        console.print(f"[yellow]Unknown provider '{provider}'. Supported: claude, openai, nim, ollama[/yellow]")
+    if provider not in ("claude", "openai", "nim", "openrouter", "ollama"):
+        console.print(
+            f"[yellow]Unknown provider '{provider}'. Supported: claude, openai, nim, openrouter, ollama[/yellow]"
+        )
         raise typer.Exit(1)
 
     env_var = env_vars.get(provider, "")
@@ -569,7 +569,7 @@ def setup_cmd(
     elif key_arg:
         key = key_arg
     else:
-        console.print(f"[dim]Tip: you can also run: mihomes ai setup --key <your-key>[/dim]")
+        console.print("[dim]Tip: you can also run: mihomes ai setup --key <your-key>[/dim]")
         # L7: an API key is a secret — never echo it to the terminal.
         key = typer.prompt(env_var, hide_input=True).strip()
         if not key:

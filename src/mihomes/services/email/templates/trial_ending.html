@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% from "_button.html" import button %}
+
+{% block subject %}Your MiHomes trial ends in {{ days_left }} day{{ "" if days_left == 1 else "s" }}{% endblock %}
+
+{% block content %}
+  <p style="margin:0 0 16px;">Hi,</p>
+
+  <p style="margin:0 0 24px;">
+    Your MiHomes Pro trial ends in <strong>{{ days_left }}
+    day{{ "" if days_left == 1 else "s" }}</strong>, on {{ ends_on }}.
+  </p>
+
+  {# PRICING §4.3 — say what happens *before* it happens. The picker is shown ~3
+     days ahead precisely so the choice is made while the customer still has
+     access to every home, not after two of them have gone read-only. #}
+  <p style="margin:0 0 24px;">
+    <strong>Nothing will be deleted.</strong> If you do not upgrade, your account
+    moves to the free plan and any homes over the free limit become read-only —
+    you can still open and export everything, and upgrading later brings them
+    straight back.
+  </p>
+
+  {% if over_limit %}
+  <p style="margin:0 0 24px;">
+    You currently have {{ home_count }} homes and free covers {{ max_homes }}.
+    Choose which one stays active — or keep them all by upgrading.
+  </p>
+  {% endif %}
+
+  {{ button(billing_url, "Keep Pro") }}
+{% endblock %}

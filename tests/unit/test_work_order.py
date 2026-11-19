@@ -1,13 +1,13 @@
 """Work order service regression tests — H22 (cost validation before mutating),
 H23 (issue↔WO link convergence)."""
 
-from datetime import date
+import uuid
 
 import pytest
 
 from mihomes.models.issue import Issue, IssueStatus
 from mihomes.models.property import Property, PropertyType
-from mihomes.models.work_order import WorkOrder, WorkOrderStatus
+from mihomes.models.work_order import WorkOrderStatus
 from mihomes.services.work_order import (
     approve,
     complete,
@@ -15,6 +15,12 @@ from mihomes.services.work_order import (
     list_work_orders_by_issue,
     verify,
 )
+
+# Placeholder ids for polymorphic entity_type/entity_id pairs. Distinct
+# constants because several tests rely on two ids being DIFFERENT (filter by
+# one, assert the other is excluded) — a single shared UUID would make those
+# tests pass for the wrong reason. Were integers before SPEC-002 D2.
+_ENTITY_999 = uuid.uuid4()
 
 
 @pytest.fixture
@@ -64,7 +70,7 @@ class TestIssueLinkConverged:
 
     def test_task_source_does_not_set_issue_id(self, session, prop):
         wo = create_work_order(session, "Do task", str(prop.id),
-                               source_type="task", source_id=999)
+                               source_type="task", source_id=_ENTITY_999)
         session.flush()
         assert wo.issue_id is None
 

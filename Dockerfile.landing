@@ -1,0 +1,51 @@
+# Phase 0 landing image — serves the landing app ONLY.
+#
+# A SEPARATE Dockerfile, not a replacement for the existing one. `Dockerfile`
+# builds the single-user app for the Home Assistant demo compose stack; that is
+# still in use, and Phase 0 must not break it (minimal impact).
+#
+# Two constraints shape this file:
+#
+#   §7-N1 — the single-user app (mihomes-web) mounts 22 unauthenticated routers
+#           over live estate data and must NEVER be served from a public image.
+#           The CMD runs mihomes-landing and nothing else.
+#   D9/N4 — migrations are a RELEASE STEP, never a boot step. With more than one
+#           Fly machine, `alembic upgrade` on boot is a race against the same
+#           database. See fly.toml's release_command.
+
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+# psycopg[binary] ships wheels, so no compiler is needed. curl is for the
+# healthcheck only.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml README.md ./
+COPY src/ ./src/
+RUN pip install --upgrade pip && pip install .
+
+# The landing migration tree ships in the image because the release command runs
+# it. `alembic/` — the single-user product's 40 SQLite-era revisions — is
+# deliberately NOT copied: it must never run against the landing database.
+COPY alembic.ini ./
+COPY alembic_landing/ ./alembic_landing/
+
+# Unprivileged: this process is internet-facing.
+RUN useradd --create-home --uid 10001 landing \
+ && chown -R landing:landing /app
+USER landing
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD curl -fsS http://localhost:8080/healthz || exit 1
+
+# No alembic in the CMD, on purpose (D9).
+CMD ["mihomes-landing"]

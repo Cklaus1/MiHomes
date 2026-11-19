@@ -1,10 +1,879 @@
 # MiHomes — Project State & Next Actions
 
-Last updated: 2026-07-29
+## Email verification at signup (2026-11-13, branch `email-verification`)
+Decisions (user): Resend for all mail (free plan to start), build verification first.
+Design: an unverified password user **never gets a session**. The gate sits at session creation,
+not in middleware.
+- [x] Migration 0031: `users.email_verified_at` (existing rows backfilled to `created_at`) +
+      `email_verification_tokens` (sha256 hash, 24h, single-use, the reset-token pattern).
+- [x] `auth/email_verification.py`: issue / verify / redeem; redeem stamps the user, burns
+      every live token for them.
+- [x] Signup: create the unverified user, mail the link, render "check your inbox" (no session).
+      A provider failure is logged, never a 500.
+- [x] Login: right password + unverified renders "confirm your email first" with a resend
+      button, no session. Wrong password is unchanged (no oracle).
+- [x] `GET /verify-email/{token}` shows a Confirm button. `POST` redeems, signs in, and goes
+      to `next` (checked by `safe_next`) or onboarding. A POST, because mail scanners prefetch
+      GET links.
+- [x] `POST /verify-email/resend`: throttled, same response whatever the address.
+- [x] Password reset redeem also verifies (it proves the mailbox).
+- [x] Google: new users are verified. An **unverified** password row on the address is
+      claimed by Google (password cleared) rather than blocking sign-in (anti-squat).
+- [x] Squatting: re-signup on an unverified address still says "already registered". The owner
+      recovers via reset, which replaces the squatter's password. Overwrite-on-re-signup was
+      rejected: an attacker re-signing after the owner would have the owner's click activate
+      the attacker's password.
+- [x] `EmailService.send_email_verification` (transactional) + template.
+- [x] Tests: unit + integration; existing signup tests rewritten for the new flow.
+- [x] 2026-11-17: "Email confirmed. Welcome to MiHomes." one-time banner after confirming; nightly
+      clean-up deletes unconfirmed password sign-ups after 30 days (guards: no session, no membership).
+- Follow-ups (not this branch): re-verify on a Settings email change; nightly purge of
+  (done above); bounce/complaint webhook.
+- Runbook for the Resend/GoDaddy steps: `docs/deploy/EMAIL-RESEND.md`.
+- **Deploy order:** Resend key live and a password reset tested on the server first.
+  Otherwise every new signup is stranded at "check your inbox".
+## Waitlist mode — invite-only signup (2026-11-13, branch `waitlist-mode`)
+Ask (user): replace open signup with a waitlist to gauge interest; existing test accounts still
+sign in; invite testers behind the scenes. One env switch, `MIHOMES_SIGNUP_MODE=waitlist`;
+unset = today's behaviour.
+- [x] `auth/signup_gate.py`: `waitlist_mode()`, signed tester-invite links (HMAC over email +
+      expiry, `MIHOMES_SECRET_KEY`, no table), `may_create_account()` = tester link for that email
+      OR a pending `/invite/{token}` (from `next`, or the cookie on the Google path).
+- [x] `/signup` GET/POST refuse new accounts without one of those (redirect to `/#waitlist`).
+- [x] Google callback: only *creating* a user is gated; existing users sign in as before. A tester
+      link's token rides a short-lived cookie set by `/signup` so Google sign-up works too.
+- [x] Homepage + login page: waitlist form / "Join the waitlist" instead of "Start free" /
+      "Create an account". `POST /waitlist` in the product app (rate-limited, same response for
+      every address, no confirmation email — mail is not live).
+- [x] Housekeeping: only purge unconfirmed rows that were actually *sent* a confirmation, so the
+      nightly cleanup cannot delete the interest list.
+- [x] CLI: `mihomes waitlist list`, `mihomes waitlist invite EMAIL [--days N]`.
+- [x] Tests (`tests/integration/test_waitlist_mode.py`, 16); runbook `docs/deploy/WAITLIST-MODE.md`.
+- [x] DEPLOYED to Droplet mihomes.ai 2026-11-13 20:46 UTC (harness fast-forwarded to 36310a9;
+      backup pre-waitlist-20261113-2045.sql; waitlist table created; app role `mihomes` owns it).
+      Verified live: waitlist form on /, /signup → /#waitlist, stranger POST 403, tester link 200,
+      POST /waitlist stores a row; probe rows/users removed.
+- [ ] User decision: lift the site passcode so the public can see the waitlist?
+- Found, not fixed: pre-sign-in team-invite lookup (`invite_service.find_pending`) is an unscoped
+      read that the code itself says only works as a superuser; not tested under the app role.
+
+## Terms of Service + Privacy Policy (2026-11-09, branch `legal-pages`) — SPEC-001 O1
+Decisions (user): drafts plus a publish switch (counsel reviews before anything goes live). All
+database dumps on evo-dev are kept 14 days, including the pre-deploy ones.
+- [x] Drafts in `src/mihomes/legal/terms.md` and `privacy.md`, written from the data inventory.
+- [x] Served at `/legal/terms` and `/legal/privacy` by the app and the landing site, signed out.
+      **404 until** the frontmatter `effective_date` is set **and** `legal.unresolved()` is empty
+      (no `[ALL-CAPS]` or `[n]` placeholder, no draft banner).
+- [x] `pg-backup.sh` prunes every `*.sql`/`*.dump` in `~/.mihomes/backups/pg/` older than
+      14 days. Pre-deploy dumps were kept forever.
+- [ ] Founder/counsel to fill in:
+      - company name, address and contacts;
+      - governing law and jurisdiction;
+      - minimum age;
+      - hosting provider and region;
+      - the current AI provider;
+      - who holds the offline backup copy;
+      - the pricing page, trial length and notice period;
+      - liability terms;
+      - controller/processor roles and a DPA;
+      - international transfers;
+      - lawful bases.
+- [ ] Decisions the drafts flag:
+      - the refund policy, including deactivation without a refund;
+      - ~~keep or drop waitlist IP and user-agent collection~~ — decided 2026-11-10: cleared after 30 days;
+      - whether to enforce the audit (2y) and AI-conversation (1y) retention settings, which
+        exist but do nothing today.
+- [ ] Found while drafting, worth fixing (privacy):
+      - the full property address goes to OpenStreetMap and to Google Calendar;
+      - guest dietary preferences are stored (possibly health data);
+      - jsDelivr scripts load on the AI, dashboard and budget pages;
+      - ~~nothing prunes the email outbox, the Telegram conversation log or the waitlist~~ — done 2026-11-10;
+      - ~~expired session rows are never deleted~~ — done 2026-11-10 (`mihomes jobs cleanup`).
+- [x] Wording describes the **production service**, not today's test setup (user, 2026-11-09).
+      - It names one production hosting and data region, and nightly encrypted backups there,
+        deleted after [14] days.
+      - It mentions no laptop or offline copy and no test hosts.
+- [ ] **Before publishing, make it true:**
+      - production hosting chosen: cloud or MiHomes-run servers/VM;
+      - backups stored encrypted in that environment, access restricted;
+      - encryption at rest confirmed;
+      - the laptop backup pull (`Pull-MiHomesBackup.ps1`) retired for customer data, or replaced
+        by an off-site copy inside the production environment.
+- [ ] After publishing: a "you agree to the Terms" line at signup, and mark the GA readiness
+      gate MET.
+
+## Export all (2026-11-06, branch `export-all`)
+- [x] `/export/all.zip` (owner/admin): one spreadsheet per list (the 7 import types), each with
+      its import columns and BOM, plus a README naming the type each file imports as.
+- [x] Linked from Settings → Estate ("Spreadsheets: import & export") and from the Import page.
+- [x] Tests: 2 new. Unit + web: 2311 passed.
+
+## Asset and inventory import/export (2026-11-05, branch `import-assets-inventory`)
+- [x] **Assets.** Columns: name*, property*, room, asset_type, make, model, serial_number,
+      condition, purchase_date, purchase_price, warranty_expires, notes.
+      - A room that doesn't exist yet is created, and the preview says "New room “X”".
+      - With a room given, an asset is matched by name + room, because smoke detectors repeat.
+- [x] **Inventory.** Columns: name*, property*, category, unit, quantity, par_level,
+      low_stock_threshold, notes.
+      - Updates go through `update_consumable`, `update_stock` and
+        `update_consumable_settings`, so the low/OK status is recomputed.
+      - Found while testing: `update_stock` finds by name and *creates* on no match, so passing
+        the slug made a second item. It's now passed the name.
+- [x] Export CSV on Rooms & assets and on Inventory. Inactive assets are not exported.
+- [x] Import page:
+      - Created rows show their note.
+      - Enum errors say "a" or "an" correctly.
+      - Download filenames are hyphenated.
+      - The assets index heading is "Rooms & assets", matching the sidebar.
+- [x] Tests: `tests/web/test_import_assets_inventory.py` (7). Unit, web and CLI CSV: 2309 passed.
+
+## Settings split in two (2026-11-05, branch `settings-split`)
+- [x] **Estate** (`/settings`, owner/admin): Account (+ import), Preferences, estate
+      Notifications, Plan & billing, Members, and a Danger zone (export/delete, owner only).
+- [x] **You** (`/settings/connections`, every role): Messengers (+ Messenger log link for
+      owner/admin), Chat notifications, Google Calendar, Profile, Sign-in methods, Estates
+      switcher, Sign out everywhere.
+- [x] Tabs between the two pages for owner/admin. Staff have only You and see no tabs.
+- [x] The real page heading ("Settings") replaces the body `<h1>`. Each page's section menu lists
+      exactly its sections; the old menu missed five.
+- [x] `_home_for()` is the You page for every role. Profile, Telegram-code and sign-in refusals
+      render the You page, and the Google sign-in and calendar callbacks in auth.py return there.
+      The You page no longer redirects owners/admins to `/settings`.
+- [x] `_danger.html` takes `danger_part` ("personal" | "estate").
+- [x] Tests:
+      - 3 new tests in `TestSettingsSplit`.
+      - 9 existing tests moved to the You page URL.
+      - The danger-zone test now asserts the split.
+      - UI checklist rows updated.
+
+## Links that open the record (2026-11-05, branch `record-links`)
+- [x] **Calendar.** `/calendar/?open=appt-<id>` or `event-<id>` shows that item's month and opens
+      its window. Bad or deleted ids are ignored.
+      - The Today list's appointment and event rows link there, not to the month.
+      - Search event results link there too.
+- [x] **Alerts link to their source**, on the dashboard and on the Alerts page
+      (`alert_svc.source_links`):
+      - issue → the issue;
+      - low stock → `/inventory/?open=<slug>`, which scrolls to and highlights the row;
+      - contract → its vendor's record;
+      - warranty → the asset in its room.
+      Insurance has no page, so those alerts stay plain text, and the dashboard row falls back
+      to /alerts/.
+- [x] "Snoozed until" now shows in the estate zone (it was missed in the time-zone pass).
+- [x] Tests: `tests/web/test_record_links.py` (4). Unit + web: 2300 passed.
+
+## Naming cleanup (2026-11-05, branch `naming-cleanup`)
+- [x] Sidebar: "Templates" → **Task templates** (beside Playbooks and Playbook templates);
+      "Rooms" → **Rooms & assets** (what the page holds; search calls them Assets).
+- [x] `/conversations/` (the Telegram/WhatsApp group log, linked from nowhere) → **Messenger log**,
+      linked from Settings → Messenger connections for owners and admins. Chat stays the in-app
+      messaging; the AI Advisor's "conversations" are no longer a page name, so they stay as they are.
+- [x] Search:
+      - "People" → **Directory**. The group headings now come from the route's one label list
+        instead of a second copy in the template.
+      - Asset results open the asset in its room (`?open=asset-<id>`), not the Rooms & assets index.
+      - Note results open the record they are on, captioned "Note on a task: …".
+- [x] Import/export says "properties" like the sidebar, not "homes". Plural is fixed ("propertys").
+- [ ] Open, the user's call: the product still says both "property" (sidebar, pages) and "home"
+      (Getting started, plan limits, pricing). One word should win.
+
+## Web CSV import (2026-11-05, branch `web-csv-import`)
+Why: `csv_io` could import, but only from the CLI; a new customer moving off a spreadsheet had
+no way in. (`services/importer.py` is the SQLite migration tool, not a CSV importer.)
+
+- [x] `csv_io.run_import`:
+  - **One row's problem never stops the rest.** Every row runs in its own SAVEPOINT and is
+    flushed there.
+  - **Friendly input.** Headers in any wording (the export's names still work). Home and
+    assignee given by name, slug or id. Dates as ISO, US, or "Nov 30, 2026". UTF-8 with BOM or
+    Windows-1252. `;` delimiter allowed.
+  - **Caps:** 2000 rows and 900 KB. That keeps the CSV under the form parser's 1 MB field limit,
+    since the preview posts the CSV back.
+- [x] **Names are not unique** (there are 3× "Belle Estate" locally). Two matches is an error for
+      that row, never a guess.
+- [x] **Re-upload is safe.** Rows already present are skipped:
+      - homes, staff and vendors by name;
+      - tasks and issues by title + home.
+- [x] **Plan limits:** `create_property` checks the home limit itself, so an over-limit home is
+      that row's error.
+- [x] **Preview** runs the same code, then rolls back the whole transaction. That also clears the
+      calendar-sync marker, so a preview queues nothing.
+- [x] **Web:**
+      - `/import/` with tabs per type, a column guide generated from `IMPORT_COLUMNS`, a template
+        download, upload, preview table, import and per-row results.
+      - Owner/admin only, via `export.data` (data portability both ways).
+      - Linked from Settings → Account and from the dashboard Getting started card.
+- [x] **CLI** `mihomes csv import` uses the same engine, with the same return shape.
+- [x] **Tests:** `tests/web/test_data_import.py`, 10 multipart tests. The import page was added to
+      `docs/UI_MANUAL_CHECKLIST.md`.
+- [x] **CSV export** (`web-csv-export`): an Export CSV button on Homes/Staff/Vendors/Tasks/Issues
+      (owner/admin), plus "Export your current …" on /import/.
+      - Same columns as the import, with homes and people by name (slug when the name is shared).
+      - UTF-8 BOM for Excel.
+      - Formula cells guarded with `'`, and the guard is undone on import.
+      - A round trip re-imports as "already there".
+- [x] **Import updates existing records** (`csv-import-updates`):
+      - A filled cell that differs updates the record through its own update function, so
+        audit and validation apply.
+      - A blank cell keeps the current value.
+      - The preview lists each change ("priority: low → urgent").
+      - Two candidate records is a row error, never a guess.
+      - The CLI reports updates too.
+- Not done:
+  - assets, inventory and other types;
+  - mapping columns by hand in the UI;
+  - a live browser walk.
+
+## Estate time zone everywhere (2026-11-04, branch `property-timezones`)
+Decision (user): one estate-wide zone (Settings → Time zone, `locale.timezone`, default
+America/New_York) first. A per-property zone can come later and would need a migration.
+
+Problem: the server runs on UTC, so after 7–8pm in Atlanta "today" was already tomorrow. That
+broke Today, My Overdue, the Tasks page, alerts, the calendar and the AI's "current date". Chat,
+conversations and notifications printed UTC.
+
+The earlier claim of "calendar pushes at 09:00 UTC" was wrong for the live per-user sync, which
+already used the estate zone. Only the CLI-only `services/calendar_sync.py` does that.
+
+- [x] `services/localtime.py`: `estate_tz` ContextVar, `today()`, `to_local()`, `bound(session)`.
+- [x] Bound per request in both auth paths in `web/deps.py`. The chat path
+      (`_resolve_authenticated`) binds the account GUC first, or the RLS read of the setting
+      would silently fall back to the default.
+- [x] Bound per account in `cli/jobs.py::_account_session`, so the hourly alerts sweep uses the
+      estate date.
+- [x] `date.today()` → `localtime.today()` in about 70 places across 36 service and route files.
+      Skipped: demo/seed generators and the resume ranker.
+- [x] `localtime` Jinja filter. 23 template timestamps converted, "UTC" labels removed. Dates
+      such as `doc.expires_at` are untouched.
+- [x] Tests:
+      - `tests/unit/test_localtime.py`.
+      - Web: Tokyo date on the dashboard, Tokyo time on a note.
+      - Chat under RLS on the app role.
+      - The seasonal and AI-roles tests now patch `local_today`.
+      - Results: unit and web 2268 passed; integration 1500 passed. The 6 integration failures
+        (chat digest ×2, metering ×2, waitlist, oauth stub) fail identically on the unchanged
+        harness 426ba72.
+- Check on evo-dev: Postgres `TimeZone` must be UTC. Naive `DateTime` columns are read as UTC,
+  and a non-UTC server zone would shift stored naive values. M7 is still deferred.
+
+## Dashboard Today list (2026-11-03, branch `dashboard-today`)
+- [x] `services/today.py`: today's appointments and events, plus tasks due today or overdue, in one
+      list ranked by SPACE:
+      - Safety: tasks in a safety category.
+      - Presence: appointments and events.
+      - Asset: urgent and high-priority tasks.
+      - Economy: everything else.
+      Most overdue first within a group.
+- [x] Replaces the Overdue Tasks card, full width. The Overdue Tasks tile stays. Issues stay in Open
+      Issues, since they are undated. Shows 8 rows, then "+N more".
+- [x] Tests: `tests/unit/test_today.py` (ranking, labels, exclusions) and a web test for the card.
+      The CSS was rebuilt and re-stamped (`md:col-span-2` was not in `app.css`).
+- [x] **CSV export** (`web-csv-export`): an Export CSV button on Homes/Staff/Vendors/Tasks/Issues
+      (owner/admin), plus "Export your current …" on /import/.
+      - Same columns as the import, with homes and people by name (slug when the name is shared).
+      - UTF-8 BOM for Excel.
+      - Formula cells guarded with `'`, and the guard is undone on import.
+      - A round trip re-imports as "already there".
+- [x] **Import updates existing records** (`csv-import-updates`):
+      - A filled cell that differs updates the record through its own update function, so
+        audit and validation apply.
+      - A blank cell keeps the current value.
+      - The preview lists each change ("priority: low → urgent").
+      - Two candidate records is a row error, never a guess.
+      - The CLI reports updates too.
+- Not done:
+  - Chat mentions and unread DMs (chat has its own badge).
+  - Compliance items (contract and insurance expiries are still in Alerts).
+  - Appointments link to the calendar month, not the record (the calendar has no `?open=`).
+  - No live 375px walk.
+
+## ACTIVE: Ops — DB backups, job scheduler, scheduled alerts (2026-11-03, branch `ops-scheduler-backups`)
+
+Why: evo-dev lost its DB on 2026-11-02 (no automated dumps); the rebuild wiped cron, so none of
+the 9 `jobs` workloads run; `generate_alerts` is CLI-only, so the web Alerts page never fills.
+Constraint: evo-dev is a Docker container, no systemd, only `/home` survives a rebuild; Claude may
+not deploy there — the user runs the commands.
+
+- [x] `mihomes jobs alerts` — per-account sweep of `generate_alerts` (tasks, issues, inventory,
+      expirations); hourly in `SCHEDULE`; covered by the idempotence + enumeration gates
+- [x] Alerts auto-resolve when their cause is gone (task completed/cancelled/no longer overdue,
+      issue resolved/verified) — today only low-inventory does, so a scheduled run would leave
+      finished work flagged forever
+- [x] `mihomes cron crontab --runner PATH` — plain crontab rendered from `SCHEDULE` (+ nightly DB
+      backup), so the installed crontab can never drift from the manifest
+- [x] `scripts/ops/run-job.sh` — loads `~/.mihomes/run/web.env` safely (mapfile, not `env $(cat)`),
+      `flock` per job, logs to `~/.mihomes/logs/jobs/<name>.log`
+- [x] `scripts/ops/pg-backup.sh` — nightly `pg_dump -Fc` as `postgres` + `pg_dumpall --globals-only`;
+      kept only if the TOC has data for core tables; warns if <½ previous; 14-day rotation; `LATEST`
+- [x] `scripts/ops/install-cron.sh` — idempotent: installs/starts cron if missing, installs the
+      crontab; safe to call from `boot.sh` so a restart re-arms it
+- [x] `scripts/Pull-MiHomesBackup.ps1` — laptop pulls newest dump off-box (evo-dev's disk is the
+      only copy otherwise)
+- [x] Runbook `docs/deploy/OPS-SCHEDULER-BACKUPS.md` + tests
+- [x] DEPLOYED 2026-11-03 20:18 UTC (08e70dd): first dump 811 KB + laptop pull OK; pre-flight clean (0 expiries, 0 reconcile drift, 0 calendar connections); first app-role alerts run 73 raised, then 0; cron installed + 11 lines; boot.sh hook inserted after pg_isready. Merge, deploy, boot.sh line,
+      register the laptop pull task
+- Review:
+  - Tests: 282 passed on a private DB (alerts, jobs, cron, dunning, weekly digest, phase-4 migration, web alert tests). The 2 failures in `test_jobs.py` (trial-sweep, sqlite
+    "no such table: accounts") also fail on unchanged harness HEAD. Full suite not run.
+  - `pg-backup.sh` restore-tested on laptop `mihomes_dev`: dump, restore to scratch, row counts
+    match on all 60 tables. A DB without the app tables FAILs and keeps nothing.
+  - `install-cron.sh` and `run-job.sh` tested in Git Bash with stubbed sudo, crontab and flock:
+    idempotent, keeps foreign lines, crontab untouched on failure. The real apt install and cron
+    daemon are untested (evo-dev only).
+  - `jobs alerts` on a scratch copy of dev data: 4 raised, then 0 on the second run.
+  - Found while testing:
+    - A missing `flock` would have read as "lock held" and skipped every job silently. It now FAILs.
+    - Merging stderr into the generated crontab broke the BEGIN/END guard. stderr is now captured
+      separately.
+  - Resolve means "dealt with": a resolved alert is not re-raised until its source changes (`_already_alerted`). Before this, the web Resolve button would have been undone at the next hourly run. Overdue tasks are scoped to the current due date, so a missed new date still alerts.
+  - Runbook has a read-only pre-flight before arming cron (trial-sweep/reconcile can change plans) and a first app-role `jobs alerts` run with a stop condition (all local runs were superuser and bypassed RLS).
+  - Dropped the legacy `mihomes alerts --format brief` line from `cron setup`: it binds one tenant
+    and would double-run with `jobs alerts`.
+  - Open:
+    - Expiry alerts do not clear when a renewal date moves out.
+    - Recurring task generation is still CLI-only.
+    - There is no crash supervision for the app process.
+
+## ACTIVE: Omnichannel gateway — retire telegram-bot, then Phase 0 → Telegram → WhatsApp → SMS/email (2026-10-22)
+
+Order agreed with the user: (1) reconcile + retire `telegram-bot`, (2) Phase 0 shared seam,
+(3) Telegram as the end-to-end reference channel on webhooks, (4) WhatsApp Cloud API with Meta
+in parallel, (5) Twilio SMS then email as further adapters. Design: `docs/product/OMNICHANNEL_GATEWAY_PRD.md`
++ SPEC-006 (shipped 25/25; U1–U9 open — see `tasks/build-loop-spec006-report.md`).
+
+### Step 1 — reconcile `telegram-bot` (branch `worktree-retire-telegram-bot`) — U1
+- [x] Diff: 18 non-merge commits, none patch-equivalent in the harness
+- [x] Already superseded on harness (not ported): PRDs + PRD review (harness copies repaired), `telegram stop`,
+      cross-platform PID check, watchdog zombie fix (harness keeps opt-in WhatsApp supervision on purpose),
+      documents upload (`a7e2bd2`), sidebar "Home Management", new-member-join ignore, busy_timeout DB-lock fix
+- [x] Ported: room-level book counts (`e4c2e75` `ea02c64` `687f980`) + follow-up fix (property-scoped by-room
+      breakdown, "No room assigned" instead of `space None`) + tests
+- [x] Ported: worktree workflow rules in CLAUDE.md / lessons.md (`012178c` `222bc4a`)
+- [x] Ported: Generate Transactions on every budget tab (`78853af`)
+- [x] Rebuilt, not cherry-picked: staff/vendor Documents tab (`6d077ae` wrote to public `/static/uploads`)
+- [ ] Deferred to backlog: floating AI chat widget (`b095a67`) — harness dashboard drifted (onboarding card,
+      SPEC-009); re-derive from the archive tag, check AI endpoint + tier gating
+- [ ] NOT ported: Jen candidate notes (`701b869` `e7b1a19`) — HR notes; repo is PUBLIC
+- [ ] User: archive tag, delete local + remote `telegram-bot`, move main checkout off it, confirm no poller
+      runs from old code on evo-dev
+- Review: full suite on a private DB (`mihomes_test_rtb`) — 3297 passed, 7 failed, all pre-existing and in
+  code this branch doesn't touch (billing ×4 Stripe env, full_workflow quarterly, pg_baseline round-trip,
+  settings `/settings` staff 403). An earlier run on the shared `mihomes_test` hit 1518 deadlock errors from
+  another session's concurrent run — use a per-session test DB. New: 7 web tests + 4 staff-403 authz tests.
+
+### Step 2 — Phase 0: one adapter seam, one message type (branch `worktree-gateway-phase0`)
+- [x] BUG: webhook `_reply` built `TelegramClient()` with no token → link prompts never sent. Now
+      `platform_bot_token()` (`TELEGRAM_BOT_TOKEN` env); scoped client prefers it too (U6 still open)
+- [x] BUG: `ai_response` full rollback discarded the batch's earlier writes while confirming "logged ✓"
+      → SAVEPOINT around the AI call
+- [x] BUG (found): webhook normalizer kept member joins/leaves + bot messages; dedup id was `update_id` vs the
+      poller's `chat:message_id` (A17 could never match); epoch vs ISO timestamp → one `normalize_message`
+- [x] BUG (found): Cloud API `jid` was our own `display_phone_number` → replies to ourselves; now sender `wa_id`
+- [x] `gateways/message.py`: `InternalMessage` TypedDict (12 keys incl. `channel`), ISO-8601 UTC timestamps;
+      Baileys bridge record aligned; PRD §7 rewritten to match the code
+- [x] `ChannelAdapter` Protocol (required: label, channel, send; optional hooks) + `review_common.handle_inbound`;
+      both `process_and_respond` are now adapter builders. PRD §5.2 note added
+- [x] FIXED since (photos now use tenant storage, review_common.py ~L1496): gateway issue photos were copied to public `/static/uploads/`
+      (`review_common._create_issue_with_photos`) — the cross-tenant path removed elsewhere (a7e2bd2)
+- Review: gateway set 165 → 190 passing (new: token, normalize, handle_inbound, H27 outcome tests); existing
+  tests changed only where they encoded a bug (permissive client fake, H27 mechanism test, A17/e2e
+  hard-coded `update_id`, source-grep parity test)
+
+
+### Step 3 — Telegram end to end on evo-dev
+- [x] DECISION U3 (user, 2026-10-23): Tailscale Funnel, :8443, `/webhooks/telegram` path only
+- [x] BUG (found): under the production role (table owner, FORCE RLS) the webhook resolved NO sender and redeemed
+      NO code — suite was superuser-only. Fixed with two SELECT-only bootstrap policies (0024); app-role tests added
+- [x] `mihomes telegram set-webhook | delete-webhook | webhook-info` (platform token only)
+- [x] DECISION (user, 2026-10-23): Belle staff have no logins → group binding approved (changes SPEC-006 D12).
+      `/linkchat` / `/unlinkchat` (linked owner/admin only), `telegram_chat_bindings` (0025, UNIQUE chat_id,
+      bootstrap policy by chat id). Bound group: linked senders resolve within it; unlinked = untrusted, no prompt
+- [x] Runbook `docs/deploy/TELEGRAM-WEBHOOK.md`
+- [ ] Deploy (user runs it): env vars, migrations 0024+0025, stop poller, Funnel, set-webhook, `/link` yourself,
+      `/linkchat` in Belle, one fresh message → logged once
+
+### Step 3b — Conversations page (2026-10-27, while Tailscale fixes Funnel DNS; branch `worktree-conversations`)
+Owners/admins read a bound group's chat in the app. Channel-agnostic: recorded in `handle_inbound`.
+- [x] `chat_messages` tenant table (0026): channel, chat_id, message_id, direction (in/out), sender, sender_name,
+      text, has_media, sent_at, property_slug; UNIQUE (account_id, channel, chat_id, message_id); index leads account_id
+- [x] Record in `handle_inbound`: inbound group messages at the top (before approval/property filter) + bot replies
+      via a wrapped `adapter.send` (group targets only). Never DMs, never `/link …` text, never mediaPath.
+      Each write in its own SAVEPOINT, failures logged and ignored; ON CONFLICT DO NOTHING
+- [x] `/conversations` (list of chats) + `/conversations/{channel}/{chat_id}` panel, `audit.view` (owner/admin),
+      sidebar item hidden for staff, 30s HTMX poll on the open chat only, escaped text, empty state
+- [x] `/linkchat` reply tells the group owners/admins can read its messages in MiHomes
+- [x] Registry 54→55, u7 no-linkage, isolation; tests: record rules, failure isolation, webhook app-role probe, 403, XSS
+- [ ] Known gap (not fixing): inventory-scan replies bypass the adapter and are not recorded
+- [ ] Deploy needs the user's go-ahead (migration 0026)
+
+### Step 4 — WhatsApp Cloud API (user-only, start now)
+- [ ] Meta Business verification, WABA, phone number, permanent system-user token, webhook verify token
+- [ ] DECISION U2: Cloud API group support — Belle is a group; if groups unavailable, choose a routing key
+
+### Step 5 — SMS (Twilio) then email
+- [ ] Write SPEC-007 from `TWILIO_PRD.md` against the Phase 0 Protocol; then inbound email (no code yet)
+
+## ACTIVE: Playbooks are documents with tick boxes, not task templates (2026-10-22)
+
+> User: "these turn into tasks? I think we need to remove that. The playbook isn't like the task
+> templates … have the checkbox options available to tick off when user clicks it … the option to
+> reset it". Decisions: ticks **shared by the whole household** (one live checklist per playbook,
+> shows who/when) · **Reset = untick everything** · anyone who can open a playbook can tick; only
+> editors (owner/admin/granted staff) can Reset.
+
+- [ ] Remove Run: panel + route + `run_playbook` + CLI `run` + stagger/`day_offset` + tests/copy that
+      say "become tasks" (editor help, list empty state, `docs/millena-howto.md`).
+- [ ] `playbook_checks` table (tenant-owned, RLS): playbook_id, item_key, checked_by, checked_at,
+      UNIQUE(playbook_id, item_key); migration 0023; registry/isolation counts → 53.
+- [ ] Item key = hash of the step text + occurrence (duplicates OK; reordering keeps ticks; editing a
+      step's text drops its tick). Editing a playbook prunes ticks for steps that no longer exist.
+- [ ] Detail page: full-width document, each `- [ ]` is a real checkbox → `POST /playbooks/{slug}/check`
+      (htmx, swaps just that line), shows "Name · date", progress "N of M", Reset (editors) with confirm.
+- [ ] Preview / template pages stay static (no ticking).
+- [ ] Tests (service, routes, isolation, role rules, key stability) + real-browser click-through.
+
+## ACTIVE: Editable, per-account playbooks + template gallery (2026-10-21)
+
+> User: playbooks are "set in stone" with no edit button; they should be made by the admin or
+> whoever the admin gives access; the existing ones are strictly for mlim@fusen.world's account;
+> new users get templates. Decisions (user, 2026-10-21): edit = owner + admins + **chosen staff**
+> (per-person toggle) · templates = **gallery** (new accounts start empty, one-click copy) ·
+> template content = **new generic versions** (not copies of Belle's).
+
+Root problem: playbooks are 7 markdown files in `knowledge/playbooks/`, read by
+`services/playbook.py` for **every account** — a cross-tenant leak. The repo is **public on
+GitHub**, so those files (and all of `knowledge/`) are also world-readable.
+
+Branch: `worktree-editable-playbooks` off `worktree-spec-build-harness` (c26b935).
+
+### Data + permissions
+- [x] Model `Playbook(Base, TenantOwned, SlugMixin, TimestampMixin)`: name, slug (unique per
+      account), kind (one-off / recurring), audience (who runs it, free text), estimated_time,
+      content (markdown). Registered in `TENANT_TABLES`, `_entity_classes` as ACCOUNT_SHARED
+      (staff read all, like Template); registry/isolation test counts bumped.
+- [x] `memberships.can_edit_playbooks` boolean, default false.
+- [x] Migration `0022_playbooks`: table + RLS policy + triggers (0020 recipe) + the column.
+- [x] Matrix: `playbook.manage` split from the task row (precedent `automation.manage`):
+      owner ALLOW, admin ALLOW, staff ALLOW with rule "only with can_edit_playbooks", enforced
+      in the service so no route can skip it. Viewing/running stays `task.manage`.
+
+### UI
+- [x] Playbooks list: New playbook · Start from a template · Edit/Delete for permitted users.
+- [x] Editor (create/edit): name, kind, audience, estimated time, content with checklist help
+      (`- [ ] step`) and a Preview; Delete with confirm. Run keeps working off the checklist.
+- [x] Template gallery `/playbooks/templates`: generic starter playbooks shipped in the app
+      (package data, read-only, not tenant rows); "Use this template" copies into the account.
+- [x] Settings → Members: "Can edit playbooks" toggle per staff member (owner/admin only;
+      audited). Admins/owners always can.
+- [x] **Security:** `_md_to_html` never HTML-escapes and renders `| safe` — stored XSS once
+      content is user-editable. Escape first, then apply formatting.
+
+### Content + migration of Belle's playbooks
+- [x] Write 7 generic templates: housekeeping standards, daily operations, emergency
+      response, hiring, onboarding a new hire, offboarding, household communication.
+- [x] `scripts/import_playbooks.py --account <slug> --dir <path>`: idempotent import of
+      markdown files into one account (sets the tenant GUC; skips existing slugs).
+- [ ] Run it for `belle` on laptop dev (done, as mihomes_dev_app: 7 imported, re-run 0) + evo-dev; verify other accounts see 0.
+- [x] Remove `knowledge/playbooks/*.md` from the repo after import (content lives in the DB).
+      Git **history** still holds them — purging history is a separate, destructive decision.
+- [x] CLI `mihomes playbook` reads the DB (account context) instead of files.
+
+### Verify + ship
+- [x] Tests: cross-account isolation; staff without toggle → 403 on edit, with toggle → ok;
+      admin always; XSS escaped; gallery copy; import idempotent; matrix/registry tests.
+- [x] Full suite diffed by test id vs baseline; live walk (owner, staff with/without toggle).
+- [ ] Merge `--no-ff`, push; deploy = backup DB → `alembic upgrade head` → import → restart.
+
+### Review (build)
+- Commits 44e6cae (feature), 85d554b (editor insert fix), 25ecd4e (0022 created_at NOT NULL +
+  slug count), plus LF CSS stamps. New tests: tests/integration/test_playbooks_web.py (8),
+  tests/unit/test_playbook.py rewritten (DB-backed; parser/search tests kept).
+- Full suite vs baseline by test id: no regressions after 25ecd4e (the run before it caught the
+  two now-fixed failures). `test_isolation::test_registry_covers_every_tenant_table`, red since
+  0020, now passes.
+- Migration 0022 verified up → down → up on a scratch DB (RLS enabled + forced).
+- Live walk (laptop, Pro tester): no Belle playbooks visible, gallery 7, copy → editor →
+  preview → save → detail with Edit. Found + fixed: "+ Step" inserted above the title.
+- Communication and Emergency (Belle's) have 0 steps — reference prose, as before.
+- Still exposed in the public repo (user chose: list only): knowledge/staff/ (job descriptions,
+  candidate notes), knowledge/properties/; and all of it in git history.
+
+## DONE (merge pending): UI/UX fix-all from the 2026-10-21 audit
+
+> User: "go through mihomes app and see what improvements can be made to make the ui/ux better",
+> then "Let's fix all of them". Decisions (user, 2026-10-21): `/team` → redirect to Settings →
+> Members · Pro-only controls on Free → shown disabled with a Pro badge + upgrade choice ·
+> Settings gets a Danger zone (export, sign out everywhere, delete with typed confirm).
+
+Branch: `worktree-uiux-fixes` off `worktree-spec-build-harness`. One commit per area (built in parallel). Rule: any
+fix that would need a migration or new model field stops and goes back to the user.
+
+### P0 — infrastructure (main agent only; everything else builds on it)
+- [x] Global HTMX error toast in a static JS file loaded once (body swaps re-run inline scripts)
+- [x] 401/403 to HTMX requests → `HX-Redirect` (login / onboarding); JSON contract kept for API
+- [x] HTMX 402 → toast with the plan reason + link to plans
+- [x] Guard `after-request` modal closes / `this.reset()` on `event.detail.successful`
+- [x] Global request indicator + `hx-disabled-elt` default (no double submit)
+- [x] One shared modal helper (role=dialog, aria-modal, Escape, focus in/out, labelled close);
+      delete the ~10 per-page copies of openModal/closeModal/switchTab
+- [x] Success toast for full-body swaps (HX-Trigger from routes, or a flash in context)
+
+### P1 — broken today
+- [x] `/team` → 303 to `/settings#members`; onboarding + checklist links updated
+- [x] Mobile header: title keeps room at 375px (search collapses to an icon below sm)
+- [x] Warranty highlight compares to today (+ "expiring soon" window), not `year < 2027`
+- [x] Inline-JS interpolation → `data-*` (templates Run, vendor category filter)
+- [x] AI chat: `resp.ok` check, always reset on stream end, keep question on error, Stop button,
+      don't clobber partial answer — AI page and dashboard box; dashboard `msg.e` escaped
+- [x] AI quota / attachment-limit errors: plain wording (not "AI request failed"), linkable
+- [x] Budget modals: stay open + show error on failure
+
+### P2 — daily loop
+- [x] Assignee field on task add/edit and work-order edit (columns already exist)
+- [x] Filters/view survive actions (tasks, issues, work orders)
+- [x] "Create work order" from an issue (prefilled); issue ↔ work-order links go to the record
+- [x] Dashboard: rows link to records, open issues shown, quick-add Issue/Task, action lists
+      above property cards, "Due this week" not capped at 10, WO "View all" includes assigned
+- [x] Work-order lifecycle keeps the modal open between steps
+- [x] Task list sorted by urgency (overdue → due date → priority) with a sort control
+- [x] Issue/task forms: "Select property…" placeholder, required markers
+- [x] Board quick-status control; consistent status chip colours via one macro
+
+### P3 — quick wins
+- [x] Favicon · Ctrl+K vs ⌘K by platform · nav labels (Rooms→Assets, Directory→Staff) ·
+      distinct nav icons · `aria-current` · 44px nav targets
+- [x] Login: Google dev-setup text only in debug; hide broken button
+- [x] 402 page: plain headline per action, back to Referer, include upgrade_choice
+- [x] "Ack" → "Acknowledge"; alerts empty-state action; hover-only controls visible on touch
+      / focus (rooms, notes, alert snooze, AI sessions, calendar day "+")
+- [x] Password show/hide toggle; errors with role=alert; input kept after server errors
+- [x] "Getting started" dismiss: confirm + bigger target; trial "ends today" wording
+- [x] Labels tied to inputs (`for`/`id`) on the main forms; search results as real links,
+      query urlencoded
+- [x] Wrong asset-type counts under a filter; library/property-detail links to records
+
+### P4 — structural
+- [x] Sidebar grouped into sections; Billing + Team reachable
+- [x] Onboarding wizard: minimal layout + step indicator + labels
+- [x] Settings Danger zone (export · sign out everywhere · delete with typed confirm)
+- [x] Pro-only controls on Free: disabled + Pro badge (WO due date, Staff invite role)
+- [x] Unified filter bar look; text search on vendors/staff; sortable tables
+- [x] Inventory: POST-redirect-GET; edit/delete item
+- [x] Documents: search, keep modal + input on upload error
+- [x] Calendar: Today button, keyboard-reachable arrows, clickable day, "+N more", mobile list
+- [x] Vendor detail: tel:/mailto: links, related work orders/contracts
+- [x] `vendors.html` dedupe (own commit, last)
+
+### P5 — known-open + cleanup
+- [x] Currency symbol in all "$" form labels
+- [x] Delete dead `recurring.html` + orphan partials; regenerate UI_MANUAL_CHECKLIST.md
+- [x] Full suite diffed by test ID vs baseline; live walk 375/1440 as Pro and Free
+- [ ] Merge `--no-ff` into `worktree-spec-build-harness`, push, clean up (NOT deployed to evo-dev)
+
+### Review
+- Built by the main agent (P0 shell: `static/app.js`, `base.html`, alerts, search, notes/docs
+  partials, property delete) plus four area agents on disjoint files (A daily workflow, B records,
+  C documents/calendar/budget/AI, D account/onboarding/billing). 7+26+17+9+2+1 new tests.
+- **Withdrawn audit items:** sidebar "Directory" and "Rooms" are deliberate renames (`c81ea4e`,
+  test_web_smoke pins Directory) — kept; search now labels staff results "People".
+- **Live bugs found while fixing** (all pre-existing): issue Resolve button and inventory
+  price-entry edit were JS syntax errors (unquoted UUIDs in onclick); WO page JS died after any
+  save (top-level `let` re-declared on body swap); saving a vendor wiped its properties (digit-only
+  id filter vs UUIDs); room delete and property delete 500'd on foreign keys. Room delete now
+  unassigns contents; property delete removes its task history/zones/links and **refuses** (plain
+  message) while books, inventory, work orders, contracts, insurance, recurring expenses,
+  appointments, events or vendor ratings are attached — erasing those is a product call, not made.
+- **Gotchas recorded for later work:** htmx fires `HX-Trigger` *before* a body swap, so the toast
+  region lives on `<html>`; body swaps re-run inline `<script>`s, so shared behaviour lives in
+  `static/app.js` (loaded once from `<head>`); `<main>` must be `relative` or absolutely placed
+  `sr-only` labels escape its scroll clip and an anchor jump scrolls the whole shell.
+- Suite (Postgres `mihomes_test`): before 86 failed / 3088 passed; after 87 / 3162. Diffed by
+  test id: **no test that passed before fails now.** All remaining failures are the baseline set
+  — 71 × `test_content_globs_cover_every_template` (uses `PurePath.full_match`, Python 3.13+; this
+  venv is 3.12, so every template fails identically — the count moves only with template count),
+  billing/Stripe-key, waitlist, oauth stub, pg_baseline, quarterly recurrence, route-declaration
+  harness, staff-member-route.
+- Live walk (laptop `mihomes_dev`, Pro + Free testers, 375 and 1440): header intact at 375,
+  Issues/Tasks/Calendar/Vendors usable at 375, deep link → modal → Escape, inline resolve →
+  toast survives body swap, invalid HTMX save → readable error toast, Free WO due date disabled
+  with Pro badge, Settings Danger zone, 21 pages 200 with zero JS errors. Applied migration 0021
+  to laptop `mihomes_dev` earlier in the session (as postgres) so the dev server would start.
+- Not done / follow-ups: U3 full manual 375 walk is still a human task; inventory/books on a
+  property block its deletion (decide: cascade or archive?); calendar filter still uses a Filter
+  button; failed task-create does not reopen the modal with input; all-properties budget analysis
+  is 2 queries per property (belongs in services/financial_report).
+
+## ACTIVE: Onboarding — "Getting started" checklist on the dashboard (2026-10-19)
+
+> User: after signup the wizard showed steps, but after creating a room no further suggested
+> steps ever appeared. Wants a better first-run experience (option 2 of 3 offered).
+
+Root cause: the wizard (`/onboarding/`) is one-way. "Add rooms" / "Invite someone" are plain
+links out of it that record nothing, creating a room never marks step 4, and nothing ever routes
+a member back to `/onboarding/` — so the account sits at `completed_steps=[2,3]` forever, and the
+dashboard has no follow-up surface at all.
+
+Branch: `worktree-onboarding-checklist` off `worktree-spec-build-harness` (the live evo-dev code).
+
+- [x] `onboarding_service.checklist(session, account_id)` — read-only, items derived from real
+      rows (ground truth, like the mandatory steps): Add your first home (Property) · Add rooms
+      (Space) · Create a task (Task) · Add a vendor or staff member (Vendor|Staff) · Upload a
+      document (Document) · Invite your team (Invite or >1 membership). Each item: key, title,
+      one-line why, href, done.
+- [x] `current_step`: step 4 counts as done when a Space exists, step 5 when an Invite exists
+      (a row is unambiguous completion; absence stays ambiguous, so `completed_steps` still
+      rules there). Un-sticks existing mid-wizard accounts.
+- [x] Wizard exits record progress: `POST /onboarding/leave` — "Add rooms" marks step 4 then
+      goes to /assets; "Invite someone" finishes the wizard then goes to /team. Destination is
+      fixed per step (no `next` param → no open redirect).
+- [x] Dismiss: `STEP_CHECKLIST_DISMISSED = 7` sentinel in `completed_steps` + `POST
+      /getting-started/dismiss` (no migration; `current_step` ignores 7). Declared
+      `property.add`/ACCOUNT, not `Access.SESSION` — the session exemption is pinned small.
+- [x] Dashboard: card above the stat row, "Getting started · N of 6", progress bar, each item
+      ticks itself; shown only to owner/admin, only when an onboarding_state row exists (i.e.
+      accounts that came through signup — existing estates like Belle never see it), not
+      dismissed, and not all done. GET never writes (`db.get`, not `get_state`).
+- [x] Tests: `tests/integration/test_onboarding_checklist.py` (15) — derivation, step-4/5
+      inference, exits, dismiss (owner ok / staff 403), visibility (owner / staff / no-row).
+- [x] `build:css` + `stamp`; full suite — see review.
+- [x] Live check (laptop `mihomes_dev` as non-superuser `mihomes_dev_app`, so RLS is real):
+      signup → account → home → "Add rooms" → /assets; dashboard 1 of 6 → add room → 2 of 6,
+      rooms struck through; `/onboarding/` resumes at invite; `/getting-started/dismiss` hides
+      it. Second signup: skip rooms → "Invite someone" → /team, `/onboarding/` → `/`, card
+      still shows invite open. No tracebacks/500s in either server log.
+- Note: on Free, "Invite your team" is completable (3 seats, admin invites allowed) but a
+  *staff* invite is refused (`staff_invites_allowed: False`) — the copy mentions staff.
+- [ ] Merge into `worktree-spec-build-harness` (--no-ff), push, clean up worktree.
+
+### Review
+- Pre-existing failures on the base branch (verified by running them there, unchanged by this
+  work): 4 × test_billing_routes, test_full_workflow quarterly recurrence, test_isolation
+  registry, test_migration_waitlist, test_oauth_stub, test_pg_baseline up/down,
+  test_settings staff member routes, 2 × test_waitlist_service.
+- Laptop `mihomes_dev` was 3 migrations behind (0017); upgraded to 0020 as `postgres` so
+  `mihomes-dev` could start.
+- Not done: AI Advisor checklist item (user chose the 6 core items); seeded demo account
+  (option 1) remains a separate follow-up — `services/demo.py` is SQLite-era and untenanted.
+
+## ACTIVE: Tasks — repeating tasks reset in place; one-time tasks archive (2026-10-16)
+
+> User: completing a repeating task must reset it per its frequency without the list growing;
+> only one-time tasks stay under Completed until the user removes them. Decisions: late tasks
+> keep their rhythm (skip missed dates); a completion log keeps reports/staff stats counting;
+> one-time tasks are archived (hidden, kept) with a bulk "Clear completed".
+
+Found while checking: Done counted the next date from the old due date (late task → born
+overdue); the Edit form's status=completed never advanced the schedule; every completion of a
+repeating task created a new row + schedule. Consumers of COMPLETED tasks: AI estate report
+(services/ai/reports.py:238), CLI staff stats (cli/staff.py:369), CLI recent (cli/task.py:159),
+CLI report YTD (cli/report.py:61).
+
+- [x] Migration 0020: `task_completions` (id, account_id, task_id → tasks CASCADE, property_id
+      copied from the task so it is PROPERTY_SCOPED and filterable for staff, completed_at,
+      completed_by_staff_id SET NULL, due_date, notes) + RLS + drift guard; `tasks.archived_at`.
+      TENANT_TABLES, model, ENTITY_CLASSES (scoped), models/__init__
+- [x] `complete_task`: one-time → COMPLETED as today. Recurring → log a completion, roll the
+      SAME task's due_date forward on its rhythm until it is after the estate's today, status back
+      to pending, schedule.next_due/last_generated updated, alerts resolved, audit "completed".
+      Idempotent: a recurring task already advanced past today, or completed this period, is a
+      no-op (Telegram redelivery). Return shape stays `(task, next_or_None)` → (task, task).
+- [x] `estate_today()` back in config_service (server is UTC)
+- [x] Edit route: status=completed → `complete_task`, not a raw status write
+- [x] Archive: `archive_task`, `clear_completed` (one-time COMPLETED only), list views hide
+      archived; "Clear completed" button on the board's Completed column + per-task Archive
+- [x] Consumers count completions from `task_completions` (+ one-time COMPLETED): AI report,
+      CLI staff stats, CLI recent, CLI report YTD
+- [x] Data: the 1 existing completed recurring copy — back up, then fold it into a completion
+      row and delete the copy (ask first) — user chose this; done 2026-10-16
+- [x] Tests (unit for rolling date + idempotency; integration written); CSS on evo-dev; deploy;
+      live check on a throwaway free-tester task: Done twice = one advance; list length constant
+- [x] (advisor) 0020 index for `TenantOwned.account_id`; deploy order pull→backup→migrate→restart;
+      "Done — next due" confirmation; clear gcal_event_id on reset
+
+**Review (2026-10-16):** eb473af, f78fd69, 6c399ce, a9dca3b. evo-dev: pg_dump backup, then
+0019→0020; task_completions has RLS+FORCE, 1 policy, 3 drift-guard triggers, 4 indexes;
+`alembic check` = no drift. Live (free-tester, throwaway tasks, read by task id): a late daily task
+Done → due tomorrow, 1 completion; Done again → unchanged, still 1; task count constant; "Last
+done" renders; one-time Done → COMPLETED, Clear → archived, off the list, row kept; Edit
+"Completed" + weekly→daily → due tomorrow on DAILY with the confirmation. Default /tasks/ renders.
+Unit suite 1341 passed / 70 failed, all pre-existing. The old "Property check" copy folded into
+task_completions and deleted (backup pre-fold-copy-20261016-192354.sql).
+
+Known limits: "Last done by" shows the assignee, not who clicked (no clicker identity is passed);
+the duplicate guard is 10 minutes, so a gateway redelivery hours later would advance again;
+integration tests written but not run (no TEST_DATABASE_URL).
+
+## Tasks — group by frequency (2026-10-15)
+
+> User: "I just want to see the tasks categorized by frequency." A Calendar (agenda) view was
+> built first from a misread of "daily, weekly, monthly" and has been reverted (8d64106,
+> 7dcec0e, e0f1bb8 reverted together).
+
+- [x] Add a "Frequency" view beside Board / Priority / List, built like the Priority grouped view:
+      sections Daily, Weekly, Biweekly, Monthly, Quarterly, Seasonal, Annual, One-time — in
+      that order, empty sections hidden, count in each heading
+- [x] One-time = no schedule or frequency `once`
+- [x] Rows reuse the Priority view's task card (same modal, same markers)
+- [x] Tests; CSS rebuild on evo-dev; deploy; check live
+
+**Review (2026-10-15):** d69914a (revert), 89de2b9 (view), plus the stamp commit; deployed to
+evo-dev. Live as the default owner: Frequency button present, Calendar gone; 72 tasks grouped
+Weekly 21 · Every 2 weeks 4 · Monthly 11 · Quarterly 14 · Seasonal 9 · Annual 6 · One-time 7;
+no Daily section (none are daily — see below). Unit suite 1319 passed / 70 failed, all
+pre-existing kinds.
+
+**Data finding (still true):** the default account's recurring tasks ("Daily: Bathroom care…",
+etc.) are scheduled **WEEKLY** despite "Daily" titles, so they will group under Weekly.
+
+## ACTIVE: Currency setting made real; weather default location removed (2026-10-15)
+
+> User: keep currency so budgets etc. follow the estate's preference; remove weather location —
+> a property with an address shows weather, one without shows none (no fallback).
+
+Findings: `currency.default` is read by nothing; 8 models default `currency="USD"`, 7 services
+default `currency: str = "USD"`; 8 templates (23 spots) print a literal `$`. The weather
+fallback appends "Atlanta, GA" to every address before geocoding and, on a miss, shows Atlanta's
+weather for that property.
+
+**Currency**
+- [x] Jinja `money(amount, currency=None, decimals=0)` filter: symbol for USD/EUR/GBP/CAD/AUD/
+      CHF/JPY/MXN, code suffix otherwise; falls back to the estate's `currency.default`
+- [x] Replace the 23 hard-coded `$` in assets, budget, contracts, inventory, recurring,
+      work_orders, partials/budget_report, partials/transaction_list (27 found in the end,
+      incl. 4 `'$' + …` forms and the budget chart axis)
+- [x] New records take the estate's currency: services' `currency` param defaults to `None` →
+      `get_config(session, "currency.default")`. Existing rows keep their stored currency
+      (no data migration — changing the setting doesn't convert old amounts)
+- [x] Settings page note: "applies to new budgets and costs; existing amounts keep their currency"
+
+**Weather**
+- [x] Drop `weather.default_location` from DEFAULTS, USER_SETTING_KEYS and the Preferences form
+- [x] `get_forecast_for_property`: geocode the property's address only; no address or no match →
+      None. No appended city hint, no Atlanta fallback
+- [x] Dashboard widget: omit properties with no forecast (no "❓" card); widget hidden when none
+- [x] Widget grouping: ZIP-less properties no longer pooled into one "—" group (found live)
+- [x] Tests: weather (no fallback, no city suffix), money filter, service currency default,
+      user settings; CSS rebuild on evo-dev; deploy; check dashboard + settings live
+
+**Review (2026-10-15):** commits 9d2f395, 99694a8, e056265; deployed to evo-dev. Live as
+free-tester: /budget/ shows `$0` under USD and `£0` under GBP (setting restored to USD after);
+no hard-coded `$` on any money page; Settings has no weather field; junk-address test properties
+show no weather. Unit suite: 1312 passed, 71 failed — the same pre-existing 69 + 2.
+
+**OPEN — stale cached coordinates (user: leave data alone, 2026-10-15).** The old fallback wrote
+wrong lat/lon that the new code still reuses: Oak Street House (Portland OR) and Harbour View
+(Newport RI) are cached at Atlanta; Builders/Founders at downtown Atlanta; Creators near its
+spot. Fix when wanted: `UPDATE properties SET latitude=NULL, longitude=NULL WHERE …` for those
+rows — Founders and Creators then show no weather until their addresses geocode.
+
+## ACTIVE: Settings page — user preferences, no backend config (2026-10-15)
+
+> Branch `worktree-spec-build-harness`. Decisions (user, 2026-10-15): Telegram self-linking via
+> one-time code; WhatsApp status only; estate-wide time zone; notification prefs saved now,
+> wired to sending later (labelled as such on the page).
+
+Problem: the "Configuration" section is a raw key/value editor over every stored config row
+(`ai.provider`, `ai.max_context_tokens`, Telegram poll state…) and `POST /settings` writes any key
+with no allowlist — an owner can switch the AI backend or invent keys.
+
+- [x] `config_service`: `USER_SETTINGS` allowlist (key → label, choices/validator, default):
+      `currency.default`, `locale.timezone` (new, IANA, default `America/New_York`),
+      `weather.default_location`, `notifications.channel` (none/telegram/email),
+      `notifications.events` (multi: issues, work orders, tasks due, budget), 
+      `notifications.quiet_start` / `quiet_end` (HH:MM, optional)
+- [x] `POST /settings`: accept only allowlisted keys, validate each value; anything else → 400.
+      AI / retention / telegram.* / calendar.* stay backend-only (CLI `mihomes config set`)
+- [x] Template: replace the key/value table + free-text form with labelled fields grouped as
+      **Preferences** (currency, time zone, weather location) and **Notifications** (with a
+      "saved, not sent yet" note). Drop the raw config table entirely
+- [x] **Messenger connections** section (every role, own membership):
+      Telegram — linked/not linked for me (`telegram_links`), "Get a link code" →
+      `issue_link_token` → show the code once + "send `/link CODE` to the bot", 15-min expiry;
+      unlink own Telegram. WhatsApp — "not available yet" status line
+- [x] Access: staff can't load /settings today (member.manage). Messenger + profile must work for
+      staff → either open GET /settings to all roles with owner/admin-only sections gated in the
+      template, or a separate /settings/connections route. Check authz table before choosing
+      → chose /settings/connections (gateway.link_self); GET /settings redirects staff there
+- [x] Tests: allowlist accept/reject (incl. `ai.provider` → 400), each validator, page never
+      shows ai.* keys, link-code issue/display/expiry, staff can link their own Telegram,
+      staff cannot change estate preferences; update test_settings.py cases that POST
+      arbitrary keys
+- [x] `npm run build:css && npm run stamp`; unit suite (70 pre-existing UI-build/route failures
+      on 6f730e3 — compare against that baseline, don't count them)
+- [~] Deploy to evo-dev; check page as owner + staff; issue a real code and `/link` it in Telegram
+      (owner checked live; no staff member exists on evo-dev; no Telegram bot runs there, so
+      `/link` was not exercised end to end)
+
+**Review (2026-10-15):** commits 4d95e30, ef59c96, c12b6f5; deployed to evo-dev. Live as the
+free-tester owner: /settings renders Preferences, Notifications, Messenger connections, Members,
+Profile; no ai.* / retention.* keys on the page; POST `ai.provider=claude` → 400 "ai.provider can't
+be changed from the settings page." and the provider stays nim; a link code is shown once.
+63 new unit tests pass. Unit suite 71 failed / 1296 passed, every failure a pre-existing kind
+(69 `content_globs`, one per template; 2 `route_declarations`). NOT run: integration suite (no
+TEST_DATABASE_URL), a staff render (no staff on evo-dev), a real `/link` in Telegram (no bot).
+
+## ACTIVE: Billing page redesign (2026-10-13)
+
+> Mockup: https://claude.ai/artifact/PuLbfwYuucmvpB84Vy9wbf · branch `worktree-spec-build-harness`
+
+- [x] Prices on cards, read from Stripe by price id (process cache, fail soft → no price shown)
+- [x] `accounts.billing_interval` (migration 0019), written only by `apply_subscription_state`
+- [x] One Monthly/Yearly switch; one form per card whose hidden `interval` the switch rewrites
+- [x] Plain-language summary box: plan · price · renews; past_due banner; card actions moved here
+- [x] "Switch to yearly" prompt for monthly subscribers (POST /billing/change, same plan, annual)
+- [x] "Everything in X, plus:" feature lists; "Most popular" on Pro; Pro first on phones
+- [x] Keep every existing state + testid (cancel-pending undo, trial, non-Stripe Estate→Pro)
+- [x] `npm run build:css && npm run stamp`; tests; deploy + reconcile on evo-dev
+
+
+**Review (2026-10-13):** commit 2cb1709, deployed to evo-dev after a pg_dump backup; migration
+0019 applied; reconcile set the tester to monthly; server fetches all 4 Stripe prices. 1290 unit
+tests pass. NOT run: integration suite (no TEST_DATABASE_URL anywhere).
 
 ---
 
-## ACTIVE: Hardening Build Loop (branch `hardening-build`)
+Last updated: 2026-08-06
+
+---
+
+## ACTIVE: SPEC-001 Build Loop (branch `spec-build`)
+
+> Harness: `tasks/build-loop-spec001.md` · Conventions: `tasks/build-loop-conventions.md` ·
+> Spec: `docs/specs/SPEC-001-phase0-landing-waitlist.md` · run via `/loop tasks/build-loop-spec001.md`.
+> Mirror of the §1 DAG — authoritative checkboxes live in `build-loop-spec001.md`; this is the
+> at-a-glance view. Group `[x]` = committed + full suite green.
+>
+> **Not yet run.** Harness authored 2026-08-06, pending review.
+
+- [ ] **G1 — `mihomes.ids`**: UUIDv7 app-side `new_id()` + the 3.11 fallback path — A1, A2
+- [ ] **G2 — `Waitlist` model + migration**: global table (no `account_id`, no RLS) + first Postgres migration — A3 + round-trip gate
+- [ ] **G3 — email package**: Protocol, Console/Resend providers, factory, render, EmailService — A8, A9 · *reused verbatim in Phases 2–4*
+- [ ] **G4 — waitlist service**: signup/confirm/position, idempotent, hash-only token — A4, A5, A6, A7
+- [ ] **G5 — landing app skeleton**: `create_landing_app()`, `/healthz`, rate limit, **single-user app not mounted** — A11, A13, A17
+- [ ] **G6 — templates + `GET /`**: nine sections, no prices, Telegram-only chat card — A16
+- [ ] **G7 — `POST /waitlist` + confirm**: double opt-in loop, send-failure isolation, no enumeration — A10, A12
+- [ ] **G8 — Google OAuth stub**: waitlist row only, no users row, no cookie; forged token rejected — A14, A15
+- [ ] **G9 — deploy artifacts**: Dockerfile, fly.toml, PHASE0-DEPLOY.md with the relaxed-alignment DMARC — A18
+- [ ] **G-Final — compound stop**: F.1 suite · F.2 all 18 criteria · F.3a steps walk · F.3b criteria walk · F.4 report
+
+**Stop condition (all five):** every DAG box `[x]` · every §6 step tasked **and** every §8
+criterion gated · full suite green · smoke *(N/A this phase — declared, not dropped)* · all 18
+§8 criteria green by their own named tests. No intermediate review stops.
+
+**Remaining specs** (`docs/specs/`): SPEC-008 is unharnessed. Author each one's harness after the
+preceding run's lessons land. SPEC-007 does not exist by design.
+
+**SPEC-006 — harness authored 2026-08-29, not run.** `tasks/build-loop-spec006.md` +
+`scripts/spec006_reconcile.py` (25/25 criteria gated, mutation-checked five ways). **The blocker
+above was half right and the distinction matters**: `telegram-bot` ↔ `origin/main` is still
+unreconciled (30 ahead / 13 behind, unowned) — but the pre-flight *measured* every module §3–§5
+consumes as present on `worktree-spec-build-harness`, so the build can proceed here. Harness §0.2
+says at length why "the code is here" is not "the branches are reconciled", and carries the
+reconciliation as U1 so a green run cannot be read as closing it.
+
+---
+
+## DONE: Hardening Build Loop (branch `hardening-build`)
 
 > Harness: `tasks/build-loop.md` · Spec: `tasks/hardening-spec.md` (v2, adversarially verified) · run via `/loop tasks/build-loop.md`.
 > Mirror of the §4 DAG — authoritative checkboxes live in `build-loop.md`; this is the at-a-glance view. Group `[x]` = committed + full suite green.
@@ -162,9 +1031,402 @@ Replace the WhatsApp/Baileys bridge with a Telegram bot — no Node.js, no pairi
 
 ---
 
+## ACTIVE: Tier tester accounts (`scripts/seed_tiers.py`)
+
+> Goal: see the Free/Pro/Estate difference in a running app. `mlim@fusen.world` is already
+> Estate (account `belle`), so only Free and Pro need seeding.
+> Target: local `mihomes_dev` only — the tier code exists **only** in this worktree, and the
+> VM holds real estate data that fake tenants must not touch.
+
+- [x] **Seed script** — `scripts/seed_tiers.py`, same `mihomes_dev` guard as `dev_setup.py`
+- [x] **Free tester** — `free@test.local`, plan `free`, 1 property (its cap — 2 would show an unreachable state)
+- [x] **Pro tester** — `pro@test.local`, plan `pro`, 3 properties, vendors + work orders
+- [x] **`subscription_status="active"` on both** — `limits_for` collapses `canceled`/`unpaid`/`incomplete` to Free, so a Pro row without this is Free wearing a Pro label
+- [x] **Own user row per account** — `uq_membership_one_owner` is a partial unique index; reusing `mlim@` would violate it
+- [x] **Password identity** — via `create_password_user`, so the form login works, not just the cookie
+- [x] **Session with `current_account_id`** — without it every route 403s ("No account selected")
+- [x] **Verify gates differ via `can()`**, not by reading the table:
+  - [x] Free denied `vendor.rate` + `work_order.schedule` → `upgrade_target="pro"`
+  - [x] Pro allowed both, denied `audit.export` + `predictive_maintenance` → `upgrade_target="estate"`
+  - [x] Free `property.add` refused at 1 home; Pro allowed to 5
+- [x] **Record lesson** — branch-scoped search concluded a feature did not exist
+
+### Review (2026-09-17)
+
+Verified over real HTTP, served as the unprivileged `mihomes_dev_app` role so RLS is actually
+enforced (as `postgres` it is silently bypassed, and the check would prove nothing):
+
+- both testers sign in with **email + password** (303 → `/`, dashboard 200)
+- each sees **only its own** properties/vendors — Free: Oak Street House; Pro: Harbour View,
+  Lakeside Cabin, Dune Cottage, Kestrel Plumbing, Birchwood Landscaping
+- gates differ exactly as `PRICING` §3.1 writes them, and every denial names the plan that
+  would allow it (Free → pro for `vendor.rate`/`work_order.schedule`; both → estate for
+  `audit.export`/`maintenance.predict`/`report.weekly_ai`)
+- 62 entitlement/billing tests pass; no source file changed, the script is additive
+
+**Found while testing:** pushing the Free tester past its 1-home cap converts it to
+Pro-on-trial (`maybe_start_trial`, §4.2 by design) with nothing on screen to say so — hence
+`--reset`, which clears the trial *and* removes homes past the cap (restoring the plan alone
+would leave a Free account holding 2 homes, a state the product cannot itself produce).
+New provisioning step: `mihomes_dev` had no non-superuser role, so the server refused to start
+(N5). Created `mihomes_dev_app`, granted per `0002_rls`'s documented recipe.
+
+**Two caveats worth knowing before looking at these accounts:**
+
+- **`localhost:5000` is currently an SSH tunnel to the VM** (`ssh -L 5000:localhost:5000
+  millena@evo-dev`), so the browser there is showing VM data — these testers are laptop-only
+  and are *not* on the VM. The tunnel has to be closed before `mihomes-dev` can bind 5000.
+  The script prints the exact env vars and says this.
+- **The upgrade prompts are not surfaced in the UI yet.** Every denial carries the right
+  `upgrade_target` at the service layer, but `/properties/new` renders no hint and `/billing`
+  does not show which plan the account is on — SPEC-004's known §4.3 gap ("working mechanism
+  but no UI"). The tier *difference* is visible as data (1 vs 3 homes, vendors only on Pro);
+  the *paywall* is provable via `can()` rather than on screen.
+
+**Caveat to report:** every limit in `limits.py` is marked `PLACEHOLDER` except Free's
+1 home / 3 seats (SPEC-004 O1, founder's call, blocks-ship). The *gating* is real; the
+numbers are not final.
+
+---
+
 ## Known Issues / Tech Debt
 - `tasks/todo.md` was stale for months (fixed 2026-05-14)
 - WhatsApp bridge pairing blocked since wacli-integration branch
 - HA integration not documented in PRD (§10 phases)
 - `src/mihomes/api/` (REST API layer) is untracked — should be committed with web UI
 - No pre-commit hook; code review is the only quality gate
+
+---
+
+## Upgrade prompt instead of the silent trial (2026-09-23)
+
+**Problem.** A Free account adding a 2nd home silently started a 14-day Pro trial
+(`_check_home_entitlement` → `maybe_start_trial`) and let the add through — nothing on screen.
+`PRICING` §4.1 specifies a modal: *"Adding another home is a Pro feature. Start your 14-day Pro
+trial."* with a one-click trial start. Also: the add form is `hx-post`, and htmx 2 does not swap
+4xx responses, so a refused POST did nothing visible at all.
+
+- [x] Gate no longer starts a trial: `_check_home_entitlement` just raises `EntitlementError`
+- [x] `POST /billing/trial` — explicit trial start via `maybe_start_trial` (one per account, never
+      for a paying customer), owner-only, redirects to a safe `next`
+- [x] Pure helper `home_upgrade_prompt(session)` → None when allowed, else reason/target/trial flag
+- [x] `/properties` Add button opens the popup at the cap: **Start 14-day Pro trial** /
+      **See plans** / **Stay on Free**; `/properties/new` shows the same choice, no form (no-JS path)
+- [x] Property form → plain `method="post"` so a refusal renders the paywall page
+- [x] Paywall page (402) offers the trial button when one is available (staff invite path too)
+- [x] Trial banner, lazy-loaded from `GET /trial-status` (`hx-trigger="load"`) — cannot hold
+      another request's transaction open, which is what hung pages last time (6628d39)
+- [x] Tests on the non-superuser `rls_app` path; mutation-check by restoring the silent trial
+- [ ] Push; restart evo-dev; verify on the Free tester without spending its trial
+
+**Result.** 336 affected tests pass; full suite 2893 passed, with 4 failures that are not this
+change (2 landing-DB isolation tests fail on the base commit c650baa; 2 waitlist tests pass alone
+and fail only in a full run — order-dependent). Mutation check: restoring the silent trial makes
+`test_a_refused_add_does_not_start_the_trial` and `test_the_gate_refuses_and_does_not_start_the_trial`
+fail.
+
+Found on the way: the exception handler runs after the request's authz context is reset, so it
+cannot read the role — `is_owner` is captured on `EntitlementError` at the raise site. The banner
+is at `/trial-status`, not under `/billing` (every `/billing` route is owner-only, held by a test).
+
+**Deferred (deviation):** the 4th-seat trigger stays an inline "no seats left" error — making it a
+paywall touches `accept_invite`'s `FOR UPDATE` re-check.
+
+---
+
+## Billing page reflects the current plan (2026-09-23)
+
+**Problem.** `/billing` always showed "Upgrade to Pro" and "Upgrade to Estate": a Pro account was
+offered its own plan, there was no Free option for Pro/Estate, and nothing said what a plan
+includes. It also branched on `stripe_customer_id`, which `start_checkout` commits before the user
+reaches Stripe — an abandoned checkout left only "Manage billing", with no way to upgrade again.
+
+- [x] Three plan cards (Free / Pro / Estate) with bullets built from `PLAN_LIMITS`
+      (`services/billing/plans.py`), current plan highlighted
+- [x] Current plan = `effective_plan()` (extracted from `limits_for`), so a canceled Pro reads Free
+- [x] Paying (`stripe_subscription_id`): every change incl. "Cancel subscription" → Stripe portal,
+      never a checkout (would bill twice)
+- [x] Not paying: checkout only for plans above the current one; trial's Free card says when it
+      returns to Free; no button to drop to Free (no subscription; `free` not sellable, D4)
+- [x] Tests: unit matrix over every account state + one HTTP page test on `rls_app`
+- [ ] Deploy; read /billing as the Pro and Free testers
+
+**Not shown:** prices. The doc's $20/$60 are PLACEHOLDER and the charged amount is Stripe's
+`STRIPE_PRICE_*` — a shown price that disagrees with checkout is worse than none.
+
+---
+
+## Cancel, deactivate, delete, 3-month rule (2026-09-23)
+
+Decisions (user, 2026-09-23): cancel → Free **at end of paid period** (immediate when not paying
+through Stripe); delete → **30-day undo window**, then permanent; 3-month auto-delete applies to
+**deactivated accounts only**; owner's delete/deactivate takes **the whole household**, and
+non-owners get "Leave household" / "Delete my profile".
+
+Four slices, each committed + deployed on its own (a `pg_dump` before every migrating deploy):
+
+**Slice 1 — Cancel / downgrade to Free** (owner only)
+- [x] Non-Stripe account: immediate drop to Free (same field set as `_expire_trial`)
+- [x] Paying account: `provider.cancel(at_period_end=True)`; persist `cancel_at_period_end`
+      (migration 0018); page says "Pro until X, then Free" + **Undo** (`resume`)
+- [x] Confirm step lists consequences ("2 homes become read-only; nothing is deleted")
+- [x] Update `plan_cards` + its tests (Free card now has a button)
+- [x] Found on the way: "paying" was the stored subscription id, never cleared when Stripe ends a
+      subscription — now `has_live_subscription` (id + a status Stripe can still modify)
+
+**Slice 2 — Deactivate / reactivate** (owner only) — built 2026-11-06, branch `account-deactivation`
+- [x] `services/account_lifecycle.py`. Deactivating does three things:
+      - **Billing:** cancels a live subscription immediately (no refund; the account comes back on
+        Free). If the cancel fails, deactivation is refused.
+      - **Flag:** stamps `deactivated_at`.
+      - **Sessions:** **detaches** every session from the account rather than deleting it, so a
+        member of another estate stays signed in.
+- [x] Enforced at sign-in (`set_current_account` refuses), not per request. Onboarding skips
+      deactivated accounts and shows `onboarding/deactivated.html`: the owner gets Reactivate
+      (ownership re-checked server-side, so staff get 403), everyone else "Deactivated by the
+      owner". A purged account can never be reactivated.
+- [x] **The Telegram bot ignores it:** links and group bindings into a deactivated account resolve
+      to nothing. A DM from such a member gets the normal "link yourself" prompt; nothing is logged.
+- [x] **Jobs skip it:** `_all_accounts()` (alerts, drips, digests, chat prune), the outbox drain,
+      and chat-notify. `purge-deletions` alone passes `include_deactivated=True`.
+- [x] Owner-only "Deactivate household" in Settings → Estate → Danger zone (`account.delete`
+      action). Its confirmation text states the no-refund cancel and the 90-day erasure.
+- Deletion-pending accounts are NOT locked; they stay usable for the 30 days, so the owner can
+  export. Decided 2026-11-06.
+
+**Slice 3 — Delete** (owner only; on the existing `request_deletion`/`purge`)
+- [ ] Settings "Delete account": download-my-data first, typed confirmation, locks like
+      deactivation; restore during the 30 days = `cancel_deletion`
+- [x] `mihomes jobs purge-deletions` in `SCHEDULE` (04:45 UTC, after the 02:30 dump), with
+      `--dry-run` (2026-11-06, branch `account-deletion`):
+      - Billing is cancelled first (immediately). If that fails, the account is skipped and
+        retried next run.
+      - Then `purge`. The account row is kept but scrubbed (name, Stripe ids, plan free,
+        `deactivated_at`).
+      - Users whose only estate it was are **scrubbed, not deleted**: other estates' rows may
+        reference them. That means no email, name, password or Google id, and their sessions
+        and reset tokens are deleted.
+      - The Stripe customer itself is NOT deleted; only the subscription is cancelled. That is
+        still open.
+- [x] `purge()` binds the tenant GUC to the request's account and refuses if the binding doesn't
+      hold, so an unbound session can't record a zero-row "erasure".
+- [x] Purge tested as the app role, with outcomes checked through the superuser:
+      `tests/integration/test_purge_job.py` (5 tests). Covers not-due, cancelled, dry run, the
+      billing-failure skip, the refusal, and a member of another estate being kept.
+- [ ] The "locks like deactivation" part of the delete flow waits for Slice 2: during the 30
+      days the account stays usable, which is how the owner exports.
+- Erased data survives in the nightly dumps (14 days) and the laptop copies (30 days). The
+  privacy policy must say so.
+
+**Slice 4 — 3-month rule + non-owners**
+- [x] `purge-deletions` also erases accounts deactivated > 90 days (2026-11-06):
+      - It opens one system request (`requested_by_user_id` = nil UUID), due at
+        `deactivated_at + 90d`, and the same run purges it.
+      - It never re-opens a purged account, even though `_finish_account` stamps `deactivated_at`.
+      - `--dry-run` reports it without creating anything.
+      - Tests: `tests/integration/test_deactivation.py` (6).
+- [x] Non-owners: "Leave household", "Delete my profile" (2026-11-09, branch `member-leave-delete`;
+      `services/member_exit.py`, on the You page):
+      - **Leave:** `offboard` (soft revoke; the household keeps the work), unlinks their staff
+        record, and detaches their sessions. Owners are refused.
+      - **Delete my profile:** typed DELETE. Leaves every household, then `scrub_user`. Refused
+        while they own an active household.
+      - The purge now scrubs users with no *active* membership. Revoked elsewhere no longer keeps
+        a login alive.
+      - Tests: `tests/integration/test_member_exit.py` (4).
+
+**Blocker to report:** no scheduler on evo-dev — purges and the 90-day sweep never run by
+themselves until Chris schedules `mihomes jobs purge-deletions` (or someone runs it). Backups
+outlive deletion.
+
+## Google OAuth sign-up / sign-in (2026-10-14)
+
+Flow code already existed (SPEC-002 G12); this is configuration plus two gaps.
+- [x] Refuse Google sign-in onto a password-only row (`PasswordAccountExists`) — mirror of
+      40b0600; it previously forked a second, empty identity. Refuse, not link (pre-hijack)
+- [x] "Sign up with Google" on `/signup`, shown only when credentials are set
+- [x] Tests: unit refusal, dual-credential user still signs in, callback → `/login?error=`, button gating
+- [x] `docs/deploy/GOOGLE-OAUTH.md` — console steps, env vars, troubleshooting
+- [x] User: create Web OAuth client, redirect `https://evo-dev.tail6765ef.ts.net/auth/google/callback`, add test users
+- [x] evo-dev: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `LANDING_BASE_URL` in web.env; deploy + restart
+- [x] Live proof (2026-10-19): new account created via Google sign-up on the Tailscale URL. Existing-user path not testable — mlim@fusen.world is not a Google account
+- Open: SPEC-010 U2 — link Google to an existing password account from signed-in Settings
+
+## Sign-in methods in Settings (2026-10-19) — approved: + change password, + email alerts, email must match
+
+User decision 2026-10-19 overrides SPEC-010 N7 / resolves U2: one person may hold both a
+password and a Google identity. A new "Sign-in methods" section on the personal settings
+(reachable by every role, not only owners).
+
+**Security defaults (not optional)**
+- Every new form is POST + CSRF-verified (`tokens_match`) — settings forms skip CSRF today
+- Fix first: `upsert_user` stops overwriting `email` on rows with a password (it is the login
+  handle; rewriting it can 500 on `uq_users_email_password` and undoes a profile email change)
+
+**A. Connect Google** (password user)
+- [x] POST `/settings/sign-in/google/connect` → OAuth in "link" mode, intent cookie bound to session user
+- [x] Callback branches before `upsert_user`; keeps the current session
+- [x] Refuse: sub on another account · already connected · Google email ≠ account email
+      (the match proves mailbox control and stops a stolen session linking a backdoor)
+
+**B. Add a password** (Google-only user)
+- [x] Requires sign-in within ~10 min (`sessions.created_at`), else "Confirm with Google" re-auth
+      that must return the SAME Google sub
+- [x] `set_password`; refuse cleanly if an old duplicate password row holds the email
+
+- [x] Change password (current password, throttled, revokes other sessions)
+- [x] Security notice email (`sign_in_method_changed`)
+- Out of scope (user): disconnect Google, remove password
+- [x] Deployed 2ea44ea to evo-dev; live (2026-10-19): Google account added a password and signed in with it. Not yet live-tested: change password, connect Google
+
+**Housekeeping:** `PasswordAccountExists` message → "…then connect Google in Settings";
+SPEC-010 U2/N7 note; `GOOGLE-OAUTH.md`; tests for every refusal; build:css + stamp; full
+suite vs the 8 known failures; deploy only with user go-ahead
+
+## Per-user Google Calendar sync (2026-10-30) — DEPLOYED to evo-dev 5a66262 (0029), awaiting Console + live test
+
+**Decided by user 2026-10-30:** sync everything the person can see (staff: scoped properties
+only) · separate "MiHomes — <estate>" calendar · one-way MiHomes → Google · remove the
+machine-wide calendar from the Calendar page.
+
+**Today:** one machine-wide token (`~/.mihomes/google_token.json`, desktop OAuth flow) syncs
+the `primary` calendar for every estate. Push only on appointment *create* (never updates or
+deletes); pull creates tasks/occupancy by title-matching; the Calendar page calls Google live on
+every render and **shows that one calendar to every estate**. Google sign-in grants no calendar
+access (scopes `openid email profile`).
+
+**Target:** each person connects *their own* Google Calendar from Settings; MiHomes keeps
+their calendar up to date with the estate's appointments and tasks.
+
+**Design**
+- Separate consent from sign-in: "Connect Google Calendar" in Settings → Google's calendar
+  screen (offline access, `login_hint`); any Google account, not necessarily the sign-in one
+- Write to a **dedicated "MiHomes — <estate>" calendar** the app creates, not `primary`:
+  nothing mixes with personal events, and Disconnect can delete the whole calendar cleanly
+- **Push only** (MiHomes → Google). A personal calendar must not create estate records
+- Creates, **updates and deletes** follow edits (today's push never updates)
+- Event ids per person: new table `calendar_event_links` (connection, entity type/id,
+  google event id) — the single `gcal_event_id` column can't hold one id per person
+- Token storage: new `calendar_connections` (user, account, Google email, calendar id,
+  Fernet-encrypted refresh token via `crypto.encrypt`, status, last sync, last error); RLS
+- Sync triggers: best-effort push on save (never blocks the save) + `mihomes jobs
+  calendar-sync` reconcile (catches failures, initial backfill) — needs cron on evo-dev,
+  which has none (owner OK needed)
+- Revoked access (user removed it in Google): mark connection "needs reconnect", show in
+  Settings, stop retrying
+- Retire the machine-wide token path from the web app (Calendar page stops reading it)
+
+**Steps**
+- [x] 0029 migration: `calendar_connections`, `calendar_event_links` (+ RLS, registry count)
+- [x] OAuth: `POST /settings/calendar/google/connect` (CSRF) → callback
+      (reuses `/auth/google/callback` via intent — no new redirect URI); encrypted refresh token
+- [x] Provider built from a connection (token, calendar id) instead of the token file
+- [x] Sync service: upsert/delete per connection for appointments + tasks in scope
+- [x] Hooks on appointment/task create/edit/delete/complete; reconcile job + SCHEDULE entry
+- [x] Settings → "Calendar" card: connect, status, last sync, Sync now, Disconnect
+      (revokes token; optionally deletes the MiHomes calendar)
+- [x] Remove live machine-wide Google reads from the Calendar page; CLI keeps file path or is retired
+- [ ] Google Console: enable Calendar API, add scope `calendar.app.created` (no new redirect URI)
+- [x] Tests: token encrypted at rest, per-user isolation (A's events never in B's calendar,
+      staff only get properties in scope), update/delete propagate, revoked token, CSRF;
+      fake provider — no live Google in tests
+- [ ] Live test on evo-dev with a test-user Google account
+
+**Known limits:** calendar scopes are *sensitive* — beyond Console test users (max 100) Google
+requires app verification (weeks). Tasks are assigned to `staff`, not to users, so "only my
+tasks" needs a staff↔member link that doesn't exist yet.
+
+## Launch prices (2026-11-09) — branch real-prices
+
+Decided by the founder from market research (PRICING_AND_PACKAGING §6): keep Free / Pro / Estate.
+
+- [x] Limits table: Free 1 home / 3 seats / 100 AI calls; Pro 3 homes / 10 seats / 1,500; Estate unlimited / 50 / 3,000
+- [x] ~~AI model follows the plan (Haiku / Sonnet)~~ — removed same day: the founder runs one AI for everyone, NVIDIA NIM, set by the developer, never by a household. Plans differ only in AI allowance
+- [x] AI-unavailable messages no longer tell owners to set an API key in Settings (no such setting exists; the provider is MiHomes')
+- [x] Privacy Policy names NVIDIA (NIM) as the AI provider
+- [x] Trial stays 14 days (PLACEHOLDER tag removed); Terms trial + "prices not final" placeholders removed
+- [x] PRICING_AND_PACKAGING.md: prices, limits, research table, AI cost reasoning
+- [x] GA gate text: blocked now only on the Stripe prices
+- [x] Prices changed same day to the ones already in Stripe test mode: Pro $19/mo + $190/yr, Estate $49/mo + $490/yr (founder's choice); evo-dev's four STRIPE_PRICE_* already point at them
+- [ ] **At launch, in the live Stripe account:** create the same four prices and set their ids on the production host
+- [x] (evo-dev already has them, test mode) Set the four price ids on the server (`~/.mihomes/run/web.env`): STRIPE_PRICE_PRO_MONTHLY, STRIPE_PRICE_PRO_ANNUAL, STRIPE_PRICE_ESTATE_MONTHLY, STRIPE_PRICE_ESTATE_ANNUAL, then restart
+- [ ] Check /billing on evo-dev shows $19 / $49 and the yearly saving
+- [ ] Find NIM's production cost per token (build.nvidia.com trial credits are not a production plan) and check 100 / 1,500 / 3,000 calls against it
+- [ ] After a month of real use: compare `ai_usage_events` tokens per call with the estimate (20k in / 1.5k out)
+
+**Review:** unit suite passes on Python 3.14; full integration suite 1423 passed, the 6 known baseline failures only.
+
+**Found while testing, not fixed here:** this worktree's `.venv` was rebuilt today on Python 3.12 with an untracked
+`uv.lock` resolving FastAPI 0.162, which wraps included routers lazily — the route-census test then sees only
+`/healthz`, i.e. the security census goes blind on that FastAPI. Pin FastAPI or teach the census to walk
+`_IncludedRouter` before anything upgrades FastAPI in production.
+**RESOLVED 2026-11-10 (branch census-fastapi):** worse than noted — evo-dev already runs FastAPI
+0.139.2, and the lazy routers arrived in 0.137.0, so on production's version the billing owner-only test,
+the leak matrix and the landing allowlist passed while checking **zero** routes (old walk: 1 route, 0 billing;
+now 255 and 10). Runtime sign-in was never affected (signed-out GETs: same 401s on 0.136 and 0.162). Fix:
+`tests/route_table.py` (`all_routes`/`api_routes`, the one place using FastAPI's private
+`effective_route_contexts`), used by all 9 route-walking tests, guarded by `tests/unit/test_route_table.py`.
+104 affected tests pass on FastAPI 0.136.1 and 0.139.2. `test_css_is_current` fails too, though this branch touches no template, input.css or Tailwind config.
+
+## Nightly clean-up job (2026-11-10) — branch cleanup-job
+
+Periods decided by the founder 2026-11-10. `services/housekeeping.py` + `mihomes jobs cleanup` (cron `55 4 * * *`).
+
+- [x] Messenger log (`chat_messages`): `retention.whatsapp_years`, default 1 year; 0 or garbage falls back to 1
+- [x] Sent/failed mail (`email_outbox`) and delivery results (`email_deliveries`): 90 days; queued mail and the unsubscribe list never touched
+- [x] Waitlist: unconfirmed deleted after 30 days; IP + browser details cleared after 30 days
+- [x] Expired sign-in sessions, password-reset links, Telegram link codes deleted
+- [x] Privacy Policy states the periods; email_delivery docstring no longer says "permanent"
+- [x] Tests: `tests/integration/test_housekeeping.py` on the app role (RLS applies): old vs new row per table, a 2-year account setting, idempotent re-run
+- [ ] Deploy: the job joins the crontab when boot.sh re-runs install-cron.sh (14 lines)
+- [ ] If the public landing site runs against its own database (Fly), the waitlist there needs `mihomes jobs cleanup` scheduled too — this job prunes the waitlist in the database it runs against
+- [ ] Still open (separate decision): enforce audit-trail (2y) and AI-conversation (1y) retention
+
+## Google → MiHomes import (two-way calendar, 2026-11-11) — DEPLOYED 39d64a5 (0030); live phone test pending
+
+**Answers 2026-11-11:** no property named → the person's default import property · Google edits
+to ANY appointment flow back for permitted people (others' edits are overwritten) · deleting in
+Google deletes the appointment, whichever side created it · up to 15 min is fine (Sync now =
+instant). **Defaults I chose (tell user):** tasks stay MiHomes-controlled (phone edits/deletes
+to "Task:" events are put back); repeating Google series are skipped with a note; a delete is
+refused (event put back) for serviced appointments or ones tied to an expense/contract; more
+than 10 deletes in one pull → none applied, note on the card.
+
+**Safety:** own writes recognised by Google's etag (stored on the link); first pull after
+deploy is a baseline that changes nothing; conflict = MiHomes wins if it changed since the last
+push; deletes act only on linked events in the importer's visible properties.
+
+**Decided by user 2026-11-11:** events added in Google to a person's "MiHomes — <estate>"
+calendar become real MiHomes appointments (option B), **only** for owners/admins and members an
+owner/admin grants. Everyone else stays one-way.
+
+**Design**
+- Permission: new `memberships.calendar_import` flag (migration 0030). Owner/admin always
+  allowed; staff only when an owner/admin ticks it in Settings → Members. Revoking stops
+  importing; appointments already created stay.
+- Pull only the MiHomes calendar (never personal calendars) — the existing
+  `calendar.app.created` grant covers reading it, so nobody reconnects.
+- Incremental: Google `syncToken` per connection; `singleEvents=true` so recurring series
+  arrive as individual occurrences.
+- Event → appointment: title, date, start time (estate time zone; all-day = no time), notes ←
+  description. Property: a property named in the title/location, else the importer's
+  **default import property** (chosen in Settings); staff only into properties in their scope.
+- Link both ways through `calendar_event_links` (new `origin` = mihomes | google), so an
+  imported appointment is not pushed back to Google as a second copy; it then reaches every
+  other member's calendar like any appointment.
+- Triggers: on every calendar-sync run (save trigger, Sync now, 15-min cron). No Google push
+  webhooks — evo-dev isn't publicly reachable — so phone → MiHomes takes up to 15 minutes, or
+  instantly with Sync now.
+- Audit: imported/changed/deleted appointments recorded in the audit log as "from Google
+  Calendar (<email>)".
+
+**Steps**
+- [x] 0030: `memberships.can_import_calendar`, `calendar_connections.sync_token` +
+      `default_property_id` + `import_note`, `calendar_event_links.origin` + `etag`
+- [x] google_client: `list_changes(calendar_id, sync_token)` (handles 410 → full resync)
+- [x] import pass in `sync.py` before the push pass, gated on permission
+- [x] Settings → Members: "Can add appointments from Google Calendar" toggle (owner/admin)
+- [x] Settings → You calendar card: default import property; shows whether importing is on
+- [x] Tests: permission gate, staff scope, property matching, edit/delete flow-back, no
+      duplicate push, syncToken expiry, revoked permission
+- [ ] Deploy (migration 0030, backup first) + live test from a phone

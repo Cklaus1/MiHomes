@@ -95,7 +95,22 @@ Primary launch ICP: **multi-home owners and families with household staff** — 
 - **Vendor Discovery marketplace** (AI research + public ratings) — [`VENDOR_DISCOVERY_PRD.md`](VENDOR_DISCOVERY_PRD.md).
 - **Twilio gateway** (SMS/MMS/Voice, official WhatsApp Business API) — [`TWILIO_PRD.md`](TWILIO_PRD.md).
 - **Expanded Telegram capabilities** (interactive keyboards, photo/voice intake, per-tenant linking) — [`TELEGRAM_PRD.md`](TELEGRAM_PRD.md).
-- Native mobile apps; non-Google auth; marketing automation; multi-language.
+- **Native mobile apps** — iOS/Android binaries, app-store distribution, push notifications.
+  **This does NOT mean phones are out of scope.** The web app is responsive and supports phones
+  (SPEC-009 D1/D2); native packaging is the thing deferred, and responsive web is the
+  alternative to it rather than a step toward it. *Added 2026-08-31, SPEC-009 §2 B1: read
+  alongside §3's Staff Member persona — a housekeeper standing in a house holding a phone — the
+  bare exclusion led a reader to conclude the product did not target phones at all, and the
+  product app was built desktop-only for five phases.*
+- **Additional third-party identity providers** — Apple, Microsoft, SAML/SSO. **Email/password
+  sign-in is IN scope** and specified in `../specs/SPEC-010-email-password-auth.md`. *Amended
+  2026-09-01, SPEC-010 §2 B1: this row read "Non-Google auth", which contradicted
+  [`ONBOARDING_AUTH_RBAC.md`](ONBOARDING_AUTH_RBAC.md) §3 — the document that **owns**
+  authentication — whose `IdentityProvider` abstraction was built explicitly "so email/password
+  or additional IdPs can be added later". Two documents disagreeing about whether a feature
+  exists is worse than either answer; SPEC-010 D1 resolves in favour of the owning document and
+  narrows this exclusion rather than deleting it.*
+- Marketing automation; multi-language.
 
 ---
 
@@ -113,6 +128,7 @@ Primary launch ICP: **multi-home owners and families with household staff** — 
 | **Email** | Resend (default) behind `EmailProvider`; failover to Postmark/SES | Same doc |
 | **Launch strategy** | Landing + waitlist FIRST, then MVP | De-risk the re-platform; [`GTM_LAUNCH_PLAN.md`](GTM_LAUNCH_PLAN.md) |
 | **Domain** | mihomes.ai (registered) | Marketing on apex; app on `app.mihomes.ai`; email on `send.mihomes.ai` |
+| **Hosting** | Fly.io, single region | Scale-to-zero fits launch traffic; TLS/deploys are platform features. Postgres managed-vs-unmanaged still to confirm — [`MULTITENANCY.md`](../architecture/MULTITENANCY.md) §11 |
 
 ---
 
@@ -132,7 +148,7 @@ Primary launch ICP: **multi-home owners and families with household staff** — 
 - New tables: `accounts`, `users`, `memberships`.
 - `account_id` (non-null FK) added to all 36 tenant-owned tables; every query scoped to the current account.
 - Postgres RLS policies as fail-closed backstop.
-- Migration from SQLite: the 36 existing Alembic revisions are **squashed to a Postgres baseline** (no hosted history to preserve); existing **local single-user installs** (including the founder's production DB) migrate via a one-shot importer — one SQLite DB becomes exactly one account, local user promoted to owner. The founder's own DB is the migration rehearsal and first dogfood tenant. Local single-tenant CLI mode is preserved (one local DB = one account). Detail: [`MULTITENANCY.md`](../architecture/MULTITENANCY.md) §5–6.
+- Migration from SQLite: the 36 existing Alembic revisions are **squashed to a Postgres baseline** (no hosted history to preserve). A one-shot importer turns a SQLite DB into exactly one account, its local user promoted to owner. **Two corrections to what this bullet used to say** (`../specs/SPEC-002-phase1-multitenant-foundation.md` D1/D10): local single-tenant CLI mode is **not** preserved — there is one storage backend, and the CLI becomes an operator tool against hosted Postgres; and the founder's DB is **not** the first hosted tenant — the first tenant is a clean signup, with the archive imported later, so launch does not wait on a migration rehearsal. Detail: [`MULTITENANCY.md`](../architecture/MULTITENANCY.md) §5–6.
 
 ### 8.4 Onboarding (Phase 2)
 - First sign-in with no membership → guided flow: name your account (household/estate) → add first home (name, address, type) → optional rooms → land on dashboard. Mandatory steps minimal; time-to-value prioritized.
@@ -161,10 +177,10 @@ Primary launch ICP: **multi-home owners and families with household staff** — 
 | **Isolation** | No cross-tenant reads/writes, ever. Automated A-vs-B isolation test in CI. RLS fail-closed. |
 | **Security** | OIDC best practices; signed/rotated sessions; Stripe/Twilio webhook signature verification; secrets in env, never in code (repo already gitignores `.env`, `*_token.json`, `*.pem`). |
 | **Availability** | Hosted, always-on; target **99.5% monthly uptime** at GA *(PLACEHOLDER — no formal SLA on Free)*. The current single-instance watchdog/monitor model must be rethought for hosting (per-tenant workers don't scale; prefer webhook-driven gateways + shared schedulers). |
-| **Performance** | Web pages fast (htmx keeps payloads small); AI calls async where possible; landing page must be fast/responsive. |
+| **Performance** | Web pages fast (htmx keeps payloads small); AI calls async where possible; **both the landing page and the product app must be fast and responsive** — see `../specs/SPEC-009-responsive-web-ui.md` D1/D4 for the three reference widths (375 / 768 / 1440). **CSS ships compiled**: the Tailwind play CDN sends a compiler to the browser and recompiles on every page load, which this row forbids in spirit (SPEC-009 D5). *Corrected 2026-08-31, SPEC-009 §2 B2: this row named the landing page only, which is why the product app's responsiveness was never a tracked requirement.* |
 | **Cost control** | AI is the main variable cost — metered per account, gated by plan. Shared research cache where cross-tenant safe (see Vendor Discovery). |
-| **Compliance** | GDPR/CCPA data handling; data export & deletion; email opt-out; (future) A2P 10DLC for Twilio SMS. |
-| **Observability** | Per-tenant audit log; billing/webhook event log; email delivery tracking. |
+| **Compliance** | GDPR/CCPA data handling; data export & deletion (deletion applies **one of three dispositions** per table — delete, preserve, anonymize — see `../specs/SPEC-005-phase4-polish-email-ga.md` D18); **email opt-out: one-click unsubscribe per RFC 8058 (`List-Unsubscribe` + `List-Unsubscribe-Post`), backed by a suppression list that is checked at one choke point.** Opt-out binds **lifecycle** mail (drips, digests, re-engagement) and never **transactional** mail (receipts, deletion and export confirmations) — a receipt for money taken is not marketing, and withholding it is not caution. (Future) A2P 10DLC for Twilio SMS. |
+| **Observability** | Per-tenant audit log; billing/webhook event log; email delivery tracking — schema in `../specs/SPEC-005-phase4-polish-email-ga.md` §4.1 (an outbox, a suppression list and a per-message delivery log, drained by one idempotent job). |
 
 ---
 
@@ -186,9 +202,9 @@ Primary launch ICP: **multi-home owners and families with household staff** — 
 **MVP cut line.** The MVP (end of Phase 3) is: Google sign-in → onboard an account + first home → invite an admin/staff → upgrade Free→Pro via Stripe — on the *existing* domain feature set (tasks, issues, vendors, inventory, documents, AI advisor). Anything not on that path — full email lifecycle, dunning, data export/deletion tooling, account deletion self-serve, Estate-only features (predictive maintenance, weekly AI reports, audit export) — is Phase 4 or later. Chat gateways (Telegram/WhatsApp) remain **single-tenant/founder-only until made tenant-aware** (a 4+ growth bet); they are not part of the hosted MVP.
 
 **GA definition of done (Phase 4 exit):**
-- All Phase 1–3 exit criteria still green (isolation test in CI, RBAC enforced, Free→Pro upgrade + webhook reconciliation).
+- **[regression check, not new work]** All Phase 1–3 exit criteria still green (isolation test in CI, RBAC enforced, Free→Pro upgrade + webhook reconciliation).
 - Full transactional email lifecycle live (welcome → invite → receipt → dunning → cancellation) with DKIM/SPF/DMARC passing.
-- Downgrade/past-due grace policy implemented per [`PRICING_AND_PACKAGING.md`](PRICING_AND_PACKAGING.md) §4.3.
+- **[regression check, not new work — built in Phase 3]** Downgrade/past-due grace policy still behaving per [`PRICING_AND_PACKAGING.md`](PRICING_AND_PACKAGING.md) §4.3. Phase 3 ships and tests this (`../specs/SPEC-004-phase3-billing-freemium.md` Step 14, A20); listing it as a Phase 4 deliverable invites rebuilding a shipped feature.
 - Data export and account-deletion paths exist (GDPR/CCPA baseline from §9).
 - Terms of Service + Privacy Policy published; support channel staffed (even if it's the founder).
 - Waitlist invited in; public signup open at mihomes.ai.
@@ -240,6 +256,8 @@ This PRD is the anchor. Each subsystem has a dedicated doc:
 | Telegram PRD | [`docs/product/TELEGRAM_PRD.md`](TELEGRAM_PRD.md) | Current gateway + roadmap (growth bet) |
 | Twilio PRD | [`docs/product/TWILIO_PRD.md`](TWILIO_PRD.md) | SMS/MMS/Voice + official WhatsApp (growth bet) |
 | Vendor Discovery PRD | [`docs/product/VENDOR_DISCOVERY_PRD.md`](VENDOR_DISCOVERY_PRD.md) | AI vendor research + public ratings marketplace (growth bet) |
+| Omnichannel Gateway PRD | [`docs/product/OMNICHANNEL_GATEWAY_PRD.md`](OMNICHANNEL_GATEWAY_PRD.md) | One core behind WhatsApp/Telegram/Twilio (growth bet). Partially repaired 2026-08-05 — see `../PRD_REVIEW.md` §G |
+| WhatsApp Gateway PRD | [`docs/product/WHATSAPP_GATEWAY_PRD.md`](WHATSAPP_GATEWAY_PRD.md) | WhatsApp Business Cloud API gateway (growth bet). Partially repaired 2026-08-05 — see `../PRD_REVIEW.md` §G |
 
 > Note: the existing single-user product PRD remains at repo-root `PRD.md`. This SaaS PRD supersedes it for the hosted product; the root PRD stays authoritative for the local/CLI domain model.
 
@@ -249,7 +267,9 @@ This PRD is the anchor. Each subsystem has a dedicated doc:
 
 - Waitlist target number that gates Phase 1 investment — GTM plan proposes ≥250 @ ≥3% conversion; founder to ratify.
 - Exact price points and trial policy — Pricing doc leans **14-day no-card Pro trial** (§4.2 there); dollar figures remain PLACEHOLDER.
-- What happens to the founder's live chat gateways (WhatsApp/Telegram) during the re-platform — keep running against local mode until the tenant-aware versions ship?
-- Do we keep a first-class **local/self-hosted** edition long-term, or is hosted the only future?
-- Data residency / region for Postgres at launch?
+- ~~What happens to the founder's live chat gateways (WhatsApp/Telegram) during the re-platform?~~ **RESOLVED** — the first hosted tenant is a **clean signup**, not a migration. The existing archive imports later via `mihomes import`, decoupled from launch (`../specs/SPEC-002-phase1-multitenant-foundation.md` D10). The gateways keep running as they are until made tenant-aware (a 4+ growth bet, specced in SPEC-006).
+- ~~Do we keep a first-class **local/self-hosted** edition long-term, or is hosted the only future?~~ **RESOLVED — hosted only.** Local SQLite mode is dropped and the CLI becomes an operator tool against hosted Postgres (`SPEC-002` D1). A supported second storage backend would fork the tenant-scoping layer that isolation depends on; see `../architecture/MULTITENANCY.md` §6.
+- ~~Data residency / region for Postgres at launch?~~ **Resolved 2026-07-31:** Fly.io,
+  single region, US-first unless an EU customer appears — [`MULTITENANCY.md`](../architecture/MULTITENANCY.md) §11.5.
+  Still open underneath it: **managed vs. unmanaged Postgres** and the RPO/RTO targets (§11.1).
 - How aggressively to pursue the Vendor Discovery marketplace vs. core SaaS depth?

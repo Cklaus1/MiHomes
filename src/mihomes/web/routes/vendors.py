@@ -1,14 +1,20 @@
 """Vendor routes."""
 
 from typing import List
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
+from mihomes.authz.actions import Access
+from mihomes.authz.declare import declares
+from mihomes.models.document import DocumentType
+from mihomes.services import document as doc_svc
 from mihomes.services import note as note_svc
 from mihomes.services import vendor as vendor_svc
-from mihomes.web.deps import get_db, templates
+from mihomes.web.deps import get_db, templates, with_toast
+from mihomes.web.forms import read_document_upload
 
 router = APIRouter()
 
@@ -40,25 +46,94 @@ def _ctx(db: Session) -> dict:
                 cat_groups.setdefault(cat.lower(), Counter())[cat] += 1
     all_categories = sorted(max(counts, key=counts.get) for counts in cat_groups.values())
 
+    # Each vendor's work orders, for the modal's Work orders tab — one query for the page.
+    # Plain dicts of title/status only: the redactor wraps ORM rows in lists but not values
+    # inside a dict, so handing over WorkOrder rows here would carry their costs past it.
+    from mihomes.models.work_order import WorkOrder
+
+    vendor_work_orders: dict = {}
+    if all_vendors:
+        rows = (
+            db.query(WorkOrder)
+            .filter(WorkOrder.vendor_id.in_([v.id for v in all_vendors]))
+            .order_by(WorkOrder.created_at.desc())
+            .all()
+        )
+        for wo in rows:
+            vendor_work_orders.setdefault(wo.vendor_id, []).append(
+                {"id": wo.id, "title": wo.title, "status": wo.status.value}
+            )
+
     return {
         "page": "vendors",
         "active_vendors": active_vendors,
         "inactive_vendors": inactive_vendors,
         "vendor_ratings": {v.slug: vendor_svc.get_vendor_ratings(db, v.slug)["ratings"] for v in all_vendors},
+        # Whether this plan includes vendor ratings, so the template can mark the control
+        # instead of offering it and refusing on click. `ratings_are_entitled` is the same
+        # question `rate_vendor` asks before writing, asked without raising.
+        #
+        # **No new query on the request path.** It reads the account row this request already
+        # has, inside the route's own transaction — deliberately unlike the trial banner
+        # (reverted in 6628d39), which added a read to *every* page inside
+        # `resolve_principal` and left the transaction open when it failed, hanging the app.
+        # Confining plan lookups to the routes that render plan-dependent UI is what keeps a
+        # failure here a failure of this page rather than of the whole site.
+        "ratings_entitled": vendor_svc.ratings_are_entitled(db),
         "notes_map": {v.id: note_svc.list_notes(db, f"vendor:{v.id}") for v in all_vendors},
+        "docs_map": {v.id: doc_svc.list_documents(db, entity_type="vendor", entity_id=v.id) for v in all_vendors},
         "properties": properties,
         "vendor_properties": vendor_properties,
         "all_categories": all_categories,
         "service_categories": vendor_svc.SERVICE_CATEGORIES,
+        "vendor_work_orders": vendor_work_orders,
     }
 
 
+def _contacts_from_form(c_name, c_role, c_phone, c_email) -> list[dict]:
+    """Zip the four parallel contact arrays, dropping blank rows.
+
+    strict=True (H32): a length mismatch is a hard error rather than a silent truncation that
+    pairs the wrong name with the wrong phone/email. Raises ValueError.
+    """
+    contacts = []
+    for name, role, phone, email in zip(c_name, c_role, c_phone, c_email, strict=True):
+        if any([name.strip(), phone.strip(), email.strip()]):
+            contacts.append({
+                "name": name.strip(),
+                "role": role.strip(),
+                "phone": phone.strip(),
+                "email": email.strip(),
+            })
+    return contacts
+
+
+_MISALIGNED = "Contact fields are misaligned — please resubmit the form."
+
+
+def _property_ids(raw: list[str]) -> list[UUID]:
+    """Checkbox values → property ids.
+
+    Was `[int(p) for p in raw if p.isdigit()]`, written when ids were integers; since G6.1 they
+    are UUIDs, so every value was dropped and saving a vendor silently cleared its properties.
+    """
+    ids = []
+    for p in raw:
+        try:
+            ids.append(UUID(p))
+        except ValueError:
+            continue
+    return ids
+
+
 @router.get("/")
+@declares("vendor.view_contact", Access.COLLECTION)
 def list_vendors(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "vendors.html", _ctx(db))
 
 
 @router.post("/", response_class=HTMLResponse)
+@declares("vendor.manage", Access.ITEM)
 def create_vendor(
     request: Request,
     company_name: str = Form(...),
@@ -66,36 +141,49 @@ def create_vendor(
     service_cat_other: str = Form(""),
     phone: str = Form(""),
     email: str = Form(""),
+    c_name: List[str] = Form(default=[]),
+    c_role: List[str] = Form(default=[]),
+    c_phone: List[str] = Form(default=[]),
+    c_email: List[str] = Form(default=[]),
     prop_ids: List[str] = Form(default=[]),
     db: Session = Depends(get_db),
 ):
+    try:
+        contacts = _contacts_from_form(c_name, c_role, c_phone, c_email)
+    except ValueError:
+        return HTMLResponse(_MISALIGNED, status_code=400)
     cats = list(service_cats)
     if service_cat_other.strip():
         cats.append(service_cat_other.strip())
-    vendor_svc.create_vendor(
+    vendor = vendor_svc.create_vendor(
         db,
         company_name=company_name,
         phone=phone or None,
         email=email or None,
         service_categories=cats or None,
-        property_ids=[int(p) for p in prop_ids if p.isdigit()] or None,
+        property_ids=_property_ids(prop_ids) or None,
     )
-    return templates.TemplateResponse(request, "vendors.html", _ctx(db))
+    if contacts:
+        vendor_svc.update_vendor(db, vendor.slug, contacts=contacts)
+    return with_toast(templates.TemplateResponse(request, "vendors.html", _ctx(db)), f"{vendor.company_name} added")
 
 
 @router.post("/categories/delete", response_class=HTMLResponse)
+@declares("vendor.manage", Access.ACCOUNT)
 def delete_category(request: Request, category: str = Form(...), db: Session = Depends(get_db)):
     vendor_svc.delete_category(db, category)
-    return templates.TemplateResponse(request, "vendors.html", _ctx(db))
+    return with_toast(templates.TemplateResponse(request, "vendors.html", _ctx(db)), "Category deleted")
 
 
 @router.post("/categories/rename", response_class=HTMLResponse)
+@declares("vendor.manage", Access.ACCOUNT)
 def rename_category(request: Request, old_name: str = Form(...), new_name: str = Form(...), db: Session = Depends(get_db)):
     vendor_svc.rename_category(db, old_name.strip(), new_name.strip())
-    return templates.TemplateResponse(request, "vendors.html", _ctx(db))
+    return with_toast(templates.TemplateResponse(request, "vendors.html", _ctx(db)), "Category renamed")
 
 
 @router.post("/{slug}/rate", response_class=HTMLResponse)
+@declares("vendor.manage", Access.ITEM)
 def rate_vendor(
     request: Request,
     slug: str,
@@ -115,10 +203,11 @@ def rate_vendor(
         communication=communication or None,
         notes=notes or None,
     )
-    return templates.TemplateResponse(request, "vendors.html", _ctx(db))
+    return with_toast(templates.TemplateResponse(request, "vendors.html", _ctx(db)), "Rating added")
 
 
 @router.post("/{slug}/edit", response_class=HTMLResponse)
+@declares("vendor.manage", Access.ITEM)
 def edit_vendor(
     request: Request,
     slug: str,
@@ -142,25 +231,10 @@ def edit_vendor(
     # is entirely absent (non-form callers), preserve the current state.
     active_val = ("1" in active) if active else current.active
 
-    # Build contacts list — skip entirely empty rows. strict=True (H32) makes a
-    # length mismatch across the four parallel arrays a hard error rather than
-    # silently truncating and pairing the wrong name/phone/email.
-    contacts = []
     try:
-        rows = list(zip(c_name, c_role, c_phone, c_email, strict=True))
+        contacts = _contacts_from_form(c_name, c_role, c_phone, c_email)
     except ValueError:
-        return HTMLResponse(
-            "Contact fields are misaligned — please resubmit the form.",
-            status_code=400,
-        )
-    for name, role, phone, email in rows:
-        if any([name.strip(), phone.strip(), email.strip()]):
-            contacts.append({
-                "name": name.strip(),
-                "role": role.strip(),
-                "phone": phone.strip(),
-                "email": email.strip(),
-            })
+        return HTMLResponse(_MISALIGNED, status_code=400)
 
     cats = list(service_cats)
     if service_cat_other.strip():
@@ -176,36 +250,86 @@ def edit_vendor(
         service_categories=categories,
         website=website.strip() or None,
         license_number=license_number.strip() or None,
-        property_ids=[int(p) for p in prop_ids if p.isdigit()] or None,
+        property_ids=_property_ids(prop_ids) or None,
     )
-    return templates.TemplateResponse(request, "vendors.html", _ctx(db))
+    return with_toast(templates.TemplateResponse(request, "vendors.html", _ctx(db)), f"{company_name} saved")
 
 
 @router.post("/{slug}/delete", response_class=HTMLResponse)
+@declares("vendor.manage", Access.ITEM)
 def delete_vendor(request: Request, slug: str, db: Session = Depends(get_db)):
-    vendor_svc.delete_vendor(db, slug)
-    return templates.TemplateResponse(request, "vendors.html", _ctx(db))
+    name = vendor_svc.delete_vendor(db, slug)
+    return with_toast(templates.TemplateResponse(request, "vendors.html", _ctx(db)), f"{name} moved to Inactive")
 
 
 @router.post("/{slug}/notes", response_class=HTMLResponse)
+@declares("vendor.manage", Access.ITEM)
 def add_note(request: Request, slug: str, content: str = Form(...), db: Session = Depends(get_db)):
     vendor = vendor_svc.get_vendor(db, slug)
     note_svc.add_note(db, f"vendor:{vendor.id}", content)
     notes = note_svc.list_notes(db, f"vendor:{vendor.id}")
-    return templates.TemplateResponse(request, "partials/notes_section.html", {
+    return with_toast(templates.TemplateResponse(request, "partials/notes_section.html", {
         "notes": notes,
         "post_url": f"/vendors/{slug}/notes",
         "delete_url_prefix": f"/vendors/{slug}/notes",
-    })
+    }), "Note added")
 
 
 @router.delete("/{slug}/notes/{note_id}", response_class=HTMLResponse)
-def delete_note(request: Request, slug: str, note_id: int, db: Session = Depends(get_db)):
+@declares("vendor.manage", Access.ITEM)
+def delete_note(request: Request, slug: str, note_id: UUID, db: Session = Depends(get_db)):
     note_svc.delete_note(db, note_id)
     vendor = vendor_svc.get_vendor(db, slug)
     notes = note_svc.list_notes(db, f"vendor:{vendor.id}")
-    return templates.TemplateResponse(request, "partials/notes_section.html", {
+    return with_toast(templates.TemplateResponse(request, "partials/notes_section.html", {
         "notes": notes,
         "post_url": f"/vendors/{slug}/notes",
         "delete_url_prefix": f"/vendors/{slug}/notes",
-    })
+    }), "Note deleted")
+
+
+def _docs_ctx(db: Session, vendor, slug: str) -> dict:
+    return {
+        "docs": doc_svc.list_documents(db, entity_type="vendor", entity_id=vendor.id),
+        "post_url": f"/vendors/{slug}/documents",
+        "delete_url_prefix": f"/vendors/{slug}/documents",
+    }
+
+
+@router.post("/{slug}/documents", response_class=HTMLResponse)
+@declares("vendor.manage", Access.ITEM)
+async def add_vendor_document(
+    request: Request,
+    slug: str,
+    title: str = Form(...),
+    doc_type: str = Form("invoice"),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    vendor = vendor_svc.get_vendor(db, slug)
+    try:
+        file_path = await read_document_upload(file)
+    except ValueError as e:
+        ctx = _docs_ctx(db, vendor, slug)
+        ctx["error"] = str(e)
+        return templates.TemplateResponse(request, "partials/docs_section.html", ctx)
+    doc_svc.create_document(
+        db, title=title, file_path=file_path,
+        document_type=DocumentType(doc_type),
+        entity_type="vendor", entity_id=vendor.id,
+    )
+    return with_toast(templates.TemplateResponse(
+        request, "partials/docs_section.html", _docs_ctx(db, vendor, slug)), "Document added")
+
+
+@router.delete("/{slug}/documents/{doc_id}", response_class=HTMLResponse)
+@declares("vendor.manage", Access.ITEM)
+def delete_vendor_document(request: Request, slug: str, doc_id: str, db: Session = Depends(get_db)):
+    vendor = vendor_svc.get_vendor(db, slug)
+    doc = doc_svc.get_document(db, doc_id)
+    # The URL names a vendor; refuse to delete a document attached to anything else.
+    if doc.entity_type != "vendor" or doc.entity_id != vendor.id:
+        raise HTTPException(status_code=404, detail="Document not found")
+    doc_svc.delete_document(db, doc_id)
+    return with_toast(templates.TemplateResponse(
+        request, "partials/docs_section.html", _docs_ctx(db, vendor, slug)), "Document deleted")

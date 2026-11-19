@@ -1,0 +1,122 @@
+/*
+ * SPEC-009 Step 2 — the Tailwind entry point.
+ *
+ * `npm run build:css` compiles this to `app.css`, which is **committed** (§4.2): the deploy
+ * target is a Python app on Fly, and requiring Node at deploy time to render a page would put
+ * a second toolchain on the production path for one asset.
+ *
+ * The custom rules below moved verbatim from `base.html`'s inline `<style>` block. They stay
+ * hand-written CSS rather than becoming `@apply` directives: they are component styles with
+ * pseudo-class states and an inline SVG data URI, and rewriting them as utilities during a
+ * build migration would mean two changes at once with one way to tell them apart.
+ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Brand tokens as CSS custom properties (SPEC-009 G4 · A14).
+ *
+ * `tailwind.config.js` is the single source for brand colour, and a `bg-brand-600` utility
+ * reads it directly. But four rules live inside page-level `<style>` blocks — a blockquote
+ * border, two streaming cursors, an active-session highlight — and **plain CSS cannot see a
+ * Tailwind token**. Those four had `#0284c7` written out by hand, which is exactly the bypass
+ * A14 forbids: the palette changes in one place and four rules keep the old colour.
+ *
+ * Custom properties are the bridge. They are generated from the same hex the config declares,
+ * so `var(--brand-600)` and `bg-brand-600` cannot drift — and
+ * `test_ui_tokens.py::test_the_css_variables_match_the_config` asserts that by reading both
+ * files, rather than trusting this comment.
+ *
+ * Structural only, per D7/N7: this is "tokens exist and are used". Spacing scales, typography
+ * and component libraries are a different project and deliberately not started here.
+ */
+:root {
+  --brand-50:  #f0f9ff;
+  --brand-100: #e0f2fe;
+  --brand-500: #0ea5e9;
+  --brand-600: #0284c7;
+  --brand-700: #0369a1;
+}
+
+/* HTMX request indicator. */
+.htmx-indicator { opacity: 0; transition: opacity 200ms ease-in; }
+.htmx-request .htmx-indicator { opacity: 1; }
+.htmx-request.htmx-indicator { opacity: 1; }
+
+/* Inline-edit fields: look like plain text at rest, reveal editability on hover/focus. */
+.ie-field {
+  display: block; width: 100%;
+  background: transparent;
+  border: 1px solid transparent; border-radius: 6px;
+  padding: 3px 6px; margin: -3px -6px;
+  font-size: 0.875rem; color: #374151;
+  font-family: inherit; line-height: 1.5;
+  transition: border-color .12s, background-color .12s;
+  cursor: text;
+}
+.ie-field:hover  { border-color: #e5e7eb; background: #f9fafb; }
+.ie-field:focus  { border-color: #0284c7; background: #fff; outline: none; box-shadow: 0 0 0 3px rgba(2,132,199,.08); }
+textarea.ie-field { resize: none; overflow: hidden; }
+select.ie-field  { cursor: pointer; appearance: none; -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%239CA3AF'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 6px center; padding-right: 20px; }
+
+/* Variant for fields that sit inside a bg-gray-50 card tile. */
+.ie-incard {
+  display: block; width: 100%;
+  background: transparent; border: none; border-bottom: 1px solid transparent;
+  padding: 0; font-size: 0.875rem; font-weight: 500; color: #1f2937;
+  font-family: inherit; line-height: 1.5;
+  transition: border-color .12s;
+  cursor: text;
+}
+.ie-incard:hover { border-bottom-color: #9ca3af; }
+.ie-incard:focus { border-bottom-color: #0284c7; outline: none; }
+textarea.ie-incard { resize: none; overflow: hidden; }
+
+/* Global request indicator: any non-GET HTMX request in flight (app.js sets .mh-busy). */
+.mh-busy #htmx-loading { opacity: 1; }
+button[data-mh-pending] { opacity: .6; cursor: wait; }
+
+/* Toasts (app.js). Plain rules rather than utilities: the toast markup is built in JS, which
+   the Tailwind content globs do not scan, so utility classes there would not exist. */
+.mh-toast-region {
+  position: fixed; z-index: 80; right: 1rem; bottom: 1rem; left: 1rem;
+  display: flex; flex-direction: column; align-items: flex-end; gap: .5rem; pointer-events: none;
+}
+@media (min-width: 640px) { .mh-toast-region { left: auto; width: 24rem; } }
+.mh-toast {
+  pointer-events: auto; display: flex; align-items: flex-start; gap: .75rem; width: 100%;
+  padding: .75rem .75rem .75rem 1rem; border-radius: .75rem; font-size: .875rem; line-height: 1.4;
+  background: #fff; color: #1f2937; border: 1px solid #e5e7eb;
+  box-shadow: 0 10px 25px -5px rgba(0,0,0,.15);
+  animation: mh-toast-in .18s ease-out;
+}
+.mh-toast > span { flex: 1; }
+.mh-toast-success { border-left: 4px solid #059669; }
+.mh-toast-info    { border-left: 4px solid #0284c7; }
+.mh-toast-error   { border-left: 4px solid #dc2626; background: #fef2f2; color: #991b1b; border-color: #fecaca; }
+.mh-toast-link  { font-weight: 600; color: #0369a1; text-decoration: underline; white-space: nowrap; }
+.mh-toast-close {
+  margin: -.25rem -.25rem -.25rem 0; padding: .25rem .6rem; border-radius: .375rem;
+  font-size: 1.25rem; line-height: 1; color: inherit; opacity: .6; background: transparent; border: 0; cursor: pointer;
+  min-width: 2rem; min-height: 2rem;
+}
+.mh-toast-close:hover { opacity: 1; background: rgba(0,0,0,.05); }
+@keyframes mh-toast-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .mh-toast { animation: none; } }
+
+/* Below sm the header search is an icon; opening it shows the field as an overlay row across
+   the top of the screen instead of squeezing the page title. */
+@media (max-width: 639px) {
+  #global-search-wrap.mh-search-open #global-search-input {
+    display: block !important; position: fixed; z-index: 60; top: .5rem; left: .75rem; right: .75rem;
+    width: auto; padding: .625rem .875rem; font-size: 1rem; background: #fff;
+    box-shadow: 0 10px 25px -5px rgba(0,0,0,.2);
+  }
+  #global-search-wrap.mh-search-open #global-search-results {
+    position: fixed; top: 3.75rem; left: .75rem; right: .75rem; width: auto; max-width: none;
+  }
+}

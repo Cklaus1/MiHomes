@@ -1,0 +1,28 @@
+{% if name %}Hi {{ name }},{% else %}Hi,{% endif %}
+
+Thanks for joining the MiHomes waitlist. You're on the list.
+
+We're opening MiHomes in stages, a few households at a time. When your spot opens, we'll
+email you a personal invitation link to set up your account.
+
+What's waiting for you
+
+- An AI estate manager that ranks what needs attention across every home: safety first,
+  then who's arriving, upkeep, deadlines and costs.
+- One profile per home, with its rooms, systems and documents.
+- Tasks and issues tracked to resolution, with your staff and vendors in one place.
+- Reports from Telegram. Staff forward a message and MiHomes turns it into a task or issue
+  against the right home.
+- Costs and vendor spend, home by home.
+
+As an early member, you'll get a founding-member offer when we launch.
+
+Until then, we'll send the occasional update on the launch and what's new. No spam.
+
+See what's coming: {{ site_url }}
+
+The MiHomes team
+
+--
+You received this because you joined the MiHomes waitlist.
+Unsubscribe from waitlist emails: {{ unsubscribe_url }}

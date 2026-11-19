@@ -1,0 +1,125 @@
+# MiHomes — Manual Responsive Checklist
+
+> **SPEC-009 A11 / U3.** This document is the half of the spec that no test can close.
+>
+> `tests/unit/test_ui_responsive.py` proves that **no page declares a structure known to
+> break** — no clipped table, no fixed pixel width, no uncapped modal, no grid frozen at four
+> columns. That is worth having and it is not the same as "the app works on a phone". Only a
+> person holding one knows that.
+>
+> **Generated from the filesystem** (A11 asserts this table covers every template), so a page
+> added later cannot be silently absent from it.
+
+## How to walk this
+
+Open each page at three widths and answer four questions. Browser devtools' device toolbar is
+enough; a real phone is better for the tap-target and scroll questions, because a mouse
+pointer is more precise than a thumb and will not reproduce the failures.
+
+| Width | Stands for | Set it to |
+|---|---|---|
+| **375px** | a phone | iPhone SE / 13 mini in devtools |
+| **768px** | a tablet, and the `md` breakpoint boundary | iPad portrait |
+| **1440px** | a laptop | default desktop |
+
+**375 is the supported floor** (D4). O1 — whether to support 320px — is open and carried as U2;
+if it closes as "yes", re-walk at 320 rather than assuming.
+
+### The four questions, per page per width
+
+1. **Does anything overflow sideways?** Scroll the page right. If content moves that should not,
+   or a table's columns are unreachable, that is a failure. (A5 covers *declared* structure;
+   this catches what only rendering reveals.)
+2. **Is the navigation reachable and dismissible?** Below `md` the sidebar is a drawer: the
+   hamburger opens it, the backdrop and Escape close it, and a nav link both navigates and
+   closes. **Try it with the keyboard alone.**
+3. **Can you complete the page's main action?** Open a modal, fill the form, reach the submit
+   button. This is the question the static tests come closest to but cannot answer: A9 proves a
+   panel *declares* a height cap, not that a specific form fits above the keyboard.
+4. **Can you hit the controls with a thumb?** Icon buttons, table row actions, close buttons.
+   44px is the floor; the eye is a poor judge of it, so use a real device.
+
+### What counts as a failure
+
+A page fails if any answer is "no" **at any width**. Record it in the notes column with the
+width — "375: category filter row overflows" is actionable; "looks cramped" is not.
+
+**A page passing here does not mean it is well designed.** It means it is usable. Visual
+polish is deliberately out of scope (D7/N7), and a design pass is its own project.
+
+## Pages
+
+Partials (`partials/*.html`, 24 of them) are **not** listed: you cannot navigate to a fragment.
+Their defects surface on whichever page includes them, so they are walked implicitly — and the
+static tests do cover them directly.
+
+| Template | Route | Lines | 375px | 768px | 1440px |
+|---|---|---|---|---|---|
+| `_auth_layout.html` | (layout for /login, /signup, password reset, invitations) | — | ☐ | ☐ | ☐ |
+| `ai.html` | /ai/ | 786 | ☐ | ☐ | ☐ |
+| `alerts.html` | /alerts/ | 26 | ☐ | ☐ | ☐ |
+| `assets.html` | /assets/ | 802 | ☐ | ☐ | ☐ |
+| `assets_properties.html` | — | 89 | ☐ | ☐ | ☐ |
+| `assets_spaces.html` | — | 160 | ☐ | ☐ | ☐ |
+| `billing.html` | /billing | 124 | ☐ | ☐ | ☐ |
+| `billing_cancel.html` | /billing/cancel | 57 | ☐ | ☐ | ☐ |
+| `budget.html` | /budget/ | 700 | ☐ | ☐ | ☐ |
+| `calendar.html` | /calendar/ | 423 | ☐ | ☐ | ☐ |
+| `conversations.html` | /conversations/ | — | ☐ | ☐ | ☐ |
+| `chat/index.html` | /chat/ | — | ☐ | ☐ | ☐ |
+| `chat/conversation.html` | /chat/c/{id} | — | ☐ | ☐ | ☐ |
+| `chat/search.html` | /chat/search | — | ☐ | ☐ | ☐ |
+| `dashboard.html` | / | 346 | ☐ | ☐ | ☐ |
+| `data_import.html` | /import/ | — | ☐ | ☐ | ☐ |
+| `documents.html` | /documents/ | 415 | ☐ | ☐ | ☐ |
+| `error.html` | — | 65 | ☐ | ☐ | ☐ |
+| `inventory.html` | /inventory/ | 546 | ☐ | ☐ | ☐ |
+| `issues.html` | /issues/ | 558 | ☐ | ☐ | ☐ |
+| `library.html` | — | 98 | ☐ | ☐ | ☐ |
+| `login.html` | /login | 131 | ☐ | ☐ | ☐ |
+| `onboarding/_layout.html` | (layout for /onboarding/ steps) | — | ☐ | ☐ | ☐ |
+| `onboarding/account.html` | — | 20 | ☐ | ☐ | ☐ |
+| `onboarding/deactivated.html` | /onboarding/ when every household is deactivated | — | ☐ | ☐ | ☐ |
+| `onboarding/invite.html` | — | 18 | ☐ | ☐ | ☐ |
+| `onboarding/property.html` | — | 17 | ☐ | ☐ | ☐ |
+| `onboarding/spaces.html` | — | 18 | ☐ | ☐ | ☐ |
+| `plan_required.html` | — | 45 | ☐ | ☐ | ☐ |
+| `password_reset.html` | /password/reset/{token} | 69 | ☐ | ☐ | ☐ |
+| `password_reset_request.html` | /password/reset | 71 | ☐ | ☐ | ☐ |
+| `playbook_detail.html` | /playbooks/{slug} | 103 | ☐ | ☐ | ☐ |
+| `playbook_form.html` | /playbooks/new, /playbooks/{slug}/edit | — | ☐ | ☐ | ☐ |
+| `playbook_template_preview.html` | /playbooks/templates/{slug} | — | ☐ | ☐ | ☐ |
+| `playbook_templates.html` | /playbooks/templates | — | ☐ | ☐ | ☐ |
+| `playbooks.html` | /playbooks/ | 44 | ☐ | ☐ | ☐ |
+| `properties.html` | /properties/ | 17 | ☐ | ☐ | ☐ |
+| `property_detail.html` | — | 197 | ☐ | ☐ | ☐ |
+| `property_form.html` | — | 38 | ☐ | ☐ | ☐ |
+| `search.html` | /search/ | 150 | ☐ | ☐ | ☐ |
+| `settings/_account_switcher.html` | (the You page, /settings/connections) | — | ☐ | ☐ | ☐ |
+| `settings/_danger.html` | (estate part on /settings for the owner; sign out on /settings/connections) | — | ☐ | ☐ | ☐ |
+| `settings/_notice.html` | (included in /settings and /settings/connections) | — | ☐ | ☐ | ☐ |
+| `settings/_tabs.html` | (Estate / You tabs at the top of both settings pages, owner/admin) | — | ☐ | ☐ | ☐ |
+| `settings/_personal.html` | (the You page, /settings/connections) | — | ☐ | ☐ | ☐ |
+| `settings/_telegram_link.html` | (Telegram card on /settings/connections) | — | ☐ | ☐ | ☐ |
+| `settings/connections.html` | /settings/connections (You tab, every role) | — | ☐ | ☐ | ☐ |
+| `settings/index.html` | /settings (Estate tab, owner/admin) | 54 | ☐ | ☐ | ☐ |
+| `signup.html` | /signup | 87 | ☐ | ☐ | ☐ |
+| `staff.html` | /staff/ | 353 | ☐ | ☐ | ☐ |
+| `tasks.html` | /tasks/ | 503 | ☐ | ☐ | ☐ |
+| `team/invite.html` | — | 21 | ☐ | ☐ | ☐ |
+| `templates.html` | /templates/ | 184 | ☐ | ☐ | ☐ |
+| `vendors.html` | /vendors/ | 982 | ☐ | ☐ | ☐ |
+| `verify_email.html` | /verify-email/{token}, after /signup | 71 | ☐ | ☐ | ☐ |
+| `work_orders.html` | /work-orders/ | 462 | ☐ | ☐ | ☐ |
+
+## Notes
+
+<!-- One line per failure: `page.html @ 375 — what went wrong`. Keep them; a fixed row that
+     nobody recorded is a fix nobody can verify was needed. -->
+
+_(none recorded yet — this checklist has not been walked)_
+
+## Status
+
+**NOT WALKED.** Generated by SPEC-009 G5 and carried as **U3**: the spec's own unmet gate.
+Until a human completes this table, "responsive" is a claim about structure, not about use.

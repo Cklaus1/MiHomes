@@ -126,7 +126,7 @@ def suggest_tags_and_priority(
     provider_name = get_ai_provider_name(session)
     api_key = get_ai_api_key(session, provider_name)
     model = get_ai_model(session, provider_name)
-    provider = get_provider(provider_name, api_key, model=model)
+    provider = get_provider(provider_name, api_key, model=model, entry_point="ai.assessor")
 
     system_prompt = (
         f"You are an estate management AI. Given the title and optional description of a new {entity_type}, "
@@ -178,7 +178,7 @@ def parse_room_scan(session: Session, attachments, room_name: str | None = None)
     provider_name = get_ai_provider_name(session)
     api_key = get_ai_api_key(session, provider_name)
     model = get_ai_model(session, provider_name)
-    provider = get_provider(provider_name, api_key, model=model)
+    provider = get_provider(provider_name, api_key, model=model, entry_point="ai.assessor")
 
     # H13: only providers that forward real image data can perform a room scan.
     # If the active provider can't (e.g. OpenAI/Ollama flatten attachments to a
@@ -219,7 +219,7 @@ def parse_import_text(
     provider_name = get_ai_provider_name(session)
     api_key = get_ai_api_key(session, provider_name)
     model = get_ai_model(session, provider_name)
-    provider = get_provider(provider_name, api_key, model=model)
+    provider = get_provider(provider_name, api_key, model=model, entry_point="ai.assessor")
 
     system_prompt = (
         f"You are a data extraction assistant. Parse the following text into structured {entity_type} records. "

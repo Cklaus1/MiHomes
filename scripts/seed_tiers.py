@@ -1,0 +1,414 @@
+#!/usr/bin/env python
+"""Create Free- and Pro-tier tester accounts in `mihomes_dev`, with mock data.
+
+    py scripts/seed_tiers.py            # create the two testers
+    py scripts/seed_tiers.py --reset    # put them back on their plan after a trial starts
+
+**Why.** `mlim@fusen.world` owns an Estate account, so the Estate experience is already
+visible. Seeing what a *paying* or *non-paying* customer sees needs accounts on the other two
+plans, and nothing in the product creates one: `onboarding_service.create_account_step`
+hardcodes `plan="free"`, and `plan` is otherwise written only by the Stripe webhook — which
+needs a Stripe account that does not exist yet (SPEC-004 O1).
+
+So this writes the rows the webhook would, the same way `dev_setup.py` writes the rows the
+OAuth callback would.
+
+**`subscription_status` is set to `active`, and that is not decoration.** `limits_for` maps
+status → effective plan, and `canceled`, `unpaid` and `incomplete` all collapse to `free`. A
+`pro` account left at status `NULL` happens to resolve as Pro today, but it is a Pro account
+that has never been billed — one webhook away from silently reading as Free. Setting it
+`active` states the intent the rest of the code reads.
+
+**The Free tester stops being Free the moment you push it past a limit.** That is not a bug
+here — `_check_home_entitlement` starts the no-card trial on the first denied `property.add`
+(§4.2), so trying to add a second home converts the account to Pro-on-trial. `--reset` puts it
+back without discarding the seeded data.
+
+**Which database.** Defaults to a local `mihomes_dev`; set `DATABASE_URL` to point it
+elsewhere, including the VM. That is how the testers reach the install the app is actually
+used from — seeding them somewhere else produces accounts that cannot be logged into, which
+presents as a 401 and reads as "the tester accounts are broken".
+
+**It writes only the two accounts below.** It never deletes a user, never touches an account
+outside `TESTERS`, and `--reset` rewrites only those two slugs. That containment is what makes
+it safe to aim at a real database — not the database's name.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+
+DB = "mihomes_dev"
+URL = f"postgresql+psycopg://postgres@localhost:5432/{DB}"
+
+# **`DATABASE_URL` is honoured rather than refused, and that is a deliberate loosening.**
+#
+# This originally hard-refused any URL not ending in `mihomes_dev`, on the reasoning that a
+# script which mints logins without authenticating anybody should not be able to touch a real
+# database. The reasoning was right; the conclusion put the testers on a laptop database the
+# product is not used from, reachable only by closing an SSH tunnel and exporting two env vars.
+# They were never used, and the symptom was a 401 that looked like the accounts were broken.
+#
+# So the guard moves from *which database* to *what it will do*: it will not touch an account
+# that is not one of `TESTERS`, it never deletes a user, and `--reset` only ever rewrites the
+# two slugs below. Pointing this at a production database is now a deliberate act — pass
+# `DATABASE_URL` — rather than something that can happen by being in the wrong directory.
+if os.environ.get("DATABASE_URL"):
+    URL = os.environ["DATABASE_URL"]
+    DB = URL.rsplit("/", 1)[-1].split("?")[0]
+else:
+    os.environ["DATABASE_URL"] = URL
+
+from sqlalchemy import create_engine, text  # noqa: E402
+from sqlalchemy.orm import sessionmaker  # noqa: E402
+
+#: The password for both testers. Local-only, and printed at the end — these accounts exist to
+#: be logged into by hand. 12 characters is `MIN_PASSWORD_LENGTH`.
+PASSWORD = "TesterPass123!"
+
+#: The unprivileged role the *server* connects as. Not used by this script, which connects as
+#: the owner to write `accounts` and grant-free tables — it is printed in the instructions.
+#:
+#: `0002_rls` is explicit that provisioning owns this role rather than the migration, because a
+#: role is cluster-wide and `CREATE ROLE` would collide on the second database. `mihomes_dev`
+#: had none, so `mihomes-dev` refused to start (N5). Created with exactly that migration's
+#: documented recipe:
+#:
+#:     CREATE ROLE mihomes_dev_app LOGIN PASSWORD 'devapp';
+#:     GRANT USAGE ON SCHEMA public TO mihomes_dev_app;
+#:     GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO mihomes_dev_app;
+#:     GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO mihomes_dev_app;
+#:     ALTER DEFAULT PRIVILEGES IN SCHEMA public
+#:         GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO mihomes_dev_app;
+APP_ROLE = "mihomes_dev_app"
+APP_ROLE_PASSWORD = "devapp"
+
+
+# Each tester gets its **own** user. `uq_membership_one_owner` permits one active owner per
+# account, so reusing an existing user as owner of a second account violates it — `dev_setup.py`
+# records finding that by running twice.
+TESTERS = [
+    {
+        "email": "free@test.local",
+        "name": "Free Tester",
+        "slug": "free-tester",
+        "account": "Free Tier Tester",
+        "plan": "free",
+    },
+    {
+        "email": "pro@test.local",
+        "name": "Pro Tester",
+        "slug": "pro-tester",
+        "account": "Pro Tier Tester",
+        "plan": "pro",
+    },
+]
+
+
+def seed_content(session, plan: str) -> str:
+    """Mock data sized to the plan. Returns a one-line summary.
+
+    **Free gets exactly one property because one is its cap.** Seeding two would either be
+    refused by `_check_home_entitlement` or — worse — silently start the account's free trial
+    (`maybe_start_trial` fires on the first denied `property.add`), leaving a "Free" tester
+    that is actually mid-trial on Pro entitlements. The point of these accounts is to show the
+    plans as they are, so the Free account stays at its ceiling rather than through it.
+    """
+    from mihomes.models.issue import IssueSeverity
+    from mihomes.models.property import PropertyType
+    from mihomes.models.task import TaskPriority
+    from mihomes.services.issue import create_issue
+    from mihomes.services.property import create_property
+    from mihomes.services.staff import create_staff
+    from mihomes.services.task import create_task
+    from mihomes.services.vendor import create_vendor
+
+    if plan == "free":
+        homes = [("Oak Street House", "412 Oak Street, Portland, OR", PropertyType.PRIMARY)]
+    else:
+        homes = [
+            ("Harbour View", "8 Harbour Road, Newport, RI", PropertyType.PRIMARY),
+            ("Lakeside Cabin", "77 Birch Trail, Lake Placid, NY", PropertyType.VACATION),
+            ("Dune Cottage", "3 Dune Lane, Truro, MA", PropertyType.SEASONAL),
+        ]
+
+    created = []
+    for name, address, kind in homes:
+        created.append(create_property(session, name, address=address, property_type=kind))
+    session.flush()
+
+    first = created[0]
+
+    for title, priority in (
+        ("Replace furnace filter", TaskPriority.MEDIUM),
+        ("Test smoke alarms", TaskPriority.HIGH),
+        ("Clear the gutters", TaskPriority.LOW),
+    ):
+        create_task(session, title, first.slug, priority=priority)
+
+    for title, severity in (
+        ("Dripping tap in the main bathroom", IssueSeverity.MEDIUM),
+        ("Porch light flickers", IssueSeverity.LOW),
+    ):
+        create_issue(session, title, first.slug, severity=severity)
+
+    create_staff(session, "Dana Whitfield", role="housekeeper", property_id_or_slug=first.slug)
+
+    # Pro-only extras, so the two accounts differ in content as well as in what the gates
+    # allow: more homes, more people, and vendors — `vendor.rate` and `work_order.schedule`
+    # are Pro entitlements, and a rating needs a vendor to hang off.
+    if plan != "free":
+        create_staff(session, "Ellis Barnard", role="groundskeeper",
+                     property_id_or_slug=created[1].slug)
+        create_task(session, "Winterise the cabin", created[1].slug, priority=TaskPriority.HIGH)
+        create_task(session, "Rake the beach path", created[2].slug, priority=TaskPriority.LOW)
+        create_issue(session, "Deck board is loose", created[2].slug,
+                     severity=IssueSeverity.MEDIUM)
+
+        create_vendor(session, "Kestrel Plumbing", contact_name="Ray Kestrel",
+                      phone="555-0410", service_categories=["plumbing"])
+        create_vendor(session, "Birchwood Landscaping", contact_name="Nina Ho",
+                      phone="555-0411", service_categories=["landscaping"])
+
+    homes_n = len(created)
+    staff_n = 1 if plan == "free" else 2
+    tasks_n = 3 if plan == "free" else 5
+    issues_n = 2 if plan == "free" else 3
+    vendors_n = 0 if plan == "free" else 2
+    return (f"{homes_n} propert{'y' if homes_n == 1 else 'ies'}, {tasks_n} tasks, "
+            f"{issues_n} issues, {staff_n} staff, {vendors_n} vendors")
+
+
+def reset_plans(engine) -> None:
+    """Put both testers back on their intended plan — `py scripts/seed_tiers.py --reset`.
+
+    **The Free tester does not stay Free if you use it.** Exceeding a plan limit is what starts
+    the app's no-card trial: `_check_home_entitlement` denies `property.add`, then calls
+    `maybe_start_trial`, which is §4.2's deliberate design — *"a trial that starts at signup is
+    often burned before the 2nd home appears"*. Measured here: adding a second home to the Free
+    tester left it `plan='pro'` with `trial_ends_at` set, i.e. no longer a Free account at all.
+
+    That is the product behaving correctly, and it is also a tester that has stopped testing what
+    it was made for. This puts it back rather than requiring the accounts be dropped and reseeded
+    (which would discard the mock data along with them).
+
+    **Homes added past the cap are removed too, newest first.** Restoring `plan` alone would
+    leave a Free account holding two homes — over its own limit, which is a state the product
+    cannot itself produce, so every later `can("property.add")` reads from a position the app
+    would never have allowed. The seeded homes are the oldest rows and are kept.
+    """
+    plan_caps = {"free": 1, "pro": 5}
+
+    with engine.begin() as c:
+        for spec in TESTERS:
+            c.execute(
+                text(
+                    "UPDATE accounts SET plan = :p, subscription_status = 'active',"
+                    " trial_ends_at = NULL, trial_used_at = NULL WHERE slug = :s"
+                ),
+                {"p": spec["plan"], "s": spec["slug"]},
+            )
+
+            # Delete by `created_at DESC` rather than by name: a home added through the UI has
+            # whatever name the tester typed, so matching on a known string would miss it.
+            removed = c.execute(
+                text(
+                    "DELETE FROM properties WHERE id IN ("
+                    "  SELECT p.id FROM properties p"
+                    "  JOIN accounts a ON a.id = p.account_id"
+                    "  WHERE a.slug = :s ORDER BY p.created_at DESC, p.id DESC"
+                    "  LIMIT GREATEST(("
+                    "    SELECT count(*) FROM properties p2"
+                    "    JOIN accounts a2 ON a2.id = p2.account_id WHERE a2.slug = :s"
+                    "  ) - :cap, 0))"
+                ),
+                {"s": spec["slug"], "cap": plan_caps[spec["plan"]]},
+            ).rowcount
+
+            row = c.execute(
+                text(
+                    "SELECT a.plan, count(p.id) FROM accounts a"
+                    " LEFT JOIN properties p ON p.account_id = a.id"
+                    " WHERE a.slug = :s GROUP BY a.plan"
+                ),
+                {"s": spec["slug"]},
+            ).first()
+            if row:
+                extra = f", removed {removed} over-cap propert{'y' if removed == 1 else 'ies'}" \
+                    if removed else ""
+                print(f"{spec['slug']}: plan={row[0]}, {row[1]} properties{extra}")
+            else:
+                print(f"{spec['slug']}: not seeded yet")
+    print("\nTrial cleared. Note the Free tester is at its 1-home cap: adding another "
+          "restarts the trial.")
+
+
+def main() -> None:
+    engine = create_engine(URL, future=True)
+    Session = sessionmaker(bind=engine, future=True)
+
+    with engine.connect() as c:
+        if not c.execute(text("SELECT to_regclass('public.accounts')")).scalar():
+            sys.exit(f"{DB} has no schema — run `py scripts/dev_setup.py` first")
+
+    if "--reset" in sys.argv:
+        reset_plans(engine)
+        return
+
+    from mihomes.auth import sessions as sess
+    from mihomes.auth.password_identity import create_password_user, find_password_user
+    from mihomes.ids import new_id
+    from mihomes.tenancy import current_account as current_account_var
+    from mihomes.tenancy.connection import bind_account_guc
+
+    cookies = []
+
+    for spec in TESTERS:
+        with Session() as s:
+            existing = s.execute(
+                text("SELECT id FROM accounts WHERE slug = :s"), {"s": spec["slug"]}
+            ).scalar()
+            if existing:
+                print(f"{spec['slug']}: already exists — skipping")
+                continue
+
+            # --- user ---------------------------------------------------------------
+            user = find_password_user(s, spec["email"])
+            if user is None:
+                user = create_password_user(
+                    s, email=spec["email"], password=PASSWORD, name=spec["name"]
+                )
+                s.flush()
+            # Read now, while attached: `commit()` expires the instance, and touching
+            # `user.id` afterwards raises `DetachedInstanceError`.
+            user_id = user.id
+
+            # --- account ------------------------------------------------------------
+            # Written directly rather than through `create_account_step`, which hardcodes
+            # `plan="free"` and would need the plan overwritten immediately after. The
+            # billing columns are the webhook's to own (`BILLING` 5-6); there is no service
+            # that sets them, because in production Stripe does.
+            account_id = new_id()
+            s.execute(
+                text(
+                    "INSERT INTO accounts (id, slug, name, type, plan, subscription_status,"
+                    " created_at, updated_at)"
+                    " VALUES (:i, :s, :n, 'household', :p, 'active', now(), now())"
+                ),
+                {"i": account_id, "s": spec["slug"], "n": spec["account"], "p": spec["plan"]},
+            )
+            s.flush()
+
+            # --- owner membership + content ------------------------------------------
+            # Both halves of the tenant binding, per `create_account_step`'s note: the GUC
+            # covers the transaction already open (RLS `WITH CHECK` reads
+            # `app.current_account`), and the ContextVar covers every later `after_begin`,
+            # including the SAVEPOINTs the services open. Either alone leaves a hole.
+            token = current_account_var.set(account_id)
+            try:
+                bind_account_guc(s, account_id)
+                s.execute(
+                    text(
+                        "INSERT INTO memberships (id, account_id, user_id, role, status,"
+                        " created_at) VALUES (:i, :a, :u, 'owner', 'active', now())"
+                    ),
+                    {"i": new_id(), "a": account_id, "u": user_id},
+                )
+                s.flush()
+                summary = seed_content(s, spec["plan"])
+
+                # Inside the binding: `sessions` is tenant-owned too, so the stamp listener
+                # reads `current_account` and raises `LookupError` when it is unset.
+                raw, _row = sess.create_session(s, user_id=user_id)
+
+                # `current_account_id` is what `resolve_principal` reads; a session without it
+                # 403s on every route. `create_session` is called directly here — there is no
+                # request for `establish_session` to work from — so it is set explicitly.
+                #
+                # **In the same transaction as the session row**, not after the commit.
+                # `dev_setup.py` does this as a separate `engine.begin()`, and a crash in
+                # between leaves a valid-looking cookie bound to no account — measured here on
+                # the first run, where the Free tester committed and then the Pro tester raised,
+                # stranding Free with `current_account_id IS NULL`.
+                s.execute(
+                    text("UPDATE sessions SET current_account_id = :a WHERE id = :i"),
+                    {"a": account_id, "i": _row.id},
+                )
+            finally:
+                current_account_var.reset(token)
+
+            s.commit()
+
+        print(f"{spec['slug']}: {spec['plan']} plan — {summary}")
+        cookies.append((spec, raw))
+
+    if not cookies:
+        print("\nnothing to do — both testers already exist")
+        print_howto()
+        return
+
+    print_howto(cookies)
+
+
+def print_howto(cookies: list | None = None) -> None:
+    """How to actually reach these accounts in a browser.
+
+    **Printed rather than left to a README** because the two env vars are not guessable and
+    getting either wrong fails in a way that does not name the cause:
+
+    - without `DATABASE_URL` the server uses the configured default, where these accounts do
+      not exist — an empty app rather than an error
+    - as `postgres` the server refuses to start at all (N5, `verify_runtime_role`), because a
+      superuser bypasses RLS silently
+
+    `mihomes-dev` hardcodes port 5000, so anything already bound there — an SSH tunnel to the
+    VM, for instance — has to be closed first, or this server cannot bind and the browser keeps
+    showing the other thing entirely.
+
+    **Says where the accounts actually landed**, because that is the fact people get wrong. The
+    accounts live in whichever database this run wrote to; a browser pointed at a *different*
+    install answers 401, which reads as a broken account rather than a wrong address.
+    """
+    from mihomes.auth import sessions as sess
+
+    remote = DB != "mihomes_dev"
+
+    print()
+    print("=" * 78)
+    print(f"  These accounts are in the database: {DB}")
+    print()
+    if remote:
+        # Seeded into a server-side database (the VM). The server there is already running
+        # against it, so there is nothing to start — saying "set DATABASE_URL and run
+        # mihomes-dev" here would send the reader to the wrong machine.
+        print("  That is the database the running server already uses, so just sign in at")
+        print("  whichever address you normally use — via the SSH tunnel, http://localhost:5000")
+    else:
+        print("  Start the server against it:")
+        print()
+        print('      $env:DATABASE_URL  = "postgresql+psycopg://'
+              f'{APP_ROLE}:{APP_ROLE_PASSWORD}@127.0.0.1:5432/{DB}"')
+        print('      $env:MIHOMES_SECRET_KEY = "<any 44-char base64 key>"')
+        print("      mihomes-dev")
+        print()
+        print("  Port 5000 must be free first — `netstat -ano | findstr :5000`. If an SSH tunnel")
+        print("  to the VM is bound there, localhost:5000 is the VM, not this database.")
+        print()
+        print("  Then sign in at http://localhost:5000/login")
+    print()
+    for spec in TESTERS:
+        print(f"      {spec['email']:<18} {PASSWORD}    ({spec['plan']})")
+    if cookies:
+        print()
+        print("  Or paste a cookie into the browser CONSOLE (F12) to skip the form:")
+        print()
+        for spec, raw in cookies:
+            print(f"    # {spec['plan']}")
+            print(f'    document.cookie = "{sess.SESSION_COOKIE}={raw}; '
+                  'path=/"; location.reload();')
+    print("=" * 78)
+
+
+if __name__ == "__main__":
+    main()

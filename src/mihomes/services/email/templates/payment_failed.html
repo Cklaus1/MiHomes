@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% from "_button.html" import button %}
+
+{% block subject %}Payment failed — update your card to keep MiHomes {{ plan|capitalize }}{% endblock %}
+
+{% block content %}
+  <p style="margin:0 0 16px;">Hi,</p>
+
+  <p style="margin:0 0 24px;">
+    We could not take payment for your MiHomes
+    <strong>{{ plan|capitalize }}</strong> plan.
+  </p>
+
+  {# D10: past_due is the grace window and keeps full access. Saying so is the
+     difference between a customer who updates their card and one who assumes they
+     have been locked out and gives up. #}
+  <p style="margin:0 0 24px;">
+    <strong>Nothing has changed yet</strong> — your account is working normally
+    while we retry.{% if grace_days %} You have about {{ grace_days }} days to
+    update your card.{% endif %}
+  </p>
+
+  {{ button(billing_url, "Update payment method") }}
+
+  <p style="margin:0;color:#6b6b66;font-size:14px;">
+    Already fixed it? You can ignore this — the next attempt will go through.
+  </p>
+{% endblock %}

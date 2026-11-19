@@ -1,5 +1,7 @@
 """Staff service — CRUD and property assignment."""
 
+import uuid
+
 from sqlalchemy.orm import Session
 
 from mihomes.models.property import Property
@@ -21,7 +23,15 @@ def create_staff(
     certifications: str | None = None,
     property_id_or_slug: str | None = None,
     slug: str | None = None,
+    user_id: uuid.UUID | None = None,
 ) -> Staff:
+    """Create a staff record.
+
+    `user_id` links the record to a MiHomes login (SPEC-003 U6) and is what
+    `authz/query_scope.py` filters `PERSONNEL` on, so it decides who may read this row. It is
+    keyword-only and deliberately absent from the web form's parameter list — see the note on
+    `update_staff`.
+    """
     name = validate_name(name, "staff")
     slug = ensure_unique_slug(session, Staff, slug or generate_slug(name))
     member = Staff(
@@ -32,6 +42,7 @@ def create_staff(
         email=email,
         whatsapp_phone=whatsapp_phone,
         certifications=certifications,
+        user_id=user_id,
     )
     if property_id_or_slug:
         prop = resolve_identifier(session, Property, property_id_or_slug)
@@ -67,6 +78,20 @@ def get_staff(session: Session, id_or_slug: str) -> Staff:
 
 
 def update_staff(session: Session, id_or_slug: str, **kwargs) -> Staff:
+    """Update a staff record from arbitrary keyword arguments.
+
+    **`user_id` is settable here, and that is a sharper edge than it looks.** `safe_update` applies
+    any key matching a real column, so `update_staff(db, slug, user_id=...)` works — and after
+    SPEC-003 U6 that column decides *who may read the row*, since `authz/query_scope.py` filters
+    `PERSONNEL` on it. A staff member who could set it on their own record could point it at a
+    colleague's and read that record instead.
+
+    They cannot, today, and the reason is worth stating rather than relying on: `web/routes/staff.py
+    edit_staff` builds its `kwargs` from an explicit list of named `Form(...)` parameters, so an
+    extra field in the POST body is discarded by FastAPI before this function sees it — and
+    `tests/unit/test_staff_user_link.py::test_the_edit_form_cannot_set_user_id` pins that. If a
+    future route ever forwards raw form data here, the filter must move into this function.
+    """
     member = resolve_identifier(session, Staff, id_or_slug)
     old_snap = snapshot_instance(member)
     if "name" in kwargs and "slug" not in kwargs:

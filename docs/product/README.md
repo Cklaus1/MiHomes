@@ -23,6 +23,16 @@
 | **[TELEGRAM_PRD.md](TELEGRAM_PRD.md)** | Current Telegram gateway analysis + capability roadmap (growth bet) |
 | **[TWILIO_PRD.md](TWILIO_PRD.md)** | New Twilio gateway: SMS/MMS/Voice + official WhatsApp Business (growth bet) |
 | **[VENDOR_DISCOVERY_PRD.md](VENDOR_DISCOVERY_PRD.md)** | AI vendor research + public star ratings marketplace (growth bet) |
+| **[OMNICHANNEL_GATEWAY_PRD.md](OMNICHANNEL_GATEWAY_PRD.md)** | Unifying WhatsApp/Telegram/Twilio behind one core (growth bet). **Partially repaired 2026-08-05** — see below |
+| **[WHATSAPP_GATEWAY_PRD.md](WHATSAPP_GATEWAY_PRD.md)** | WhatsApp Business Cloud API gateway (growth bet). **Partially repaired 2026-08-05** — see below |
+| **[SMART_DEVICES_PRD.md](SMART_DEVICES_PRD.md)** | A Home-Assistant-style control panel: Ring cameras live on the dashboard with alerts on them, plus every HA integration seen and controlled (growth bet). Requirements only — 13 open decisions (O0 hub per home, O1 US-only Ring); SPEC-015 to follow |
+
+> **Read the two gateway PRDs with care.** They were added after the other ten and, unlike them,
+> made factual claims about the existing code that did not hold — catalogued in
+> [`../PRD_REVIEW.md`](../PRD_REVIEW.md) §G. The load-bearing errors were corrected on 2026-08-05
+> (`docs/specs/SPEC-006-gateways-tenancy-webhook-cloud-api.md` §2), and each correction is marked
+> inline in the document it fixes. Sections not explicitly corrected have **not** been re-verified.
+> The buildable statement of this work is SPEC-006, not these two documents.
 
 ### Architecture (`docs/architecture/`)
 | Doc | What it answers |
@@ -47,6 +57,7 @@ Every doc in this set is written against these. If one changes, update the maste
 | **Upgrade trigger** | 2nd home, 4th seat, or inviting external staff |
 | **Payments** | Stripe Billing behind `BillingProvider` |
 | **Email** | Resend behind `EmailProvider` (failover to Postmark/SES) |
+| **Hosting** | Fly.io, single region; S3-compatible object storage for uploads (not Fly volumes) |
 | **Launch** | Landing + waitlist first, then the multi-tenant MVP |
 
 ---
@@ -57,8 +68,8 @@ Every doc in this set is written against these. If one changes, update the maste
 |---|---|---|
 | **0** | Landing + Waitlist | Promo page, waitlist + confirmation email, Google sign-in **stub** (email capture only), DNS/email setup |
 | **1** | Multitenant Foundation | Postgres, accounts/users/memberships, tenant scoping + RLS, auth, sessions |
-| **2** | Onboarding + Team + RBAC | Onboarding flow, staff invites, role enforcement, account switcher |
-| **3** | Billing / Freemium | Stripe Checkout + Portal, webhooks, entitlements service, plan gates |
+| **2** | Onboarding + Team + RBAC | Onboarding flow, staff invites, role enforcement, account switcher, **entitlements service (config-only — all accounts Free)** |
+| **3** | Billing / Freemium | Stripe Checkout + Portal, webhooks, **billing status wired into entitlements**, plan gates |
 | **4** | Polish + Email + GA | Full email lifecycle, dunning, hardening, public launch |
 | **4+** | Growth bets | Vendor Discovery, Twilio gateway, expanded Telegram |
 

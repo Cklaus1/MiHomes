@@ -9,9 +9,6 @@ from datetime import date
 
 from sqlalchemy.orm import Session
 
-from mihomes.services.config_service import get_config
-
-
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
@@ -192,25 +189,18 @@ def get_forecast_for_property(session: Session, prop) -> WeatherForecast | None:
     Fetch weather for a Property model instance.
     Geocodes the address on first call and caches lat/lon on the record.
 
-    Geocoding priority:
+    Location comes from the property alone:
       1. Cached lat/lon on the property record
-      2. Property address
-      3. `weather.default_location` config value (e.g. "Atlanta, GA")
-    Returns None if no location can be resolved or geocoding fails.
+      2. The property's address
+    Returns None when the property has no address or it can't be geocoded — the property then
+    shows no weather. There is deliberately no estate-wide fallback location (removed
+    2026-10-15): it was appended to every address before geocoding and, on a miss, showed that
+    fallback city's weather under the property's name, which is worse than showing none.
     """
     if prop.latitude is None or prop.longitude is None:
-        default_location = get_config(session, "weather.default_location")
-
-        if prop.address:
-            # Try full address with city hint first, then fall back to city only.
-            # Private roads and demo addresses may not exist in Nominatim.
-            location = f"{prop.address}, {default_location}" if default_location else prop.address
-            coords = geocode_address(location)
-            if coords is None and default_location:
-                coords = geocode_address(default_location)
-        else:
-            coords = geocode_address(default_location) if default_location else None
-
+        if not prop.address:
+            return None
+        coords = geocode_address(prop.address)
         if coords is None:
             return None
         prop.latitude, prop.longitude = coords
@@ -235,7 +225,8 @@ def generate_weather_alerts(session: Session) -> int:
     """
     import re
     from collections import defaultdict
-    from mihomes.models.alert import Alert, AlertSeverity, AlertStatus
+
+    from mihomes.models.alert import Alert, AlertStatus
     from mihomes.models.property import Property
 
     _zip_re = re.compile(r'\b(\d{5})(?:-\d{4})?\b')
@@ -337,7 +328,7 @@ def _assess_day(day: DailyForecast, prop_name: str) -> list[tuple]:
     if day.weather_code in (96, 99):
         results.append((
             AlertSeverity.HIGH,
-            f"Thunderstorm with hail forecast — secure vehicles and outdoor equipment",
+            "Thunderstorm with hail forecast — secure vehicles and outdoor equipment",
             "hail",
         ))
 

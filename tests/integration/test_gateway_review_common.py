@@ -34,9 +34,12 @@ def capture():
 
 
 def _dispatch(session, items, adapter, prop_slug, messages=None):
+    # SPEC-006 A11: `account` is required and never defaulted (D11). `bound_account()` is the
+    # tenant this test's session is already scoped to, which is what the responders pass.
     return rc.dispatch_items(
         session,
         items,
+        account=rc.bound_account(),
         adapter=adapter,
         reply_target="chat-1",
         messages=messages or [],
@@ -90,15 +93,39 @@ def test_parse_event_date_garbage_and_none():
 
 
 # --------------------------------------------------------------------------- #
-# H26 — uploads dir resolves to the real package directory for BOTH gateways
+# Issue photos go to tenant storage, never the public /static mount (SPEC-013 D10)
 # --------------------------------------------------------------------------- #
-def test_uploads_dir_is_real_package_path():
-    p = rc.uploads_dir()
-    assert p.parts[-3:] == ("web", "static", "uploads")
-    # Anchored inside the installed mihomes package, not a phantom src/web.
-    assert "mihomes" in p.parts
-    # It exists (helper creates it) and is a directory.
-    assert p.is_dir()
+def test_issue_photos_are_stored_privately(session, prop, capture, tmp_path, monkeypatch):
+    """H26 fixed WHERE the copy landed; the copy itself was the leak. `web/static/uploads` is
+    inside the unauthenticated `/static` mount, so a gateway photo was readable by anyone with
+    its URL. Photos now go to tenant-keyed storage, served only by `/documents/file/<key>`."""
+    from pathlib import Path
+
+    from mihomes.models.document import Document
+    from mihomes.storage import get_storage, key_account, reset_storage
+
+    monkeypatch.delenv("STORAGE_PROVIDER", raising=False)
+    reset_storage()
+    storage = get_storage(refresh=True, override_root=tmp_path / "objects")
+    public = Path(rc.__file__).resolve().parents[2] / "web" / "static" / "uploads"
+    before = set(public.iterdir()) if public.exists() else set()
+    try:
+        photo = tmp_path / "leak.jpg"
+        photo.write_bytes(b"\xff\xd8\xff fake jpeg")
+        adapter, _sent = capture
+        msg = {"id": "1", "jid": "-1", "isGroup": True, "sender": "1", "senderName": "A",
+               "text": "", "hasMedia": True, "mediaPath": str(photo), "timestamp": ""}
+        _dispatch(session, [{"category": "issue", "title": "Cracked tile", "severity": "low",
+                             "property_slug": prop.slug}], adapter, prop.slug, messages=[msg])
+
+        (doc,) = session.query(Document).filter(Document.entity_type == "issue").all()
+        assert not doc.file_path.startswith("/static/"), doc.file_path
+        assert key_account(doc.file_path) == str(doc.account_id)
+        assert storage.get(doc.file_path) == b"\xff\xd8\xff fake jpeg"
+        assert (set(public.iterdir()) if public.exists() else set()) == before, \
+            "nothing may be written into the public /static/uploads"
+    finally:
+        reset_storage()
 
 
 # --------------------------------------------------------------------------- #
@@ -186,25 +213,44 @@ def test_dispatch_unknown_category_skipped_not_crashed(session, prop, capture):
 
 
 # --------------------------------------------------------------------------- #
-# H27 — ai_response rolls back the session on provider failure
+# H27 — an AI failure must leave the session usable WITHOUT discarding the batch
 # --------------------------------------------------------------------------- #
-def test_ai_response_rolls_back_on_failure(session, monkeypatch):
-    calls = {"rollback": 0}
-    real_rollback = session.rollback
-
-    def _tracked_rollback():
-        calls["rollback"] += 1
-        return real_rollback()
-
-    monkeypatch.setattr(session, "rollback", _tracked_rollback)
+# The first H27 fix was a full `session.rollback()`. That kept the session usable, but it also
+# threw away every write already made in the batch: an issue created a moment before its expert
+# reply failed vanished, while `dispatch_items` still counted it and sent "logged ✓". The fix is a
+# SAVEPOINT around the AI call, so only the AI call's own work is undone.
+def test_ai_failure_keeps_writes_made_before_it(session, prop, capture, monkeypatch):
+    from mihomes.models.issue import Issue
 
     def _boom(*a, **k):
         raise RuntimeError("provider exploded")
 
     monkeypatch.setattr("mihomes.services.ai.orchestrator.ask", _boom)
+    adapter, sent = capture
+    items = [{"category": "issue", "title": "Gate motor jammed", "severity": "high"}]
+    result = _dispatch(session, items, adapter, prop.slug)
+
+    assert result["logged"] == 1
+    assert sent and "Gate motor jammed" in sent[0][1]
+    # The reported write is really there — not rolled back behind the confirmation.
+    assert session.query(Issue).filter(Issue.title == "Gate motor jammed").count() == 1
+
+
+def test_ai_failure_inside_the_database_leaves_the_session_usable(session, prop, monkeypatch):
+    """H27's original concern: a failed statement aborts a Postgres transaction."""
+    from sqlalchemy import text
+
+    from mihomes.models.issue import Issue
+
+    def _bad_sql(sess, *a, **k):
+        sess.execute(text("SELECT * FROM no_such_table_h27"))
+
+    monkeypatch.setattr("mihomes.services.ai.orchestrator.ask", _bad_sql)
     out = rc.ai_response(session, "any prompt", role="maintenance", property_slug=None)
     assert out is None
-    assert calls["rollback"] == 1
+    # Not "current transaction is aborted": the savepoint absorbed the failure.
+    assert session.query(Issue).count() >= 0
+    assert session.get(type(prop), prop.id) is not None
 
 
 def test_ai_response_strips_markdown_and_handles_no_response(session, monkeypatch):

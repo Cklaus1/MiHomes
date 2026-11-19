@@ -1,0 +1,7 @@
+{# Sidebar chat badge: total unread over the viewer's visible conversations (A24). Re-polls every
+   60 s and whenever a conversation is marked read (D14). Expects: count. #}
+<span id="nav-chat-badge"
+      hx-get="/chat/unread-badge" hx-trigger="every 60s, chat-read from:body" hx-swap="outerHTML"
+      {% if count > 0 %}class="inline-flex items-center justify-center min-w-[20px] h-5 px-1 text-xs font-bold bg-brand-600 text-white rounded-full"{% endif %}>
+  {%- if count > 0 %}{{ count if count < 100 else '99+' }}{% endif -%}
+</span>

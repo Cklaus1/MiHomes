@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% from "_button.html" import button %}
+{# Sent once when someone joins the waitlist on mihomes.ai (2026-11-18). Replaces the double
+   opt-in confirmation. Keeps the homepage's three promises and nothing more: a founding-member
+   offer (terms undecided, so no details), an email when their spot opens, no spam.
+   Features named here are the ones the homepage names; Telegram only for message intake. #}
+
+{% block subject %}You're on the MiHomes waitlist{% endblock %}
+
+{% block content %}
+  <p style="margin:0 0 16px;">{% if name %}Hi {{ name }},{% else %}Hi,{% endif %}</p>
+
+  <p style="margin:0 0 16px;">
+    Thanks for joining the MiHomes waitlist. You're on the list.
+  </p>
+
+  <p style="margin:0 0 24px;">
+    We're opening MiHomes in stages, a few households at a time. When your spot opens, we'll
+    email you a personal invitation link to set up your account.
+  </p>
+
+  <p style="margin:0 0 8px;font-weight:600;">What's waiting for you</p>
+  <ul style="margin:0 0 24px;padding:0 0 0 20px;">
+    <li style="margin:0 0 8px;"><strong>An AI estate manager</strong> that ranks what needs
+      attention across every home: safety first, then who's arriving, upkeep, deadlines and
+      costs.</li>
+    <li style="margin:0 0 8px;"><strong>One profile per home</strong>, with its rooms, systems
+      and documents.</li>
+    <li style="margin:0 0 8px;"><strong>Tasks and issues</strong> tracked to resolution, with
+      your staff and vendors in one place.</li>
+    <li style="margin:0 0 8px;"><strong>Reports from Telegram.</strong> Staff forward a message
+      and MiHomes turns it into a task or issue against the right home.</li>
+    <li style="margin:0;"><strong>Costs and vendor spend</strong>, home by home.</li>
+  </ul>
+
+  <p style="margin:0 0 16px;">
+    As an early member, you'll get a founding-member offer when we launch.
+  </p>
+
+  <p style="margin:0 0 28px;">
+    Until then, we'll send the occasional update on the launch and what's new. No spam.
+  </p>
+
+  {{ button(site_url, "See what's coming") }}
+
+  <p style="margin:0;">The MiHomes team</p>
+{% endblock %}
+
+{% block footer_reason %}You received this because you joined the MiHomes waitlist.{% endblock %}
+
+{% block footer_extra %}
+  <a href="{{ unsubscribe_url }}" style="color:#6b6b66;">Unsubscribe from waitlist emails</a>.
+{% endblock %}

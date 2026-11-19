@@ -1,12 +1,15 @@
 """Document model — file and document tracking with polymorphic entity linking."""
 
 import enum
+import uuid
 from datetime import date
 
-from sqlalchemy import Date, Enum, Integer, String, Text
+from sqlalchemy import Boolean, Date, Enum, String, Text, UniqueConstraint, text
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from mihomes.models import Base, SlugMixin, TimestampMixin
+from mihomes.ids import new_id
+from mihomes.models import Base, SlugMixin, TenantOwned, TimestampMixin
 
 
 class DocumentType(str, enum.Enum):
@@ -17,20 +20,33 @@ class DocumentType(str, enum.Enum):
     INSURANCE = "insurance"
     PERMIT = "permit"
     REGULATION = "regulation"
-    SOP = "sop"
     REPORT = "report"
     PHOTO = "photo"
     OTHER = "other"
 
 
-class Document(Base, TimestampMixin, SlugMixin):
+class Document(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "documents"
+    __table_args__ = (
+        UniqueConstraint("account_id", "slug", name="uq_documents_account_slug"),
+    )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=new_id
+    )
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     file_path: Mapped[str] = mapped_column(String(500), nullable=False)
     document_type: Mapped[DocumentType] = mapped_column(Enum(DocumentType), nullable=False)
     entity_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    entity_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    entity_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     expires_at: Mapped[date | None] = mapped_column(Date, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # D13 — owner/admin controlled, **default false, fail closed**: "a housekeeper sees an
+    # appliance manual once it is ticked; a newly uploaded invoice is never exposed by default."
+    #
+    # `server_default` rather than a Python-side default on purpose. A constructor default would
+    # leave rows inserted by raw SQL, a migration, or the importer silently visible — and D13's
+    # posture is that a document is hidden unless something positively authorises it.
+    staff_visible: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )

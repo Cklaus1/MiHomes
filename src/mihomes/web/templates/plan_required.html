@@ -1,0 +1,35 @@
+{# The paywall — shown when a plan gate refuses (402).
+
+   **Extends `base.html`, unlike `error.html`.** That page is deliberately standalone because it
+   renders when the principal chain may itself be broken, and inheriting the layout risks a
+   second exception with nowhere to send it. None of that applies here: an entitlement denial
+   means the user is signed in with a working account, so taking their navigation away would
+   make a routine paywall feel like a crash — the exact impression this page exists to remove.
+
+   `PRICING` rule 4: every denial names the plan that would allow it. `upgrade_target` comes off
+   the decision, so an Estate-only feature says Estate even when the user is on Free.
+
+   The choice itself is `partials/upgrade_choice.html`, shared with the inline upgrade popups so
+   the paywall and the popup offer the same three things (trial / see plans / stay on Free).
+   `headline` is the plain-language version `errors._plan_headline` builds; the service's raw
+   reason (e.g. "free allows 1 (max_homes); 1 in use") is kept as small print. #}
+{% extends "base.html" %}
+{% block title %}Upgrade required — MiHomes{% endblock %}
+{% block heading %}Upgrade required{% endblock %}
+{% block content %}
+<div class="max-w-md mx-auto py-6 sm:py-10">
+  <a href="{{ back_href or '/' }}" class="mb-4 inline-flex items-center gap-1 py-2 text-sm text-gray-600 hover:text-gray-900">
+    <span aria-hidden="true">&larr;</span> Go back
+  </a>
+
+  <div class="rounded-xl border border-gray-200 bg-white p-6" data-testid="upgrade-choice">
+    {% include "partials/upgrade_choice.html" %}
+  </div>
+
+  {# Nothing was lost: these gates refuse *before* the write, so the user's data is untouched.
+     Saying so prevents the "did that half-save?" worry a bare refusal leaves behind. #}
+  <p class="mt-4 text-sm text-gray-500">
+    Nothing was changed — the action was stopped before anything was saved.
+  </p>
+</div>
+{% endblock %}

@@ -78,6 +78,7 @@ def test_untrusted_sender_cannot_log_expense(session, capture, prop):
     items = [{"category": "expense_log", "title": "Cash", "amount": 5000, "property_slug": prop.slug}]
     result = rc.dispatch_items(
         session, items,
+        account=rc.bound_account(),
         adapter=adapter,
         reply_target="chat-A",
         messages=[],
@@ -93,6 +94,7 @@ def test_trusted_sender_can_log_expense(session, capture, prop):
     items = [{"category": "expense_log", "title": "Repair", "amount": 42.0, "property_slug": prop.slug}]
     result = rc.dispatch_items(
         session, items,
+        account=rc.bound_account(),
         adapter=adapter,
         reply_target="chat-A",
         messages=[],
@@ -109,6 +111,7 @@ def test_non_sensitive_category_unaffected_by_trust(session, capture, prop):
     items = [{"category": "issue", "title": "Boiler leaking", "severity": "high", "property_slug": prop.slug}]
     result = rc.dispatch_items(
         session, items,
+        account=rc.bound_account(),
         adapter=adapter,
         reply_target="chat-A",
         messages=[],
@@ -133,3 +136,61 @@ def test_is_trusted_sender_rejects_stranger(session, prop):
     assert rc.is_trusted_sender(
         session, {"sender": "19998887777@s.whatsapp.net"}, gateway="whatsapp"
     ) is False
+
+
+# --------------------------------------------------------------------------- #
+# SPEC-006 A12 (D8) — trust is resolved WITHIN an account
+# --------------------------------------------------------------------------- #
+def test_trust_is_account_scoped(session, account_a, account_b, prop):
+    """**A12** — `is_trusted_sender` never matches staff from another account.
+
+    The staff-match branch ran `session.query(Staff).filter(whatsapp_phone is not None)` with
+    **no account filter**, and trust here is the gate on *money and PTO* actions (M27).
+
+    **Measured honestly: on a tenancy-scoped session this test passes with or without the
+    explicit filter** — probed directly, an unfiltered `session.query(Staff)` bound to account
+    A returns `[]` when the only matching staff member lives in B, because `query_scope`
+    already applies the tenant criteria. So this test does *not*, on its own, prove the filter
+    added in G4 is load-bearing.
+
+    It is kept, and the filter is kept, for the case the session cannot cover: an **unscoped**
+    session, which is exactly the state the webhook edge is in before `resolve_sender` has run
+    (§5.1's carve-out). There the ORM listener applies nothing, and without the explicit filter
+    a phone registered in B is trusted in A. Defence in depth, stated as such rather than
+    claimed as the primary mechanism.
+
+    **Written at module level deliberately**, despite §8 declaring a bare node id and this
+    file's own flat convention agreeing: harness C10 records that a nested name would not
+    resolve under `--collect`, and the pending-set expiry test cannot catch that.
+
+    Paired, because "B's staff are not trusted in A" is vacuously true if nobody is ever
+    trusted: the same phone is registered to a staff member in A and asserted trusted there.
+    """
+    from mihomes.services.staff import create_staff
+    from mihomes.tenancy.context import account_context
+
+    phone = "+15557654321"
+    message = {"sender": "15557654321@s.whatsapp.net"}
+
+    # A staff member with this phone exists in account B, and ONLY in B.
+    with account_context(account_b):
+        create_staff(session, "B Housekeeper", role="housekeeper", whatsapp_phone=phone)
+        session.flush()
+
+    # --- negative: B's staff member is not trusted in A ---------------------------------
+    assert (
+        rc.is_trusted_sender(session, message, gateway="whatsapp", account=account_a)
+        is False
+    ), (
+        "a staff phone registered in account B was trusted in account A — that sender could "
+        "log expenses and file PTO against an estate they have nothing to do with (D8)"
+    )
+
+    # --- positive: the same phone, registered in A, IS trusted there ---------------------
+    # Without this the assertion above passes for a function that trusts nobody at all.
+    create_staff(session, "A Housekeeper", role="housekeeper", whatsapp_phone=phone)
+    session.flush()
+    assert (
+        rc.is_trusted_sender(session, message, gateway="whatsapp", account=account_a)
+        is True
+    ), "a staff member in the caller's own account must still be trusted"

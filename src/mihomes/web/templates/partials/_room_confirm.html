@@ -1,0 +1,13 @@
+{# One confirmation for deleting a room, used by the property page and the Rooms page (they had
+   different copy, and neither said what happens to the contents). `contents` is the
+   {"assets": n, "books": n} entry from space_svc.content_counts; delete_space keeps every
+   asset, book and issue and only clears its room. #}
+{% macro room_delete_confirm(space, contents) -%}
+{%- set a = (contents or {}).get('assets', 0) -%}
+{%- set b = (contents or {}).get('books', 0) -%}
+{%- if a or b -%}
+Delete {{ space.name }}? Its {% if a %}{{ a }} asset{{ 's' if a != 1 }}{% endif %}{% if a and b %} and {% endif %}{% if b %}{{ b }} book{{ 's' if b != 1 }}{% endif %} will be kept but unassigned from a room.
+{%- else -%}
+Delete {{ space.name }}? The room is empty, so nothing else changes.
+{%- endif -%}
+{%- endmacro %}

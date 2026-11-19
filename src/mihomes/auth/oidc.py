@@ -1,0 +1,252 @@
+"""G12 · §6 Step 12 — the identity provider (A15).
+
+**The token verification is SPEC-001's, not a second implementation.** `landing/oauth.py` already
+does the real work — JWKS fetch, signature check, `aud`/`iss`/`exp` validation with a 60-second
+skew — and it has tests. Writing a second verifier would mean two places to get `aud` wrong, and the
+one that is not being read is the one that rots. This module wraps it behind a Protocol so tests can
+substitute a fake without patching a live HTTP call, and adds the part Phase 0 deliberately refused:
+a `users` row.
+
+**`sub` is the identity, not the email.** Google's `sub` is stable and unique forever; an email
+address can change hands or be re-assigned within a workspace. Upserting on email would eventually
+hand one person's account to another. The email is stored for display only, and refreshed on each
+sign-in so the UI does not show a stale address.
+
+**`email_verified` is enforced.** Google will issue an ID token for an unverified address; treating
+that as an identity lets someone claim an email they do not control if the provider ever permits an
+unverified sign-up.
+"""
+
+from __future__ import annotations
+
+import uuid
+from dataclasses import dataclass
+from typing import Protocol, runtime_checkable
+
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session as DbSession
+
+from mihomes.models.user import User
+
+__all__ = [
+    "GoogleOIDCProvider",
+    "IdentityClaims",
+    "IdentityProvider",
+    "InvalidIdentityToken",
+    "PasswordAccountExists",
+    "upsert_user",
+]
+
+
+class InvalidIdentityToken(Exception):
+    """The ID token could not be verified, or its claims are unusable."""
+
+
+class SignupClosed(Exception):
+    """This Google identity has no account yet, and new accounts need an invitation.
+
+    Raised by `upsert_user(..., allow_create=False)` — waitlist mode (`auth/signup_gate.py`).
+    Existing users never see it: only the branch that would *insert* a row raises.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "MiHomes is invite-only for now. Join the waitlist on the home page and we'll "
+            "be in touch."
+        )
+
+
+class PasswordAccountExists(Exception):
+    """A **password** account already holds this email, and it has no Google identity.
+
+    The mirror of `password_identity.EmailRegisteredWithGoogle`. Without it, a password user who
+    clicks "Sign in with Google" gets a *second* `users` row — `google_sub` matches nothing, and
+    `uq_users_email_password` is partial, so nothing stops the insert — and lands on an empty
+    identity with no membership while their estate sits on the row they no longer use.
+
+    **Refused, not linked.** Attaching this Google identity to the existing row would be the
+    account pre-hijacking pattern: anyone can create a password account for an address they do
+    not control, and the real owner's later Google sign-in would then merge into it, leaving the
+    squatter's password working. Linking is SPEC-010 U2 and needs proof of mailbox control first.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "That email has a MiHomes password. Sign in with your email and password (or use "
+            "“Forgot password” if you never set one), then connect Google from Settings."
+        )
+
+
+@dataclass(frozen=True)
+class IdentityClaims:
+    """The claims the application actually uses. Anything else is deliberately dropped."""
+
+    subject: str
+    email: str
+    name: str | None = None
+    picture: str | None = None
+
+
+@runtime_checkable
+class IdentityProvider(Protocol):
+    def authorization_url(self, *, state: str, code_challenge: str) -> str:
+        ...
+
+    def exchange_code(self, *, code: str, code_verifier: str) -> str:
+        """Swap an authorization code for an **ID token** (the raw JWT)."""
+        ...
+
+    def verify(self, id_token: str) -> IdentityClaims:
+        """Verify signature and claims, or raise `InvalidIdentityToken`."""
+        ...
+
+
+class GoogleOIDCProvider:
+    """Google, via the verifier SPEC-001 already ships."""
+
+    def authorization_url(self, *, state: str, code_challenge: str) -> str:
+        from urllib.parse import urlencode
+
+        from mihomes.landing import oauth
+
+        params = {
+            "client_id": oauth._client_id(),
+            "redirect_uri": oauth._redirect_uri(),
+            "response_type": "code",
+            "scope": "openid email profile",
+            "state": state,
+            "code_challenge": code_challenge,
+            "code_challenge_method": "S256",
+            # `select_account` rather than the default: on a shared machine the default silently
+            # reuses whoever is already signed in to Google, which is a surprising way to end up in
+            # someone else's estate.
+            "prompt": "select_account",
+        }
+        return "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params)
+
+    def exchange_code(self, *, code: str, code_verifier: str) -> str:
+        from mihomes.landing import oauth
+
+        try:
+            tokens = oauth.exchange_code(code=code, code_verifier=code_verifier)
+        except Exception as e:  # noqa: BLE001 — normalised to our own type
+            raise InvalidIdentityToken(f"code exchange failed: {e}") from e
+        id_token = tokens.get("id_token")
+        if not id_token:
+            raise InvalidIdentityToken("token response carried no id_token")
+        return id_token
+
+    def verify(self, id_token: str) -> IdentityClaims:
+        from mihomes.landing import oauth
+
+        try:
+            claims = oauth.verify_id_token(id_token)
+        except Exception as e:  # noqa: BLE001 — a bad signature, aud, iss or exp all land here
+            raise InvalidIdentityToken(str(e)) from e
+        return claims_from_dict(claims)
+
+
+def claims_from_dict(claims: dict) -> IdentityClaims:
+    """Validate the claim *content* after the signature has been checked.
+
+    A valid signature only means Google issued the token; it says nothing about whether the claims
+    are usable. `sub` must be present (it is the identity) and the email must be **verified**.
+    """
+    subject = claims.get("sub")
+    if not subject:
+        raise InvalidIdentityToken("token has no 'sub' claim, so there is no stable identity")
+
+    email = claims.get("email")
+    if not email:
+        raise InvalidIdentityToken("token has no 'email' claim")
+
+    verified = claims.get("email_verified")
+    # Google sends a real boolean; some providers send the string "true". Accept both, reject
+    # anything else — including absent, which must not be read as verified.
+    if verified not in (True, "true", "True"):
+        raise InvalidIdentityToken(
+            f"email {email!r} is not verified by the identity provider; refusing to treat it as "
+            "an identity"
+        )
+
+    return IdentityClaims(
+        subject=str(subject),
+        email=str(email),
+        name=claims.get("name"),
+        picture=claims.get("picture"),
+    )
+
+
+def upsert_user(db: DbSession, claims: IdentityClaims, *, allow_create: bool = True) -> User:
+    """Find-or-create the `users` row for these claims, keyed on `sub`.
+
+    `users` is GLOBAL (D3), so this runs with no account context — which is exactly why the G8 read
+    filter skips statements touching no tenant-owned entity. Sign-in has to work *before* any
+    account exists, and an unconditional tenant check here would make it impossible (the defect
+    recorded against §4.4).
+    """
+    user = db.execute(
+        select(User).where(User.google_sub == claims.subject)
+    ).scalar_one_or_none()
+
+    if user is None:
+        # Only rows with a password and no Google subject. Two Google users may still share an
+        # address (`test_identity_is_keyed_on_sub_not_email`), and a row already carrying a
+        # *different* sub is a different Google identity, not this one. `.first()` because
+        # databases from before SPEC-010's guard can hold duplicates on one address.
+        password_holder = db.execute(
+            select(User)
+            .where(
+                func.lower(User.email) == claims.email.strip().lower(),
+                User.password_hash.isnot(None),
+                User.google_sub.is_(None),
+            )
+            .limit(1)
+        ).scalars().first()
+        if password_holder is not None and password_holder.email_verified_at is not None:
+            raise PasswordAccountExists()
+        if not allow_create:
+            raise SignupClosed()
+
+        if password_holder is not None:
+            # **An unverified password row is a claim nobody proved** (2026-11-13). Google has
+            # just proved this address, so Google wins. The row becomes this Google identity and
+            # its password is cleared, so whoever typed it (perhaps a squatter) cannot sign in
+            # with it. It has no memberships to inherit: an unverified user never had a session.
+            user = password_holder
+            user.google_sub = claims.subject
+            user.password_hash = None
+            user.password_set_at = None
+            user.name = claims.name or user.name
+            user.avatar_url = claims.picture
+        else:
+            user = User(
+                id=uuid.uuid4(),
+                google_sub=claims.subject,
+                email=claims.email,
+                name=claims.name,
+                avatar_url=claims.picture,
+            )
+            db.add(user)
+        # `email_verified` is enforced above, so every Google user is verified on arrival.
+        from mihomes.auth.email_verification import mark_verified
+
+        db.flush()
+        mark_verified(db, user)
+    else:
+        # Refreshed on every sign-in: display fields drift, and `sub` is what identity is keyed on,
+        # so updating them cannot move the account to a different person.
+        #
+        # **Except the email of a row that also has a password.** There it is the password login
+        # handle, changed only from Settings; overwriting it from Google would silently move the
+        # handle, undo a profile email change, and 500 on `uq_users_email_password` if another
+        # password row holds the new address.
+        if user.password_hash is None:
+            user.email = claims.email
+        if claims.name:
+            user.name = claims.name
+        if claims.picture:
+            user.avatar_url = claims.picture
+
+    db.flush()
+    return user

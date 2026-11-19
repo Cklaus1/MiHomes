@@ -1,0 +1,11 @@
+Hi,
+
+{{ change }} on your MiHomes account.
+
+Review your sign-in methods:
+
+{{ settings_url }}
+
+--
+If this wasn't you, reset your password straight away and sign out of all
+devices from Settings.

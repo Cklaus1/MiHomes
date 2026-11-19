@@ -1,0 +1,27 @@
+{# The one call-to-action button every email uses (2026-11-17).
+
+   **Drawn as a table cell, not a styled link.** The first version was `<a style="display:
+   inline-block;background:…;padding:…">`, which Gmail and Apple Mail draw as a button and
+   desktop Outlook (and Outlook on Microsoft 365) draws as plain text: its Word-based renderer
+   ignores padding, background and display on a link. A `<td bgcolor>` is honoured by every
+   client, and `mso-padding-alt` gives Outlook the padding it drops from the link.
+
+   Usage, at the top level of a template:
+       {% from "_button.html" import button %}
+       {{ button(reset_url, "Choose a new password") }}
+
+   Not a sendable template: no subject block and no .txt sibling. The plain-text versions of
+   each email print the URL itself. #}
+{% macro button(url, label) -%}
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 28px;border-collapse:separate;">
+  <tr>
+    <td align="center" bgcolor="#1c1c1a" style="background:#1c1c1a;border-radius:6px;mso-padding-alt:12px 22px;">
+      <a href="{{ url }}" target="_blank"
+         style="display:inline-block;padding:12px 22px;border-radius:6px;
+                font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+                font-size:16px;font-weight:600;line-height:20px;
+                color:#ffffff;text-decoration:none;">{{ label }}</a>
+    </td>
+  </tr>
+</table>
+{%- endmacro %}

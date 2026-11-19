@@ -7,10 +7,10 @@ from sqlalchemy.orm import Session
 from mihomes.models.event import Event, EventGuest, EventStatus, Guest
 from mihomes.models.property import Property
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
-from mihomes.services.update_helpers import safe_update
+from mihomes.services.money import resolve_currency
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
+from mihomes.services.update_helpers import safe_update
 from mihomes.services.validators import validate_name
-
 
 # --- Event CRUD ---
 
@@ -23,7 +23,7 @@ def create_event(
     end_date: date | None = None,
     expected_guests: int | None = None,
     budget: float | None = None,
-    currency: str = "USD",
+    currency: str | None = None,
     description: str | None = None,
     notes: str | None = None,
     slug: str | None = None,
@@ -34,7 +34,8 @@ def create_event(
     event = Event(
         title=title, slug=slug, property_id=prop.id,
         event_date=event_date, end_date=end_date,
-        expected_guests=expected_guests, budget=budget, currency=currency,
+        expected_guests=expected_guests, budget=budget,
+        currency=resolve_currency(session, currency),
         description=description, notes=notes,
     )
     session.add(event)

@@ -1,0 +1,15 @@
+Hi,
+
+We were not able to take payment for your MiHomes {{ plan|capitalize }} plan,
+so the account has moved to read-only.
+
+You can still sign in and read everything — homes, documents, work orders and
+history are all exactly where you left them. Nothing has been deleted. What is
+paused is adding and changing.
+
+Reactivate the account:
+
+{{ billing_url }}
+
+This is the last automatic email we will send about this. If the timing is bad
+or the card is the problem, reply — we would rather hear from you than lose you.

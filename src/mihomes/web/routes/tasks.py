@@ -1,19 +1,73 @@
 """Task routes."""
 
 from datetime import date
+from urllib.parse import parse_qs, urlsplit
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
-from mihomes.models.task import TaskPriority, TaskStatus
+from mihomes.authz.actions import Access
+from mihomes.authz.declare import declares
+from mihomes.authz.scope import current_role
+from mihomes.models.staff import Staff
+from mihomes.models.task import RecurrenceFrequency, TaskPriority, TaskStatus
 from mihomes.services import note as note_svc
 from mihomes.services import property as prop_svc
 from mihomes.services import staff as staff_svc
 from mihomes.services import task as task_svc
-from mihomes.web.deps import get_db, templates
+from mihomes.services.slug import resolve_identifier
+from mihomes.tenancy import current_user
+from mihomes.web.deps import get_db, templates, with_toast
+
+#: `assignee_id` value for the "My tasks" filter (`task_svc.viewer_task_filter`).
+MINE = "mine"
 
 router = APIRouter()
+
+#: Frequency view sections, most frequent first; one-time last. Keys are `RecurrenceFrequency`
+#: values, so a new frequency added to the enum shows up as an unknown key and is grouped under
+#: One-time by `group_by_frequency` rather than silently dropped.
+FREQUENCY_ORDER = [
+    ("daily", "Daily"),
+    ("weekly", "Weekly"),
+    ("biweekly", "Every 2 weeks"),
+    ("monthly", "Monthly"),
+    ("quarterly", "Quarterly"),
+    ("seasonal", "Seasonal"),
+    ("annual", "Annual"),
+    ("once", "One-time"),
+]
+
+#: The sort control's options. `oldest` still works for old links but is not offered.
+SORT_OPTIONS = [
+    ("urgency", "Urgency"),
+    ("due", "Due date"),
+    ("newest", "Newest"),
+    ("priority", "Priority"),
+]
+_SORT_KEYS = {key for key, _ in SORT_OPTIONS} | {"oldest"}
+
+_PRIORITY_RANK = {
+    TaskPriority.URGENT: 0, TaskPriority.HIGH: 1, TaskPriority.MEDIUM: 2, TaskPriority.LOW: 3,
+}
+
+_TRUE = {"true", "1", "yes", "on"}
+
+
+def _due_key(task) -> tuple:
+    """Due date ascending, undated tasks last."""
+    return (task.due_date is None, task.due_date or date.max)
+
+
+def group_by_frequency(tasks) -> dict[str, list]:
+    """Tasks keyed by how often they repeat. No schedule, `once`, or an unlisted frequency → `once`."""
+    groups: dict[str, list] = {key: [] for key, _ in FREQUENCY_ORDER}
+    for task in tasks:
+        freq = task.schedule.frequency.value if task.schedule else "once"
+        groups.get(freq, groups["once"]).append(task)
+    return groups
 
 
 def _ctx(
@@ -25,7 +79,17 @@ def _ctx(
     assignee_id=None,
     sort: str | None = None,
     recurrence: str | None = None,
+    form_error: str | None = None,
+    form_notice: str | None = None,
+    open_id: str | None = None,
+    open_new: bool = False,
 ) -> dict:
+    from mihomes.services.config_service import estate_today
+    today = estate_today(db)
+    # "My tasks" is a viewer filter, not a staff id: it must never reach `list_tasks` as a slug.
+    mine = assignee_id == MINE
+    if mine:
+        assignee_id = None
     if overdue:
         tasks = task_svc.get_overdue_tasks(db)
     elif due_week:
@@ -34,9 +98,14 @@ def _ctx(
         tasks = task_svc.list_tasks(
             db,
             property_id_or_slug=str(property_id) if property_id else None,
-            status=TaskStatus(status) if status else None,
             assignee_id_or_slug=str(assignee_id) if assignee_id else None,
         )
+        # Filter on the status the user SEES: a repeating task done for this period shows as
+        # Completed (task_svc.is_done_for_now), though it is stored as pending until it's due.
+        if status:
+            def _shown(t):
+                return "completed" if task_svc.is_done_for_now(t, today) else t.status.value
+            tasks = [t for t in tasks if _shown(t) == status]
 
     # Recurrence filter
     if recurrence == "recurring":
@@ -44,21 +113,45 @@ def _ctx(
     elif recurrence == "once":
         tasks = [t for t in tasks if not t.schedule or t.schedule.frequency.value == "once"]
 
-    # Sort order
-    if sort == "oldest":
-        tasks = sorted(tasks, key=lambda t: t.created_at or t.id)
-    else:
-        tasks = sorted(tasks, key=lambda t: t.created_at or t.id, reverse=True)
+    # Applied after every branch above, so it narrows the Overdue and Due-this-week views too —
+    # the dashboard's "My Overdue" tile links to `?overdue=true&assignee_id=mine`.
+    if mine:
+        is_mine = task_svc.viewer_task_filter(
+            db, current_user.get(None),
+            include_unassigned=current_role.get(None) in ("owner", "admin"),
+        )
+        tasks = [t for t in tasks if is_mine(t)]
 
     all_overdue = task_svc.get_overdue_tasks(db)
     overdue_ids = {t.id for t in all_overdue}
 
+    # Sort order. Urgency is the default — overdue first, then soonest due (undated last), then
+    # priority — because newest-first buried the work that most needed doing.
+    sort = sort if sort in _SORT_KEYS else "urgency"
+    if sort == "oldest":
+        tasks = sorted(tasks, key=lambda t: t.created_at or t.id)
+    elif sort == "newest":
+        tasks = sorted(tasks, key=lambda t: t.created_at or t.id, reverse=True)
+    elif sort == "priority":
+        tasks = sorted(tasks, key=lambda t: (_PRIORITY_RANK.get(t.priority, 9), _due_key(t)))
+    elif sort == "due":
+        tasks = sorted(tasks, key=lambda t: (_due_key(t), _PRIORITY_RANK.get(t.priority, 9)))
+    else:
+        tasks = sorted(tasks, key=lambda t: (
+            t.id not in overdue_ids, _due_key(t), _PRIORITY_RANK.get(t.priority, 9),
+        ))
+
     # Kanban columns — exclude cancelled from board
     board_tasks = [t for t in tasks if t.status != TaskStatus.CANCELLED]
+    # A finished repeating task sits under Done until its next due date, then returns to To Do
+    # by itself (task_svc.is_done_for_now) — no job flips it; the date does.
+    done_now_ids = {t.id for t in board_tasks if task_svc.is_done_for_now(t, today)}
     columns = {
-        "pending":     [t for t in board_tasks if t.status == TaskStatus.PENDING],
+        "pending":     [t for t in board_tasks
+                        if t.status == TaskStatus.PENDING and t.id not in done_now_ids],
         "in_progress": [t for t in board_tasks if t.status == TaskStatus.IN_PROGRESS],
-        "completed":   [t for t in board_tasks if t.status == TaskStatus.COMPLETED],
+        "completed":   [t for t in board_tasks
+                        if t.status == TaskStatus.COMPLETED or t.id in done_now_ids],
     }
 
     # Priority groups for grouped view
@@ -69,28 +162,97 @@ def _ctx(
         "low":    [t for t in tasks if t.priority == TaskPriority.LOW],
     }
 
+    frequency_groups = group_by_frequency(tasks)
+
     return {
         "page": "tasks",
         "tasks": tasks,
         "columns": columns,
         "priority_groups": priority_groups,
+        "frequency_groups": frequency_groups,
+        "frequency_meta": FREQUENCY_ORDER,
+        # Form options in the same order as the Frequency view, one-time first for the default.
+        "frequency_options": [FREQUENCY_ORDER[-1]] + FREQUENCY_ORDER[:-1],
+        "form_error": form_error,
+        "form_notice": form_notice,
         "properties": prop_svc.list_properties(db),
         "staff": staff_svc.list_staff(db, category="Staff"),
         "overdue_ids": overdue_ids,
+        # Repeating tasks finished for this period: shown as done everywhere until due again.
+        "done_now_ids": done_now_ids,
         "priorities": [p.value for p in TaskPriority],
         "statuses": [s.value for s in TaskStatus],
         "notes_map": {t.id: note_svc.list_notes(db, f"task:{t.id}") for t in tasks},
-        "filter_property": property_id,
+        # Filters as strings: ids compare against `{{ p.id|string }}` in the selects.
+        "filter_property": str(property_id) if property_id else None,
         "filter_status": status,
         "filter_overdue": overdue,
         "filter_due_week": due_week,
-        "filter_assignee": assignee_id,
-        "filter_sort": sort or "newest",
+        "filter_assignee": MINE if mine else (str(assignee_id) if assignee_id else None),
+        "filter_sort": sort,
         "filter_recurrence": recurrence or "",
+        "sort_options": SORT_OPTIONS,
+        # One-shot: the page opens this task's modal (?open=<id>) or the add modal (?new=1).
+        "open_id": open_id,
+        "open_new": open_new,
     }
 
 
+def _page_filters(request: Request) -> dict:
+    """The filters the user was looking at when they posted, read from `HX-Current-URL`.
+
+    Every save swaps the whole page into <body>, and re-rendering with a bare `_ctx(db)` threw
+    the property/status/assignee/overdue filters away. A body swap leaves the URL alone, so the
+    URL still says what the user was looking at. `open`/`new` are one-shot and never carried.
+    """
+    current = urlsplit(request.headers.get("hx-current-url", ""))
+    if not current.path.startswith("/tasks"):
+        return {}                            # posted from another page: its query isn't ours
+    query = parse_qs(current.query)
+
+    def one(key):
+        return (query.get(key) or [""])[0].strip() or None
+
+    return {
+        "property_id": one("property_id"),
+        "status": one("status"),
+        "overdue": (one("overdue") or "").lower() in _TRUE,
+        "due_week": (one("due_week") or "").lower() in _TRUE,
+        "assignee_id": one("assignee_id"),
+        "sort": one("sort"),
+        "recurrence": one("recurrence"),
+    }
+
+
+def _page(request: Request, db: Session, toast: str | None = None, status_code: int = 200, **kw):
+    """The task page as the user had it filtered, plus an optional success toast."""
+    resp = templates.TemplateResponse(
+        request, "tasks.html", _ctx(db, **{**_page_filters(request), **kw}),
+        status_code=status_code,
+    )
+    return with_toast(resp, toast) if toast else resp
+
+
+#: The edit form's "Unassigned" option. Not "": FastAPI turns an empty optional form value into
+#: None, which would be indistinguishable from "this form has no assignee field at all".
+UNASSIGNED = "none"
+
+
+def _assignee_id(db: Session, value: str | None):
+    """A posted assignee: blank/"none" is unassigned; anything else must be a staff member."""
+    value = (value or "").strip()
+    if not value or value == UNASSIGNED:
+        return None
+    return resolve_identifier(db, Staff, value).id
+
+
+# Row 5 (`task.manage`) is `SCOPED` for staff. The index has no single target property, so it is
+# a COLLECTION route: Step 7 constrains the query by `scoped_property_ids()` rather than refusing
+# the page (N5). Every other route here operates on one task and is therefore an ITEM route,
+# whose target property Step 7 resolves from the task itself — the slug names the task, not the
+# property, so the resolution is a lookup rather than a path parameter.
 @router.get("/")
+@declares("task.manage", Access.COLLECTION)
 def list_tasks(
     request: Request,
     property_id: str | None = None,
@@ -100,43 +262,112 @@ def list_tasks(
     assignee_id: str | None = None,
     sort: str | None = None,
     recurrence: str | None = None,
+    open: str | None = None,
+    new: bool = False,
     db: Session = Depends(get_db),
 ):
-    pid = int(property_id) if property_id and property_id.strip() else None
-    aid = int(assignee_id) if assignee_id and assignee_id.strip() else None
+    # Blank and whitespace-only both mean "no filter". The `int()` these used to be
+    # wrapped in is gone (ids are UUIDs now), but the empty-value guard has to stay —
+    # an empty string reaching a UUID column is an error, not a no-op.
+    pid = (property_id or "").strip() or None
+    aid = (assignee_id or "").strip() or None
     return templates.TemplateResponse(
         request, "tasks.html",
-        _ctx(db, pid, status or None, overdue, due_week, aid, sort, recurrence),
+        _ctx(db, pid, status or None, overdue, due_week, aid, sort, recurrence,
+             open_id=(open or "").strip() or None, open_new=new),
     )
 
 
 @router.post("/", response_class=HTMLResponse)
+@declares("task.manage", Access.ITEM)
 def create_task(
     request: Request,
     title: str = Form(...),
-    property_id: int = Form(...),
+    property_id: str = Form(...),
     priority: str = Form("medium"),
     due_date: str = Form(None),
+    recurrence: str = Form("once"),
+    season_spec: str = Form(""),
+    assignee_id: str = Form(""),
     db: Session = Depends(get_db),
 ):
     due = date.fromisoformat(due_date) if due_date else None
-    task_svc.create_task(
-        db,
-        title=title,
-        property_id_or_slug=str(property_id),
-        priority=TaskPriority(priority),
-        due_date=due,
-    )
-    return templates.TemplateResponse(request, "tasks.html", _ctx(db))
+    try:
+        task_svc.create_task(
+            db,
+            title=title,
+            property_id_or_slug=str(property_id),
+            priority=TaskPriority(priority),
+            due_date=due,
+            recurrence=_frequency(recurrence),
+            season_spec=season_spec.strip() or None,
+            assignee_id_or_slug=assignee_id.strip() or None,
+        )
+    except ValueError as exc:
+        return _page(request, db, form_error=str(exc), status_code=400)
+    return _page(request, db, "Task added")
+
+
+def _frequency(value: str | None) -> RecurrenceFrequency:
+    """A form's frequency value, or ONCE for blank/unknown — never a 500 on a bad option."""
+    try:
+        return RecurrenceFrequency((value or "once").strip().lower())
+    except ValueError:
+        return RecurrenceFrequency.ONCE
 
 
 @router.post("/{slug}/complete", response_class=HTMLResponse)
+@declares("task.manage", Access.ITEM)
 def complete_task(request: Request, slug: str, db: Session = Depends(get_db)):
-    task_svc.complete_task(db, slug)
-    return templates.TemplateResponse(request, "tasks.html", _ctx(db))
+    """Done. A repeating task resets in place to its next date; a one-time task is completed."""
+    try:
+        task, next_task = task_svc.complete_task(db, slug)
+    except ValueError as exc:
+        return _page(request, db, form_error=str(exc), status_code=400)
+    return _page(request, db, "Task done", form_notice=_done_notice(task, next_task))
+
+
+def _done_notice(task, next_task) -> str:
+    """Confirmation after Done. A repeating task stays on the board with a new date, so without
+    this it looks as if nothing happened — and the natural reaction is to click again."""
+    if next_task is not None and next_task.due_date:
+        return f"“{task.title}” done — next due {next_task.due_date.strftime('%b %d')}."
+    return f"“{task.title}” done."
+
+
+@router.post("/{slug}/start", response_class=HTMLResponse)
+@declares("task.manage", Access.ITEM)
+def start_task(request: Request, slug: str, db: Session = Depends(get_db)):
+    """To Do → In Progress straight from a board card, without opening the edit form."""
+    task = task_svc.get_task(db, slug)
+    if task.status != TaskStatus.PENDING:
+        return _page(request, db, form_error="Only a to-do task can be started.", status_code=400)
+    task_svc.update_task(db, slug, status=TaskStatus.IN_PROGRESS)
+    return _page(request, db, "Task started")
+
+
+@router.post("/{slug}/archive", response_class=HTMLResponse)
+@declares("task.manage", Access.ITEM)
+def archive_task(request: Request, slug: str, db: Session = Depends(get_db)):
+    """Clear one completed task off the list (kept in history, not deleted)."""
+    try:
+        task_svc.archive_task(db, slug)
+    except ValueError as exc:
+        return _page(request, db, form_error=str(exc), status_code=400)
+    return _page(request, db, "Task cleared from the list")
+
+
+@router.post("/clear-completed", response_class=HTMLResponse)
+@declares("task.manage", Access.COLLECTION)
+def clear_completed(request: Request, db: Session = Depends(get_db)):
+    """Clear every completed task off the list. COLLECTION: staff clear only tasks in their scope,
+    because the query layer already narrows `Task` to their properties."""
+    task_svc.clear_completed(db)
+    return _page(request, db, "Done tasks cleared")
 
 
 @router.post("/{slug}/edit", response_class=HTMLResponse)
+@declares("task.manage", Access.ITEM)
 def edit_task(
     request: Request,
     slug: str,
@@ -145,6 +376,9 @@ def edit_task(
     due_date: str = Form(""),
     description: str = Form(""),
     status: str = Form(""),
+    recurrence: str | None = Form(None),
+    season_spec: str = Form(""),
+    assignee_id: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     kwargs = dict(
@@ -153,37 +387,65 @@ def edit_task(
         due_date=date.fromisoformat(due_date) if due_date else None,
         description=description or None,
     )
-    if status:
+    # Only when the form sends the field — a caller posting without it must not unassign.
+    if assignee_id is not None:
+        kwargs["assignee_id"] = _assignee_id(db, assignee_id)
+    # Choosing "Completed" here must do exactly what the Done button does — reset a repeating
+    # task in place, complete a one-time one. Writing the status directly skipped all of that, so
+    # it is held back and applied last, after any frequency change below takes effect.
+    complete_now = status == TaskStatus.COMPLETED.value
+    if status and not complete_now:
         kwargs["status"] = TaskStatus(status)
-    task_svc.update_task(db, slug, **kwargs)
-    return templates.TemplateResponse(request, "tasks.html", _ctx(db))
+    notice = None
+    try:
+        task = task_svc.update_task(db, slug, **kwargs)
+        # Only when the form sends it — a caller posting to /edit without a frequency field must
+        # not wipe the schedule (the slug may change with the title, so use the task's own).
+        if recurrence is not None:
+            task_svc.set_task_frequency(
+                db, task.slug, _frequency(recurrence), season_spec.strip() or None
+            )
+        if complete_now and task.status != TaskStatus.COMPLETED:
+            done, nxt = task_svc.complete_task(db, task.slug)
+            notice = _done_notice(done, nxt)
+    except ValueError as exc:
+        db.rollback()
+        return _page(request, db, form_error=str(exc), status_code=400)
+    return _page(request, db, "Task saved", form_notice=notice)
 
 
 @router.post("/{slug}/delete", response_class=HTMLResponse)
+@declares("task.manage", Access.ITEM)
 def delete_task(request: Request, slug: str, db: Session = Depends(get_db)):
     task_svc.delete_task(db, slug)
-    return templates.TemplateResponse(request, "tasks.html", _ctx(db))
+    return _page(request, db, "Task deleted")
 
 
+# Notes on a task are governed by the task's own row, not by a separate action: `note` is
+# account-level in §4.1's classification, but a note *attached to a task* inherits that task's
+# property scope. Declaring `task.manage` keeps the two from diverging — a staff member who may
+# work the task may annotate it, and one who may not, cannot.
 @router.post("/{slug}/notes", response_class=HTMLResponse)
+@declares("task.manage", Access.ITEM)
 def add_note(request: Request, slug: str, content: str = Form(...), db: Session = Depends(get_db)):
     task = task_svc.get_task(db, slug)
     note_svc.add_note(db, f"task:{task.id}", content)
     notes = note_svc.list_notes(db, f"task:{task.id}")
-    return templates.TemplateResponse(request, "partials/notes_section.html", {
+    return with_toast(templates.TemplateResponse(request, "partials/notes_section.html", {
         "notes": notes,
         "post_url": f"/tasks/{slug}/notes",
         "delete_url_prefix": f"/tasks/{slug}/notes",
-    })
+    }), "Note added")
 
 
 @router.delete("/{slug}/notes/{note_id}", response_class=HTMLResponse)
-def delete_note(request: Request, slug: str, note_id: int, db: Session = Depends(get_db)):
+@declares("task.manage", Access.ITEM)
+def delete_note(request: Request, slug: str, note_id: UUID, db: Session = Depends(get_db)):
     note_svc.delete_note(db, note_id)
     task = task_svc.get_task(db, slug)
     notes = note_svc.list_notes(db, f"task:{task.id}")
-    return templates.TemplateResponse(request, "partials/notes_section.html", {
+    return with_toast(templates.TemplateResponse(request, "partials/notes_section.html", {
         "notes": notes,
         "post_url": f"/tasks/{slug}/notes",
         "delete_url_prefix": f"/tasks/{slug}/notes",
-    })
+    }), "Note deleted")

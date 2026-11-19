@@ -17,6 +17,8 @@ appropriate for a localhost tool, matching the "won't-fix bridge is accepted"
 threat posture while still blocking the browser-driven cross-site case.
 """
 
+import os
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse
@@ -25,6 +27,18 @@ SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 # Host values (sans port) that denote the local machine.
 _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "[::1]", "::1", "0.0.0.0"})
+
+
+def _allowed_hosts() -> frozenset[str]:
+    """Loopback plus any hostnames named in ``MIHOMES_ALLOWED_HOSTS`` (comma-separated).
+
+    For a deliberate non-loopback front door — e.g. Tailscale Serve proxying
+    ``https://evo-dev.<tailnet>.ts.net`` to the loopback-bound app. Exact matches only, no
+    wildcards: each entry is a name the operator controls, so DNS rebinding stays closed for
+    every other hostname. Read per request so the guard cannot disagree with the environment.
+    """
+    extra = os.environ.get("MIHOMES_ALLOWED_HOSTS", "")
+    return _LOCAL_HOSTS | {h.strip().lower() for h in extra.split(",") if h.strip()}
 
 
 def _host_only(host_header: str) -> str:
@@ -47,9 +61,48 @@ def _origin_host(origin: str) -> str:
 
 class HostAndOriginGuardMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        # 0. Provider webhooks are exempt from **both** guards, and this is the one exemption
+        #    in the app (SPEC-004 Step 4).
+        #
+        #    Both guards assume the caller is a *browser the user is driving*. Stripe is neither:
+        #    it POSTs from its own infrastructure to whatever public hostname the endpoint is
+        #    registered under, so the Host guard would 400 every live webhook, and it sends no
+        #    Origin, so only the Host half actually bites — but exempting one and not the other
+        #    would leave a rule whose reason no longer matches its behaviour.
+        #
+        #    **This does not weaken CSRF or DNS-rebinding defence**, because neither threat model
+        #    applies to a route with no session: CSRF is the browser attaching *the user's*
+        #    cookies to a forged request, and this route reads no cookie and trusts no caller
+        #    identity. Its authentication is a signature over the raw body (N3) — strictly
+        #    stronger than an Origin header, which is advisory and unauthenticated.
+        #
+        #    Scoped to the prefix rather than the exact path so a second provider's endpoint
+        #    inherits it; the constant lives beside the route so a rename cannot silently re-arm
+        #    the guards and take production webhooks down.
+        # 0b. RFC 8058 one-click unsubscribe, for the same reason and by the same argument
+        #     (SPEC-005 Step 9). A mail client POSTs from its own infrastructure to the public
+        #     hostname and sends no Origin — so it is not a browser the user is driving, and
+        #     both guards' threat models miss it exactly as they miss Stripe.
+        #
+        #     **Measured before adding it**: a POST to `/unsubscribe` with `Host: mihomes.ai`
+        #     returned `400 Invalid Host` while `/webhooks/...` passed. The webhook prefix does
+        #     not cover this path, which is the question SPEC-005 C9 left open.
+        #
+        #     CSRF is not weakened: the route reads no cookie and trusts no caller identity. Its
+        #     authentication is an HMAC over the address (N9), and the worst a forged request can
+        #     achieve is unsubscribing an address whose token the attacker already holds.
+        from mihomes.web.routes.unsubscribe import UNSUBSCRIBE_PATH_PREFIX
+        from mihomes.web.routes.webhooks import WEBHOOK_PATH_PREFIX
+
+        if request.url.path.startswith(
+            (WEBHOOK_PATH_PREFIX, UNSUBSCRIBE_PATH_PREFIX)
+        ):
+            return await call_next(request)
+
         # 1. Host guard (DNS-rebinding): reject non-loopback hosts outright.
+        allowed = _allowed_hosts()
         host = _host_only(request.headers.get("host", ""))
-        if host and host.lower() not in _LOCAL_HOSTS:
+        if host and host.lower() not in allowed:
             return PlainTextResponse("Invalid Host header.", status_code=400)
 
         # 2. Origin guard (CSRF): only for state-changing methods.
@@ -60,7 +113,7 @@ class HostAndOriginGuardMiddleware(BaseHTTPMiddleware):
 
             origin = request.headers.get("origin", "")
             if origin:
-                if _origin_host(origin).lower() not in _LOCAL_HOSTS:
+                if _origin_host(origin).lower() not in allowed:
                     return PlainTextResponse(
                         "Cross-origin request blocked.", status_code=403
                     )

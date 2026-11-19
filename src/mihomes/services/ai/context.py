@@ -6,6 +6,43 @@ from sqlalchemy.orm import Session
 
 from mihomes.models.ai_conversation import AIConversation
 from mihomes.services.ai.roles import AIRole
+from mihomes.services.localtime import today as local_today
+
+#: context category → the MATRIX action that authorises it. Only categories backed by
+#: **account-level** entities appear: the property-scoped ones are filtered row-by-row by
+#: `authz/query_scope.py`, so dropping their whole section would hide the staff member's own work.
+_CATEGORY_ACTIONS = {
+    "budgets": "finance.view",
+    "contracts": "finance.view",
+    "insurance": "finance.view",
+    "staff": "member.manage",
+}
+
+
+def _denied_categories() -> set[str]:
+    """Categories the acting role may not see. Empty when no role is bound.
+
+    No role bound means the CLI or a background job, which are already tenant-scoped and have no
+    user to restrict — the same convention `current_property_scope` uses. **D16 depends on this
+    being explicit at the bot:** an unlinked Telegram sender is *staff-level*, never unrestricted,
+    so Step 16 binds a role rather than leaving it unset.
+    """
+    from mihomes.authz.actions import MATRIX, Grant
+    from mihomes.authz.scope import current_role
+
+    role = current_role.get()
+    if role is None:
+        return set()
+
+    denied = set()
+    for category, action in _CATEGORY_ACTIONS.items():
+        spec = MATRIX[action]
+        grant = {"owner": spec.owner, "admin": spec.admin, "staff": spec.staff}.get(
+            role, Grant.DENY
+        )
+        if grant is Grant.DENY:
+            denied.add(category)
+    return denied
 
 
 def assemble_context(
@@ -22,6 +59,18 @@ def assemble_context(
     categories = set()
     for role in roles:
         categories.update(role.data_categories)
+
+    # SPEC-003 §6 Step 10 — the entity-class gate, applied to the *other* AI path.
+    #
+    # `execute_tool` guards the 15 executors, but this builder is a second, independent route to
+    # the same data — F5 measured exactly that: "two independent DB paths, neither using the 15
+    # executors." It assembles a "Budget Status (YTD)" section with real money, and it is what
+    # the Telegram bot's Q&A path calls. Property scoping reaches the property-scoped models
+    # through the query listener; the *account-level* categories need this.
+    #
+    # Row filtering happens below in each `_fetch_*`; this drops whole sections the acting role
+    # may not see at all, which is both cheaper and the only correct answer for finances.
+    categories -= _denied_categories()
 
     sections = []
     token_est = 0
@@ -165,7 +214,7 @@ def _fetch_budgets(session: Session, property_slug: str | None) -> str:
     from mihomes.services.budget import get_budget_report
     from mihomes.services.property import list_properties
 
-    today = date.today()
+    today = local_today()
     year_start = date(today.year, 1, 1)
     year_end = date(today.year + 1, 1, 1)
     lines = ["## Budget Status (YTD)"]
@@ -324,28 +373,50 @@ def _fetch_books(session: Session, property_slug: str | None) -> str:
 
     lines = [f"## Library / Books ({total} total)"]
 
-    # Count by property
-    by_prop = (
-        session.query(Book.property_id, func.count(Book.id))
-        .filter(Book.active.is_(True))
-        .group_by(Book.property_id)
-        .all()
-    )
-    from mihomes.models.property import Property as Prop
-    for prop_id, cnt in by_prop:
-        p = session.get(Prop, prop_id)
-        prop_name = p.name if p else f"property {prop_id}"
-        lines.append(f"- {prop_name}: {cnt} books")
+    # Per-property breakdown (only when not scoped)
+    if not property_slug:
+        by_prop = (
+            session.query(Book.property_id, func.count(Book.id))
+            .filter(Book.active.is_(True))
+            .group_by(Book.property_id)
+            .all()
+        )
+        from mihomes.models.property import Property as Prop
+        for prop_id, cnt in by_prop:
+            p = session.get(Prop, prop_id)
+            prop_name = p.name if p else f"property {prop_id}"
+            lines.append(f"- {prop_name}: {cnt} books")
+        lines.append("")
 
-    # Genre breakdown (top 10)
-    by_genre = (
-        session.query(Book.genre, func.count(Book.id))
-        .filter(Book.active.is_(True), Book.genre.isnot(None))
-        .group_by(Book.genre)
+    # Count by space (room)
+    from mihomes.models.space import Space
+    space_base = (
+        session.query(Book.space_id, func.count(Book.id))
+        .filter(Book.active.is_(True))
+        .group_by(Book.space_id)
         .order_by(func.count(Book.id).desc())
-        .limit(10)
-        .all()
     )
+    if property_slug:
+        space_base = space_base.filter(Book.property_id == prop.id)
+    by_space = space_base.all()
+    if by_space:
+        lines.append("By room:")
+        for space_id, cnt in by_space:
+            s = session.get(Space, space_id) if space_id is not None else None
+            space_name = s.name if s else "No room assigned"
+            lines.append(f"  - {space_name}: {cnt} books")
+        lines.append("")
+
+    # Genre breakdown (top 10, scoped when property_slug is set)
+    genre_base = session.query(Book.genre, func.count(Book.id)).filter(
+        Book.active.is_(True),
+        Book.genre.isnot(None),
+    )
+    if property_slug:
+        genre_base = genre_base.filter(Book.property_id == prop.id)
+    by_genre = genre_base.group_by(Book.genre).order_by(
+        func.count(Book.id).desc()
+    ).limit(10).all()
     if by_genre:
         lines.append("Top genres: " + ", ".join(f"{g} ({n})" for g, n in by_genre))
 

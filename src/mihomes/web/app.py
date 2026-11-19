@@ -1,65 +1,194 @@
 """MiHomes Web — FastAPI app factory."""
 
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
+from urllib.parse import quote, urlsplit
 
-from fastapi import FastAPI, Request
-from fastapi.responses import PlainTextResponse
+from fastapi import Depends, FastAPI, Request
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from mihomes.config import UPLOADS_DIR, UPLOADS_URL_PREFIX, ensure_dirs
+from mihomes.auth.session_flow import safe_next as _safe_next
+from mihomes.config import ensure_dirs
+from mihomes.services.chat.access import ChatForbidden, ChatInvalid, ChatNotFound
 from mihomes.services.slug import AmbiguousIdentifierError, EntityNotFoundError
+from mihomes.web.deps import enforce_declared_action
+from mihomes.web.errors import RequestIdMiddleware, register_error_handlers
 from mihomes.web.routes import ai as ai_route
 from mihomes.web.routes import (
     alerts,
     assets,
     books,
     budget,
-    contracts,
+    chat,
+    conversations,
     dashboard,
+    data_import,
     documents,
+    documents_download,  # noqa: E402
     issues,
+    onboarding,
     playbooks_route,
     properties,
     recurring,
     search,
+    settings,
     staff,
     tasks,
+    team,
     templates_route,
     vendors,
     work_orders,
 )
+from mihomes.web.routes import auth as auth_route
+from mihomes.web.routes import billing as billing_route
 from mihomes.web.routes import calendar as calendar_route
+from mihomes.web.routes import gateways as gateways_route
 from mihomes.web.routes import inventory as inventory_route
+from mihomes.web.routes import (
+    legal as legal_route,
+)
 from mihomes.web.routes import library as library_route
+from mihomes.web.routes import password as password_route
+from mihomes.web.routes import privacy as privacy_route
+from mihomes.web.routes import pwa as pwa_route
+from mihomes.web.routes import seo as seo_route
+from mihomes.web.routes import unsubscribe as unsubscribe_route
+from mihomes.web.routes import waitlist as waitlist_route
 from mihomes.web.routes import weather as weather_route
-from mihomes.web.secure_static import SecureStaticFiles
+from mihomes.web.routes import webhooks as webhooks_route
 from mihomes.web.security import HostAndOriginGuardMiddleware
+from mihomes.web.site_passcode import SitePasscodeMiddleware
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 STATIC_DIR = Path(__file__).parent / "static"
 
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
+#: Where the marketing page's CTAs point when it is served from *this* app.
+#:
+#: The template is shared with the standalone landing app (`mihomes-landing`), where these
+#: paths resolve to Phase 0's waitlist. Served from here they must resolve to the real thing,
+#: so they are passed in rather than hardcoded in the template:
+#:
+#: - `signup_url` — the Free tier exists and works, so "start free" beats "join a queue".
+#: - `signin_url` — `/auth/google/start` means two different things in the two apps: a waitlist
+#:   stub there, real OIDC sign-in here. Naming it explicitly stops that difference from being
+#:   silent.
+#: - `hero_src` — the landing app serves `hero.svg` from its own static dir; this app's
+#:   `/static` is `web/static`, which does not contain it. Left unset, the hero 404s.
+MARKETING_LINKS = {
+    "signup_url": "/signup",
+    "signin_url": "/login",
+    "hero_src": None,
+}
+
+
+def render_marketing_page(request: Request) -> str:
+    """Render the public marketing page for a signed-out visitor.
+
+    Rendered through the landing app's Jinja environment, not this app's `templates`, so the
+    template stays outside `web/templates/`. That is deliberate: `test_no_raw_brand_hex` forbids
+    raw hex in this app's templates and the marketing palette is entirely raw hex, and
+    `test_css_is_current` would demand a Tailwind rebuild on every copy edit. The page carries
+    its own inlined CSS and needs neither.
+    """
+    from mihomes.landing.templates_env import render_page
+
+    utm = {
+        key: request.query_params[key]
+        for key in ("utm_campaign", "utm_source", "utm_medium")
+        if key in request.query_params
+    }
+    from mihomes.auth.signup_gate import waitlist_mode
+    from mihomes.web.routes.seo import base_url
+
+    links = dict(MARKETING_LINKS)
+    # Link-preview card (web/static/og-image.png). Absolute, because that is what platforms fetch.
+    links["og_image"] = f"{base_url()}/static/og-image.png"
+    if waitlist_mode():
+        # No "Start free": the waitlist form takes its place (`auth/signup_gate.py`).
+        links.update(signup_url=None, waitlist_mode=True)
+    return render_page("index.html", {"utm": utm, **links})
+
+
+@asynccontextmanager
+async def _chat_listener_lifespan(app: FastAPI):
+    """SPEC-012 D17: with `REALTIME_DATABASE_URL` set, LISTEN for chat events from other
+    processes and re-publish them on this one's bus. Unset (evo-dev: one uvicorn process), chat
+    uses the in-process bus and nothing starts here."""
+    import asyncio
+    import os
+
+    dsn = os.environ.get("REALTIME_DATABASE_URL", "").strip()
+    task = None
+    if dsn:
+        from mihomes.services.chat.bus import start_listener
+
+        task = asyncio.create_task(start_listener(dsn))
+    try:
+        yield
+    finally:
+        if task is not None:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="MiHomes", docs_url=None, redoc_url=None)
+    # Per-person Google Calendar: queue a sync after any appointment/task save commits
+    # (`services/personal_calendar/trigger.py`). Idempotent; off when MIHOMES_CALENDAR_AUTOSYNC=0.
+    from mihomes.services.personal_calendar import trigger as calendar_trigger
+
+    calendar_trigger.install()
+
+    # `enforce_declared_action` is where SPEC-003's 142 route declarations become enforcement
+    # (§6 Step 7). Applied app-wide rather than per-route so there is exactly one place to
+    # forget — and Step 4's harness guarantees every route carries a declaration for it to read.
+    # Together they close N1: the declarations are verified, and the verification is consulted.
+    #
+    # Routes with no declaration are passed through untouched. That is safe only because the
+    # temporary allowlist is empty (CEILING = 0), so `auth` is the sole undeclared module — and
+    # it must stay reachable to callers who are not yet authenticated.
+    app = FastAPI(
+        title="MiHomes",
+        docs_url=None,
+        redoc_url=None,
+        dependencies=[Depends(enforce_declared_action)],
+        lifespan=_chat_listener_lifespan,
+    )
+
+    # Pre-launch passcode curtain — a no-op unless MIHOMES_SITE_PASSCODE is set. Registered
+    # first so it sits *inside* the Host/Origin guard: the passcode POST is CSRF-checked too.
+    app.add_middleware(SitePasscodeMiddleware)
 
     # Reject cross-site state-changing requests and non-loopback Host headers
     # (H30): defends the localhost app against browser CSRF and DNS rebinding.
     app.add_middleware(HostAndOriginGuardMiddleware)
 
+    # SPEC-005 Step 15 — a request id on every request, echoed in the response header, bound for
+    # anything that logs beneath it (A31). Added *after* the guard, so it is the **outermost**
+    # middleware: Starlette applies them in reverse registration order, and an id assigned
+    # outside the guard means even a rejected request carries one. A 400 nobody can correlate to
+    # a log line is the support ticket this exists to prevent.
+    app.add_middleware(RequestIdMiddleware)
+
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-    # User-uploaded documents live outside the package (survive pip upgrade,
-    # included in backups — spec H34) and are served with nosniff + forced
-    # attachment for non-inline types (spec D6).
+    # User-uploaded documents live outside the package (survive pip upgrade, included in
+    # backups — spec H34).
+    #
+    # **The static mount that used to be here was a cross-tenant hole (G11 · A14).**
+    # `app.mount(UPLOADS_URL_PREFIX, SecureStaticFiles(directory=UPLOADS_DIR))` served the whole
+    # uploads directory with no authentication and no tenant check, so any request that could reach
+    # the app could fetch any tenant's document. Unguessable upload filenames were the only thing
+    # in the way, and generated reports were named from their titles, so not even that held.
+    #
+    # Documents are now served by `documents_download.router`, which authorises against the
+    # account prefix in the storage key before reading a byte. The mount is not merely narrowed —
+    # it is gone, because a static mount has nowhere to put an authorisation check.
     ensure_dirs()
-    app.mount(
-        UPLOADS_URL_PREFIX,
-        SecureStaticFiles(directory=str(UPLOADS_DIR)),
-        name="uploads",
-    )
 
     app.include_router(dashboard.router)
     app.include_router(properties.router, prefix="/properties")
@@ -71,16 +200,72 @@ def create_app() -> FastAPI:
     app.include_router(alerts.router, prefix="/alerts")
     app.include_router(assets.router, prefix="/assets")
     app.include_router(work_orders.router, prefix="/work-orders")
-    app.include_router(contracts.router, prefix="/contracts")
     app.include_router(recurring.router, prefix="/recurring")
     app.include_router(search.router, prefix="/search")
     app.include_router(templates_route.router, prefix="/templates")
     app.include_router(documents.router, prefix="/documents")
+    # Tenant-checked object download (G11 · A14). Registered without a prefix because it owns
+    # its full path; it replaces the unauthenticated /uploads static mount.
+    app.include_router(documents_download.router)
+
+    # SPEC-004 Step 4 — `POST /webhooks/stripe`. Mounted with **no prefix**: the path is
+    # registered in the Stripe dashboard, so it is external identity rather than an internal
+    # routing choice, and `web/security.py` reads its prefix constant to exempt it from the Host
+    # and Origin guards. Declares no matrix action; it is in `PERMANENT_ALLOWLIST`, authorised by
+    # a signature over the raw body rather than by a session (N3).
+    app.include_router(webhooks_route.router)
+    # Terms and Privacy — public (PERMANENT_ALLOWLIST) and 404 until published (mihomes.legal).
+    app.include_router(legal_route.router)
+
+    # SPEC-006 Step 5 — `POST /webhooks/telegram`. Mounted at the root for the same reason and
+    # under the same `/webhooks/` prefix, so `web/security.py`'s existing exemption covers it
+    # without a second entry — the prefix scoping that module's comment describes as being "so a
+    # second provider's endpoint inherits it". Also unauthenticated by session and in
+    # `PERMANENT_ALLOWLIST`: Telegram is not a user, and the secret token echoed in
+    # `X-Telegram-Bot-Api-Secret-Token` is what authorises the request (D7).
+    app.include_router(gateways_route.router)
+
+    # SPEC-004 Step 6 — checkout, portal, plan page. Owner-only via `billing.manage` (row 15),
+    # enforced app-wide by `enforce_declared_action` rather than by a check in the handlers.
+    app.include_router(billing_route.router)
+    # SPEC-005 Step 7 — data export. Owner-only via `account.delete` (row 16): downloading
+    # every row an account holds is the same authority as ending the account, and reusing the
+    # row avoids a 21st matrix key for a distinction without a security difference.
+    app.include_router(privacy_route.router)
+    # SPEC-005 Step 9 — RFC 8058 one-click unsubscribe. Allowlisted: a mail client is not
+    # a user, so there is no cookie, principal or account for the matrix to consult. It is
+    # authenticated by an HMAC token over the address (N9) — see the module docstring.
+    app.include_router(unsubscribe_route.router)
+    # Waitlist mode's sign-up form (`MIHOMES_SIGNUP_MODE=waitlist`). Public like unsubscribe: the
+    # visitor has no account — that is the point. Mounted always; harmless when the mode is off.
+    app.include_router(waitlist_route.router)
+    # Sign-in / sign-out (G12). No prefix: these paths are fixed by the OAuth redirect URI
+    # registered with Google, so they cannot move without reconfiguring the provider.
+    app.include_router(auth_route.router)
+    # SPEC-010 Step 3 — `/signup` and `/login`. Also no prefix, and for a plainer reason than
+    # the OAuth one above: these are the paths a person types. Registered next to `auth` because
+    # they are the same front door, reached by a different key.
+    app.include_router(password_route.router)
+    # SPEC-003 Steps 11-13. No prefix on `team`: it owns `/invite/{token}` and
+    # `/accounts/switch` alongside `/team`, because those are the same feature seen from either
+    # side of account membership.
+    app.include_router(onboarding.router, prefix="/onboarding")
+    app.include_router(team.router)
+    # Step 15's config UI. No prefix: it owns `/settings` outright.
+    app.include_router(settings.router)
     app.include_router(books.router, prefix="/books")
     app.include_router(ai_route.router, prefix="/ai")
     app.include_router(weather_route.router, prefix="/weather")
     app.include_router(library_route.router, prefix="/library")
     app.include_router(playbooks_route.router, prefix="/playbooks")
+    app.include_router(data_import.router, prefix="/import")
+    app.include_router(data_import.export_router, prefix="/export")
+    app.include_router(conversations.router, prefix="/conversations")
+    app.include_router(chat.router, prefix="/chat")
+    # SPEC-014 D12: root-scoped service worker + manifest, permanently undeclared (fixed bytes).
+    app.include_router(pwa_route.router)
+    # robots.txt, sitemap.xml, Google site verification — root-level, public, no tenant data.
+    app.include_router(seo_route.router)
     app.include_router(inventory_route.router, prefix="/inventory")
     app.include_router(calendar_route.router, prefix="/calendar")
 
@@ -94,6 +279,157 @@ def create_app() -> FastAPI:
     @app.exception_handler(AmbiguousIdentifierError)
     async def _ambiguous_identifier(request: Request, exc: AmbiguousIdentifierError):
         return PlainTextResponse(str(exc), status_code=400)
+
+    # SPEC-012: chat refusals. Not-visible is a 404 with no body content — a conversation you
+    # cannot see does not exist for you (A27); the other two carry a user-facing sentence.
+    @app.exception_handler(ChatNotFound)
+    async def _chat_not_found(request: Request, exc: ChatNotFound):
+        return PlainTextResponse("Not found", status_code=404)
+
+    @app.exception_handler(ChatForbidden)
+    async def _chat_forbidden(request: Request, exc: ChatForbidden):
+        return PlainTextResponse(str(exc), status_code=403)
+
+    @app.exception_handler(ChatInvalid)
+    async def _chat_invalid(request: Request, exc: ChatInvalid):
+        return PlainTextResponse(str(exc), status_code=400)
+
+    # SPEC-005 Step 15 — the catch-all handler and `/healthz` (A31).
+    #
+    # **Registered after the two above, and that is not an ordering dependency.** FastAPI
+    # dispatches an exception to the handler for its most specific matching type, so
+    # `EntityNotFoundError` keeps reaching `_entity_not_found` regardless of position; the
+    # generic handler catches what nothing else claimed. Written down because "registered last
+    # so it does not shadow" is the plausible-but-wrong reading.
+    register_error_handlers(app, templates=templates)
+
+    @app.exception_handler(401)
+    async def _unauthenticated_to_login(request: Request, exc):
+        """Send an unauthenticated **browser** to `/login`; answer anything else with the 401.
+
+        Before this, every route answered a signed-out visitor with a bare
+        `{"detail":"Not authenticated"}` — the app read as broken rather than locked, and there
+        was nowhere to click.
+
+        **Content negotiation, not a blanket redirect.** An HTMX request or an API client asking
+        for JSON must keep receiving the status code: turning a 401 into a 303 for HTMX would
+        swap a login page into whatever fragment the request targeted, and a client checking for
+        401 would silently follow a redirect and parse HTML as data.
+
+        `/login` itself is excluded, or a signed-out visitor loops between it and this handler.
+
+        **The destination travels with the redirect (SPEC-010 A14).** Measured before it was
+        added: an invitee with no account who opened `/invite/{token}` was sent to `/login` and
+        the token was *dropped* — they arrived at a sign-in page with no way back to the
+        invitation short of finding the email again. `ONBOARDING §11 Q3` asks exactly this
+        ("how does a non-Google invitee accept?"), and losing the link is most of the answer
+        going wrong.
+
+        **Only a same-site path is preserved**, never a full URL: reflecting an absolute
+        location here would make the login page an open redirector, which is a phishing
+        primitive — "sign in at the real site, get sent anywhere". `_safe_next` enforces that.
+
+        **`/` is the exception: a signed-out browser gets the marketing page, not a login
+        form.** A visitor who has never heard of MiHomes should land on something that explains
+        it. Sending them to `/login` asks for credentials to an account they have no reason to
+        know they can create.
+
+        This is deliberately handled *here* rather than by making `/` a public route. The
+        dashboard keeps `/`, so the eight hardcoded post-auth redirects to `/` (`session_flow`,
+        `auth`, `onboarding`, `password`, `team`) stay correct. And `PERMANENT_ALLOWLIST` is
+        keyed by *module*: exempting `routes.dashboard` to free one path would exempt every
+        route in it from `enforce_declared_action`, which is an authorisation hole, not a
+        routing change. Nothing about the declared-action check moves.
+        """
+        from fastapi.responses import JSONResponse
+
+        wants_html = "text/html" in request.headers.get("accept", "")
+        is_htmx = request.headers.get("hx-request") == "true"
+        already_there = request.url.path == "/login"
+
+        if wants_html and not is_htmx and request.url.path == "/":
+            return HTMLResponse(render_marketing_page(request))
+
+        if wants_html and not is_htmx and not already_there:
+            target = _safe_next(request.url.path, request.url.query)
+            if target:
+                return RedirectResponse(
+                    f"/login?next={quote(target, safe='')}", status_code=303
+                )
+            return RedirectResponse("/login", status_code=303)
+
+        # An HTMX request keeps its 401 + JSON (a 303 would swap the login page into whatever
+        # fragment it targeted), but also gets `HX-Redirect`: htmx follows that header before
+        # it looks at the status, so an expired session sends the user to sign in instead of
+        # every click silently doing nothing. `next` is the page they were on, not the
+        # fragment URL, so signing in lands them back where they were.
+        headers = {}
+        if is_htmx:
+            current = urlsplit(request.headers.get("hx-current-url", ""))
+            target = _safe_next(current.path or "/", current.query)
+            headers["HX-Redirect"] = (
+                f"/login?next={quote(target, safe='')}" if target else "/login"
+            )
+        return JSONResponse(
+            {"detail": getattr(exc, "detail", "Not authenticated")},
+            status_code=401,
+            headers=headers,
+        )
+
+    @app.exception_handler(403)
+    async def _accountless_to_onboarding(request: Request, exc):
+        """Send a signed-in browser with **no account** to `/onboarding/`; leave every other
+        403 exactly as it was.
+
+        **The bug this closes.** A user whose session carried no `current_account_id` got
+        `403 {"detail":"No account selected"}` on `/`, `/settings`, `/team` — raw JSON, nothing
+        to click, while `/onboarding/` (the one screen that would fix it) rendered fine. Signed
+        in and locked out at the same time. It is the same dead end the 401 handler above was
+        written to fix, and 403 simply never got the same treatment.
+
+        **Narrow on purpose — the status code alone is not enough to act on.** Two unrelated
+        conditions raise 403 here:
+
+            no account selected    recoverable; onboarding is the remedy → redirect
+            role denial            `authz/permissions.py` raises this at seven sites for
+                                   "your role may not do this" → must stay a 403
+
+        Redirecting the second would be actively wrong: a staff member who opened `/settings`
+        would be bounced into an onboarding wizard for an account they are already in, which
+        reads as a broken app rather than a refusal. So this matches on
+        `deps.NO_ACCOUNT_SELECTED` and passes everything else through untouched. Matching the
+        detail rather than the status is the whole design of this handler.
+
+        **Content negotiation, same as the 401 handler.** An HTMX request or a JSON client keeps
+        its 403: turning it into a 303 would swap a wizard page into whatever fragment the
+        request targeted, and a client checking for 403 would follow the redirect and parse HTML
+        as data.
+
+        `/onboarding/` itself is excluded, or an accountless visitor loops between it and this
+        handler. Onboarding routes are `Access.SESSION` and so do not raise this today — the
+        guard is here because a future non-SESSION route under that prefix would otherwise
+        produce an infinite redirect, which is a far worse failure than a bare 403.
+        """
+        from fastapi.responses import JSONResponse
+
+        from mihomes.web.deps import NO_ACCOUNT_SELECTED
+
+        detail = getattr(exc, "detail", "")
+
+        if detail == NO_ACCOUNT_SELECTED:
+            wants_html = "text/html" in request.headers.get("accept", "")
+            is_htmx = request.headers.get("hx-request") == "true"
+            already_there = request.url.path.startswith("/onboarding/")
+
+            if wants_html and not is_htmx and not already_there:
+                return RedirectResponse("/onboarding/", status_code=303)
+            if is_htmx and not already_there:
+                # Same reasoning as the 401 handler: keep the 403, add the header htmx follows.
+                return JSONResponse(
+                    {"detail": detail}, status_code=403, headers={"HX-Redirect": "/onboarding/"}
+                )
+
+        return JSONResponse({"detail": detail or "Forbidden"}, status_code=403)
 
     return app
 

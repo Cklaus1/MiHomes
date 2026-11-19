@@ -1,0 +1,347 @@
+"""The 6-step onboarding wizard — SPEC-003 §6 Step 11 (A17, A18).
+
+Every route here is `Access.SESSION`: onboarding steps 1-2 run **before an account exists**, so
+the enforcement dependency must not try to resolve one. See `authz/actions.py`'s `Access.SESSION`
+for why that class had to be added rather than forced into `ACCOUNT`.
+
+The wizard is a thin shell over `onboarding_service`, which owns the resumability logic — the
+service decides *where* the user is, these routes only render it and post the answers back.
+"""
+
+from __future__ import annotations
+
+import uuid
+
+from fastapi import APIRouter, Depends, Form, Request
+from fastapi.responses import RedirectResponse
+from sqlalchemy.orm import Session
+
+from mihomes.auth.sessions import SESSION_COOKIE, lookup_session, set_current_account
+from mihomes.authz.declare import declares_session
+from mihomes.models.user import User
+from mihomes.services import onboarding_service as onboarding
+from mihomes.tenancy import account_context, require_user
+from mihomes.tenancy.connection import bind_account_guc
+from mihomes.web.deps import get_db, templates
+
+router = APIRouter()
+
+_SESSION_REASON = (
+    "Onboarding steps 1-2 run before the account exists, so there is no account to "
+    "authorise against and no membership to look up."
+)
+
+
+def _current_user(db: Session) -> User:
+    return db.get(User, require_user())
+
+
+def _account_for(db: Session, user: User):
+    """The account this user is onboarding, or None before step 2.
+
+    Read with a Core select on `memberships`: the ORM path is tenant-filtered and there is no
+    tenant bound yet — the same bootstrap problem `auth/sessions.py` solves the same way.
+    """
+    from sqlalchemy import select
+
+    from mihomes.models.account import Account
+    from mihomes.models.membership import Membership
+    from mihomes.tenancy.connection import bind_user_guc
+
+    # **Without the user GUC this read returns nothing and the wizard misdiagnoses the user.**
+    # `memberships` is a tenant table; a pre-account read is covered by the `membership_self`
+    # policy, keyed on `app.current_user`. Unbound, an existing owner looked account-less —
+    # so `create_account` fell past its idempotency guard and tried to mint a *second* account,
+    # and `resume` re-showed step 2 forever. Measured on a live install. See `bind_user_guc`.
+    bind_user_guc(db, user.id)
+
+    # A deactivated household is skipped (2026-11-06): it cannot be entered, and binding it
+    # would bounce between `/` and here. `_deactivated_for` lists those for the page instead.
+    accounts = Account.__table__
+    row = db.execute(
+        select(Membership.__table__.c.account_id)
+        .join(accounts, accounts.c.id == Membership.__table__.c.account_id)
+        .where(
+            Membership.__table__.c.user_id == user.id,
+            Membership.__table__.c.status == "active",
+            accounts.c.deactivated_at.is_(None),
+        )
+    ).first()
+    return db.get(Account, row.account_id) if row else None
+
+
+def _deactivated_for(db: Session, user: User) -> list[tuple]:
+    """(account, role) for each deactivated household this user is an active member of."""
+    from sqlalchemy import select
+
+    from mihomes.models.account import Account
+    from mihomes.models.membership import Membership
+    from mihomes.services.account_lifecycle import was_purged
+    from mihomes.tenancy.connection import bind_user_guc
+
+    bind_user_guc(db, user.id)
+    m, accounts = Membership.__table__, Account.__table__
+    rows = db.execute(
+        select(m.c.account_id, m.c.role)
+        .join(accounts, accounts.c.id == m.c.account_id)
+        .where(m.c.user_id == user.id, m.c.status == "active",
+               accounts.c.deactivated_at.is_not(None))
+    ).all()
+    out = [(db.get(Account, r.account_id), r.role) for r in rows]
+    # A purged ("Deleted account") household is gone, not paused: nothing to show or reactivate.
+    return [(a, role) for a, role in out if a is not None and not was_purged(db, a.id)]
+
+
+@router.get("/")
+@declares_session(_SESSION_REASON)
+def resume(request: Request, db: Session = Depends(get_db)):
+    """Land the user wherever they left off (A17)."""
+    user = _current_user(db)
+    account = _account_for(db, user)
+
+    if account is None:
+        deactivated = _deactivated_for(db, user)
+        if deactivated:
+            return _deactivated_page(request, deactivated)
+        return templates.TemplateResponse(
+            request,
+            "onboarding/account.html",
+            {
+                "page": "onboarding",
+                "suggested_name": onboarding.suggested_account_name(user),
+                "step": onboarding.STEP_CREATE_ACCOUNT,
+                "total_steps": onboarding.STEP_INVITE,
+            },
+        )
+
+    step = onboarding.current_step(db, account.id)
+    if step == onboarding.STEP_DASHBOARD:
+        # **Bind the session to this account before sending them to `/`, or the two routes
+        # bounce off each other forever.**
+        #
+        # `/` requires a bound account and answers 403 `NO_ACCOUNT_SELECTED` without one, which
+        # `app.py`'s handler turns into a redirect *back here* — and onboarding is finished, so
+        # this branch redirects to `/` again. Measured on a live install, and the log is just
+        # the two lines alternating:
+        #
+        #     GET /            303 See Other   -> /onboarding/
+        #     GET /onboarding/ 303 See Other   -> /
+        #
+        # The 403-to-onboarding redirect turned what used to be a dead end into a loop, so this
+        # is the other half of that change: onboarding must *resolve* the missing binding, not
+        # hand the request back unchanged.
+        #
+        # Reachable whenever a membership was created outside the wizard — a CLI bootstrap, the
+        # importer, a repair script — since only `establish_session` and `_select_account` bind,
+        # and neither of those ran. `set_current_account` re-verifies the membership server-side,
+        # so this cannot bind an account the user is not actually in.
+        current = lookup_session(db, request.cookies.get(SESSION_COOKIE))
+        if current is not None and current.account_id is None:
+            set_current_account(db, current.session_id, account.id)
+
+        return RedirectResponse("/", status_code=303)
+
+    template = {
+        onboarding.STEP_ADD_HOME: "onboarding/property.html",
+        onboarding.STEP_SPACES: "onboarding/spaces.html",
+        onboarding.STEP_INVITE: "onboarding/invite.html",
+    }[step]
+    return templates.TemplateResponse(
+        request, template,
+        {"page": "onboarding", "account": account, "step": step,
+         "total_steps": onboarding.STEP_INVITE},
+    )
+
+
+@router.post("/account")
+@declares_session(_SESSION_REASON)
+def create_account(
+    request: Request,
+    name: str = Form(""),
+    account_type: str = Form("household"),
+    db: Session = Depends(get_db),
+):
+    """Step 2 — the account plus its owner membership, in one transaction."""
+    user = _current_user(db)
+    if _account_for(db, user) is not None:
+        # Idempotent: a double-submit must not mint a second account, and SPEC-002 D4's partial
+        # unique index would refuse the second owner anyway — better to redirect than to 500.
+        return RedirectResponse("/onboarding/", status_code=303)
+
+    account = onboarding.create_account_step(db, user, name, account_type)
+
+    # **Bind this session to the account it just created**, or the wizard finishes and `/` 403s
+    # with "No account selected" — `create_session` left `current_account_id` NULL and nothing
+    # since has set it.
+    #
+    # `establish_session` now binds at sign-in, but that cannot help here: this account did not
+    # exist when the session was minted. This is the second half of the same hole, and it is the
+    # one a brand-new user hits, because signing up and onboarding happen in one sitting.
+    current = lookup_session(db, request.cookies.get(SESSION_COOKIE))
+    if current is not None:
+        set_current_account(db, current.session_id, account.id)
+
+    return RedirectResponse("/onboarding/", status_code=303)
+
+
+@router.post("/property")
+@declares_session(_SESSION_REASON)
+def add_property(
+    request: Request,
+    name: str = Form(...),
+    address: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """Step 3 — *"require only the home name"*; address and type are editable later."""
+    from mihomes.services.property import create_property
+
+    user = _current_user(db)
+    account = _account_for(db, user)
+    if account is None:
+        return RedirectResponse("/onboarding/", status_code=303)
+
+    # **The GUC as well as the ContextVar, or RLS refuses the insert.**
+    #
+    # `account_context` covers the `account_id` stamp, but RLS's `WITH CHECK` compares against
+    # `current_setting('app.current_account')`, which is stamped at `after_begin` — before this
+    # request knew its account, because the account is created one step earlier in the same
+    # sitting. Measured as a non-superuser:
+    #
+    #     InsufficientPrivilege: new row violates row-level security policy
+    #     for table "properties"
+    #
+    # i.e. **every brand-new user got a 500 on "add your first home"** — the one mandatory step
+    # they cannot skip (`MANDATORY_STEPS`), so signup could not be completed at all. It passed
+    # in testing because the suite's fixtures connect as a superuser, which bypasses RLS
+    # unconditionally. Same defect, same fix, as `create_account_step` and `get_state`.
+    with account_context(account.id, user.id):
+        bind_account_guc(db, account.id)
+        create_property(db, name, address=address or None)
+    onboarding.complete_step(db, account.id, onboarding.STEP_ADD_HOME)
+    return RedirectResponse("/onboarding/", status_code=303)
+
+
+@router.post("/skip")
+@declares_session(_SESSION_REASON)
+def skip_step(request: Request, step: int = Form(...), db: Session = Depends(get_db)):
+    """A18 — skipping is a **first-class path**, not a way out of a dead end.
+
+    Recorded as *completed* so the wizard does not ask again: `current_step` cannot otherwise
+    distinguish "not yet asked" from "asked and declined", and would re-prompt on every sign-in.
+    """
+    user = _current_user(db)
+    account = _account_for(db, user)
+    if account is None:
+        return RedirectResponse("/onboarding/", status_code=303)
+
+    if step in (onboarding.STEP_SPACES, onboarding.STEP_INVITE):
+        onboarding.complete_step(db, account.id, step)
+    return RedirectResponse("/onboarding/", status_code=303)
+
+
+#: Where each optional step's primary button leads. Fixed per step rather than taken from the
+#: form, so this route cannot be turned into an open redirector.
+_LEAVE_TO = {onboarding.STEP_SPACES: "/assets", onboarding.STEP_INVITE: "/settings#members"}
+
+
+@router.post("/leave")
+@declares_session(_SESSION_REASON)
+def leave(request: Request, step: int = Form(...), db: Session = Depends(get_db)):
+    """An optional step's primary action — go do the thing, **and record that the step was taken**.
+
+    These buttons used to be plain links out of the wizard. Nothing was recorded, and nothing
+    ever routes a member back to `/onboarding/`, so a user who clicked "Add rooms" was left
+    mid-wizard for good and never saw the invite step. Now the rooms step is marked done and
+    the invite step — the last one — finishes the wizard. The dashboard's "Getting started"
+    checklist picks up whatever is left.
+    """
+    user = _current_user(db)
+    account = _account_for(db, user)
+    if account is None or step not in _LEAVE_TO:
+        return RedirectResponse("/onboarding/", status_code=303)
+
+    if step == onboarding.STEP_INVITE:
+        onboarding.finish(db, account.id)
+        _select_account(db, request, account.id, user.id)
+    else:
+        onboarding.complete_step(db, account.id, step)
+    return RedirectResponse(_LEAVE_TO[step], status_code=303)
+
+
+@router.post("/finish")
+@declares_session(_SESSION_REASON)
+def finish(request: Request, db: Session = Depends(get_db)):
+    """Step 6 — land on the dashboard. Billing never blocks this (`ONBOARDING:143`)."""
+    user = _current_user(db)
+    account = _account_for(db, user)
+    if account is not None:
+        onboarding.finish(db, account.id)
+        _select_account(db, request, account.id, user.id)
+    return RedirectResponse("/", status_code=303)
+
+
+def _select_account(db: Session, request: Request, account_id: uuid.UUID, user_id: uuid.UUID):
+    """Point the session at the account onboarding just created.
+
+    Without this the user finishes the wizard and lands on a dashboard with no account selected —
+    the session still carries `current_account_id = NULL` from before step 2 existed.
+    """
+    from mihomes.auth.sessions import SESSION_COOKIE, lookup_session
+    from mihomes.services.account_switcher import switch_account
+
+    auth = lookup_session(db, request.cookies.get(SESSION_COOKIE))
+    if auth is not None:
+        switch_account(db, auth.session_id, user_id, account_id)
+
+
+# ── A deactivated household (2026-11-06) ─────────────────────────────────────────────────
+#
+# Sign-in refuses to enter a deactivated household, and an unbound session lands here. The owner
+# can switch it back on; everyone else is told who switched it off. Session-scoped like the rest
+# of onboarding: there is no account bound to authorise against, which is the point.
+
+
+def _deactivated_page(request: Request, deactivated: list[tuple], *, error: str | None = None,
+                      status_code: int = 200):
+    from datetime import timedelta
+
+    from mihomes.services.account_lifecycle import INACTIVE_DAYS_BEFORE_ERASURE
+
+    rows = [{"account": a, "is_owner": role == "owner",
+             "erase_on": a.deactivated_at + timedelta(days=INACTIVE_DAYS_BEFORE_ERASURE)}
+            for a, role in deactivated]
+    return templates.TemplateResponse(
+        request, "onboarding/deactivated.html",
+        {"page": "onboarding", "households": rows, "error": error}, status_code=status_code,
+    )
+
+
+_REACTIVATE_REASON = (
+    "A deactivated household cannot be entered, so there is no bound account for the matrix to "
+    "authorise a role in. The handler checks ownership itself, server-side, against the active "
+    "owner membership (account_lifecycle.reactivate), and refuses a purged account."
+)
+
+
+@router.post("/reactivate")
+@declares_session(_REACTIVATE_REASON)
+def reactivate_household(request: Request, account_id: uuid.UUID = Form(...),
+                         db: Session = Depends(get_db)):
+    """The owner switches a deactivated household back on, then enters it.
+
+    The account id comes from a form, so ownership is re-checked server-side (`reactivate`) and a
+    staff member posting it gets a 403, not a household.
+    """
+    from mihomes.services.account_lifecycle import LifecycleRefused, reactivate
+
+    user = _current_user(db)
+    try:
+        reactivate(db, account_id, user.id)
+    except LifecycleRefused as exc:
+        return _deactivated_page(request, _deactivated_for(db, user), error=str(exc),
+                                 status_code=403)
+    db.commit()
+    current = lookup_session(db, request.cookies.get(SESSION_COOKIE))
+    if current is not None:
+        set_current_account(db, current.session_id, account_id)
+    return RedirectResponse("/", status_code=303)

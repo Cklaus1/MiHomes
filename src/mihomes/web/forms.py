@@ -1,9 +1,8 @@
 """Helpers for parsing/validating web form input."""
 
-import uuid
+from dataclasses import dataclass
 from pathlib import Path
 
-from mihomes.config import UPLOADS_DIR, UPLOADS_URL_PREFIX
 from mihomes.services.ai.file_processor import Attachment, process_upload
 
 # parse_money/parse_date live in services.parsing (single source of truth shared
@@ -22,6 +21,72 @@ DOCUMENT_CONTENT_TYPES = {
     "application/pdf",
 }
 MAX_DOCUMENT_BYTES = 25_000_000  # 25 MB — invoices/contracts are small
+
+
+#: The content type a stored file is served with, derived from its validated extension — never
+#: from the client's `Content-Type` header (SPEC-013 D11).
+EXTENSION_TYPES = {
+    ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+    ".gif": "image/gif", ".webp": "image/webp", ".pdf": "application/pdf",
+}
+
+
+@dataclass(frozen=True)
+class StoredUpload:
+    key: str            # tenant-prefixed storage key
+    filename: str       # basename of the client's name, <=255 chars, display only
+    content_type: str   # EXTENSION_TYPES[suffix]
+    size: int
+
+
+def _validated(filename: str | None, data: bytes, max_bytes: int) -> tuple[str, str]:
+    """(display filename, content type) for an acceptable upload, else ValueError."""
+    if not filename:
+        raise ValueError("Please choose a file to upload.")
+    name = Path(filename.replace("\\", "/")).name[:255] or "file"
+    content_type = EXTENSION_TYPES.get(Path(name).suffix.lower())
+    if content_type is None:
+        raise ValueError(f"“{name}” isn’t an allowed type. Attach a JPG, PNG, GIF, WebP, or PDF.")
+    if not data:
+        raise ValueError(f"“{name}” is empty.")
+    if len(data) > max_bytes:
+        raise ValueError(f"“{name}” is larger than {max_bytes // 1_000_000} MB.")
+    return name, content_type
+
+
+def store_validated_upload_sync(file, *, category: str,
+                                max_bytes: int = MAX_DOCUMENT_BYTES) -> StoredUpload:
+    """SPEC-013 D11, for sync routes (`UploadFile.file`): validate, store under `category`, and
+    return what a caller needs to record it. Reads at most `max_bytes + 1` bytes."""
+    data = file.file.read(max_bytes + 1)
+    name, content_type = _validated(getattr(file, "filename", None), data, max_bytes)
+    key = _store_bytes(data, name, content_type=content_type, category=category)
+    return StoredUpload(key=key, filename=name, content_type=content_type, size=len(data))
+
+
+async def store_validated_upload(file, *, category: str,
+                                 max_bytes: int = MAX_DOCUMENT_BYTES) -> StoredUpload:
+    """The async form of `store_validated_upload_sync`."""
+    data = await file.read(max_bytes + 1)
+    name, content_type = _validated(getattr(file, "filename", None), data, max_bytes)
+    key = _store_bytes(data, name, content_type=content_type, category=category)
+    return StoredUpload(key=key, filename=name, content_type=content_type, size=len(data))
+
+
+def _store_bytes(data: bytes, filename: str, *, content_type: str | None = None,
+                 category: str = "documents") -> str:
+    """Put `data` in storage under a tenant-prefixed key and return the key (G11 · A14).
+
+    The one place the web layer writes an object, so the key shape and the tenant prefix have a
+    single definition. Requires an account context — `require_account()` raises without one, which
+    is the correct outcome: a file with no tenant has nowhere to live and nobody who may read it.
+    """
+    from mihomes.storage import build_key, get_storage
+    from mihomes.tenancy import require_account
+
+    key = build_key(require_account(), category, filename)
+    get_storage().put(key, data, content_type=content_type)
+    return key
 
 
 async def read_document_upload(
@@ -65,22 +130,25 @@ async def read_document_upload(
     if len(data) > max_bytes:
         raise ValueError(f"“{filename}” is larger than {max_bytes // 1_000_000} MB.")
 
-    stored_name = f"{uuid.uuid4().hex}{suffix}"
-    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-    (UPLOADS_DIR / stored_name).write_bytes(data)
-    return f"{UPLOADS_URL_PREFIX}/{stored_name}"
+    # Stored through the storage provider under a tenant-prefixed key (G11 · A14), not written
+    # straight to UPLOADS_DIR. The old path returned "/uploads/<name>", which was served by an
+    # unauthenticated static mount — any request could fetch any tenant's file. That mount is gone,
+    # so writing there now would also produce an unreachable URL.
+    return _store_bytes(data, filename, content_type=content_type)
 
 
 def save_document_text(base_name: str, text: str, *, suffix: str = ".md") -> str:
-    """Persist generated text (e.g. a saved AI report) into UPLOADS_DIR.
+    """Persist generated text (e.g. a saved AI report) and return its storage key.
 
-    Same location + random-name discipline as ``read_document_upload`` so saved
-    reports survive upgrades and are backed up (spec M45/H34).
+    **`base_name` no longer appears in the stored name.** It used to:
+    `f"{base_name}-{uuid4().hex[:8]}{suffix}"`, where `base_name` came from the report's title. That
+    is two problems at once — 32 bits of randomness is enumerable, and the title is *content*, so
+    the key itself disclosed what the report was about to anyone who saw a URL or a log line. The
+    argument is kept for call-site compatibility and used only to pick the extension.
     """
-    stored_name = f"{base_name}-{uuid.uuid4().hex[:8]}{suffix}"
-    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-    (UPLOADS_DIR / stored_name).write_text(text, encoding="utf-8")
-    return f"{UPLOADS_URL_PREFIX}/{stored_name}"
+    return _store_bytes(
+        text.encode("utf-8"), f"{base_name}{suffix}", content_type="text/markdown"
+    )
 
 
 async def read_image_uploads(files, *, max_files: int = 6, max_bytes: int = 10_000_000) -> list[Attachment]:

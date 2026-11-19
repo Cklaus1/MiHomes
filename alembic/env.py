@@ -1,10 +1,11 @@
 """Alembic environment configuration — dynamic DB URL from mihomes config."""
 
+import os
 from logging.config import fileConfig
 
-from alembic import context
-from sqlalchemy import event, pool, create_engine
+from sqlalchemy import create_engine, event, pool
 
+from alembic import context
 from mihomes.config import DB_URL
 from mihomes.models import Base
 
@@ -18,7 +19,25 @@ target_metadata = Base.metadata
 # Tables created/managed outside the ORM metadata (raw-SQL migrations only, not
 # registered on Base.metadata). Autogenerate must not propose dropping them, or
 # every future diff would be dirtied by phantom drop_table ops.
-_UNMANAGED_TABLES = {"audit_log_archive", "ai_conversations_archive"}
+#
+# `waitlist` is here for a different reason than the two archives: it IS on
+# Base.metadata, but it is owned by the separate `alembic_landing/` tree (SPEC-001
+# D1/D3 — the landing app is standalone with a one-table database). Without this
+# entry, autogenerate on THIS tree would propose create_table('waitlist') on every
+# future diff, dirtying the single-user product's migrations and breaking the
+# empty-autogenerate gate. The exclusion is symmetric: alembic_landing/env.py
+# likewise scopes its metadata to `waitlist` alone. **This is G6.4** — the baseline
+# creates identity + the tenant tables and no `waitlist`.
+#
+# **`IDENTITY_TABLES` used to be excluded here and no longer is (G6.3).** It was
+# excluded because the six identity tables are on Base.metadata while the legacy
+# SQLite chain never created them, so autogenerate against that tree read them as
+# drift. `0001_pg_baseline` is the migration that creates them, so excluding them now
+# would generate a baseline **missing six tables** — the exclusion retired with the
+# tree it protected, exactly as its own comment predicted.
+_UNMANAGED_TABLES = {
+    "audit_log_archive", "ai_conversations_archive", "waitlist",
+}
 
 
 def include_object(obj, name, type_, reflected, compare_to):
@@ -32,7 +51,18 @@ def include_object(obj, name, type_, reflected, compare_to):
 
 
 def get_url():
-    return config.get_main_option("sqlalchemy.url") or DB_URL
+    # Precedence: an explicit owner-role URL for migrations, then the app URL,
+    # then the hardcoded SQLite default. alembic.ini carries no `sqlalchemy.url`
+    # key, so get_main_option always returns None — before the env vars were
+    # honored here there was no path by which a Postgres URL could reach Alembic
+    # at all (SPEC-001 §10, SPEC-002's MIGRATION_DATABASE_URL split: the app must
+    # not connect as the owner, but migrations legitimately must).
+    return (
+        config.get_main_option("sqlalchemy.url")
+        or os.environ.get("MIGRATION_DATABASE_URL")
+        or os.environ.get("DATABASE_URL")
+        or DB_URL
+    )
 
 
 def run_migrations_offline() -> None:
@@ -42,7 +72,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
-        render_as_batch=True,
+        render_as_batch=url.startswith("sqlite"),
         include_object=include_object,
     )
     with context.begin_transaction():
@@ -60,17 +90,23 @@ def run_migrations_online() -> None:
     # connection before Alembic opens any transaction. Existing-row integrity is
     # preserved separately by explicit orphan-cleanup inside each migration
     # (SQLite does not re-validate rows when FK is re-enabled later).
-    @event.listens_for(connectable, "connect")
-    def _disable_fk_for_migration(dbapi_conn, _record):
-        cur = dbapi_conn.cursor()
-        cur.execute("PRAGMA foreign_keys=OFF")
-        cur.close()
+    # All of the above is SQLite-only. Against Postgres the PRAGMA is a syntax
+    # error that fires before the first migration runs, and batch mode is a
+    # SQLite affordance with nothing to do there.
+    is_sqlite = connectable.dialect.name == "sqlite"
+
+    if is_sqlite:
+        @event.listens_for(connectable, "connect")
+        def _disable_fk_for_migration(dbapi_conn, _record):
+            cur = dbapi_conn.cursor()
+            cur.execute("PRAGMA foreign_keys=OFF")
+            cur.close()
 
     with connectable.connect() as connection:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
-            render_as_batch=True,
+            render_as_batch=is_sqlite,
             include_object=include_object,
         )
         with context.begin_transaction():

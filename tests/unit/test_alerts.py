@@ -1,5 +1,6 @@
 """Tests for alerts service — extending existing partial coverage."""
 
+import uuid
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
@@ -16,8 +17,15 @@ from mihomes.services.alerts import (
     acknowledge_alert,
     generate_alerts,
     list_alerts,
+    resolve_cleared_alerts,
     snooze_alert,
 )
+
+# Placeholder ids for polymorphic entity_type/entity_id pairs. Distinct
+# constants because several tests rely on two ids being DIFFERENT (filter by
+# one, assert the other is excluded) — a single shared UUID would make those
+# tests pass for the wrong reason. Were integers before SPEC-002 D2.
+_ENTITY_1 = uuid.uuid4()
 
 
 @pytest.fixture
@@ -96,7 +104,7 @@ class TestCheckOverdueTasks:
         assert count == 0
 
     def test_does_not_duplicate_existing_alert(self, session, prop):
-        task = _make_overdue_task(session, prop, "Dup Task", days_overdue=5)
+        _make_overdue_task(session, prop, "Dup Task", days_overdue=5)
         _check_overdue_tasks(session)
         count2 = _check_overdue_tasks(session)
         assert count2 == 0
@@ -217,7 +225,7 @@ class TestListAlerts:
         alert = Alert(
             alert_type=alert_type,
             source_entity_type="test",
-            source_entity_id=1,
+            source_entity_id=_ENTITY_1,
             severity=severity,
             message="Test alert",
             status=status,
@@ -266,7 +274,7 @@ class TestListAlerts:
 class TestSnoozeAlert:
     def test_snoozes_alert(self, session):
         alert = Alert(
-            alert_type="test", source_entity_type="test", source_entity_id=1,
+            alert_type="test", source_entity_type="test", source_entity_id=_ENTITY_1,
             severity=AlertSeverity.MEDIUM, message="Test",
         )
         session.add(alert)
@@ -277,11 +285,11 @@ class TestSnoozeAlert:
 
     def test_snooze_nonexistent_raises(self, session):
         with pytest.raises(ValueError, match="not found"):
-            snooze_alert(session, 99999, days=1)
+            snooze_alert(session, uuid.uuid4(), days=1)
 
     def test_snooze_duration_correct(self, session):
         alert = Alert(
-            alert_type="test", source_entity_type="test", source_entity_id=1,
+            alert_type="test", source_entity_type="test", source_entity_id=_ENTITY_1,
             severity=AlertSeverity.LOW, message="Test",
         )
         session.add(alert)
@@ -296,7 +304,7 @@ class TestSnoozeAlert:
 class TestAcknowledgeAlert:
     def test_acknowledges_alert(self, session):
         alert = Alert(
-            alert_type="test", source_entity_type="test", source_entity_id=1,
+            alert_type="test", source_entity_type="test", source_entity_id=_ENTITY_1,
             severity=AlertSeverity.HIGH, message="Test",
         )
         session.add(alert)
@@ -306,7 +314,7 @@ class TestAcknowledgeAlert:
 
     def test_acknowledge_nonexistent_raises(self, session):
         with pytest.raises(ValueError, match="not found"):
-            acknowledge_alert(session, 88888)
+            acknowledge_alert(session, uuid.uuid4())
 
 
 class TestGenerateAlerts:
@@ -325,3 +333,135 @@ class TestGenerateAlerts:
         # generate_expiration_alerts also returns 0
         count = generate_alerts(session)
         assert count == 0
+
+
+class TestResolveClearedAlerts:
+    """Scheduled alerts must also clear, or finished work stays flagged (2026-11-03)."""
+
+    def _status(self, session, source_id):
+        return session.query(Alert).filter(Alert.source_entity_id == source_id).one().status
+
+    def test_completed_task_alert_resolves(self, session, prop):
+        task = _make_overdue_task(session, prop, "Fix Gate")
+        _check_overdue_tasks(session)
+        task.status = TaskStatus.COMPLETED
+        session.flush()
+        assert resolve_cleared_alerts(session) == 1
+        assert self._status(session, task.id) == AlertStatus.RESOLVED
+
+    def test_rescheduled_task_alert_resolves(self, session, prop):
+        task = _make_overdue_task(session, prop, "Paint Fence")
+        _check_overdue_tasks(session)
+        task.due_date = date.today() + timedelta(days=3)
+        session.flush()
+        assert resolve_cleared_alerts(session) == 1
+
+    def test_deleted_task_alert_resolves(self, session, prop):
+        task = _make_overdue_task(session, prop, "Gone Task")
+        _check_overdue_tasks(session)
+        task_id = task.id
+        session.delete(task)
+        session.flush()
+        assert resolve_cleared_alerts(session) == 1
+        assert self._status(session, task_id) == AlertStatus.RESOLVED
+
+    def test_still_overdue_task_alert_stays_open(self, session, prop):
+        task = _make_overdue_task(session, prop, "Still Late")
+        _check_overdue_tasks(session)
+        assert resolve_cleared_alerts(session) == 0
+        assert self._status(session, task.id) == AlertStatus.GENERATED
+
+    def test_snoozed_alert_resolves_when_task_done(self, session, prop):
+        task = _make_overdue_task(session, prop, "Snoozed Task")
+        _check_overdue_tasks(session)
+        alert = session.query(Alert).filter(Alert.source_entity_id == task.id).one()
+        snooze_alert(session, alert.id, days=7)
+        task.status = TaskStatus.CANCELLED
+        session.flush()
+        assert resolve_cleared_alerts(session) == 1
+
+    def test_resolved_issue_alert_resolves(self, session, prop):
+        issue = _make_old_issue(session, prop, "Roof Leak")
+        _check_critical_issues(session)
+        issue.status = IssueStatus.RESOLVED
+        session.flush()
+        assert resolve_cleared_alerts(session) == 1
+        assert self._status(session, issue.id) == AlertStatus.RESOLVED
+
+    def test_open_issue_alert_stays_open(self, session, prop):
+        issue = _make_old_issue(session, prop, "Boiler Noise")
+        _check_critical_issues(session)
+        assert resolve_cleared_alerts(session) == 0
+        assert self._status(session, issue.id) == AlertStatus.GENERATED
+
+    def test_second_run_changes_nothing(self, session, prop):
+        task = _make_overdue_task(session, prop, "Twice Task")
+        _check_overdue_tasks(session)
+        task.status = TaskStatus.COMPLETED
+        session.flush()
+        assert resolve_cleared_alerts(session) == 1
+        assert resolve_cleared_alerts(session) == 0
+        assert _check_overdue_tasks(session) == 0
+
+
+class TestResolvedStaysResolved:
+    """Resolve in the web app means "dealt with": the hourly job must not raise it again until
+    the source changes (2026-11-03)."""
+
+    _T0 = datetime(2026, 1, 1, 12, 0)
+
+    def _alert(self, session, source_id):
+        return session.query(Alert).filter(Alert.source_entity_id == source_id).one()
+
+    def _resolve_by_hand(self, session, alert, at):
+        alert.status = AlertStatus.RESOLVED
+        alert.updated_at = at
+        session.flush()
+
+    def test_hand_resolved_overdue_task_is_not_raised_again(self, session, prop):
+        task = _make_overdue_task(session, prop, "Hand Resolved")
+        task.updated_at = self._T0
+        _check_overdue_tasks(session)
+        self._resolve_by_hand(session, self._alert(session, task.id), self._T0 + timedelta(hours=1))
+        assert _check_overdue_tasks(session) == 0
+
+    def test_task_changed_after_resolve_is_raised_again(self, session, prop):
+        task = _make_overdue_task(session, prop, "Reopened Task")
+        _check_overdue_tasks(session)
+        self._resolve_by_hand(session, self._alert(session, task.id), self._T0)
+        task.updated_at = self._T0 + timedelta(hours=1)  # e.g. completed, then reopened
+        session.flush()
+        assert _check_overdue_tasks(session) == 1
+
+    def test_missed_again_after_due_date_moved_is_raised(self, session, prop):
+        task = _make_overdue_task(session, prop, "Moved Twice", days_overdue=10)
+        _check_overdue_tasks(session)
+        alert = self._alert(session, task.id)
+        alert.created_at = datetime.combine(date.today() - timedelta(days=9), datetime.min.time())
+        # due date moved out (task changes first), the sweep clears the alert afterwards...
+        task.due_date = date.today() - timedelta(days=2)  # ...and the new date is missed too
+        task.updated_at = self._T0
+        self._resolve_by_hand(session, alert, self._T0 + timedelta(hours=1))
+        assert _check_overdue_tasks(session) == 1
+
+    def test_hand_resolved_issue_is_not_raised_again(self, session, prop):
+        issue = _make_old_issue(session, prop, "Hand Resolved Issue")
+        issue.updated_at = self._T0
+        _check_critical_issues(session)
+        self._resolve_by_hand(session, self._alert(session, issue.id), self._T0 + timedelta(hours=1))
+        assert _check_critical_issues(session) == 0
+
+    def test_issue_changed_after_resolve_is_raised_again(self, session, prop):
+        issue = _make_old_issue(session, prop, "Re-escalated Issue")
+        _check_critical_issues(session)
+        self._resolve_by_hand(session, self._alert(session, issue.id), self._T0)
+        issue.updated_at = self._T0 + timedelta(hours=1)
+        session.flush()
+        assert _check_critical_issues(session) == 1
+
+    def test_aware_and_naive_timestamps_compare(self, session, prop):
+        task = _make_overdue_task(session, prop, "Mixed Zones")
+        task.updated_at = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+        _check_overdue_tasks(session)
+        self._resolve_by_hand(session, self._alert(session, task.id), self._T0 + timedelta(hours=1))
+        assert _check_overdue_tasks(session) == 0

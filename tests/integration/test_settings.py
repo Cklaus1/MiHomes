@@ -1,0 +1,1324 @@
+"""G15 · §6 Step 15 — the per-tenant config UI (A27). O1/U1 closed 2026-08-20.
+
+F7 is why this exists at all: **SPEC-002 D1 drops local SQLite mode and makes the CLI an operator
+tool**, so with no config UI *"a tenant cannot configure anything at all."*
+
+**Masking is a display concern, and the test that matters most is the negative one:**
+`get_config` must keep returning the real value, because it is how the AI provider gets its key.
+A mask applied there would look like better security and would break the feature.
+
+**Encryption is a storage concern, and it is a different test.** U1 answered O1: secret values are
+Fernet-encrypted in the column. Masking and encryption address different threats and neither
+substitutes for the other — masking stops a shoulder-surfer and a pasted terminal buffer,
+encryption stops a `pg_dump`. So the suite asserts both, and `TestValuesAreCiphertextAtRest` is
+the one that proves U1 rather than merely exercising it: **every other test here would still pass
+against a no-op cipher.**
+"""
+
+from __future__ import annotations
+
+import uuid
+
+import pytest
+
+from mihomes.services import config_service
+
+
+@pytest.fixture
+def secret_key(monkeypatch):
+    """A real Fernet key for the duration of one test.
+
+    Generated per test rather than hard-coded: a fixed key in a test file is a key that eventually
+    gets copied into a deployment, and the tests do not care which key it is.
+    """
+    from mihomes import crypto
+
+    monkeypatch.setenv(crypto.SECRET_KEY_ENV, crypto.generate_key())
+    return None
+
+
+@pytest.fixture
+def no_secret_key(monkeypatch):
+    """No key configured — the state of an install that has not been given one yet."""
+    from mihomes import crypto
+
+    monkeypatch.delenv(crypto.SECRET_KEY_ENV, raising=False)
+    return None
+
+
+class TestSecretDetection:
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "ai.anthropic_api_key",
+            "ai.openai_api_key",
+            "telegram.bot_token",
+            "some.client_secret",
+            "smtp.password",
+            "vendor.credential",
+            "AI.ANTHROPIC_API_KEY",
+        ],
+    )
+    def test_credentials_are_recognised(self, key):
+        """Substring markers, not an allow-list of known key names.
+
+        `configurations` is a free-form KV store, so an allow-list would silently fail to mask
+        `ai.anthropic_api_key_backup` the day someone adds it. Over-masking a harmless key is
+        cosmetic; under-masking a credential is the bug.
+        """
+        assert config_service.is_secret(key) is True
+
+    @pytest.mark.parametrize(
+        "key",
+        ["currency.default", "ai.provider", "ai.model", "locale.timezone"],
+    )
+    def test_ordinary_settings_are_not_masked(self, key):
+        """The negative control — masking everything would make the page useless."""
+        assert config_service.is_secret(key) is False
+
+    def test_mask_shows_the_last_four(self):
+        """Enough to answer "is this the key I think it is?" and nothing usable.
+
+        The convention every payment form uses, and the reason this beats a fixed row of dots.
+        """
+        masked = config_service.mask_value("ai.anthropic_api_key", "sk-ant-SECRETVALUE9876")
+        assert masked.endswith("9876")
+        assert "SECRETVALUE" not in masked
+
+    def test_short_values_reveal_nothing(self):
+        """A 4-character "key" is a placeholder or already compromised; showing half helps no one."""
+        assert config_service.mask_value("ai.api_key", "abcd") == "••••"
+
+    def test_none_passes_through(self):
+        assert config_service.mask_value("ai.api_key", None) is None
+
+
+class TestMaskingIsDisplayOnly:
+    @pytest.fixture(autouse=True)
+    def _key(self, monkeypatch):
+        """These tests write secrets to exercise **masking**, which post-U1 needs a key present.
+
+        Autouse on the class rather than added to each signature: the key is incidental to what
+        this class asserts. Switching these to a non-secret key would have been the other way to
+        make them pass, and it would have quietly stopped them testing masking at all.
+        """
+        from mihomes import crypto
+
+        monkeypatch.setenv(crypto.SECRET_KEY_ENV, crypto.generate_key())
+
+    def test_get_config_still_returns_the_real_value(self, session, account_a):
+        """**The most important test in this module.**
+
+        `get_config` is how the AI provider gets its API key. Masking there would look like
+        better security and would break every AI call — and it would fail *at runtime, in
+        production*, as an authentication error from the provider rather than as a test failure.
+        """
+        config_service.set_config(session, "ai.anthropic_api_key", "sk-ant-REALVALUE1234")
+
+        assert config_service.get_config(session, "ai.anthropic_api_key") == (
+            "sk-ant-REALVALUE1234"
+        )
+
+    def test_secrets_masked(self, session, account_a):
+        """A27 — masked in the display listing, which is what the page and the CLI render."""
+        config_service.set_config(session, "ai.anthropic_api_key", "sk-ant-REALVALUE1234")
+
+        rows = {r["key"]: r for r in config_service.list_config_for_display(session)}
+        assert "REALVALUE" not in rows["ai.anthropic_api_key"]["value"]
+        assert rows["ai.anthropic_api_key"]["value"].endswith("1234")
+        assert rows["ai.anthropic_api_key"]["secret"] is True
+
+    def test_unmasked_listing_still_exists_for_app_paths(self, session, account_a):
+        """`list_config` is deliberately left unmasked, and that is not an oversight.
+
+        A boolean flag defaulting to "unmasked" is precisely how `mihomes config list` ended up
+        printing raw API keys. Two named functions mean a caller has to *choose*.
+        """
+        config_service.set_config(session, "ai.anthropic_api_key", "sk-ant-REALVALUE1234")
+        raw = {r["key"]: r["value"] for r in config_service.list_config(session)}
+        assert raw["ai.anthropic_api_key"] == "sk-ant-REALVALUE1234"
+
+
+class TestSettingsPage:
+    def test_staff_are_sent_to_their_own_page(self, web_client_as, session, account_a):
+        """Staff following the sidebar link land on Messenger connections, not a 403.
+
+        The estate page itself stays owner/admin: what changed is that the link everyone sees no
+        longer dead-ends for staff.
+        """
+        client = web_client_as("staff", scoped_to=[])
+        response = client.get("/settings", follow_redirects=False)
+        assert response.status_code == 303
+        assert response.headers["location"] == "/settings/connections"
+
+    def test_staff_cannot_save_estate_settings(self, web_client_as):
+        """The write routes still declare `member.manage`, so reaching the page is not enough."""
+        client = web_client_as("staff", scoped_to=[])
+        response = client.post(
+            "/settings", data={"currency.default": "GBP"}, follow_redirects=False
+        )
+        assert response.status_code == 403
+
+    @pytest.mark.parametrize("role", ["owner", "admin"])
+    def test_privileged_can_read_settings(self, web_client_as, role):
+        """The positive control: row 2's grant pattern is owner ✓, admin ✓, staff ✗."""
+        client = web_client_as(role)
+        response = client.get("/settings")
+        assert response.status_code == 200
+        assert "Settings" in response.text
+
+    def test_the_page_never_renders_a_raw_secret(self, web_client_as):
+        """End to end, on the rendered HTML.
+
+        The unit tests prove `mask_value` works; this proves the *page* calls it. G8 taught the
+        difference — `redact_for_role` passed its unit tests for two whole groups while nothing
+        called it.
+        """
+        from sqlalchemy import text
+
+        client = web_client_as("owner")
+        account_id = web_client_as.connection.execute(
+            text("SELECT account_id FROM memberships LIMIT 1")
+        ).scalar_one()
+        web_client_as.connection.execute(
+            text(
+                "INSERT INTO configurations (account_id, key, value) VALUES "
+                "(:a, 'ai.anthropic_api_key', 'sk-ant-LEAKME99887766')"
+            ),
+            {"a": account_id},
+        )
+
+        body = client.get("/settings").text
+        assert "LEAKME" not in body, "the settings page rendered a raw credential"
+        assert "sk-ant" not in body
+
+
+class TestUserSettingsWrite:
+    """POST /settings writes only `USER_SETTING_KEYS` (2026-10-15).
+
+    It used to write any key, which let an owner repoint the AI backend. Credentials and backend
+    configuration are now the operator's (`mihomes config set`); encryption of those is still
+    pinned at the service level by `TestValuesAreCiphertextAtRest` below.
+    """
+
+    def _stored(self, web_client_as, key):
+        from sqlalchemy import text
+
+        return web_client_as.connection.execute(
+            text("SELECT value FROM configurations WHERE key = :k"), {"k": key}
+        ).scalar_one_or_none()
+
+    def test_a_preference_write_succeeds(self, web_client_as):
+        """Refusing *everything* would make the page decorative — F7's complaint again."""
+        client = web_client_as("owner")
+        response = client.post(
+            "/settings",
+            data={"currency.default": "GBP", "locale.timezone": "Europe/London"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+        session = web_client_as.session_for_scope()
+        assert config_service.get_config(session, "currency.default") == "GBP"
+        assert config_service.get_config(session, "locale.timezone") == "Europe/London"
+
+    @pytest.mark.parametrize(
+        "key, value",
+        [
+            ("ai.provider", "claude"),
+            ("ai.nim_model", "something/else"),
+            ("ai.anthropic_api_key", "sk-ant-NEW1234"),
+            ("smtp.password", "hunter2"),
+            ("telegram.chat_links", "{}"),
+            ("made.up", "x"),
+        ],
+    )
+    def test_a_backend_key_is_refused_and_not_written(self, web_client_as, key, value):
+        client = web_client_as("owner")
+        response = client.post("/settings", data={key: value}, follow_redirects=False)
+        assert response.status_code == 400
+        assert self._stored(web_client_as, key) is None
+
+    def test_one_bad_field_saves_nothing(self, web_client_as):
+        """Validation runs over every field before any is written — no half-applied form."""
+        client = web_client_as("owner")
+        response = client.post(
+            "/settings",
+            data={"currency.default": "GBP", "locale.timezone": "Mars/Olympus"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+        assert self._stored(web_client_as, "currency.default") is None
+
+    def test_notification_events_from_checkboxes(self, web_client_as):
+        client = web_client_as("owner")
+        client.post(
+            "/settings",
+            data={"_events_present": "1", "notifications.events": ["budget", "issues"],
+                  "notifications.channel": "telegram"},
+        )
+        session = web_client_as.session_for_scope()
+        assert config_service.get_config(session, "notifications.events") == "issues,budget"
+
+    def test_unticking_every_event_stores_none(self, web_client_as):
+        client = web_client_as("owner")
+        client.post("/settings", data={"_events_present": "1", "notifications.channel": "none"})
+        session = web_client_as.session_for_scope()
+        assert config_service.get_config(session, "notifications.events") == ""
+
+    def test_the_page_never_shows_backend_keys(self, web_client_as):
+        client = web_client_as("owner")
+        body = client.get("/settings").text
+        for key in ("ai.provider", "ai.max_context_tokens", "retention.", "telegram."):
+            assert key not in body, f"{key} is backend configuration and must not be rendered"
+
+
+class TestMessengerConnections:
+    """`/settings/connections` and the Telegram link code (2026-10-15)."""
+
+    def test_staff_can_open_their_connections(self, web_client_as):
+        client = web_client_as("staff", scoped_to=[])
+        response = client.get("/settings/connections")
+        assert response.status_code == 200
+        assert "Messenger connections" in response.text
+        assert "Preferences" not in response.text, "staff must not see estate settings"
+
+    @pytest.mark.parametrize("role", ["owner", "admin", "staff"])
+    def test_every_role_can_get_a_link_code(self, web_client_as, role):
+        from sqlalchemy import text
+
+        client = web_client_as(role) if role != "staff" else web_client_as("staff", scoped_to=[])
+        response = client.post("/settings/connections/telegram/code")
+        assert response.status_code == 200
+        assert 'data-testid="link-code"' in response.text
+
+        tokens = web_client_as.connection.execute(
+            text("SELECT gateway, token_hash FROM gateway_link_tokens")
+        ).all()
+        assert len(tokens) == 1 and tokens[0].gateway == "telegram"
+
+    def test_the_raw_code_is_not_stored(self, web_client_as):
+        """A4 end to end: the code is shown once and only its hash reaches the table."""
+        import re
+
+        from sqlalchemy import text
+
+        client = web_client_as("owner")
+        body = client.post("/settings/connections/telegram/code").text
+        code = re.search(r"/link ([A-Z2-9]{8})", body).group(1)
+        hashes = web_client_as.connection.execute(
+            text("SELECT token_hash FROM gateway_link_tokens")
+        ).scalars().all()
+        assert code not in hashes
+
+    def test_the_code_page_is_refresh_safe_and_polls_for_the_link(self, web_client_as):
+        """Refreshing the code page used to re-POST and mint a fresh code after linking."""
+        client = web_client_as("owner")
+        body = client.post("/settings/connections/telegram/code").text
+        assert 'history.replaceState(null, "", "/settings/connections#connections")' in body
+        assert 'hx-get="/settings/connections/telegram/status?known=0&amp;issued=' in body
+        assert 'hx-trigger="every 3s"' in body
+
+    def test_status_is_204_until_the_bot_links_you_then_shows_linked(self, web_client_as):
+        import uuid
+
+        from sqlalchemy import text
+
+        client = web_client_as("owner")
+        assert client.get("/settings/connections/telegram/status?known=0").status_code == 204
+
+        web_client_as.connection.execute(
+            text("INSERT INTO telegram_links (id, account_id, membership_id, telegram_user_id) "
+                 "SELECT :i, account_id, id, 818181818 FROM memberships WHERE id = :m"),
+            {"i": uuid.uuid4(), "m": client.membership_id},
+        )
+        linked = client.get("/settings/connections/telegram/status?known=0")
+        assert linked.status_code == 200
+        assert "Telegram is connected" in linked.text
+        assert "hx-trigger" not in linked.text, "the linked card must stop polling"
+        assert "linked " in linked.text and "818181818" in linked.text
+
+        # A normal reload after linking offers no new code, only a secondary "link another".
+        page = client.get("/settings/connections").text
+        assert "Get a link code" not in page
+        assert "Link another Telegram account" in page
+
+    def test_status_stops_polling_once_the_code_expires(self, web_client_as):
+        client = web_client_as("owner")
+        r = client.get("/settings/connections/telegram/status?known=0&issued=1")
+        assert r.status_code == 286
+        assert "expired" in r.text
+
+    def test_unlinking_someone_elses_link_is_a_404(self, web_client_as):
+        import uuid
+
+        client = web_client_as("owner")
+        response = client.post(
+            f"/settings/connections/telegram/{uuid.uuid4()}/unlink", follow_redirects=False
+        )
+        assert response.status_code == 404
+
+
+class TestValuesAreCiphertextAtRest:
+    """**The test that proves U1.** Everything else here passes against a no-op cipher.
+
+    Reads the column with raw SQL rather than through the ORM, deliberately: the service layer is
+    the thing under test, so asking it whether it encrypted is circular. This is the assertion that
+    corresponds to the actual threat — someone reading the database, not someone using the app.
+    """
+
+    def test_the_stored_column_holds_no_plaintext(self, web_client_as, secret_key):
+        from sqlalchemy import text
+
+        session = web_client_as.session_for_scope()
+        config_service.set_config(session, "ai.anthropic_api_key", "sk-ant-PLAINTEXTCANARY")
+        session.commit()
+
+        raw = web_client_as.connection.execute(
+            text("SELECT value FROM configurations WHERE key = 'ai.anthropic_api_key'")
+        ).scalar_one()
+
+        assert "PLAINTEXTCANARY" not in raw, (
+            "the credential is readable in the database — this is precisely what U1 exists to "
+            "prevent, and a pg_dump would disclose it"
+        )
+        assert raw.startswith("enc:v1:"), (
+            f"expected a versioned ciphertext marker, got {raw[:20]!r}. The prefix is what lets a "
+            "later version distinguish formats without guessing."
+        )
+
+    def test_non_secrets_are_left_readable(self, web_client_as, secret_key):
+        """Operational state stays plaintext, on purpose.
+
+        `telegram.last_update_id` is written once per poll and the dedup id list on every message;
+        encrypting them would put a Fernet round-trip on the bot's hot path to protect values that
+        are not secrets. The marker list is the boundary and this pins that it is being applied.
+        """
+        from sqlalchemy import text
+
+        session = web_client_as.session_for_scope()
+        config_service.set_config(session, "currency.default", "GBP")
+        session.commit()
+
+        raw = web_client_as.connection.execute(
+            text("SELECT value FROM configurations WHERE key = 'currency.default'")
+        ).scalar_one()
+        assert raw == "GBP"
+
+
+class TestLegacyPlaintextStillReadable:
+    """The compatibility path that makes a phased rollout possible.
+
+    Rows written before encryption existed — or imported from a pre-Postgres SQLite database, which
+    `services/importer.py` Core-inserts directly — carry no prefix. Reading them is how the system
+    keeps working before `mihomes config encrypt-secrets` is run. Refusing them instead would take
+    the AI and the bot down on upgrade, which is a worse failure than the one it prevents.
+    """
+
+    @staticmethod
+    def _plant_legacy(web_client_as, account_a, key, value):
+        """A pre-encryption row, written with raw SQL so no service-layer code touches it.
+
+        `account_id` is the `account_a` fixture, taken as an argument rather than queried. Two
+        wrong versions came before this one, and both failed for reasons unrelated to what the
+        tests assert: `(SELECT id FROM accounts LIMIT 1)` can pick an account the client is not
+        bound to, and `SELECT account_id FROM memberships` returns nothing until
+        `web_client_as(role)` has been *called* — the factory is what inserts the membership. The
+        fixture is the account the factory binds to, so it is the one source that is right before
+        any client exists.
+        """
+        from sqlalchemy import text
+
+        web_client_as.connection.execute(
+            text("INSERT INTO configurations (account_id, key, value) VALUES (:a, :k, :v)"),
+            {"a": account_a, "k": key, "v": value},
+        )
+
+    def test_unprefixed_value_reads_back_unchanged(
+        self, web_client_as, account_a, secret_key
+    ):
+        self._plant_legacy(web_client_as, account_a, "ai.openai_api_key", "sk-LEGACYPLAIN")
+        session = web_client_as.session_for_scope()
+        assert config_service.get_config(session, "ai.openai_api_key") == "sk-LEGACYPLAIN"
+
+    def test_legacy_value_is_still_masked_on_the_page(
+        self, web_client_as, account_a, secret_key
+    ):
+        """A legacy row must not be exposed on the page. Since 2026-10-15 the page renders no
+        backend keys at all, so neither the plaintext nor its masked tail may appear."""
+        self._plant_legacy(web_client_as, account_a, "ai.openai_api_key", "sk-LEGACYPLAIN")
+        client = web_client_as("owner")
+        response = client.get("/settings")
+        assert response.status_code == 200
+        assert "Preferences" in response.text, (
+            "asserting only absence passes vacuously if the page renders nothing"
+        )
+        assert "LEGACYPLAIN" not in response.text
+        assert "LAIN" not in response.text
+
+
+class TestEncryptExistingSecrets:
+    """The conversion command. Deliberately not a migration — see the service docstring."""
+
+    @staticmethod
+    def _plant_legacy(web_client_as, account_a, key, value):
+        """A pre-encryption row, written with raw SQL so no service-layer code touches it.
+
+        `account_id` is the `account_a` fixture, taken as an argument rather than queried. Two
+        wrong versions came before this one, and both failed for reasons unrelated to what the
+        tests assert: `(SELECT id FROM accounts LIMIT 1)` can pick an account the client is not
+        bound to, and `SELECT account_id FROM memberships` returns nothing until
+        `web_client_as(role)` has been *called* — the factory is what inserts the membership. The
+        fixture is the account the factory binds to, so it is the one source that is right before
+        any client exists.
+        """
+        from sqlalchemy import text
+
+        web_client_as.connection.execute(
+            text("INSERT INTO configurations (account_id, key, value) VALUES (:a, :k, :v)"),
+            {"a": account_a, "k": key, "v": value},
+        )
+
+    def test_it_converts_a_legacy_row(self, web_client_as, account_a, secret_key):
+        from sqlalchemy import text
+
+        self._plant_legacy(web_client_as, account_a, "telegram.bot_token", "123:LEGACYTOKEN")
+        session = web_client_as.session_for_scope()
+
+        converted = config_service.encrypt_existing_secrets(session)
+        session.commit()
+
+        assert "telegram.bot_token" in converted
+        raw = web_client_as.connection.execute(
+            text("SELECT value FROM configurations WHERE key = 'telegram.bot_token'")
+        ).scalar_one()
+        assert raw.startswith("enc:v1:")
+        assert "LEGACYTOKEN" not in raw
+        # And it is still usable afterwards — a conversion that broke the value would be worse
+        # than leaving it plaintext.
+        assert config_service.get_config(session, "telegram.bot_token") == "123:LEGACYTOKEN"
+
+    def test_it_is_idempotent(self, web_client_as, account_a, secret_key):
+        """Safe in a deploy script, which is the only way it will actually get run."""
+        self._plant_legacy(web_client_as, account_a, "telegram.bot_token", "123:LEGACYTOKEN")
+        session = web_client_as.session_for_scope()
+
+        first = config_service.encrypt_existing_secrets(session)
+        second = config_service.encrypt_existing_secrets(session)
+
+        assert first == ["telegram.bot_token"]
+        assert second == [], "a second run must convert nothing — not double-wrap"
+
+    def test_it_leaves_non_secrets_alone(self, web_client_as, account_a, secret_key):
+        self._plant_legacy(web_client_as, account_a, "locale.timezone", "Europe/Madrid")
+        session = web_client_as.session_for_scope()
+        assert config_service.encrypt_existing_secrets(session) == []
+
+
+class TestMissingKeyFailsLoudly:
+    """The failure mode this module exists to avoid is the *quiet* one.
+
+    Returning the ciphertext, or `None`, when no key is configured turns a missing environment
+    variable into an authentication error three layers away — at the Anthropic client, complaining
+    about an invalid key. Loud and local beats quiet and distant.
+    """
+
+    def test_reading_an_encrypted_value_without_a_key_raises(
+        self, web_client_as, secret_key, monkeypatch
+    ):
+        from mihomes import crypto
+
+        session = web_client_as.session_for_scope()
+        config_service.set_config(session, "ai.anthropic_api_key", "sk-ant-WILLBELOCKED")
+        session.commit()
+
+        monkeypatch.delenv(crypto.SECRET_KEY_ENV, raising=False)
+        with pytest.raises(crypto.UndecryptableValue):
+            config_service.get_config(session, "ai.anthropic_api_key")
+
+    def test_the_wrong_key_raises_rather_than_returning_garbage(
+        self, web_client_as, secret_key, monkeypatch
+    ):
+        from mihomes import crypto
+
+        session = web_client_as.session_for_scope()
+        config_service.set_config(session, "ai.anthropic_api_key", "sk-ant-WILLBELOCKED")
+        session.commit()
+
+        monkeypatch.setenv(crypto.SECRET_KEY_ENV, crypto.generate_key())
+        with pytest.raises(crypto.UndecryptableValue):
+            config_service.get_config(session, "ai.anthropic_api_key")
+
+    def test_writing_a_secret_without_a_key_raises(self, web_client_as, no_secret_key):
+        from mihomes import crypto
+
+        session = web_client_as.session_for_scope()
+        with pytest.raises(crypto.EncryptionUnavailable):
+            config_service.set_config(session, "smtp.password", "hunter2")
+
+
+class TestRenamingTheEstate:
+    """The rename onboarding promised and the app could not do.
+
+    Step 2's household-name field carries the caption *"You can change this later."* Nothing in
+    the app wrote `accounts.name` after creation — `/settings` offered only a raw config
+    key/value form — so the only way to rename an estate was `UPDATE accounts SET name = …` by
+    hand. Reported from a live install: the user went looking for the rename, landed back in the
+    onboarding wizard, and got a 500.
+    """
+
+    def test_owner_can_rename_and_the_page_shows_it(self, web_client_as):
+        client = web_client_as("owner")
+
+        response = client.post(
+            "/settings/account", data={"name": "Belle Estate"}, follow_redirects=False
+        )
+        assert response.status_code == 303, response.text
+
+        page = client.get("/settings")
+        assert "Belle Estate" in page.text
+
+    def test_the_slug_does_not_change(self, web_client_as):
+        """**The slug is the stable identifier and must survive a rename.**
+
+        It is what `--account <slug>` names on every CLI invocation and what `resolve_account`
+        looks installs up by, so rebuilding it from the new name would break whatever the
+        operator had scripted — the kind of breakage that surfaces later and elsewhere. It is
+        also UNIQUE, so a rebuild could collide and fail a rename that has nothing wrong with it.
+        """
+        from sqlalchemy import text
+
+        client = web_client_as("owner")
+        conn = web_client_as.connection
+        before = conn.execute(text("select slug from accounts limit 1")).scalar()
+
+        client.post("/settings/account", data={"name": "Something Else Entirely"})
+
+        after = conn.execute(text("select slug from accounts limit 1")).scalar()
+        assert after == before, (
+            f"the slug changed from {before!r} to {after!r} — every `--account {before}` "
+            f"invocation and any script using it now fails"
+        )
+
+    def test_staff_cannot_rename(self, web_client_as):
+        """Same gate as the config form: owner ✓, admin ✓, staff ✗, from the dependency."""
+        client = web_client_as("staff", scoped_to=[])
+        response = client.post(
+            "/settings/account", data={"name": "Staff Renamed This"}, follow_redirects=False
+        )
+        assert response.status_code == 403
+
+    def test_an_empty_name_is_refused_not_written(self, web_client_as):
+        """Whitespace only is empty. The refusal re-renders the page rather than 500ing."""
+        from sqlalchemy import text
+
+        client = web_client_as("owner")
+        conn = web_client_as.connection
+        before = conn.execute(text("select name from accounts limit 1")).scalar()
+
+        response = client.post(
+            "/settings/account", data={"name": "   "}, follow_redirects=False
+        )
+        assert response.status_code == 400
+        assert "cannot be empty" in response.text
+
+        after = conn.execute(text("select name from accounts limit 1")).scalar()
+        assert after == before, "the name was cleared despite the refusal"
+
+    def test_an_overlong_name_is_refused_readably(self, web_client_as):
+        """Enforced in the service, so it is a readable message rather than a driver error.
+
+        Left to the column, this is `StringDataRightTruncation` raised three frames inside a
+        flush — a 500 the user cannot act on.
+        """
+        client = web_client_as("owner")
+        response = client.post(
+            "/settings/account", data={"name": "x" * 201}, follow_redirects=False
+        )
+        assert response.status_code == 400
+        assert "too long" in response.text
+
+    def test_the_rename_is_audited(self, web_client_as):
+        """Who renamed the estate, and what it was called before — otherwise unrecoverable."""
+        from sqlalchemy import text
+
+        client = web_client_as("owner")
+        client.post("/settings/account", data={"name": "Audited Estate"})
+
+        row = web_client_as.connection.execute(
+            text(
+                "select action, changes from audit_log "
+                "where entity_type = 'account' and action = 'rename' "
+                "order by timestamp desc limit 1"
+            )
+        ).first()
+        assert row is not None, "the rename left no audit entry"
+        assert row.changes["name"]["to"] == "Audited Estate"
+
+    def test_resubmitting_the_same_name_writes_no_audit_row(self, web_client_as):
+        """A form re-submit is not a change, and should not fill the trail with no-ops."""
+        from sqlalchemy import text
+
+        client = web_client_as("owner")
+        client.post("/settings/account", data={"name": "Stable Name"})
+
+        def rename_rows() -> int:
+            return web_client_as.connection.execute(
+                text(
+                    "select count(*) from audit_log "
+                    "where entity_type = 'account' and action = 'rename'"
+                )
+            ).scalar()
+
+        before = rename_rows()
+        client.post("/settings/account", data={"name": "Stable Name"})
+        assert rename_rows() == before, "an unchanged re-submit recorded an audit event"
+
+
+class TestSettingsIsReachable:
+    """**The page existed and nothing linked to it**, which is the same as not existing.
+
+    `/settings` shipped with SPEC-003 G15 and the estate rename was added to it, but no
+    template carried an `href="/settings"` — so it was reachable only by typing the URL. The
+    feature was reported missing by someone looking at the dashboard, which is the only
+    evidence that matters for a nav link.
+    """
+
+    def test_the_sidebar_links_to_settings(self, web_client_as):
+        client = web_client_as("owner")
+        page = client.get("/")
+        assert 'href="/settings"' in page.text, (
+            "no link to /settings anywhere in the chrome — the page is reachable only by "
+            "typing the URL, which from the outside is the feature not existing"
+        )
+
+
+class TestEditingYourOwnProfile:
+    """Name and sign-in email, for the signed-in user only."""
+
+    @staticmethod
+    def _email_of(conn):
+        """The fixture mints a random `owner-<hex>@example.com`, so it must be read, not
+        assumed — posting a different address reads as an email *change* and takes the
+        password path."""
+        from sqlalchemy import text
+
+        return conn.execute(text("select email from users limit 1")).scalar()
+
+    def test_a_name_change_needs_no_password(self, web_client_as):
+        """Renaming yourself is a display tweak. Demanding a password for it trains people to
+        type their password for trivial things, which is its own hazard."""
+        client = web_client_as("owner")
+        response = client.post(
+            "/settings/profile",
+            data={
+                "name": "Renamed Person",
+                "email": self._email_of(web_client_as.connection),
+            },
+            follow_redirects=False,
+        )
+        assert response.status_code == 303, response.text
+        assert "Renamed Person" in client.get("/settings").text
+
+    def test_changing_the_email_requires_the_current_password(self, web_client_as):
+        """**The guard that matters.** The email is the sign-in credential, so a borrowed
+        session must not be able to move the account to an attacker's address.
+
+        The fixture's user signs in with Google, so it is given a password here first — a
+        Google identity has no password to verify and is refused earlier, by
+        `test_a_google_identity_cannot_change_its_email`.
+        """
+        from sqlalchemy import text
+
+        from mihomes.auth.passwords import hash_password
+
+        client = web_client_as("owner")
+        conn = web_client_as.connection
+        conn.execute(
+            text("update users set password_hash = :h, password_set_at = now()"),
+            {"h": hash_password("correct horse battery staple")},
+        )
+        before = conn.execute(text("select email from users limit 1")).scalar()
+
+        response = client.post(
+            "/settings/profile",
+            data={
+                "name": "Someone",
+                "email": "attacker@example.com",
+                "current_password": "not-the-password",
+            },
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+        assert "password is not correct" in response.text
+
+        after = conn.execute(text("select email from users limit 1")).scalar()
+        assert after == before, "the email changed despite the wrong password"
+
+    def test_a_google_identity_cannot_change_its_email(self, web_client_as):
+        """A Google account has no password to verify and its address is managed upstream, so
+        the change is refused with a reason rather than silently failing verification."""
+        client = web_client_as("owner")
+        response = client.post(
+            "/settings/profile",
+            data={"name": "Someone", "email": "elsewhere@example.com"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+        assert "managed by Google" in response.text or "Google" in response.text
+
+    def test_a_malformed_email_is_refused(self, web_client_as):
+        client = web_client_as("owner")
+        response = client.post(
+            "/settings/profile",
+            data={"name": "Someone", "email": "not-an-email"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+        assert "does not look like an email" in response.text
+
+    def test_an_empty_name_is_refused(self, web_client_as):
+        client = web_client_as("owner")
+        response = client.post(
+            "/settings/profile",
+            data={"name": "   ", "email": self._email_of(web_client_as.connection)},
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+        assert "cannot be empty" in response.text
+
+    def test_the_route_edits_only_the_signed_in_user(self, web_client_as):
+        """**Why a permission open to every role is safe here.**
+
+        The handler reads `principal.user_id` and accepts no user id from the request, so there
+        is no version of this call that edits somebody else. A stray `user_id` field must be
+        ignored rather than honoured.
+        """
+        from sqlalchemy import text
+
+        client = web_client_as("owner")
+        conn = web_client_as.connection
+        victim = conn.execute(
+            text(
+                "insert into users (id, email, name, created_at) values "
+                "(gen_random_uuid(), 'victim@example.com', 'Victim', now()) returning id"
+            )
+        ).scalar()
+
+        client.post(
+            "/settings/profile",
+            data={
+                "name": "Hijacked",
+                "email": self._email_of(conn),
+                "user_id": str(victim),
+            },
+            follow_redirects=False,
+        )
+
+        still = conn.execute(
+            text("select name from users where id = :i"), {"i": victim}
+        ).scalar()
+        assert still == "Victim", "the route honoured a user id from the request body"
+
+
+class TestMembersSection:
+    """The rendered page and the five routes behind it.
+
+    Separate from the service tests in `test_settings_members.py` for the reason G8 taught:
+    `redact_for_role` passed its unit tests for two whole groups while nothing called it. These
+    go through HTTP, so they fail if the wiring is wrong even when every service is correct.
+    """
+
+    def test_the_page_lists_members(self, web_client_as):
+        client = web_client_as("owner")
+        response = client.get("/settings")
+
+        assert response.status_code == 200
+        assert "Members" in response.text
+        # The signed-in owner is a member, so their own address must be on the page.
+        assert "owner-" in response.text
+
+    def test_invite_renders_the_link_once(self, web_client_as):
+        """**The defect this feature exists to fix**, asserted end to end.
+
+        `create_invite` hands back a token that exists nowhere else — `team.py:114` drops it and
+        no invite email template exists. If this route redirected like that one does, the
+        invitation would consume a seat and produce a link nobody could retrieve. The response
+        body is the only delivery mechanism, so the response body is what gets asserted.
+        """
+        client = web_client_as("owner")
+        response = client.post(
+            "/settings/members/invite",
+            data={"email": "newcomer@example.com", "role": "admin"},
+        )
+
+        assert response.status_code == 200, "must render, not redirect — the token is in the body"
+        assert "/invite/" in response.text, "the invitation link must be shown"
+        assert "newcomer@example.com" in response.text
+
+    def test_invite_emails_the_invitee(self, web_client_as, monkeypatch):
+        """2026-11-18: the invitation is emailed, not only shown. The queued mail must carry the
+        same link the page shows — the token exists nowhere else, so a mismatch strands it."""
+        import json
+        import re
+
+        from sqlalchemy import text
+
+        monkeypatch.setenv("EMAIL_PROVIDER", "console")
+        client = web_client_as("owner")
+        response = client.post(
+            "/settings/members/invite",
+            data={"email": "emailed@example.com", "role": "admin"},
+        )
+
+        assert response.status_code == 200
+        assert "Invitation emailed to emailed@example.com" in response.text
+        shown = re.search(r'id="invite-link" readonly value="([^"]+)"', response.text).group(1)
+
+        rows = web_client_as.connection.execute(
+            text("SELECT template, klass, context FROM email_outbox WHERE to_address = :to"),
+            {"to": "emailed@example.com"},
+        ).all()
+        assert len(rows) == 1
+        assert rows[0].template == "staff_invite"
+        assert rows[0].klass == "transactional", "an invite must never be suppressed"
+        context = json.loads(rows[0].context)
+        assert context["accept_url"] == shown
+        assert context["role"] == "admin"
+
+    def test_invite_without_a_mail_provider_says_so(self, web_client_as, monkeypatch):
+        """No `RESEND_API_KEY`: the invite still exists and the page says to send the link by
+        hand, rather than claiming an email that was never queued."""
+        monkeypatch.setenv("EMAIL_PROVIDER", "resend")
+        monkeypatch.delenv("RESEND_API_KEY", raising=False)
+        client = web_client_as("owner")
+        response = client.post(
+            "/settings/members/invite",
+            data={"email": "nomail@example.com", "role": "admin"},
+        )
+
+        assert response.status_code == 200
+        assert "/invite/" in response.text
+        assert "could not be sent" in response.text
+        assert "Invitation emailed" not in response.text
+
+    def test_staff_invite_without_properties_is_refused_on_the_page(self, web_client_as):
+        """A21/D3 surfaces as a form error rather than a 500."""
+        client = web_client_as("owner")
+        response = client.post(
+            "/settings/members/invite",
+            data={"email": "housekeeper@example.com", "role": "staff"},
+        )
+
+        assert response.status_code == 400
+        assert "at least one property" in response.text
+
+    def test_admin_cannot_revoke_themselves(self, web_client_as):
+        """The lockout guard — one click, no confirmation, no way back in.
+
+        R1 covers role changes but `offboard` has no self-check, so this is the only thing
+        standing between an admin and locking themselves out of the estate. The template omits
+        the button; this posts anyway, because the form is not the gate.
+        """
+        client = web_client_as("admin")
+        response = client.post(f"/settings/members/{client.membership_id}/revoke")
+
+        assert response.status_code == 400
+        assert "your own access" in response.text
+
+        # And they are still in.
+        assert client.get("/settings").status_code == 200
+
+    def test_a_membership_from_another_estate_is_not_found(self, web_client_as):
+        """D9's reasoning: ids arrive from a form, so an unknown one must not be actionable.
+
+        A random uuid stands in for another account's membership — the response must be
+        identical either way, or the pair of responses enumerates which ids are real.
+        """
+        client = web_client_as("owner")
+        stranger = uuid.uuid4()
+
+        assert client.post(f"/settings/members/{stranger}/revoke").status_code == 404
+        assert client.post(
+            f"/settings/members/{stranger}/role", data={"role": "staff"}
+        ).status_code == 404
+
+    def test_staff_never_reach_any_member_route(self, web_client_as):
+        """Rows 10-13 are all `DENY` for staff, applied by the dependency before the body runs.
+
+        The settings PAGE is the exception by design: since the sidebar shows Settings to every
+        role, a staff member is redirected to their own page (/settings/connections) rather
+        than shown a 403. That page carries no member management; every write below still 403s.
+        """
+        client = web_client_as("staff", scoped_to=[])
+        target = uuid.uuid4()
+
+        page = client.get("/settings", follow_redirects=False)
+        assert page.status_code == 303 and page.headers["location"] == "/settings/connections"
+        assert "/settings/members/" not in client.get("/settings/connections").text
+        assert client.post(
+            "/settings/members/invite", data={"email": "x@example.com", "role": "admin"}
+        ).status_code == 403
+        assert client.post(
+            f"/settings/members/{target}/role", data={"role": "admin"}
+        ).status_code == 403
+        assert client.post(f"/settings/members/{target}/revoke").status_code == 403
+
+    def test_billing_link_is_owner_only(self, web_client_as):
+        """`billing.manage` is owner-only (row 15) — an admin runs the estate, not the card.
+
+        A link an admin cannot follow would be a 403 dressed as a feature, so the page omits it
+        rather than rendering one that refuses.
+        """
+        assert "/billing" in web_client_as("owner").get("/settings").text
+        assert "/billing" not in web_client_as("admin").get("/settings").text
+
+
+class TestTransferOwnership:
+    """Row 14 through the page (2026-11-13). The service rules are in `test_membership.py`;
+    these prove the route, the confirmation, the deletion guard and the gate are wired."""
+
+    @staticmethod
+    def _roles(web_client_as):
+        from sqlalchemy import text
+
+        rows = web_client_as.connection.execute(
+            text("SELECT id, role FROM memberships WHERE status = 'active'")
+        ).all()
+        return {row.id: row.role for row in rows}
+
+    @staticmethod
+    def _transfer(client, target, confirm="TRANSFER"):
+        return client.post(
+            "/settings/transfer-ownership",
+            data={"membership_id": str(target), "confirm": confirm},
+            follow_redirects=False,
+        )
+
+    def test_owner_hands_over_to_an_admin(self, web_client_as):
+        owner = web_client_as("owner")
+        admin = web_client_as("admin")
+
+        response = self._transfer(owner, admin.membership_id)
+
+        assert response.status_code == 303
+        assert "ownership_transferred" in response.headers["location"]
+        roles = self._roles(web_client_as)
+        assert roles[admin.membership_id] == "owner"
+        assert roles[owner.membership_id] == "admin", "the old owner stays, as an admin"
+        assert list(roles.values()).count("owner") == 1
+
+    def test_the_transfer_is_audited(self, web_client_as):
+        from sqlalchemy import text
+
+        owner = web_client_as("owner")
+        admin = web_client_as("admin")
+        self._transfer(owner, admin.membership_id)
+
+        row = web_client_as.connection.execute(
+            text("SELECT entity_id FROM audit_log WHERE action = 'transfer'")
+        ).one()
+        assert row.entity_id == admin.membership_id
+
+    def test_the_old_owner_cannot_transfer_again(self, web_client_as):
+        owner = web_client_as("owner")
+        admin = web_client_as("admin")
+        self._transfer(owner, admin.membership_id)
+
+        page = owner.get("/settings").text
+        assert "/settings/transfer-ownership" not in page
+        assert self._transfer(owner, owner.membership_id).status_code == 403
+        assert "/settings/transfer-ownership" in admin.get("/settings").text
+
+    def test_admin_and_staff_are_refused(self, web_client_as):
+        web_client_as("owner")
+        admin = web_client_as("admin")
+        staff = web_client_as("staff", scoped_to=[])
+
+        assert self._transfer(admin, admin.membership_id).status_code == 403
+        assert self._transfer(staff, admin.membership_id).status_code == 403
+
+    def test_a_wrong_confirmation_changes_nothing(self, web_client_as):
+        owner = web_client_as("owner")
+        admin = web_client_as("admin")
+
+        for typed in ("", "transfer please", "DELETE"):
+            response = self._transfer(owner, admin.membership_id, confirm=typed)
+            assert response.status_code == 400
+            assert "Type TRANSFER" in response.text
+        assert self._roles(web_client_as)[owner.membership_id] == "owner"
+
+    def test_a_staff_member_cannot_receive_it(self, web_client_as):
+        owner = web_client_as("owner")
+        staff = web_client_as("staff", scoped_to=[])
+
+        response = self._transfer(owner, staff.membership_id)
+
+        assert response.status_code == 400
+        assert "make them an admin first" in response.text
+        assert self._roles(web_client_as)[staff.membership_id] == "staff"
+
+    def test_yourself_and_strangers(self, web_client_as):
+        owner = web_client_as("owner")
+
+        assert self._transfer(owner, owner.membership_id).status_code == 400
+        assert self._transfer(owner, uuid.uuid4()).status_code == 404
+
+    def test_refused_while_deletion_is_scheduled(self, web_client_as, account_a):
+        from datetime import datetime, timedelta, timezone
+
+        from mihomes.models.account_deletion import AccountDeletionRequest
+
+        owner = web_client_as("owner")
+        admin = web_client_as("admin")
+        now = datetime.now(timezone.utc)
+        web_client_as.seed(lambda s: s.add(AccountDeletionRequest(
+            account_id=account_a, requested_at=now, requested_by_user_id=owner.user_id,
+            purge_after=now + timedelta(days=30),
+        )))
+
+        response = self._transfer(owner, admin.membership_id)
+
+        assert response.status_code == 400
+        assert "scheduled for deletion" in response.text
+        assert self._roles(web_client_as)[admin.membership_id] == "admin"
+
+    def test_only_admins_are_offered(self, web_client_as):
+        owner = web_client_as("owner")
+        page = owner.get("/settings").text
+        assert "Ownership can only go to an admin" in page, "no admin yet: say how to get one"
+
+        admin = web_client_as("admin")
+        staff = web_client_as("staff", scoped_to=[])
+        page = owner.get("/settings").text
+        picker = page.split('id="transfer-to"', 1)[1].split("</select>", 1)[0]
+        assert str(admin.membership_id) in picker
+        assert str(staff.membership_id) not in picker
+
+
+class TestStaffPropertyAccess:
+    """The staff whitelist **through the page** — the access-control half of the feature.
+
+    `test_settings_members.py` exercises `set_property_scope` directly, which leaves the form
+    itself untested: the checkbox loop only renders when there is both a staff member and a
+    property, and a Jinja mistake inside that branch would ship silently. G8's lesson again —
+    a service can be correct while nothing calls it.
+    """
+
+    @staticmethod
+    def _seed_staff_and_property(web_client_as):
+        """A property and a staff member in the same account, returned as ids.
+
+        Built through the ORM rather than a hand-written INSERT: `properties` carries several
+        NOT NULL columns whose defaults live on the model (`currency`, and the two enums, which
+        are stored as the Python enum *names* rather than their values). Naming columns by hand
+        rediscovers each one as a separate failure, which is how this was first written.
+        """
+        import uuid as _uuid
+
+        from mihomes.models.membership import Membership
+        from mihomes.models.property import Property
+        from mihomes.models.user import User
+
+        ids: dict[str, _uuid.UUID] = {}
+
+        def build(session):
+            account_id = session.query(Membership).first().account_id
+
+            prop = Property(
+                id=_uuid.uuid4(), account_id=account_id, name="Belle Estate",
+                slug=f"belle-{_uuid.uuid4().hex[:6]}",
+            )
+            user = User(
+                id=_uuid.uuid4(), google_sub=f"sub-{_uuid.uuid4().hex[:12]}",
+                email=f"house-{_uuid.uuid4().hex[:6]}@example.com",
+            )
+            session.add_all([prop, user])
+            session.flush()
+
+            membership = Membership(
+                id=_uuid.uuid4(), account_id=account_id, user_id=user.id,
+                role="staff", status="active",
+            )
+            session.add(membership)
+            session.flush()
+
+            ids["staff"] = membership.id
+            ids["property"] = prop.id
+
+        web_client_as.seed(build)
+        return ids["staff"], ids["property"]
+
+    def test_the_property_checkboxes_render_for_a_staff_member(self, web_client_as):
+        """The branch that only exists when there is a staff row *and* a property."""
+        client = web_client_as("owner")
+        staff_id, _ = self._seed_staff_and_property(web_client_as)
+
+        response = client.get("/settings")
+
+        assert response.status_code == 200
+        assert "Belle Estate" in response.text, "the property must be offered as a checkbox"
+        assert f"/settings/members/{staff_id}/scope" in response.text, (
+            "the staff row must carry a scope form"
+        )
+
+    def test_scope_can_be_set_through_the_page(self, web_client_as):
+        client = web_client_as("owner")
+        staff_id, property_id = self._seed_staff_and_property(web_client_as)
+
+        response = client.post(
+            f"/settings/members/{staff_id}/scope",
+            data={"property_ids": [str(property_id)]},
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 303
+
+        # And it comes back checked, which is what `member_scopes` is for.
+        page = client.get("/settings").text
+        assert "checked" in page
+
+    def test_unchecking_everything_is_refused_on_the_page(self, web_client_as):
+        """D3 reaching a user rather than a service caller.
+
+        The pair to the staff-invite refusal above: unchecking every box would leave someone
+        able to sign in and see nothing, so it is an error they can read rather than a silent
+        lockout of the person they were configuring.
+        """
+        client = web_client_as("owner")
+        staff_id, property_id = self._seed_staff_and_property(web_client_as)
+        client.post(
+            f"/settings/members/{staff_id}/scope",
+            data={"property_ids": [str(property_id)]},
+            follow_redirects=False,
+        )
+
+        response = client.post(f"/settings/members/{staff_id}/scope", data={})
+
+        assert response.status_code == 400
+        assert "at least one property" in response.text
+
+
+class TestAccountFlowsUx:
+    """The 2026-10-21 UI/UX pass on Settings: /team folded in, Pro badge, danger zone."""
+
+    @staticmethod
+    def _set_plan(web_client_as, plan):
+        from sqlalchemy import text
+
+        web_client_as.connection.execute(
+            text("update accounts set plan = :p, subscription_status = null"), {"p": plan}
+        )
+
+    def test_team_redirects_to_settings_members(self, web_client_as):
+        """`/team` is retired: its invite form discarded the one-time link. Old links land on
+        Settings → Members, and the POST that dropped links is gone."""
+        client = web_client_as("owner")
+        response = client.get("/team", follow_redirects=False)
+        assert response.status_code == 303
+        assert response.headers["location"] == "/settings#members"
+
+        gone = client.post("/team/invites", data={"email": "x@example.com", "role": "admin"})
+        assert gone.status_code in (404, 405)
+
+    def test_free_shows_staff_invites_as_pro(self, web_client_as):
+        client = web_client_as("owner")
+        self._set_plan(web_client_as, "free")
+        page = client.get("/settings").text
+        assert 'data-testid="staff-invite-pro"' in page
+        assert '<option value="staff" disabled>' in page
+
+        self._set_plan(web_client_as, "estate")
+        page = client.get("/settings").text
+        assert 'data-testid="staff-invite-pro"' not in page
+        assert '<option value="staff" disabled>' not in page
+
+    def test_a_refused_invite_keeps_what_was_typed(self, web_client_as):
+        client = web_client_as("owner")
+        response = client.post(
+            "/settings/members/invite",
+            data={"email": "housekeeper@example.com", "role": "staff"},
+        )
+        assert response.status_code == 400
+        assert 'value="housekeeper@example.com"' in response.text
+        assert 'aria-invalid="true"' in response.text
+        assert 'role="alert"' in response.text
+
+    def test_danger_zone_is_owner_only_for_export_and_delete(self, web_client_as):
+        """Since the 2026-11-05 split: export and delete are the estate page's, owner only;
+        signing yourself out everywhere is on the You page, for every role."""
+        owner, admin = web_client_as("owner"), web_client_as("admin")
+        owner_estate = owner.get("/settings").text
+        admin_estate = admin.get("/settings").text
+        assert 'action="/privacy/delete"' in owner_estate and "/privacy/export" in owner_estate
+        assert "/privacy/" not in admin_estate and 'id="danger-zone"' not in admin_estate
+        assert 'action="/signout-all"' not in owner_estate
+        for client in (owner, admin):
+            you = client.get("/settings/connections").text
+            assert 'action="/signout-all"' in you
+            assert "/privacy/delete" not in you
+
+    def test_delete_from_the_form_shows_the_pending_state_and_cancels(self, web_client_as):
+        """A browser form post is redirected back here; JSON callers keep the JSON contract
+        (`test_privacy_routes.py`)."""
+        client = web_client_as("owner")
+        html = {"accept": "text/html"}
+        requested = client.post("/privacy/delete", headers=html, follow_redirects=False)
+        assert requested.status_code == 303
+        assert requested.headers["location"].startswith("/settings?notice=deletion_requested")
+
+        page = client.get(requested.headers["location"]).text
+        assert 'data-testid="deletion-pending"' in page
+        assert "Account deletion scheduled" in page
+
+        cancelled = client.post("/privacy/delete/cancel", headers=html, follow_redirects=False)
+        assert cancelled.status_code == 303
+        assert 'data-testid="deletion-pending"' not in client.get("/settings").text
+
+    def test_saves_confirm_with_a_fixed_notice(self, web_client_as):
+        client = web_client_as("owner")
+        response = client.post("/settings/account", data={"name": "Renamed Estate"},
+                               follow_redirects=False)
+        assert response.headers["location"] == "/settings?notice=account_saved#account"
+        assert "Account name saved" in client.get(response.headers["location"]).text
+        # Only mapped keys render; the query text itself never reaches the page.
+        assert "INJECTED" not in client.get("/settings?notice=INJECTED").text
+
+
+class TestSettingsSplit:
+    """Settings is two pages since 2026-11-05: the estate's and yours (was one long page)."""
+
+    def test_owner_and_admin_get_tabs_and_each_page_holds_only_its_own_sections(self, web_client_as):
+        for role in ("owner", "admin"):
+            client = web_client_as(role)
+            estate = client.get("/settings")
+            assert estate.status_code == 200
+            assert 'aria-label="Settings pages"' in estate.text
+            assert 'href="/settings/connections"' in estate.text
+            for section in ('id="account"', 'id="preferences"', 'id="plan"', 'id="members"'):
+                assert section in estate.text, (role, section)
+            for personal in ('id="sign-in"', 'id="calendar"', 'id="profile"'):
+                assert personal not in estate.text, (role, personal)
+
+            you = client.get("/settings/connections")
+            assert you.status_code == 200, "owners and admins are no longer sent back to /settings"
+            for section in ('id="sign-in"', 'id="calendar"', 'id="profile"', 'id="connections"'):
+                assert section in you.text, (role, section)
+            assert 'id="members"' not in you.text
+
+    def test_staff_have_only_their_page_and_no_tabs(self, web_client_as):
+        staff = web_client_as("staff")
+        assert staff.get("/settings", follow_redirects=False).headers["location"] == "/settings/connections"
+        page = staff.get("/settings/connections").text
+        assert 'aria-label="Settings pages"' not in page and 'id="profile"' in page
+
+    def test_personal_saves_return_to_the_you_page(self, web_client_as):
+        import re
+
+        owner = web_client_as("owner")
+        page = owner.get("/settings/connections").text
+        email = re.search(r'name="email"[^>]*value="([^"]+)"|value="([^"]+)"[^>]*name="email"', page)
+        assert email, "the profile form shows the current email"
+        r = owner.post("/settings/profile",
+                       data={"name": "Owner Renamed", "email": email.group(1) or email.group(2)},
+                       follow_redirects=False)
+        assert r.status_code == 303 and r.headers["location"].startswith("/settings/connections")

@@ -222,13 +222,109 @@ class TestTaskServiceEdgeCases:
                         recurrence=RecurrenceFrequency.SEASONAL,
                         season_spec="monsoon")
 
-    def test_complete_task_creates_next_occurrence(self, session, prop):
+    def test_completing_a_repeating_task_resets_it_in_place(self, session, prop):
+        """2026-10-16: the same row rolls forward — the list never grows."""
+        from mihomes.models.task import Task, TaskCompletion
+        from mihomes.services.config_service import estate_today
         from mihomes.services.task import complete_task, create_task
+        today = estate_today(session)
         task = create_task(session, "Weekly Lawn Mow", prop.slug,
-                           recurrence=RecurrenceFrequency.WEEKLY,
-                           due_date=date.today())
-        result, _ = complete_task(session, task.slug)
-        assert result.status == TaskStatus.COMPLETED
+                           recurrence=RecurrenceFrequency.WEEKLY, due_date=today)
+        before = session.query(Task).count()
+        result, nxt = complete_task(session, task.slug)
+        assert result is nxt is task
+        assert task.status == TaskStatus.PENDING
+        assert task.due_date == today + timedelta(weeks=1)
+        assert session.query(Task).count() == before, "a completion must not add a row"
+        assert session.query(TaskCompletion).filter_by(task_id=task.id).count() == 1
+
+    def test_a_late_repeating_task_keeps_its_rhythm(self, session, prop):
+        from mihomes.services.config_service import estate_today
+        from mihomes.services.task import complete_task, create_task
+        today = estate_today(session)
+        task = create_task(session, "Daily check", prop.slug,
+                           recurrence=RecurrenceFrequency.DAILY,
+                           due_date=today - timedelta(days=5))
+        complete_task(session, task.slug)
+        assert task.due_date == today + timedelta(days=1), "never comes back already overdue"
+
+    def test_a_duplicate_done_does_not_advance_twice(self, session, prop):
+        """A redelivered Telegram "done" (or a double-click) must not skip an occurrence."""
+        from mihomes.models.task import TaskCompletion
+        from mihomes.services.config_service import estate_today
+        from mihomes.services.task import complete_task, create_task
+        today = estate_today(session)
+        task = create_task(session, "Feed fish", prop.slug,
+                           recurrence=RecurrenceFrequency.DAILY, due_date=today)
+        complete_task(session, task.slug)
+        complete_task(session, task.slug)
+        assert task.due_date == today + timedelta(days=1)
+        assert session.query(TaskCompletion).filter_by(task_id=task.id).count() == 1
+
+    def test_a_one_time_task_completes_and_can_be_cleared(self, session, prop):
+        from mihomes.models.task import Task
+        from mihomes.services.task import clear_completed, complete_task, create_task, list_tasks
+        task = create_task(session, "Fix gate", prop.slug)
+        complete_task(session, task.slug)
+        assert task.status == TaskStatus.COMPLETED
+        assert task in list_tasks(session)
+        assert clear_completed(session) == 1
+        assert task not in list_tasks(session), "cleared tasks leave the list"
+        assert session.get(Task, task.id) is not None, "…but are kept, not deleted"
+
+    def test_set_frequency_adds_a_schedule_to_a_one_off(self, session, prop):
+        from mihomes.services.task import create_task, set_task_frequency
+        task = create_task(session, "Check gutters", prop.slug, due_date=date(2026, 10, 15))
+        assert task.schedule is None
+        set_task_frequency(session, task.slug, RecurrenceFrequency.WEEKLY)
+        session.refresh(task)
+        assert task.schedule.frequency == RecurrenceFrequency.WEEKLY
+        assert task.schedule.next_due == date(2026, 10, 22)
+
+    def test_set_frequency_changes_and_recomputes_next_due(self, session, prop):
+        from mihomes.services.task import create_task, set_task_frequency
+        task = create_task(session, "Bathroom care", prop.slug, due_date=date(2026, 10, 15),
+                           recurrence=RecurrenceFrequency.WEEKLY)
+        set_task_frequency(session, task.slug, RecurrenceFrequency.DAILY)
+        session.refresh(task)
+        assert task.schedule.frequency == RecurrenceFrequency.DAILY
+        assert task.schedule.next_due == date(2026, 10, 16)
+
+    def test_set_frequency_once_removes_the_schedule(self, session, prop):
+        from mihomes.services.task import create_task, set_task_frequency
+        task = create_task(session, "Mow", prop.slug, recurrence=RecurrenceFrequency.WEEKLY)
+        set_task_frequency(session, task.slug, RecurrenceFrequency.ONCE)
+        session.refresh(task)
+        assert task.schedule is None
+
+    def test_set_frequency_seasonal_needs_valid_seasons(self, session, prop):
+        from mihomes.services.task import create_task, set_task_frequency
+        task = create_task(session, "Winterise", prop.slug)
+        with pytest.raises(ValueError, match="Season spec required"):
+            set_task_frequency(session, task.slug, RecurrenceFrequency.SEASONAL)
+        with pytest.raises(ValueError, match="Invalid season"):
+            set_task_frequency(session, task.slug, RecurrenceFrequency.SEASONAL, "monsoon")
+        set_task_frequency(session, task.slug, RecurrenceFrequency.SEASONAL, "spring,fall")
+        session.refresh(task)
+        assert task.schedule.season_spec == "spring,fall"
+
+    def test_set_frequency_is_audited(self, session, prop):
+        from mihomes.models.audit_log import AuditLog
+        from mihomes.services.task import create_task, set_task_frequency
+        task = create_task(session, "Audit me", prop.slug)
+        set_task_frequency(session, task.slug, RecurrenceFrequency.MONTHLY)
+        rows = session.query(AuditLog).filter(AuditLog.entity_id == task.id).all()
+        assert any("frequency" in (r.changes or {}) for r in rows)
+
+    def test_completing_after_a_frequency_change_uses_the_new_frequency(self, session, prop):
+        from mihomes.services.config_service import estate_today
+        from mihomes.services.task import complete_task, create_task, set_task_frequency
+        today = estate_today(session)
+        task = create_task(session, "Water plants", prop.slug, due_date=today,
+                           recurrence=RecurrenceFrequency.WEEKLY)
+        set_task_frequency(session, task.slug, RecurrenceFrequency.DAILY)
+        _, nxt = complete_task(session, task.slug)
+        assert nxt is not None and nxt.due_date == today + timedelta(days=1)
 
     def test_complete_already_completed_raises(self, session, prop):
         from mihomes.services.task import complete_task, create_task

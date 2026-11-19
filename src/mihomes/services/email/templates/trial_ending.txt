@@ -1,0 +1,14 @@
+Hi,
+
+Your MiHomes Pro trial ends in {{ days_left }} day{{ "" if days_left == 1 else "s" }}, on {{ ends_on }}.
+
+Nothing will be deleted. If you do not upgrade, your account moves to the
+free plan and any homes over the free limit become read-only — you can still
+open and export everything, and upgrading later brings them straight back.
+{% if over_limit %}
+You currently have {{ home_count }} homes and free covers {{ max_homes }}.
+Choose which one stays active — or keep them all by upgrading:
+{% else %}
+Keep Pro:
+{% endif %}
+{{ billing_url }}

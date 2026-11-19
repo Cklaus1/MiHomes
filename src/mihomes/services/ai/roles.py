@@ -1,8 +1,8 @@
 """AI role definitions, system prompts, and query routing."""
 
 from dataclasses import dataclass, field
-from datetime import date
 
+from mihomes.services.localtime import today as local_today
 
 _CURRENT_DATE_TOKEN = "__CURRENT_DATE__"
 
@@ -21,7 +21,7 @@ class AIRole:
         # baked into the prompt string at import time, so a long-running server
         # fed the model a stale date and corrupted all "overdue / within N days"
         # reasoning. The template carries a token that we resolve on every read.
-        return self.prompt_template.replace(_CURRENT_DATE_TOKEN, date.today().isoformat())
+        return self.prompt_template.replace(_CURRENT_DATE_TOKEN, local_today().isoformat())
 
 
 SPACE_FRAMEWORK = """

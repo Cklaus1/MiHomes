@@ -1,6 +1,6 @@
 """Work order service — CRUD with state machine transitions."""
 
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
@@ -10,6 +10,8 @@ from mihomes.models.staff import Staff
 from mihomes.models.vendor import Vendor
 from mihomes.models.work_order import WorkOrder, WorkOrderStatus
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
+from mihomes.services.localtime import today as local_today
+from mihomes.services.money import resolve_currency
 from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
 from mihomes.services.update_helpers import safe_update
 
@@ -35,6 +37,74 @@ def _validate_transition(current: WorkOrderStatus, target: WorkOrderStatus) -> N
         )
 
 
+def _require_scheduling_entitlement(session: Session, due_date) -> None:
+    """Gate `work_order_scheduling` — **and D13 scopes that key to exactly one capability**.
+
+    *"Setting `WorkOrder.due_date`."* Not `assignee_id`, not `Appointment`/`/calendar`. The key
+    named a feature that did not exist (F5), so enforcing it required defining it first, and the
+    scope matters more than the gate:
+
+    - `assignee_id` is not gated: D13 sells scheduling, not assignment, and assigning a work
+      order to staff is part of the everyday flow on every plan.
+    - `Appointment`/`/calendar` is a **different product wearing the same word**. Gating it would
+      paywall the whole calendar, the Telegram bot's appointment creation, and
+      `services/recurring.py`'s nightly automation — far more than `PRICING:27` sells, and it
+      would present to a Free user as a broken background job rather than an upgrade prompt (N9).
+
+    **No due date, no gate.** A work order without one is allowed on every plan, which is what
+    keeps the Telegram path unaffected (F5: `responder.py` passes no `due_date`) and satisfies
+    N10 — a gate that tripped a bot message would deny a user something they did not choose to do.
+    """
+    if due_date is None:
+        return
+
+    from mihomes.entitlements.limits import UPGRADE_PATH
+    from mihomes.entitlements.service import Denied, can
+    from mihomes.models.account import Account
+    from mihomes.services.property import EntitlementError
+    from mihomes.tenancy import current_account
+
+    account_id = current_account.get(None)
+    if account_id is None:
+        return  # operator CLI / background job (SPEC-002 D1)
+
+    account = session.get(Account, account_id)
+    if account is None:  # pragma: no cover - a bound account always exists
+        return
+
+    if isinstance(can(account, "work_order.schedule"), Denied):
+        raise EntitlementError(
+            Denied(
+                reason=(
+                    f"Scheduling work orders is not included in the {account.plan} plan. "
+                    "You can still create this work order without a due date."
+                ),
+                upgrade_target=UPGRADE_PATH.get(getattr(account, "plan", "free")),
+                limit=False,
+            )
+        )
+
+
+def scheduling_is_entitled(session: Session) -> bool:
+    """May the bound account set a work order's due date? — the read side of the gate above.
+
+    The work-orders page uses it to render the date field disabled with a Pro badge, instead of
+    letting a Free user fill it in and be refused on save. Unbound account (CLI operator,
+    background job) → entitled, matching `_require_scheduling_entitlement`.
+    """
+    from mihomes.entitlements.service import Denied, can
+    from mihomes.models.account import Account
+    from mihomes.tenancy import current_account
+
+    account_id = current_account.get(None)
+    if account_id is None:
+        return True
+    account = session.get(Account, account_id)
+    if account is None:  # pragma: no cover - a bound account always exists
+        return True
+    return not isinstance(can(account, "work_order.schedule"), Denied)
+
+
 def create_work_order(
     session: Session,
     title: str,
@@ -47,10 +117,11 @@ def create_work_order(
     vendor_name: str | None = None,
     assignee_id_or_slug: str | None = None,
     estimated_cost: float | None = None,
-    currency: str = "USD",
+    currency: str | None = None,
     due_date: datetime | None = None,
     slug: str | None = None,
 ) -> WorkOrder:
+    _require_scheduling_entitlement(session, due_date)
     prop = resolve_identifier(session, Property, property_id_or_slug)
     vendor_id = None
     if vendor_id_or_slug:
@@ -71,7 +142,8 @@ def create_work_order(
         property_id=prop.id, source_type=source_type, source_id=source_id,
         issue_id=issue_id,
         vendor_id=vendor_id, vendor_name=vendor_name, assignee_id=assignee_id,
-        estimated_cost=estimated_cost, currency=currency, due_date=due_date,
+        estimated_cost=estimated_cost, currency=resolve_currency(session, currency),
+        due_date=due_date,
     )
     session.add(wo)
     session.flush()
@@ -103,6 +175,9 @@ def get_work_order(session: Session, id_or_slug: str) -> WorkOrder:
 
 
 def update_work_order(session: Session, id_or_slug: str, **kwargs) -> WorkOrder:
+    # Only when a due date is actually being *set* — an edit that leaves it alone, or clears it,
+    # is not scheduling and must stay available on every plan.
+    _require_scheduling_entitlement(session, kwargs.get("due_date"))
     wo = resolve_identifier(session, WorkOrder, id_or_slug)
     old_snap = snapshot_instance(wo)
     if "title" in kwargs and "slug" not in kwargs:
@@ -206,7 +281,7 @@ def complete(
         from mihomes.services.budget import add_transaction
         add_transaction(
             session, cost, str(wo.property_id), "maintenance",
-            date.today(), vendor_id_or_slug=str(wo.vendor_id) if wo.vendor_id else None,
+            local_today(), vendor_id_or_slug=str(wo.vendor_id) if wo.vendor_id else None,
             vendor_name=wo.vendor_name if not wo.vendor_id else None,
             description=f"Work order: {wo.title}", source="work_order",
             work_order_id=wo.id,

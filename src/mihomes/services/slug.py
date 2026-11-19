@@ -1,5 +1,7 @@
 """Slug generation and entity resolution."""
 
+import uuid
+
 from slugify import slugify
 from sqlalchemy.orm import Session
 
@@ -29,13 +31,33 @@ def ensure_unique_slug(
     session: Session,
     model_class,
     slug: str,
-    exclude_id: int | None = None,
+    exclude_id: uuid.UUID | None = None,
 ) -> str:
-    """Ensure a slug is unique within its table, appending -2, -3, etc. if needed."""
+    """Ensure a slug is unique **within its account**, appending -2, -3, … if needed.
+
+    SPEC-002 G5 made slugs unique per account (`UNIQUE (account_id, slug)`), so this had
+    to learn the same scope. Without the account filter it searched the whole table and
+    the *second* account to create a "Main House" got `main-house-2` — the schema allowed
+    the plain slug, but this function still de-duplicated against a row the caller must
+    not be able to observe. That is a cross-tenant read, and a mild information leak in
+    its own right: the suffix tells you another tenant used the name.
+
+    Scoped here rather than left to G8.1's `with_loader_criteria` backstop on purpose.
+    This function's entire job is to enforce a uniqueness rule, so it has to know the
+    rule's scope; depending on an ambient filter would break it silently the moment a
+    caller used a path that filter does not reach.
+    """
     candidate = slug
     suffix = 2
+    account_column = getattr(model_class, "account_id", None)
     while True:
         query = session.query(model_class).filter(model_class.slug == candidate)
+        if account_column is not None:
+            # Tenant-owned model: uniqueness is per account. GLOBAL models (accounts)
+            # have no such column and keep table-wide uniqueness.
+            from mihomes.tenancy import require_account
+
+            query = query.filter(account_column == require_account())
         if exclude_id is not None:
             query = query.filter(model_class.id != exclude_id)
         if query.first() is None:
@@ -60,22 +82,56 @@ class AmbiguousIdentifierError(ValueError):
         super().__init__(f"'{identifier}' is ambiguous — matches: {slugs}")
 
 
+def get_by_id(session: Session, model_class, entity_id):
+    """`session.get()` that treats a malformed id as "not found" rather than an error.
+
+    Returns the instance or `None`, so callers keep whatever not-found behaviour they
+    already had (`if x is None: raise ValueError(...)`).
+
+    **Why this exists.** After G6.1 made every primary key a UUID, passing a non-UUID id
+    to `session.get()` reaches the driver and raises
+    `psycopg.errors.CannotCoerce: cannot cast type integer to uuid` — a `ProgrammingError`,
+    which surfaces as a 500 rather than a 404. `delete_contract(session, 99999)` did
+    exactly that, and two `test_delete_nonexistent_raises` tests caught it.
+
+    This is the third appearance of the pattern (PTO first, then contract and insurance),
+    which is why it is one helper rather than a coercion re-written at each call site.
+    Sibling of `resolve_identifier`: same concern — turn a caller-supplied identifier into
+    an instance or a clean miss — for models that have no slug to fall back on.
+    """
+    try:
+        pk = uuid.UUID(str(entity_id))
+    except (ValueError, TypeError, AttributeError):
+        return None
+    return session.get(model_class, pk)
+
+
 def resolve_identifier(session: Session, model_class, id_or_slug: str):
     """Resolve an ID or slug to an ORM instance. Raises EntityNotFoundError if not found.
 
     Supports:
-    - Integer ID
+    - UUID primary key (SPEC-002 D2)
     - Exact slug match
     - Prefix slug match (unambiguous only)
     """
-    # Try as integer ID first
+    # Try as a UUID primary key first.
+    #
+    # This was `int(id_or_slug)` before SPEC-002 G6.1 converted the primary keys to
+    # UUIDv7. A UUID string raises ValueError there, so every lookup silently fell
+    # through to slug matching and failed with EntityNotFoundError — the id path was
+    # simply gone. Nothing in the spec flags this; it surfaced as 24 test failures
+    # once the fixtures could insert rows at all.
+    #
+    # `int` is no longer accepted deliberately: no table has an integer PK now, so
+    # accepting one would only mask a caller still passing a stale id.
     try:
-        pk = int(id_or_slug)
+        pk = uuid.UUID(str(id_or_slug))
+    except (ValueError, TypeError, AttributeError):
+        pass
+    else:
         instance = session.get(model_class, pk)
         if instance is not None:
             return instance
-    except (ValueError, TypeError):
-        pass
 
     # Try as exact slug
     instance = (

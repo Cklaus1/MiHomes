@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Sign-in didn't complete — MiHomes{% endblock %}
+
+{% block content %}
+  {# Deliberately vague. The server logs the real reason; telling the visitor
+     whether it was a bad signature, a wrong audience or a stale state would help
+     an attacker probe the flow. #}
+  <h1>That sign-in didn't complete</h1>
+  <p class="lede">
+    Something went wrong on the way back from Google. Nothing was saved.
+  </p>
+  <p>
+    <a href="/auth/google/start"><button type="button">Try again with Google</button></a>
+  </p>
+  <p class="muted">
+    Or <a href="/#waitlist">join with your email instead</a>.
+  </p>
+{% endblock %}

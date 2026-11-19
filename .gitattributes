@@ -1,0 +1,6 @@
+# Shell scripts run inside Linux containers (docker-compose bind-mounts them from the host
+# filesystem as-is — see docker-compose.yml's `mihomes`/`postgres` services). A CRLF shebang or
+# CRLF-terminated lines break `sh` on the container side; on a Windows checkout with the common
+# core.autocrlf=true, a plain `*.sh` file gets silently corrupted to CRLF on checkout otherwise.
+# `eol=lf` pins the working-tree line ending regardless of the cloning machine's autocrlf setting.
+*.sh text eol=lf

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from mihomes.models.appointment import Appointment, AppointmentType
 from mihomes.models.property import Property
 from mihomes.services.audit import record_change, snapshot_instance
-from mihomes.services.slug import resolve_identifier
+from mihomes.services.slug import get_by_id, resolve_identifier
 from mihomes.services.update_helpers import safe_update
 
 
@@ -40,8 +40,8 @@ def create_appointment(
     session.flush()
     record_change(session, "appointment", appt.id, "create", snapshot_instance(appt))
 
-    from mihomes.services.calendar_sync import push_appointment_to_google
-    push_appointment_to_google(appt, session)
+    # No push here any more: the machine-wide calendar pushed every estate into one Google
+    # calendar. Per-person calendars sync after commit (`personal_calendar/trigger.py`).
 
     return appt
 
@@ -65,7 +65,7 @@ def list_appointments(
 
 
 def get_appointment(session: Session, appointment_id: int) -> Appointment:
-    appt = session.get(Appointment, appointment_id)
+    appt = get_by_id(session, Appointment, appointment_id)
     if appt is None:
         raise ValueError(f"Appointment {appointment_id} not found")
     return appt

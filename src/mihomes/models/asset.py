@@ -1,12 +1,15 @@
 """Asset model — tracked property assets (appliances, vehicles, valuables, etc.)."""
 
 import enum
+import uuid
 from datetime import date, datetime, timezone
 
-from sqlalchemy import Boolean, Date, DateTime, Enum, Float, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import JSON, Boolean, Date, DateTime, Enum, Float, ForeignKey, Index, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from mihomes.models import Base, SlugMixin, TimestampMixin
+from mihomes.ids import new_id
+from mihomes.models import Base, SlugMixin, TenantOwned, TimestampMixin
 from mihomes.type.money import Money
 
 
@@ -31,14 +34,21 @@ class PriceEntryType(str, enum.Enum):
     ESTIMATE = "estimate"
 
 
-class Asset(Base, TimestampMixin, SlugMixin):
+class Asset(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "assets"
+    __table_args__ = (
+        UniqueConstraint("account_id", "slug", name="uq_assets_account_slug"),
+    )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=new_id
+    )
     name: Mapped[str] = mapped_column(String(300), nullable=False)
     asset_type: Mapped[AssetType] = mapped_column(Enum(AssetType), nullable=False)
-    property_id: Mapped[int] = mapped_column(Integer, ForeignKey("properties.id"), nullable=False)
-    space_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("spaces.id"), nullable=True)
+    property_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("properties.id"), nullable=False)
+    space_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("spaces.id"), nullable=True)
     make: Mapped[str | None] = mapped_column(String(200), nullable=True)
     model_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     serial_number: Mapped[str | None] = mapped_column(String(200), nullable=True)
@@ -64,11 +74,17 @@ class Asset(Base, TimestampMixin, SlugMixin):
     )
 
 
-class PriceEntry(Base):
+class PriceEntry(Base, TenantOwned):
     __tablename__ = "asset_price_entries"
+    __table_args__ = (
+        Index("ix_asset_prices_account_asset", 'account_id', 'asset_id'),
+    )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    asset_id: Mapped[int] = mapped_column(Integer, ForeignKey("assets.id"), nullable=False, index=True)
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=new_id
+    )
+    asset_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("assets.id"), nullable=False)
     date: Mapped[date] = mapped_column(Date, nullable=False)
     price: Mapped[float] = mapped_column(Money, nullable=False)
     quantity: Mapped[float] = mapped_column(Float, default=1.0)

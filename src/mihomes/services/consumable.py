@@ -6,8 +6,9 @@ from sqlalchemy.orm import Session, joinedload
 
 from mihomes.models.consumable import Consumable, ConsumablePriceEntry, ConsumableStatus
 from mihomes.models.property import Property
+from mihomes.services.localtime import today as local_today
 from mihomes.services.query_helpers import exact_ci
-from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
+from mihomes.services.slug import ensure_unique_slug, generate_slug, get_by_id, resolve_identifier
 from mihomes.services.validators import validate_name
 
 
@@ -161,7 +162,7 @@ def mark_ordered(
     item = resolve_identifier(session, Consumable, id_or_slug)
     item.status = ConsumableStatus.ORDERED
     item.quantity_to_order = None
-    item.last_ordered_at = order_date or date.today()
+    item.last_ordered_at = order_date or local_today()
     if price is not None:
         add_price_entry(
             session, id_or_slug, price, item.last_ordered_at,
@@ -185,6 +186,41 @@ def mark_restocked(
     item.status = _compute_status(item.quantity_in_stock, item.par_level, item.low_stock_threshold)
     session.flush()
     return item
+
+
+def update_consumable(
+    session: Session,
+    id_or_slug: str,
+    *,
+    name: str,
+    category: str | None = None,
+    unit: str | None = None,
+) -> Consumable:
+    """Rename an item or change its category/unit. The slug is kept, so links stay valid."""
+    from mihomes.services.audit import diff_instance, record_change, snapshot_instance
+
+    item = resolve_identifier(session, Consumable, id_or_slug)
+    old = snapshot_instance(item)
+    item.name = validate_name(name, "consumable")
+    item.category = category
+    item.unit = unit
+    session.flush()
+    changes = diff_instance(old, snapshot_instance(item))
+    if changes:
+        record_change(session, "consumable", item.id, "update", changes)
+    return item
+
+
+def delete_consumable(session: Session, id_or_slug: str) -> str:
+    """Delete an item; its price history goes with it (delete-orphan cascade)."""
+    from mihomes.services.audit import record_change, snapshot_instance
+
+    item = resolve_identifier(session, Consumable, id_or_slug)
+    name = item.name
+    record_change(session, "consumable", item.id, "delete", snapshot_instance(item))
+    session.delete(item)
+    session.flush()
+    return name
 
 
 def update_consumable_settings(
@@ -229,7 +265,7 @@ def add_price_entry(
 
 
 def delete_price_entry(session: Session, entry_id: int) -> None:
-    entry = session.get(ConsumablePriceEntry, entry_id)
+    entry = get_by_id(session, ConsumablePriceEntry, entry_id)
     if not entry:
         raise ValueError(f"Price entry {entry_id} not found")
     consumable_id = entry.consumable_id
@@ -242,7 +278,7 @@ def delete_price_entry(session: Session, entry_id: int) -> None:
         .order_by(ConsumablePriceEntry.date.desc())
         .first()
     )
-    item = session.get(Consumable, consumable_id)
+    item = get_by_id(session, Consumable, consumable_id)
     if item:
         item.unit_price = latest.price if latest else None
 
@@ -257,7 +293,7 @@ def edit_price_entry(
     entry_type: str = "purchase",
     note: str | None = None,
 ) -> ConsumablePriceEntry:
-    entry = session.get(ConsumablePriceEntry, entry_id)
+    entry = get_by_id(session, ConsumablePriceEntry, entry_id)
     if not entry:
         raise ValueError(f"Price entry {entry_id} not found")
     entry.price = price

@@ -26,23 +26,39 @@ def stats_cmd():
     table.add_column("Retention")
     table.add_column("Cutoff Date")
 
+    archival_available = all(r.get("archival_available", True) for r in rows)
+
     for r in rows:
         eligible_style = "yellow" if r["eligible_to_archive"] > 0 else "dim"
+        # `already_archived` is None when the archive tables do not exist. Rendering that
+        # with str() would print the literal "None", which reads as a bug rather than as
+        # "cannot be answered".
+        archived = r["already_archived"]
         table.add_row(
             r["table"],
             r["description"],
             str(r["active_rows"]),
             f"[{eligible_style}]{r['eligible_to_archive']}[/{eligible_style}]",
-            str(r["already_archived"]),
+            str(archived) if archived is not None else "[dim]n/a[/dim]",
             f"{r['retention_years']} year(s)",
             str(r["cutoff_date"]),
         )
 
     console.print(table)
-    console.print(
-        "[dim]Run 'mihomes archive run' to move eligible rows to archive tables.\n"
-        "Change retention with: mihomes config set retention.audit_years 3[/dim]"
-    )
+    if archival_available:
+        console.print(
+            "[dim]Run 'mihomes archive run' to move eligible rows to archive tables.\n"
+            "Change retention with: mihomes config set retention.audit_years 3[/dim]"
+        )
+    else:
+        # Do not advertise a command that refuses. The counts above are still useful —
+        # they say how much data is past its retention window.
+        console.print(
+            "[yellow]Archival is currently unavailable[/yellow] — the archive tables are not "
+            "created by any migration and are not tenant-aware (SPEC-002 G10). The counts "
+            "above still show what is past its retention window.\n"
+            "[dim]Change retention with: mihomes config set retention.audit_years 3[/dim]"
+        )
 
 
 @app.command("run")
@@ -50,13 +66,19 @@ def run_cmd(
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview what would be archived without making changes"),
 ):
     """Archive old records based on configured retention periods."""
-    from mihomes.services.archive import run_archival
+    from mihomes.services.archive import ArchivalUnavailableError, run_archival
 
     if dry_run:
         console.print("[dim]Dry run — no changes will be made.[/dim]")
 
-    with get_session() as session:
-        results = run_archival(session, dry_run=dry_run)
+    try:
+        with get_session() as session:
+            results = run_archival(session, dry_run=dry_run)
+    except ArchivalUnavailableError as e:
+        # Report the reason rather than a traceback: the service raises this deliberately
+        # while the archive tables are absent and not tenant-aware (SPEC-002 G10).
+        console.print(f"[yellow]Archival unavailable.[/yellow]\n{e}")
+        raise typer.Exit(1) from None
 
     total = sum(results.values())
     if total == 0:

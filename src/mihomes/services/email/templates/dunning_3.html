@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% from "_button.html" import button %}
+
+{% block subject %}Action needed — MiHomes {{ plan|capitalize }} payment still outstanding{% endblock %}
+
+{% block content %}
+  <p style="margin:0 0 16px;">Hi,</p>
+
+  <p style="margin:0 0 24px;">
+    We still have not been able to take payment for your MiHomes
+    <strong>{{ plan|capitalize }}</strong> plan.
+  </p>
+
+  {# Rung 3 of 4. The first email where a consequence is named, and it is named as a
+     future fact rather than a threat: "will become read-only" is information the
+     customer can act on, "your account will be suspended" is a scare that produces
+     the same inaction as silence. Their DATA is never at risk and saying so is not
+     softening — a customer who fears losing their estate records is more likely to
+     freeze than to pay. #}
+  <p style="margin:0 0 24px;">
+    If this is not resolved, the account will move to read-only when the grace
+    period ends. <strong>Nothing is deleted</strong> — your homes, documents and
+    history all stay exactly as they are, and everything comes back the moment a
+    payment goes through.
+  </p>
+
+  {{ button(billing_url, "Update payment method") }}
+
+  <p style="margin:0;color:#6b6b66;font-size:14px;">
+    Trouble with the card, or need an invoice instead? Reply to this email and we
+    will sort it out.
+  </p>
+{% endblock %}

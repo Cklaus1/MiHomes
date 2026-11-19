@@ -2,27 +2,22 @@
 
 import json
 from datetime import date
-from io import BytesIO
 from unittest.mock import MagicMock, patch
 
-import pytest
-
+from mihomes.models.alert import AlertSeverity
+from mihomes.models.property import Property, PropertyType
 from mihomes.services.weather import (
     CurrentWeather,
     DailyForecast,
     WeatherForecast,
     _assess_day,
     _describe_code,
-    _get_json,
     fetch_forecast,
     forecast_summary,
-    geocode_address,
     generate_weather_alerts,
+    geocode_address,
     get_forecast_for_property,
 )
-from mihomes.models.property import Property, PropertyType
-from mihomes.models.alert import Alert, AlertSeverity, AlertStatus
-
 
 # ── _describe_code ────────────────────────────────────────────────────────────
 
@@ -356,9 +351,10 @@ class TestGetForecastForProperty:
                         property_type=PropertyType.PRIMARY)
         session.add(prop)
         session.flush()
-        with patch("mihomes.services.weather.get_config", return_value=None):
+        with patch("mihomes.services.weather.geocode_address") as geocode:
             result = get_forecast_for_property(session, prop)
         assert result is None
+        geocode.assert_not_called()  # no address → no lookup at all, not a fallback city
 
     def test_uses_cached_coords(self, session):
         prop = Property(name="Cached Coords", slug="cached-coords",
@@ -378,38 +374,35 @@ class TestGetForecastForProperty:
         session.add(prop)
         session.flush()
         mock_forecast = MagicMock(spec=WeatherForecast)
-        with patch("mihomes.services.weather.get_config", return_value=None), \
-             patch("mihomes.services.weather.geocode_address", return_value=(33.7, -84.4)), \
+        with patch("mihomes.services.weather.geocode_address",
+                   return_value=(33.7, -84.4)) as geocode, \
              patch("mihomes.services.weather.fetch_forecast", return_value=mock_forecast):
             result = get_forecast_for_property(session, prop)
         assert result is mock_forecast
         # Coords should be cached on the property
         assert prop.latitude == 33.7
+        # The address is geocoded as written — no city hint appended to it.
+        geocode.assert_called_once_with("123 Peachtree St, Atlanta, GA")
 
-    def test_uses_default_location_when_geocode_fails(self, session):
+    def test_no_fallback_city_when_the_address_fails(self, session):
+        """An address that doesn't geocode shows no weather — never another city's.
+
+        The removed `weather.default_location` used to step in here and show Atlanta's forecast
+        under the property's name, which reads as real weather for the wrong place.
+        """
         prop = Property(name="Private Estate", slug="private-estate",
                         property_type=PropertyType.PRIMARY,
                         address="1 Private Rd, Secret Bay")
         session.add(prop)
         session.flush()
-        mock_forecast = MagicMock(spec=WeatherForecast)
-        with patch("mihomes.services.weather.get_config", return_value="Atlanta, GA"), \
-             patch("mihomes.services.weather.geocode_address",
-                   side_effect=[None, (33.7, -84.4)]), \
-             patch("mihomes.services.weather.fetch_forecast", return_value=mock_forecast):
-            result = get_forecast_for_property(session, prop)
-        assert result is mock_forecast
-
-    def test_returns_none_when_all_geocoding_fails(self, session):
-        prop = Property(name="Unknown Location", slug="unknown-location",
-                        property_type=PropertyType.PRIMARY,
-                        address="Somewhere Unknown")
-        session.add(prop)
-        session.flush()
-        with patch("mihomes.services.weather.get_config", return_value=None), \
-             patch("mihomes.services.weather.geocode_address", return_value=None):
+        with patch("mihomes.services.weather.geocode_address",
+                   return_value=None) as geocode, \
+             patch("mihomes.services.weather.fetch_forecast") as fetch:
             result = get_forecast_for_property(session, prop)
         assert result is None
+        geocode.assert_called_once_with("1 Private Rd, Secret Bay")
+        fetch.assert_not_called()
+        assert prop.latitude is None
 
     def test_returns_none_on_fetch_error(self, session):
         import urllib.error
@@ -435,7 +428,7 @@ class TestGenerateWeatherAlerts:
         return prop
 
     def test_creates_alert_for_frost(self, session):
-        prop = self._make_property(session, "Frost House", "frost-house")
+        self._make_property(session, "Frost House", "frost-house")
         frost_forecast = MagicMock()
         frost_day = DailyForecast(
             date=date(2026, 4, 15), temp_high=45.0, temp_low=28.0,
@@ -448,7 +441,7 @@ class TestGenerateWeatherAlerts:
         assert count >= 1
 
     def test_deduplicates_alerts(self, session):
-        prop = self._make_property(session, "Dedup House", "dedup-house")
+        self._make_property(session, "Dedup House", "dedup-house")
         frost_forecast = MagicMock()
         frost_day = DailyForecast(
             date=date(2026, 4, 15), temp_high=45.0, temp_low=28.0,
@@ -457,12 +450,12 @@ class TestGenerateWeatherAlerts:
         )
         frost_forecast.daily = [frost_day]
         with patch("mihomes.services.weather.get_forecast_for_property", return_value=frost_forecast):
-            count1 = generate_weather_alerts(session)
+            generate_weather_alerts(session)
             count2 = generate_weather_alerts(session)
         assert count2 == 0  # deduplicated
 
     def test_no_alerts_for_mild_weather(self, session):
-        prop = self._make_property(session, "Mild House", "mild-house")
+        self._make_property(session, "Mild House", "mild-house")
         mild_forecast = MagicMock()
         mild_day = DailyForecast(
             date=date(2026, 4, 15), temp_high=75.0, temp_low=60.0,

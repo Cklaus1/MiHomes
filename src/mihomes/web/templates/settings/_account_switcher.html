@@ -1,0 +1,18 @@
+{# The account switcher (D11), moved here from the retired /team page so it stays reachable.
+   A24 — ABSENT below two accounts, not disabled: a greyed-out control still invites the
+   question of what it would do, and almost every user will only ever have one account. #}
+{% if accounts and accounts | length > 1 %}
+  <form method="post" action="/accounts/switch" class="mt-4 flex flex-col sm:flex-row gap-3 sm:items-end">
+    <div class="flex-1">
+      <label for="switch-account" class="block text-sm text-gray-600 mb-1">Switch to another account</label>
+      <select id="switch-account" name="account_id" class="w-full border rounded-lg px-3 py-2">
+        {% for other in accounts %}
+          <option value="{{ other.id }}" {% if other.id == current_account_id %}selected{% endif %}>
+            {{ other.name }}{% if other.id == current_account_id %} (current){% endif %}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <button class="border rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-50">Switch</button>
+  </form>
+{% endif %}

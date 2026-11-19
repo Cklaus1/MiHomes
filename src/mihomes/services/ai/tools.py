@@ -6,6 +6,8 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from mihomes.services.localtime import today as local_today
+
 # ── Tool schemas (Anthropic tool_use format) ──────────────────────────────────
 
 TOOL_SCHEMAS: list[dict] = [
@@ -19,6 +21,7 @@ TOOL_SCHEMAS: list[dict] = [
             "type": "object",
             "properties": {
                 "property_slug": {"type": "string", "description": "Filter by property slug (optional)"},
+                "space_id": {"type": "integer", "description": "Filter by space/room ID (optional)"},
                 "genre": {"type": "string", "description": "Filter by genre (partial match, optional)"},
                 "author": {"type": "string", "description": "Filter by author (partial match, optional)"},
                 "title": {"type": "string", "description": "Search by title (partial match, optional)"},
@@ -294,9 +297,73 @@ def execute_tool(session: Session, name: str, inputs: dict[str, Any]) -> str:
         fn = _EXECUTORS.get(name)
         if not fn:
             return f"Unknown tool: {name}"
+
+        # SPEC-003 §6 Step 10 — the entity-class gate. Property scoping is applied by
+        # `authz/query_scope.py` at the query layer and covers `PROPERTY_SCOPED` models only;
+        # this refuses the tools that read account-level data outright when the matrix denies the
+        # acting role. Without it a staff member gets the household's finances by asking the
+        # assistant, while the equivalent web route is denied by row 9.
+        refusal = _refuse_if_denied(name)
+        if refusal is not None:
+            return refusal
+
         return fn(session, inputs)
     except Exception as e:
         return f"Tool error ({name}): {e}"
+
+
+def _refuse_if_denied(name: str) -> str | None:
+    """`None` when the acting role may use this tool, else a refusal string.
+
+    Returns a *string* rather than raising because `execute_tool`'s contract is "always return
+    text for the model to read" — an exception here would be caught two lines down and rendered
+    as a tool error, which reads to the model as a malfunction rather than a policy decision.
+
+    **No role bound means no restriction**, which is correct for the CLI and background jobs and
+    is the same convention `current_property_scope` uses. The bot path binds a role explicitly at
+    Step 16 (D16: an unlinked sender is *staff-level*, never unrestricted).
+    """
+    from mihomes.authz.actions import MATRIX, Grant
+    from mihomes.authz.scope import current_role
+
+    role = current_role.get()
+    if role is None:
+        return None
+
+    action = _TOOL_ACTIONS.get(name)
+    if action is None:
+        # Fail closed: a tool with no declared action is not authorised for a scoped role.
+        return f"Tool error ({name}): no action declared for this tool"
+
+    spec = MATRIX[action]
+    grant = {"owner": spec.owner, "admin": spec.admin, "staff": spec.staff}.get(role, Grant.DENY)
+    if grant is Grant.DENY:
+        return (
+            f"Not permitted: your role ({role}) may not access this information. "
+            "No data was returned."
+        )
+    return None
+
+
+def visible(rows):
+    """Rows as the acting role may see them — A16.
+
+    §4.4: *"Applied in BOTH the web serializer and the AI context builder — one function, so a
+    field added to one surface cannot be forgotten on the other."* The web half is
+    `RedactingTemplates` (G8); this is the AI half, and N3 is the reason it cannot be shared with
+    the templates: **the AI path renders no templates**, so a Jinja-level redactor would leave
+    exactly this surface — the one the model reads from — unprotected. That is F3's shape.
+
+    Redaction is transitive, so `wo.vendor.license_number` reached from a redacted work order is
+    also stripped (see `authz/redact.py`).
+    """
+    from mihomes.authz.redact import redact_for_role
+    from mihomes.authz.scope import current_role
+
+    role = current_role.get()
+    if role is None:
+        return rows
+    return [redact_for_role(row, role) for row in rows]
 
 
 # ── Individual executors ──────────────────────────────────────────────────────
@@ -313,6 +380,8 @@ def _query_library(session: Session, inp: dict) -> str:
         from mihomes.services.slug import resolve_identifier
         prop = resolve_identifier(session, Property, inp["property_slug"])
         q = q.filter(Book.property_id == prop.id)
+    if inp.get("space_id"):
+        q = q.filter(Book.space_id == inp["space_id"])
     if inp.get("genre"):
         q = q.filter(Book.genre.ilike(f"%{inp['genre']}%"))
     if inp.get("author"):
@@ -325,18 +394,37 @@ def _query_library(session: Session, inp: dict) -> str:
     total = q.count()
 
     if inp.get("count_only"):
-        # Also break down by property
-        from mihomes.models.property import Property as Prop
-        by_prop = (
-            session.query(Prop.name, func.count(Book.id))
-            .join(Book, Book.property_id == Prop.id)
+        lines = [f"Total books in library: {total}"]
+        # Break down by property (only when not scoped by space_id)
+        if not inp.get("space_id"):
+            from mihomes.models.property import Property as Prop
+            by_prop = (
+                session.query(Prop.name, func.count(Book.id))
+                .join(Book, Book.property_id == Prop.id)
+                .filter(Book.active.is_(True))
+                .group_by(Prop.id)
+                .all()
+            )
+            for name, cnt in by_prop:
+                lines.append(f"  - {name}: {cnt} books")
+        # Break down by space/room
+        from mihomes.models.space import Space
+        space_q = (
+            session.query(Space.name, func.count(Book.id))
+            .join(Book, Book.space_id == Space.id)
             .filter(Book.active.is_(True))
-            .group_by(Prop.id)
+        )
+        if inp.get("property_slug"):
+            space_q = space_q.filter(Book.property_id == prop.id)
+        by_space = (
+            space_q.group_by(Space.id)
+            .order_by(func.count(Book.id).desc())
             .all()
         )
-        lines = [f"Total books in library: {total}"]
-        for name, cnt in by_prop:
-            lines.append(f"  - {name}: {cnt} books")
+        if by_space:
+            lines.append("By room:")
+            for name, cnt in by_space:
+                lines.append(f"  - {name}: {cnt} books")
         # Genre breakdown
         genres = (
             session.query(Book.genre, func.count(Book.id))
@@ -397,7 +485,7 @@ def _query_assets(session: Session, inp: dict) -> str:
         return "\n".join(lines)
 
     limit = int(inp.get("limit", 20))
-    assets = q.limit(limit).all()
+    assets = visible(q.limit(limit).all())
     if not assets:
         return "No assets found matching the criteria."
 
@@ -411,7 +499,7 @@ def _query_assets(session: Session, inp: dict) -> str:
 
 
 def _query_tasks(session: Session, inp: dict) -> str:
-    from datetime import date, timedelta
+    from datetime import timedelta
 
     from mihomes.models.task import Task, TaskPriority, TaskStatus
 
@@ -433,14 +521,14 @@ def _query_tasks(session: Session, inp: dict) -> str:
     if inp.get("overdue_only"):
         q = q.filter(
             Task.status.notin_(_terminal),
-            Task.due_date < date.today(),
+            Task.due_date < local_today(),
         )
     elif inp.get("upcoming_days"):
         days = int(inp["upcoming_days"])
         q = q.filter(
             Task.status.notin_(_terminal),
-            Task.due_date >= date.today(),
-            Task.due_date <= date.today() + timedelta(days=days),
+            Task.due_date >= local_today(),
+            Task.due_date <= local_today() + timedelta(days=days),
         )
     if inp.get("assignee"):
         from mihomes.models.staff import Staff
@@ -520,7 +608,7 @@ def _query_work_orders(session: Session, inp: dict) -> str:
         q = q.filter(WorkOrder.title.ilike(f"%{inp['search']}%"))
 
     limit = int(inp.get("limit", 20))
-    wos = q.order_by(WorkOrder.created_at.desc()).limit(limit).all()
+    wos = visible(q.order_by(WorkOrder.created_at.desc()).limit(limit).all())
     total = q.count()
 
     if not wos:
@@ -543,7 +631,7 @@ def _query_budget(session: Session, inp: dict) -> str:
 
     from mihomes.models.budget import Transaction
 
-    year = int(inp.get("year", date.today().year))
+    year = int(inp.get("year", local_today().year))
     start = date(year, 1, 1)
     end = date(year, 12, 31)
 
@@ -656,7 +744,7 @@ def _query_staff(session: Session, inp: dict) -> str:
 
 
 def _query_contracts(session: Session, inp: dict) -> str:
-    from datetime import date, timedelta
+    from datetime import timedelta
 
     from mihomes.models.contract import Contract
 
@@ -667,8 +755,8 @@ def _query_contracts(session: Session, inp: dict) -> str:
         prop = resolve_identifier(session, Property, inp["property_slug"])
         q = q.filter(Contract.property_id == prop.id)
     if inp.get("expiring_within_days"):
-        cutoff = date.today() + timedelta(days=int(inp["expiring_within_days"]))
-        q = q.filter(Contract.end_date <= cutoff, Contract.end_date >= date.today())
+        cutoff = local_today() + timedelta(days=int(inp["expiring_within_days"]))
+        q = q.filter(Contract.end_date <= cutoff, Contract.end_date >= local_today())
     if inp.get("vendor"):
         from mihomes.models.vendor import Vendor
         q = q.join(Vendor, Contract.vendor_id == Vendor.id, isouter=True)
@@ -735,7 +823,7 @@ def _query_consumables(session: Session, inp: dict) -> str:
         q = q.filter(Consumable.name.ilike(f"%{inp['search']}%"))
 
     limit = int(inp.get("limit", 30))
-    items = q.limit(limit).all()
+    items = visible(q.limit(limit).all())
     total = q.count()
 
     if not items:
@@ -794,7 +882,7 @@ def _query_inventory(session: Session, inp: dict) -> str:
         cq = cq.filter(Consumable.name.ilike(f"%{inp['search']}%"))
     include_consumables = not inp.get("space") and not inp.get("high_value_only")
 
-    assets = aq.all()
+    assets = visible(aq.all())
     consumables = cq.all() if include_consumables else []
 
     if inp.get("count_only"):
@@ -828,7 +916,6 @@ def _query_inventory(session: Session, inp: dict) -> str:
 
 
 def _query_events(session: Session, inp: dict) -> str:
-    from datetime import date
 
     from mihomes.models.event import Event, EventStatus
 
@@ -839,14 +926,14 @@ def _query_events(session: Session, inp: dict) -> str:
         prop = resolve_identifier(session, Property, inp["property_slug"])
         q = q.filter(Event.property_id == prop.id)
     if inp.get("upcoming_only"):
-        q = q.filter(Event.event_date >= date.today())
+        q = q.filter(Event.event_date >= local_today())
     if inp.get("status"):
         try:
             q = q.filter(Event.status == EventStatus(inp["status"]))
         except ValueError:
             pass
 
-    events = q.order_by(Event.event_date).all()
+    events = visible(q.order_by(Event.event_date).all())
     if not events:
         return "No events found matching the criteria."
 
@@ -918,6 +1005,38 @@ def _query_alerts(session: Session, inp: dict) -> str:
 
 
 # ── Executor registry ──────────────────────────────────────────────────────────
+
+# tool → the MATRIX action that authorises it (SPEC-003 §6 Step 10).
+#
+# **Property scoping alone does not protect the account-level entities.** `authz/query_scope.py`
+# filters models classified `PROPERTY_SCOPED`; `Budget`, `Transaction`, `Contract`,
+# `InsurancePolicy`, `Vendor`, and `Staff` are not among them, so a staff member asking the
+# assistant about budgets would receive them in full — the web route for the same data is denied
+# by row 9, but the AI path has no route. §9.3 is explicit that the block belongs "at the query
+# layer, so a staff member cannot exfiltrate another home's data by asking the AI about it";
+# this closes the *entity-class* half of that, which the property filter cannot express.
+#
+# Enforced once in `execute_tool` rather than in fifteen executors: a per-executor check is a
+# per-executor thing to forget, and `test_every_executor_declares_an_action` fails the suite if a
+# new tool arrives without one.
+_TOOL_ACTIONS = {
+    "query_library": "inventory.manage",
+    "query_assets": "inventory.manage",
+    "query_tasks": "task.manage",
+    "query_issues": "issue.manage",
+    "query_work_orders": "issue.manage",
+    "query_budget": "finance.view",
+    "query_vendors": "vendor.view_contact",
+    "query_staff": "member.manage",
+    "query_contracts": "finance.view",
+    "query_insurance": "finance.view",
+    "query_consumables": "inventory.manage",
+    "query_inventory": "inventory.manage",
+    "query_events": "task.manage",
+    "query_property": "property.view",
+    "query_alerts": "issue.manage",
+}
+
 
 _EXECUTORS = {
     "query_library": _query_library,

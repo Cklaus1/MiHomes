@@ -1,10 +1,17 @@
 """Tests for audit log service."""
 
-from datetime import date, datetime, timezone
+import uuid
 from enum import Enum
 
 from mihomes.models.audit_log import AuditLog
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
+
+# Placeholder ids for polymorphic entity_type/entity_id pairs. Distinct
+# constants because several tests rely on two ids being DIFFERENT (filter by
+# one, assert the other is excluded) — a single shared UUID would make those
+# tests pass for the wrong reason. Were integers before SPEC-002 D2.
+_ENTITY_1 = uuid.uuid4()
+_ENTITY_42 = uuid.uuid4()
 
 
 class FakeEnum(Enum):
@@ -49,7 +56,7 @@ class TestSnapshotInstance:
     def test_snapshot_basic(self, session):
         entry = AuditLog(
             entity_type="property",
-            entity_id=1,
+            entity_id=_ENTITY_1,
             action="create",
             changes={"name": "test"},
             actor="admin",
@@ -58,7 +65,7 @@ class TestSnapshotInstance:
         session.flush()
         snap = snapshot_instance(entry)
         assert snap["entity_type"] == "property"
-        assert snap["entity_id"] == 1
+        assert snap["entity_id"] == str(_ENTITY_1)
         assert snap["action"] == "create"
         assert snap["actor"] == "admin"
 
@@ -68,7 +75,7 @@ class TestRecordChange:
         record_change(
             session,
             entity_type="property",
-            entity_id=42,
+            entity_id=_ENTITY_42,
             action="create",
             changes={"name": {"old": None, "new": "Beach House"}},
             actor="admin",
@@ -77,18 +84,45 @@ class TestRecordChange:
         entries = session.query(AuditLog).all()
         assert len(entries) == 1
         assert entries[0].entity_type == "property"
-        assert entries[0].entity_id == 42
+        assert entries[0].entity_id == _ENTITY_42
         assert entries[0].action == "create"
         assert entries[0].changes["name"]["new"] == "Beach House"
 
     def test_default_actor(self, session):
-        record_change(session, "task", 1, "update")
+        """Unattended writes are labelled `"system"`, never `"admin"` (SPEC-003 F6).
+
+        **This assertion was inverted, deliberately.** It previously asserted `== "admin"`, which
+        is precisely the defect F6 names: *"`AuditLog.actor` defaults to `"admin"`, which the bot
+        never overrides, so every current call site writes a fictional actor."* The old
+        expectation encoded the bug, so leaving it would have made the fix look like a regression.
+
+        `"system"` is chosen over `"admin"` because it is *true* where `"admin"` was a guess, and
+        because it is visibly not a user id — an unattributed write cannot be mistaken for a
+        human one when reading the log.
+        """
+        record_change(session, "task", _ENTITY_1, "update")
         session.flush()
         entry = session.query(AuditLog).first()
-        assert entry.actor == "admin"
+        assert entry.actor == "system"
+        assert entry.actor != "admin"
+
+    def test_default_actor_is_the_request_user_when_there_is_one(self, session, account_a):
+        """The other half: inside a request, the default is the *real* actor.
+
+        Without this, `resolve_actor` returning the constant `"system"` would satisfy the test
+        above and leave all 73 call sites just as fictional as before.
+        """
+        from mihomes.tenancy import account_context
+
+        acting = uuid.uuid4()
+        with account_context(account_a, acting):
+            record_change(session, "task", uuid.uuid4(), "update")
+        session.flush()
+        entry = session.query(AuditLog).order_by(AuditLog.timestamp.desc()).first()
+        assert entry.actor == str(acting)
 
     def test_custom_actor(self, session):
-        record_change(session, "issue", 5, "create", actor="whatsapp:Sarah")
+        record_change(session, "issue", uuid.uuid4(), "create", actor="whatsapp:Sarah")
         session.flush()
         entry = session.query(AuditLog).first()
         assert entry.actor == "whatsapp:Sarah"

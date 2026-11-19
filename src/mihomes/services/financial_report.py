@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from mihomes.models.budget import Transaction
 from mihomes.models.property import Property
 from mihomes.models.vendor import Vendor
+from mihomes.services.localtime import today as local_today
 from mihomes.services.slug import resolve_identifier
 
 
@@ -98,7 +99,7 @@ def forecast(
     # Look back 12 months for historical data. Subtract 365 days rather than
     # constructing date(year-1, month, day) — the latter crashes on Feb 29 in a
     # non-leap prior year (M4).
-    end = date.today()
+    end = local_today()
     start = end - timedelta(days=365)
 
     total_spending = session.query(
@@ -152,8 +153,8 @@ def vendor_spending_report(
     property_id_or_slug: str | None = None,
 ) -> list[dict]:
     """Combined vendor spending from transactions + work order actual costs."""
+
     from mihomes.models.work_order import WorkOrder
-    from sqlalchemy import case
 
     prop_id = None
     if property_id_or_slug:

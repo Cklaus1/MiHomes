@@ -1,0 +1,23 @@
+{# One tick-box step of a playbook. Rendered by routes/playbooks_route.py `_step_li`, both inside the
+   whole playbook and alone as the answer to `POST /playbooks/{slug}/check` (htmx swaps just this
+   line). It lives in a template, not a Python string, because Tailwind only compiles classes it
+   finds in templates — the responsive ones below would silently not exist otherwise.
+
+   `label_html` is already-escaped markup from the playbook renderer; everything else is
+   autoescaped by Jinja. The step text is a <label> for its box, so the whole line is the tap
+   target (a 20px box alone is small for a thumb), and on a phone "who and when" drops under the
+   text instead of squeezing it into a sliver. #}
+{% macro step(label_html, key, slug, who, can_tick) %}
+{% set box_id = 'pb-' ~ key[:16] %}
+<li class="flex items-start gap-2.5 py-1 text-sm" data-pb-item>
+  <input type="checkbox" id="{{ box_id }}" name="checked" value="1" data-pb-check
+         class="mt-0.5 h-5 w-5 flex-shrink-0 rounded border-gray-300 text-brand-600 cursor-pointer disabled:cursor-not-allowed"
+         {% if who %}checked{% endif %}
+         {% if can_tick %}hx-post="/playbooks/{{ slug }}/check" hx-trigger="change"
+         hx-vals='{"key":"{{ key }}"}' hx-target="closest li" hx-swap="outerHTML"{% else %}disabled{% endif %}>
+  <div class="min-w-0 flex-1 sm:flex sm:items-start sm:justify-between sm:gap-3">
+    <label for="{{ box_id }}" class="cursor-pointer {% if who %}text-gray-500 line-through{% else %}text-gray-700{% endif %}">{{ label_html }}</label>
+    {% if who %}<span class="block mt-0.5 text-xs text-gray-500 sm:mt-0 sm:flex-shrink-0 sm:whitespace-nowrap" data-pb-who>{{ who.by }} · {{ who.when }}</span>{% endif %}
+  </div>
+</li>
+{% endmacro %}

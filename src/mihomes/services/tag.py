@@ -8,7 +8,21 @@ from mihomes.services.slug import resolve_identifier
 
 
 def create_tag(session: Session, name: str) -> Tag:
-    existing = session.query(Tag).filter(Tag.name == name.lower()).first()
+    """Get-or-create a tag **within the current account** (F4).
+
+    The lookup is account-scoped for the same reason `ensure_unique_slug` is: this is a
+    get-or-create against a column that is now unique *per account*, so an unscoped read
+    would hand account B the Tag row belonging to account A — returning another tenant's
+    primary key, not merely failing to create. G8.1's ambient read filter would also catch
+    this, but a get-or-create must not depend on an ambient filter for correctness.
+    """
+    from mihomes.tenancy import require_account
+
+    existing = (
+        session.query(Tag)
+        .filter(Tag.name == name.lower(), Tag.account_id == require_account())
+        .first()
+    )
     if existing:
         return existing
     tag = Tag(name=name.lower())

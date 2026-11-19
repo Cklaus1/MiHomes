@@ -1,0 +1,10 @@
+{% if name %}Hi {{ name }},{% else %}Hi,{% endif %}
+
+Your account {{ account_name }} is set up and ready. You can add properties,
+track tasks and issues, and invite the people who help you run them.
+
+Open your dashboard:
+
+{{ dashboard_url }}
+
+Nothing to pay and no card needed.

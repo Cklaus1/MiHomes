@@ -1,0 +1,398 @@
+"""G6 · §6 Step 6 — checkout, portal, plan page (A28).
+
+**A28 is "a non-owner is denied every billing route", and the plural is the assertion.** Testing
+one route proves that route; the risk is the *next* one added without a declaration, or added with
+the wrong access class. So the denial test enumerates the billing routes from the mounted app at
+test time rather than listing them here — the same derive-from-the-code principle A11 rests on.
+
+D8's reasoning is worth keeping in view while reading these: *"admins manage the estate, not the
+card."* An admin running the household is a different trust boundary from the payment method, so
+`billing.manage` (row 15) is owner-only and **admin is denied here just as staff is** — which is
+unusual enough in this codebase that a test asserting only staff-denial would look complete and
+miss half the rule.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from mihomes.models.account import Account
+from mihomes.services.billing.provider import SubscriptionState
+from mihomes.services.billing.service import start_checkout, start_portal_session
+from tests.route_table import api_routes
+
+
+class FakeProvider:
+    """Records what it was asked for. Structural satisfaction, no subclassing (§9)."""
+
+    def __init__(self) -> None:
+        self.created_customers: list[tuple[str, str, str]] = []
+        self.checkout_calls: list[dict] = []
+        self.portal_calls: list[dict] = []
+        self.change_calls: list[dict] = []
+        self.payment_method_calls: list[str] = []
+        self.cancel_calls: list[dict] = []
+        self.resume_calls: list[str] = []
+
+    def create_customer(self, *, account_id: str, email: str, name: str) -> str:
+        self.created_customers.append((account_id, email, name))
+        return f"cus_fake_{len(self.created_customers)}"
+
+    def create_checkout_session(self, *, customer_id, plan, interval,
+                               success_url, cancel_url) -> str:
+        self.checkout_calls.append({
+            "customer_id": customer_id, "plan": plan, "interval": interval,
+            "success_url": success_url, "cancel_url": cancel_url,
+        })
+        return f"https://checkout.example/{plan}/{interval}"
+
+    def create_portal_session(self, *, customer_id, return_url) -> str:
+        self.portal_calls.append({"customer_id": customer_id, "return_url": return_url})
+        return f"https://portal.example/{customer_id}"
+
+    def create_plan_change_session(self, *, customer_id, subscription_id, plan, interval,
+                                   return_url) -> str:
+        self.change_calls.append({"customer_id": customer_id, "subscription_id": subscription_id,
+                                  "plan": plan, "interval": interval})
+        return f"https://portal.example/{subscription_id}/{plan}/{interval}"
+
+    def create_payment_method_session(self, *, customer_id, return_url) -> str:
+        self.payment_method_calls.append(customer_id)
+        return f"https://portal.example/{customer_id}/payment-method"
+
+    def get_card_on_file(self, *, customer_id, subscription_id):  # pragma: no cover
+        return None
+
+    def get_price(self, *, plan, interval):  # pragma: no cover
+        from mihomes.services.billing.provider import PriceInfo
+        return PriceInfo(amount=1900, currency="usd")
+
+    def get_subscription(self, *, customer_id) -> SubscriptionState:  # pragma: no cover
+        return SubscriptionState(None, None, None, None, False)
+
+    def cancel(self, *, subscription_id, at_period_end=True) -> None:
+        self.cancel_calls.append({"subscription_id": subscription_id,
+                                  "at_period_end": at_period_end})
+
+    def resume(self, *, subscription_id) -> None:
+        self.resume_calls.append(subscription_id)
+
+    def handle_webhook_event(self, *, payload, signature):  # pragma: no cover
+        return None
+
+
+@pytest.fixture
+def billable_account(session, account_a) -> Account:
+    """An account with an **active owner membership**, which is what makes it billable.
+
+    The bare `account_a` fixture creates the account row and nothing else, so
+    `_billing_email` — which resolves the owner's address for receipts and dunning — finds
+    nobody. That is the correct behaviour on a real account (every account has an owner by
+    SPEC-002's partial unique index, so its absence signals corruption) and a fixture gap here,
+    so the fixture supplies what production guarantees.
+    """
+    import uuid as _uuid
+
+    from mihomes.ids import new_id
+    from mihomes.models.membership import Membership
+    from mihomes.models.user import User
+
+    user = User(
+        id=new_id(),
+        google_sub=f"sub-billing-{_uuid.uuid4().hex[:8]}",
+        email="owner@example.com",
+        name="Billing Owner",
+    )
+    session.add(user)
+    session.flush()
+    session.add(
+        Membership(
+            id=new_id(),
+            account_id=account_a,
+            user_id=user.id,
+            role="owner",
+            status="active",
+        )
+    )
+    session.commit()
+    return session.get(Account, account_a)
+
+
+def _billing_routes() -> list[str]:
+    """Every mounted billing route path, read from the app.
+
+    Derived rather than listed so a seventh route added later is covered by A28 without anyone
+    remembering this file exists.
+    """
+    from mihomes.web.app import create_app
+
+    return sorted({
+        r.path for r in api_routes(create_app())
+        if r.path.startswith("/billing")
+    })
+
+
+class TestOwnerOnly:
+    @pytest.mark.parametrize("role", ["admin", "staff"])
+    def test_owner_only(self, web_client_as, role):
+        """**A28** — every billing route refuses a non-owner, **admin included**.
+
+        The admin half is the one that could be missed: everywhere else in this app an admin is
+        the near-equal of an owner, and a test covering only staff would read as complete. D8 is
+        explicit that billing is the exception.
+        """
+        client = web_client_as(role)
+        for path in _billing_routes():
+            get = client.get(path)
+            assert get.status_code in (403, 405), (
+                f"{role} reached GET {path} (status {get.status_code}) — billing is owner-only "
+                "(D8, row 15)"
+            )
+            post = client.post(path, data={"plan": "pro", "interval": "monthly"})
+            assert post.status_code in (403, 405), (
+                f"{role} reached POST {path} (status {post.status_code}) — billing is owner-only"
+            )
+
+    def test_owner_reaches_the_plan_page(self, web_client_as):
+        """The positive control. Without it, a route that 403'd *everyone* would pass A28 —
+        the classic vacuous authorization test."""
+        response = web_client_as("owner").get("/billing")
+        assert response.status_code == 200
+
+    def test_plan_page_has_one_interval_switch_and_one_button_per_plan(
+        self, web_client_as, _pg_engine, account_a
+    ):
+        """One Monthly/Yearly switch for the page; each upgrade card is one form whose interval
+        the switch rewrites. Both switch values must be ones the route accepts.
+
+        Run as a **Free** account: the shared fixture provisions `estate` (the top plan), and with
+        nothing left to buy the page correctly shows no switch at all."""
+        from sqlalchemy import text as _text
+
+        from mihomes.web.routes.billing import SELLABLE_INTERVALS
+
+        with _pg_engine.begin() as conn:
+            conn.execute(_text("UPDATE accounts SET plan = 'free', subscription_status = NULL "
+                               "WHERE id = :a"), {"a": account_a})
+        html = web_client_as("owner").get("/billing").text
+        # Count the element, not the string: the page's own script names the attribute in its
+        # `querySelector("[data-billing-switch]")`.
+        assert html.count("data-billing-switch data-start") == 1
+        for interval in SELLABLE_INTERVALS:
+            assert f'data-interval="{interval}"' in html
+        for plan in ("pro", "estate"):
+            assert html.count(f'data-testid="checkout-{plan}"') == 1
+
+    def test_every_billing_route_declares_the_billing_action(self):
+        """The gate behind the gate.
+
+        A28 tests behaviour through the client; this asserts the *declaration*, because
+        enforcement is app-wide and reads exactly this attribute. A billing route declaring some
+        other action would still be enforced — just against the wrong rule, and the client test
+        would only notice if that rule happened to differ for the role it tried.
+        """
+        from mihomes.authz.declare import declared_action
+        from mihomes.web.app import create_app
+
+        wrong = []
+        for route in api_routes(create_app()):
+            if route.path.startswith("/billing"):
+                declared = declared_action(route.endpoint)
+                if declared is None or declared[0] != "billing.manage":
+                    wrong.append(f"{route.path}: {declared}")
+
+        assert not wrong, f"billing routes must declare billing.manage (row 15): {wrong}"
+
+
+class TestCheckout:
+    def test_customer_reused(self, session, billable_account):
+        """A returning customer reuses `stripe_customer_id` — no second Stripe Customer.
+
+        Not cosmetic. The webhook maps `provider_customer_id -> account`, so a second Customer's
+        events resolve to nothing: the upgrade is paid for and **silently never applies**, which
+        looks to the customer like the product taking their money and doing nothing.
+        """
+        account = billable_account
+        provider = FakeProvider()
+
+        start_checkout(
+            session, account, plan="pro", interval="monthly",
+            success_url="http://localhost/billing/success",
+            cancel_url="http://localhost/billing",
+            provider=provider,
+        )
+        first_customer = account.stripe_customer_id
+
+        start_checkout(
+            session, account, plan="estate", interval="annual",
+            success_url="http://localhost/billing/success",
+            cancel_url="http://localhost/billing",
+            provider=provider,
+        )
+
+        assert len(provider.created_customers) == 1, (
+            "a second Stripe Customer orphans the webhook mapping — the upgrade would be paid "
+            "for and never applied"
+        )
+        assert account.stripe_customer_id == first_customer
+
+    def test_checkout_passes_plan_and_interval_not_a_price(self, session, billable_account):
+        """D3/N2 at the call site. The interface has no price parameter, and this proves the
+        service does not smuggle one in some other field."""
+        account = billable_account
+        provider = FakeProvider()
+
+        start_checkout(
+            session, account, plan="pro", interval="annual",
+            success_url="http://localhost/billing/success",
+            cancel_url="http://localhost/billing",
+            provider=provider,
+        )
+
+        call = provider.checkout_calls[0]
+        assert call["plan"] == "pro"
+        assert call["interval"] == "annual"
+        assert not any("price" in key.lower() for key in call)
+
+    def test_customer_id_is_committed_before_checkout(self, session, billable_account):
+        """The ordering, asserted rather than assumed.
+
+        If checkout were created first and the commit then failed, Stripe would hold a Customer
+        this database has never heard of — and its webhooks would land in the unmappable bucket
+        forever. Committing first can at worst leave an id for an abandoned checkout, which the
+        next attempt reuses.
+        """
+        account = billable_account
+        provider = FakeProvider()
+
+        start_checkout(
+            session, account, plan="pro", interval="monthly",
+            success_url="http://localhost/billing/success",
+            cancel_url="http://localhost/billing",
+            provider=provider,
+        )
+
+        session.expire_all()
+        assert session.get(Account, billable_account.id).stripe_customer_id is not None
+
+    def test_an_unsellable_plan_is_refused(self, web_client_as):
+        """Server-side validation of the *plan name* — the client-supplied half of D3/N2.
+
+        A price id can never arrive (no parameter accepts one), but a plan name can. `"free"` is
+        the interesting case: it is a real plan with no Stripe object at all (D4), so an
+        unvalidated request for it would reach the price map and fail confusingly rather than
+        being refused as nonsense.
+        """
+        response = web_client_as("owner").post(
+            "/billing/checkout", data={"plan": "free", "interval": "monthly"},
+        )
+        assert response.status_code == 400
+
+
+class TestPortal:
+    def test_portal_requires_a_customer(self, session, account_a):
+        """Free accounts have no Stripe object (D4), so there is nothing to manage.
+
+        Raising here rather than sending the user to a portal URL for a nonexistent customer,
+        which would fail inside Stripe's own UI where this application can neither explain it nor
+        recover from it.
+        """
+        from mihomes.services.billing.provider import BillingProviderError
+
+        account = session.get(Account, account_a)
+        account.stripe_customer_id = None
+
+        with pytest.raises(BillingProviderError):
+            start_portal_session(account, return_url="http://localhost/billing")
+
+    def test_portal_uses_the_stored_customer(self, session, account_a):
+        account = session.get(Account, account_a)
+        account.stripe_customer_id = "cus_existing"
+        provider = FakeProvider()
+
+        start_portal_session(
+            account, return_url="http://localhost/billing", provider=provider,
+        )
+
+        assert provider.portal_calls[0]["customer_id"] == "cus_existing"
+
+
+class TestPaymentMethod:
+    def test_creates_the_customer_once_and_charges_nothing(self, session, billable_account):
+        """A Free owner can save a card before buying anything; the Customer is created once and
+        reused, and no plan, subscription or checkout comes of it."""
+        from mihomes.services.billing.service import start_payment_method_setup
+
+        account, provider = billable_account, FakeProvider()
+        account.plan = "free"   # the shared fixture provisions `estate`; this test is about Free
+        for _ in range(2):
+            start_payment_method_setup(session, account, return_url="http://localhost/billing",
+                                       provider=provider)
+
+        assert len(provider.created_customers) == 1
+        assert provider.payment_method_calls == [account.stripe_customer_id] * 2
+        assert provider.checkout_calls == [] and account.plan == "free"
+        assert account.stripe_subscription_id is None
+
+
+class TestPlanChange:
+    def test_change_targets_the_live_subscription(self, session, account_a):
+        from mihomes.services.billing.service import start_plan_change
+
+        account = session.get(Account, account_a)
+        account.plan = "pro"    # a paying Pro account; the shared fixture provisions `estate`
+        account.stripe_customer_id, account.stripe_subscription_id = "cus_1", "sub_1"
+        account.subscription_status = "active"
+        provider = FakeProvider()
+
+        start_plan_change(account, plan="estate", interval="annual",
+                          return_url="http://localhost/billing", provider=provider)
+
+        assert provider.change_calls == [{"customer_id": "cus_1", "subscription_id": "sub_1",
+                                          "plan": "estate", "interval": "annual"}]
+        assert account.plan != "estate", "the webhook grants the plan, not this call (D1)"
+
+    # A Free account has no subscription at all; an ended one keeps its id with an ended status.
+    # (This used to pair a subscription id with status None — a state the webhook never writes,
+    # since it sets both together — and expected a refusal the code was never meant to give.)
+    @pytest.mark.parametrize("sub_id,status", [(None, None), ("sub_1", "canceled")])
+    def test_change_refuses_without_a_live_subscription(self, session, account_a, sub_id, status):
+        """Free or ended accounts buy through checkout; there is nothing to change."""
+        from mihomes.services.billing.provider import BillingProviderError
+        from mihomes.services.billing.service import start_plan_change
+
+        account = session.get(Account, account_a)
+        account.stripe_customer_id, account.stripe_subscription_id = "cus_1", sub_id
+        account.subscription_status = status
+        provider = FakeProvider()
+
+        with pytest.raises(BillingProviderError):
+            start_plan_change(account, plan="pro", interval="monthly",
+                              return_url="http://localhost/billing", provider=provider)
+        assert provider.change_calls == []
+
+    def test_an_unsellable_plan_is_refused(self, web_client_as):
+        response = web_client_as("owner").post(
+            "/billing/change", data={"plan": "free", "interval": "monthly"},
+        )
+        assert response.status_code == 400
+
+
+class TestSuccessGrantsNothing:
+    def test_success_page_does_not_change_the_plan(self, web_client_as, session, account_a):
+        """**N1 — the defect that fails open**, and the most common Stripe integration bug.
+
+        The user controls `success_url`: they can reach it without paying, replay it, or never
+        arrive after a successful payment. Only a verified webhook changes state (D1). Asserted
+        by hitting the page as a Free account and requiring the plan to be untouched.
+        """
+        before = session.get(Account, account_a).plan
+
+        response = web_client_as("owner").get("/billing/success")
+        assert response.status_code == 200
+
+        session.expire_all()
+        assert session.get(Account, account_a).plan == before, (
+            "the success redirect must grant nothing — it is a confirmation page, and the user "
+            "controls whether and when they reach it (N1/D1)"
+        )

@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+
+{# **Placeholder content — O1.** The sequence's copy and cadence are the founder's call
+   (SPEC-005 O1); what ships here is a real, sendable email so the machinery is not wired to
+   nothing. Rewriting this file changes no code: `campaigns.SEQUENCES` names templates, and the
+   templates say whatever they say. #}
+
+{% block subject %}Getting started with MiHomes{% endblock %}
+
+{% block content %}
+  <p style="margin:0 0 16px;">Hi,</p>
+
+  <p style="margin:0 0 24px;">
+    You set up MiHomes a day ago. The fastest way to see whether it earns its
+    keep is to put one real thing in it — a property, and one document you would
+    otherwise have to go looking for.
+  </p>
+
+  <p style="margin:0 0 24px;">
+    Most people start with the home they think about most, not the one that is
+    easiest to enter.
+  </p>
+
+  <p style="margin:0;color:#6b6b66;font-size:14px;">
+    Step 1 of {{ total_steps|default(3) }}.
+  </p>
+{% endblock %}

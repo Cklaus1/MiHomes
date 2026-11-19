@@ -1,0 +1,54 @@
+{# One vendor card, for both the Active and the Inactive list (they were two drifted copies).
+   Expects `vendor`, `vendor_ratings`, `vendor_properties` in scope. #}
+{% from "partials/_vendor_macros.html" import stars, phone_link, email_link %}
+{% set ratings = vendor_ratings.get(vendor.slug, []) %}
+{% set quality_vals = ratings | selectattr('quality_score') | map(attribute='quality_score') | list %}
+{% set reliability_vals = ratings | selectattr('reliability_score') | map(attribute='reliability_score') | list %}
+{% set prim = vendor.contacts[0] if vendor.contacts else none %}
+{% set card_name = prim.name if prim and prim.name else vendor.contact_name %}
+{% set card_phone = prim.phone if prim and prim.phone else vendor.phone %}
+{% set card_email = prim.email if prim and prim.email else vendor.email %}
+{% set contact_names = (vendor.contacts or []) | map(attribute='name') | select | list %}
+<div class="vendor-card bg-white rounded-xl border border-gray-200 p-5 flex flex-col cursor-pointer hover:border-brand-400 hover:shadow-sm transition-all group {{ '' if vendor.active else 'opacity-75' }}"
+     data-properties="{{ (vendor_properties.get(vendor.id) or []) | join(' ') }}"
+     data-categories="{{ (vendor.service_categories or []) | join('|') }}"
+     data-search="{{ ([vendor.company_name, vendor.contact_name] + contact_names + (vendor.service_categories or [])) | select | join(' ') | lower }}"
+     onclick="openModal('vendor-modal-{{ vendor.slug }}')">
+  <div class="flex items-start justify-between mb-2">
+    <div class="min-w-0">
+      <div class="font-semibold text-gray-900 truncate group-hover:text-brand-700 transition-colors">{{ vendor.company_name }}</div>
+      {% if vendor.service_categories %}
+      <div class="flex flex-wrap gap-1 mt-1.5">
+        {% for cat in vendor.service_categories[:3] %}
+        <span class="px-1.5 py-0.5 rounded text-xs font-medium {{ 'bg-blue-50 text-blue-700' if vendor.active else 'bg-gray-100 text-gray-500' }}">{{ cat }}</span>
+        {% endfor %}
+        {% if vendor.service_categories|length > 3 %}
+        <span class="text-xs text-gray-400">+{{ vendor.service_categories|length - 3 }}</span>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+    <span class="ml-2 flex-shrink-0 w-2 h-2 rounded-full mt-1.5 {{ 'bg-emerald-400' if vendor.active else 'bg-gray-300' }}" aria-hidden="true"></span>
+  </div>
+  {% if card_name %}<div class="text-xs text-gray-500 mt-1">{{ card_name }}</div>{% endif %}
+  <div class="mt-1 flex flex-col items-start">
+    {% if card_phone %}{{ phone_link(card_phone, stop=true) }}{% endif %}
+    {% if card_email %}{{ email_link(card_email, stop=true) }}{% endif %}
+  </div>
+  {% if quality_vals %}
+  <div class="mt-auto pt-3 border-t border-gray-100 flex items-center gap-3 text-xs text-gray-500">
+    <span>Q: {{ stars((quality_vals|sum / quality_vals|length)|round|int) }}</span>
+    {% if reliability_vals %}
+    <span>R: {{ stars((reliability_vals|sum / reliability_vals|length)|round|int) }}</span>
+    {% endif %}
+    <span class="ml-auto text-gray-400">{{ ratings|length }} review{{ 's' if ratings|length != 1 else '' }}</span>
+  </div>
+  {% else %}
+  <div class="mt-auto pt-3 border-t border-gray-100 flex items-center justify-between">
+    <span class="text-xs text-gray-400">No reviews yet</span>
+    <svg class="w-4 h-4 text-gray-300 group-hover:text-brand-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+    </svg>
+  </div>
+  {% endif %}
+</div>

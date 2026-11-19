@@ -81,7 +81,7 @@ def add_task(
 
         except (EntityNotFoundError, ValueError) as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
 
 def _apply_ai_suggestions(session, entity_type: str, slug: str, title: str, description, property_name: str) -> None:
@@ -115,12 +115,12 @@ def _apply_ai_suggestions(session, entity_type: str, slug: str, title: str, desc
         console.print(f"  {priority_key.capitalize()}: [bold]{suggested_priority}[/bold]")
         if typer.confirm(f"  Apply {priority_key}?", default=True):
             if entity_type == "task":
-                from mihomes.services.task import update_task
                 from mihomes.models.task import TaskPriority
+                from mihomes.services.task import update_task
                 update_task(session, slug, priority=TaskPriority(suggested_priority))
             else:
-                from mihomes.services.issue import update_issue
                 from mihomes.models.issue import IssueSeverity
+                from mihomes.services.issue import update_issue
                 update_issue(session, slug, severity=IssueSeverity(suggested_priority))
             changes_made.append(f"{priority_key}={suggested_priority}")
 
@@ -154,11 +154,16 @@ def list_tasks(
             if recent:
                 from datetime import datetime, timedelta, timezone
                 cutoff = datetime.now(timezone.utc) - timedelta(days=7)
-                from mihomes.models.task import Task as TaskModel
-                tasks = session.query(TaskModel).filter(
-                    TaskModel.status == TaskStatus.COMPLETED,
-                    TaskModel.completed_at >= cutoff,
-                ).order_by(TaskModel.completed_at.desc()).all()
+                from mihomes.models.task import TaskCompletion
+                # Completion log: a repeating task resets in place when done, so it is never
+                # COMPLETED. One entry per task (its most recent completion in the window).
+                seen, tasks = set(), []
+                for c in session.query(TaskCompletion).filter(
+                    TaskCompletion.completed_at >= cutoff.replace(tzinfo=None),
+                ).order_by(TaskCompletion.completed_at.desc()).all():
+                    if c.task_id not in seen:
+                        seen.add(c.task_id)
+                        tasks.append(c.task)
             else:
                 tasks = task_svc.list_tasks(
                     session, property_id_or_slug=property, status=status,
@@ -170,7 +175,7 @@ def list_tasks(
                     tasks = [t for t in tasks if t.zone_id == z.id]
         except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
         if not tasks:
             console.print("[dim]No tasks found.[/dim]")
@@ -212,7 +217,7 @@ def show_task(id_or_slug: str = typer.Argument(...)):
             task = task_svc.get_task(session, id_or_slug)
         except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
         content = {
             "ID": str(task.id),
             "Slug": task.slug,
@@ -248,10 +253,11 @@ def complete_task(
             task, next_task = task_svc.complete_task(session, id_or_slug, notes=notes)
             format_success(f"Task '{task.title}' completed")
             if next_task:
-                console.print(f"[dim]Next occurrence created: due {next_task.due_date}[/dim]")
+                # A repeating task resets in place — it is the same task, now due again.
+                console.print(f"[dim]Repeats — next due {next_task.due_date}[/dim]")
         except (EntityNotFoundError, ValueError) as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
 
 @app.command("upcoming")
@@ -265,7 +271,7 @@ def upcoming_tasks(
             tasks = task_svc.get_upcoming_tasks(session, days=days, property_id_or_slug=property)
         except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
         if not tasks:
             console.print(f"[dim]No tasks due in the next {days} days.[/dim]")
@@ -326,7 +332,7 @@ def edit_task(
             format_success(f"Task '{task.title}' updated")
         except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
 
 @app.command("by-frequency")
@@ -336,9 +342,9 @@ def tasks_by_frequency(
     frequency: Optional[RecurrenceFrequency] = typer.Option(None, "--frequency", "-f", help="Show only one frequency"),
 ):
     """Show all recurring tasks grouped by frequency (daily, weekly, monthly, etc.)."""
-    from mihomes.models.task import Task, TaskSchedule, TaskStatus
-    from mihomes.models.staff import Staff
     from mihomes.models.property import Property
+    from mihomes.models.staff import Staff
+    from mihomes.models.task import Task, TaskSchedule, TaskStatus
 
     FREQUENCY_ORDER = [
         RecurrenceFrequency.DAILY,
@@ -418,8 +424,10 @@ def tasks_by_category(
 ):
     """Show open tasks grouped by category."""
     from collections import defaultdict
-    from mihomes.models.task import Task as TaskModel, TaskStatus as TS
+
     from mihomes.models.property import Property
+    from mihomes.models.task import Task as TaskModel
+    from mihomes.models.task import TaskStatus as TS
 
     # Emoji labels per category
     CATEGORY_LABELS = {
@@ -514,7 +522,7 @@ def delete_task(
             task = task_svc.get_task(session, id_or_slug)
         except (AmbiguousIdentifierError, EntityNotFoundError) as e:
             format_error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
         if not force:
             typer.confirm(f"Delete task '{task.title}'?", abort=True)
         name = task_svc.delete_task(session, id_or_slug)

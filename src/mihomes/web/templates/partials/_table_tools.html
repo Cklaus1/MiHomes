@@ -1,0 +1,79 @@
+{# Client-side search and column sort for record tables (assets, books, library, inventory).
+
+   Search: <input data-search-rows="<row selector>" [data-search-groups="<group selector>"]>.
+   Each row carries `data-search` — the record's own fields (name, category, brand, notes…)
+   joined and lower-cased server-side. Matching `row.textContent` also matched badge text and
+   button labels, so "good" found every row in good condition.
+
+   Sort: <th data-sort="text|num"><button type="button">Label <span data-sort-icon></span></button></th>.
+   A cell may carry `data-sort-value` when its text is not the value (dates, money). Empty values
+   sort last in both directions.
+
+   The page swaps <body> after most saves and htmx re-runs this script each time, so the
+   listeners are installed once, on document, and read everything from the DOM. #}
+<script>
+(function () {
+  if (window.__mhTableTools) return;
+  window.__mhTableTools = true;
+
+  document.addEventListener('input', function (e) {
+    var input = e.target;
+    if (!(input instanceof HTMLInputElement) || !input.dataset.searchRows) return;
+    var q = input.value.trim().toLowerCase();
+    document.querySelectorAll(input.dataset.searchRows).forEach(function (row) {
+      var hit = !q || (row.dataset.search || '').indexOf(q) !== -1;
+      row.style.display = hit ? '' : 'none';
+    });
+    if (input.dataset.searchGroups) {
+      document.querySelectorAll(input.dataset.searchGroups).forEach(function (group) {
+        var rows = group.querySelectorAll('[data-search]');
+        var any = Array.prototype.some.call(rows, function (r) { return r.style.display !== 'none'; });
+        group.style.display = any ? '' : 'none';
+      });
+    }
+  });
+
+  function cellValue(row, idx, numeric) {
+    var cell = row.children[idx];
+    if (!cell) return null;
+    var raw = cell.hasAttribute('data-sort-value') ? cell.getAttribute('data-sort-value') : cell.textContent;
+    raw = (raw || '').trim();
+    if (!raw || raw === '—') return null;
+    if (numeric) {
+      var n = parseFloat(raw.replace(/[^0-9.\-]/g, ''));
+      return isNaN(n) ? null : n;
+    }
+    return raw.toLowerCase();
+  }
+
+  document.addEventListener('click', function (e) {
+    var btn = e.target instanceof Element ? e.target.closest('th[data-sort] > button') : null;
+    if (!btn) return;
+    var th = btn.parentElement;
+    var table = th.closest('table');
+    var idx = Array.prototype.indexOf.call(th.parentElement.children, th);
+    var dir = th.getAttribute('aria-sort') === 'ascending' ? 'descending' : 'ascending';
+    table.querySelectorAll('th[data-sort]').forEach(function (h) {
+      h.removeAttribute('aria-sort');
+      var icon = h.querySelector('[data-sort-icon]');
+      if (icon) icon.textContent = '';
+    });
+    th.setAttribute('aria-sort', dir);
+    var icon = th.querySelector('[data-sort-icon]');
+    if (icon) icon.textContent = dir === 'ascending' ? '▲' : '▼';
+    var numeric = th.dataset.sort === 'num';
+    var sign = dir === 'ascending' ? 1 : -1;
+    Array.prototype.forEach.call(table.tBodies, function (tb) {
+      var rows = Array.prototype.slice.call(tb.rows);
+      rows.sort(function (a, b) {
+        var x = cellValue(a, idx, numeric), y = cellValue(b, idx, numeric);
+        if (x === null && y === null) return 0;
+        if (x === null) return 1;
+        if (y === null) return -1;
+        return (x < y ? -1 : x > y ? 1 : 0) * sign;
+      });
+      rows.forEach(function (r) { tb.appendChild(r); });
+    });
+  });
+})();
+</script>

@@ -1,0 +1,862 @@
+"""`mihomes jobs` — the scheduled work Phase 3 is the first phase to need (D15, F1).
+
+`MULTITENANCY` §11.4 named both jobs and deferred the trigger: *"Decide when Phase 3 schedules
+land; it does not block Phase 1."* It does block Phase 3 — the card-less trial has **no other
+trigger** (F3: with no card there is no Stripe subscription, so no `trial_will_end` webhook), and
+one of the four emails is this sweep's own output.
+
+## The interface is the load-bearing half, not the trigger
+
+D15: *"a command that is safe to run twice is testable with no scheduler present and swappable if
+the platform's capability differs from what is assumed here."* Fly's scheduled-machine mechanism
+has **not** been verified against their documentation, so the deployment shape is a default with a
+named alternative (a dedicated always-on machine), not an asserted fact. What is asserted is that
+running either command twice in a row is a no-op the second time (A16).
+
+## Both jobs sweep *across* accounts, which is why they bind context per account
+
+Every other CLI command binds one tenant for the whole invocation (`cli/__init__.py::_bind_account`)
+and every write stamps `account_id` from that ContextVar. A sweep cannot do that — it visits every
+account with a Stripe customer — so it binds and unbinds per account inside the loop. The accounts
+list itself is read with **no** context bound, which is possible only because `accounts` is the
+tenant root and carries no RLS policy of its own.
+
+**One account's failure must not abort the sweep.** A single unreachable Stripe customer, or one
+corrupted row, would otherwise leave every account after it in the list unreconciled — and the
+symptom would be "reconciliation stopped working" long after the cause. Errors are logged per
+account and the sweep continues, which is also what makes the command safe to re-run.
+"""
+
+from __future__ import annotations
+
+import logging
+
+import typer
+from rich import print as rprint
+
+logger = logging.getLogger(__name__)
+
+app = typer.Typer(name="jobs", help="Scheduled maintenance jobs (billing, trials)")
+
+
+# ── SPEC-005 §6 Step 5 — the four Phase 4 workloads ────────────────────────
+#
+# **The scheduler is this phase's definition of done** (A15). The spec's own framing:
+#
+#   > A scheduler that never fires is indistinguishable from a system with nothing to do. The
+#   > trial sweep, the reconciliation sweep, the outbox drain, the dunning ladder, the drips and
+#   > the weekly digest are six workloads with one trigger. If that trigger is misconfigured,
+#   > every one of them stops, no exception is raised, no test fails, and the first signal is a
+#   > customer asking why they were never told their card failed.
+#
+# So `SCHEDULE` below is data, and `test_jobs_enumeration.py` derives its check from the Typer
+# app rather than from a list a human maintains. **That gate has already caught something**: at
+# the time it was written, `mihomes cron setup` — the only place this repo tells an operator
+# what to schedule — listed four commands, none of which was `reconcile` or `trial-sweep`.
+# SPEC-004 added both and neither reached the manifest, which is exactly the silent drift A15
+# describes, having already happened once before the criterion existed to catch it.
+
+
+#: Every `jobs` workload, with the cadence an operator should schedule it at.
+#:
+#: **The single source of truth for scheduling.** `mihomes cron setup` prints from this, and
+#: `test_all_workloads_scheduled` walks the Typer app and asserts every registered command
+#: appears here — so a seventh workload added without a cadence fails the suite rather than
+#: silently never running.
+#:
+#: Cadences are defaults, not assertions about the deployment: SPEC-004 D15's assumption about
+#: Fly's scheduled-machine mechanism is **still unverified** (§0.8 U10), and what is asserted
+#: here is that each command is idempotent, so running it more or less often than this is safe.
+SCHEDULE: dict[str, tuple[str, str]] = {
+    # name: (cron expression, why this cadence)
+    "drain-outbox": (
+        "*/5 * * * *",
+        "Queued mail should leave within minutes; the backoff ladder handles a provider "
+        "outage, so a frequent drain costs nothing when there is nothing to send.",
+    ),
+    "dunning": (
+        "0 10 * * *",
+        "The BILLING §5 ladder is measured in days. Once daily, mid-morning, so a customer "
+        "reads 'your card failed' at a time they can act on it.",
+    ),
+    "drips": (
+        "0 9 * * *",
+        "Drip steps are scheduled in days (O1 sets the content and intervals). Daily is the "
+        "finest granularity the sequence can use.",
+    ),
+    "weekly-digest": (
+        "0 8 * * 1",
+        "Monday morning, matching `mihomes ai review`'s existing weekly slot. D16: Estate buys "
+        "the schedule, not the feature.",
+    ),
+    "trial-sweep": (
+        "0 6 * * *",
+        "The card-less trial's ONLY clock (F3). Daily, early, so an expiry is acted on the day "
+        "it happens rather than up to a week late.",
+    ),
+    "chat-notify": (
+        "*/5 * * * *",
+        "SPEC-014: a post is due once it has sat unread ten minutes, so a 5-minute sweep "
+        "keeps push within 15. Digests only enqueue; drain-outbox must run at the same cadence.",
+    ),
+    "chat-prune-events": (
+        "17 4 * * *",
+        "Chat events are only a catch-up log for reconnecting tabs (SPEC-012), kept 7 days. "
+        "Daily and off-peak; a missed night just keeps one more day of rows.",
+    ),
+    "calendar-sync": (
+        "*/15 * * * *",
+        "The backstop for per-person Google Calendars: saves already queue a sync, so this only "
+        "catches failures (Google busy, a crashed worker) and changes made outside the web app.",
+    ),
+    "alerts": (
+        "23 * * * *",
+        "The web Alerts page only lists alerts; nothing else creates them. Hourly so a "
+        "critical issue or an out-of-stock item surfaces the same morning, and a completed "
+        "task's alert clears within the hour. Off the hour to stay clear of the other sweeps.",
+    ),
+    "purge-deletions": (
+        "45 4 * * *",
+        "Erases accounts whose 30-day undo window has ended; until this existed a requested "
+        "deletion never happened. Daily is the window's own unit. After the 02:30 dump, so the "
+        "state just before an erasure is in that night's backup if a purge ever needs checking.",
+    ),
+    "cleanup": (
+        "55 4 * * *",
+        "Deletes what nothing needs any more (services/housekeeping): Messenger log past its "
+        "retention, mail finished 90+ days ago, stale waitlist data, expired sign-in rows. Daily, "
+        "after the 02:30 dump and the 04:45 purge; a missed night only keeps a day more.",
+    ),
+    "reconcile": (
+        "0 3 * * *",
+        "The backstop for a dropped webhook (BILLING §6). Nightly and off-peak: it re-fetches "
+        "from the provider, so it is the most expensive of the six and the least urgent.",
+    ),
+}
+
+
+@app.command("drain-outbox")
+def drain_outbox(
+    limit: int = typer.Option(
+        100, "--limit", help="Maximum messages to send per account in one run."
+    ),
+) -> None:
+    """Send queued mail. **The only path from the outbox to a provider** (D12/N2).
+
+    Idempotent by construction (A17): a sent row is stamped `sent_at` in the same transaction,
+    so a second consecutive run selects nothing. Nothing needs to remember that it already ran.
+
+    Sweeps per account for the same reason `reconcile` does, and for one more: an account-less
+    read of a tenant table returns **zero rows** under RLS — measured — so a global drain would
+    report success having sent nothing at all.
+    """
+    from datetime import UTC, datetime
+
+    from mihomes.db import get_session
+    from mihomes.services.email import get_email_provider
+    from mihomes.services.email.outbox import drain_all
+
+    result = drain_all(
+        get_session,
+        get_email_provider,
+        limit=limit,
+        now=datetime.now(UTC),
+    )
+
+    rprint(
+        f"Drained {result.sent} message(s); {result.failed} rescheduled; "
+        f"{result.exhausted} gave up; {result.suppressed} suppressed."
+    )
+    for err in result.errors:
+        logger.error("drain-outbox: %s", err)
+
+
+@app.command("dunning")
+def dunning(
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Report what would be sent without sending it."
+    ),
+) -> None:
+    """Report the state of in-flight dunning ladders.
+
+    **This job advances nothing, and that is Step 10's design rather than a gap** (BD16). The
+    ladder is *enqueue-driven*: `billing/dunning.py::start_ladder` writes all four rungs to the
+    outbox at once, each with its own `next_attempt_at`, and `drain-outbox` sends each as it
+    comes due. A row due in seven days **is** a scheduled send, so there is no per-run work for
+    a second job to do — which is also what makes A23's "one now, the rest on schedule" close to
+    structural rather than something this command enforces.
+
+    Kept as a workload because it is the honest place to *observe* the ladders, and because A15
+    enumerates `SCHEDULE` from the Typer app: removing the command would mean removing its
+    schedule entry, and an operator would lose the one surface that answers "is anyone being
+    dunned right now".
+
+    The docstring this replaces said *"Step 10 fills this in"* and printed a hard-coded zero —
+    true when Step 5 registered the stub, and stale from the moment Step 10 landed. A command
+    that reports `0` unconditionally is indistinguishable from one with nothing to report.
+    """
+    from mihomes.services.billing.dunning import pending_rungs
+
+    accounts = 0
+    rungs = 0
+    failed = 0
+
+    for account_id, _ in _all_accounts():
+        try:
+            with _account_session(account_id) as (session, _account):
+                pending = pending_rungs(session, account_id)
+                if pending:
+                    accounts += 1
+                    rungs += len(pending)
+        except Exception:
+            failed += 1
+            logger.exception("dunning: failed to read ladder state for %s", account_id)
+
+    rprint(
+        f"Dunning: {accounts} account(s) mid-ladder, {rungs} rung(s) queued; {failed} failed. "
+        f"Delivery is `jobs drain-outbox`."
+    )
+    if dry_run:
+        rprint("[dim]--dry-run had no effect: this command only reads.[/dim]")
+
+
+@app.command("drips")
+def drips(
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Report what would be sent without sending it."
+    ),
+) -> None:
+    """Send due drip-campaign steps (SPEC-005 Step 11).
+
+    Sweeps per account for the same reason every other workload does: an account-less read of a
+    tenant table returns zero rows under RLS, so a global pass would report success having sent
+    nothing.
+
+    Mail is **enqueued**, not sent — `drain-outbox` delivers it. So this job is idempotent by
+    the same mechanism as everything else: a step advances the enrolment in the same transaction
+    as the enqueue, and a second run finds nothing due.
+    """
+    from datetime import UTC, datetime
+
+    from mihomes.services.email import get_email_provider
+    from mihomes.services.email.campaigns import send_due_steps
+    from mihomes.services.email.service import EmailService
+
+    now = datetime.now(UTC)
+    advanced = failed = 0
+
+    for account_id, _ in _all_accounts():
+        try:
+            with _account_session(account_id) as (session, _account):
+                if dry_run:
+                    from mihomes.services.email.campaigns import PAUSED, due_sends
+
+                    advanced += sum(
+                        1 for e in due_sends(session, now=now) if e.campaign not in PAUSED
+                    )
+                    continue
+                advanced += send_due_steps(
+                    session, EmailService(get_email_provider(), session=session), now=now
+                )
+                session.commit()
+        except Exception:
+            failed += 1
+            logger.exception("drips: failed for account %s", account_id)
+
+    verb = "would advance" if dry_run else "advanced"
+    from mihomes.services.email.campaigns import PAUSED
+
+    paused = f" Paused: {', '.join(sorted(PAUSED))}." if PAUSED else ""
+    rprint(f"Drips: {verb} {advanced} enrolment(s); {failed} failed.{paused}")
+
+
+@app.command("weekly-digest")
+def weekly_digest(
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Report who would receive it without sending."
+    ),
+) -> None:
+    """Send the weekly AI digest to accounts whose plan includes it (SPEC-005 Step 13).
+
+    **D16: this is a *send* gate, not a call gate.** `can(account, "report.weekly_ai")` is
+    checked here, before enqueuing — and `generate_estate_digest` is left completely ungated
+    (N8). A Pro user clicking "generate digest" on `POST /ai/estate-digest` still gets one;
+    what Estate buys is *the schedule*, which is what `PRICING:90` actually names. Gating the
+    function instead would paywall a button that works today for everyone, which SPEC-004 N9
+    already established as the wrong shape.
+
+    **The gate comes before the LLM call, not after.** Reversed, a Free account's digest would
+    be generated — at full inference cost — and then discarded, so the paywall would cost more
+    to enforce than to ignore.
+
+    Mail is **enqueued**, not sent: `drain-outbox` delivers it (D12/N2). Idempotence (A17) is
+    therefore the outbox's, not this job's.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from mihomes.entitlements import can
+
+    now = datetime.now(UTC)
+    end = now.date()
+    start = end - timedelta(days=DIGEST_WINDOW_DAYS)
+    period = f"{start.isoformat()} to {end.isoformat()}"
+
+    sent = skipped = failed = 0
+
+    for account_id, _ in _all_accounts():
+        try:
+            with _account_session(account_id) as (session, account):
+                decision = can(account, "report.weekly_ai")
+                if not decision:
+                    # Not an error and not silent: the count is reported below, so an operator
+                    # can tell "nobody is on Estate" from "the job did not run".
+                    skipped += 1
+                    logger.info(
+                        "weekly-digest: skipped account %s (%s); upgrade_target=%s",
+                        account_id, decision.reason, decision.upgrade_target,
+                    )
+                    continue
+
+                if dry_run:
+                    sent += 1
+                    continue
+
+                sent += _send_one_digest(session, account, start, end, period)
+                session.commit()
+        except Exception:
+            # Per-account, so one account's LLM failure does not strand every account after it —
+            # the rule every other workload here follows.
+            failed += 1
+            logger.exception("weekly-digest: failed for account %s", account_id)
+
+    verb = "would send to" if dry_run else "sent to"
+    rprint(
+        f"Weekly digest: {verb} {sent} account(s); "
+        f"{skipped} not on a plan that includes it; {failed} failed."
+    )
+
+
+#: How far back the scheduled digest looks. Seven days, matching the `0 8 * * 1` cadence in
+#: `SCHEDULE`: a weekly job reporting a non-weekly window would either double-count or leave
+#: gaps, and the two numbers drifting apart is invisible until a customer notices.
+DIGEST_WINDOW_DAYS = 7
+
+
+def _send_one_digest(session, account, start, end, period: str) -> int:
+    """Generate one account's digest and enqueue it. Returns 1 if enqueued, 0 if not.
+
+    Split out so the gate above reads as a gate rather than as twenty lines of generation, and
+    so a digest that comes back empty is a *decision* — an account with nothing to report gets
+    no mail, rather than a weekly email saying nothing happened.
+    """
+    from mihomes.services.ai.reports import generate_estate_digest
+    from mihomes.services.email import get_email_provider
+    from mihomes.services.email.service import EmailService
+
+    response = generate_estate_digest(session, start, end)
+    text = (getattr(response, "text", "") or "").strip()
+    if not text:
+        logger.info("weekly-digest: empty digest for account %s, nothing sent", account.id)
+        return 0
+
+    from mihomes.services.billing.service import _billing_email
+
+    EmailService(get_email_provider(), session=session).send_weekly_digest(
+        _billing_email(session, account),
+        digest_html=_as_html(text),
+        period=period,
+    )
+    return 1
+
+
+def _as_html(text: str) -> str:
+    """Wrap the model's plain prose in minimal markup.
+
+    Deliberately not a markdown renderer: the digest is paragraphs, and pulling a markdown
+    dependency into the mail path to render paragraphs would be the larger change. **Escaped
+    first** — the text is model output, which is not a trusted authoring surface, and the
+    template inserts the result with `|safe`.
+    """
+    from html import escape
+
+    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+    return "\n".join(
+        f'<p style="margin:0 0 16px;">{escape(p)}</p>' for p in paragraphs
+    )
+
+
+@app.command("chat-notify")
+def chat_notify() -> None:
+    """Push and email-digest members about chat they left unread for 10+ minutes (SPEC-014).
+
+    Enqueues digests only — `drain-outbox` delivers them (N7). Push is off, with digests still
+    sent, until VAPID_PRIVATE_KEY and VAPID_SUBJECT are set. Safe to overlap: each account is
+    taken under an advisory lock, and markers make a second run a no-op.
+    """
+    from datetime import UTC, datetime
+
+    from mihomes.db import get_session
+    from mihomes.services.chat.notify import run_chat_notify
+    from mihomes.services.chat.push import sender_from_env
+    from mihomes.services.email.service import EmailService
+
+    class _QueueOnly:
+        """This job only enqueues (N7) — `drain-outbox` is the one path to a provider. Building
+        the real provider here made every account fail on a server with no email key
+        configured (evo-dev, 2026-10-30), taking push and the markers down with it."""
+
+        def send(self, *a, **k):
+            raise RuntimeError("chat-notify never sends mail directly; drain-outbox does")
+
+    result = run_chat_notify(
+        get_session, push_sender=sender_from_env(),
+        email_factory=lambda s: EmailService(_QueueOnly(), session=s),
+        now=datetime.now(UTC))
+    rprint(f"Chat notify: {result.accounts} account(s); {result.pushes} push payload(s), "
+           f"{result.pushes_sent} delivered; {result.digests} digest(s) queued; "
+           f"{len(result.errors)} account(s) failed.")
+
+
+@app.command("calendar-sync")
+def calendar_sync() -> None:
+    """Bring every connected Google Calendar in line with its estate (2026-10-30).
+
+    Per account, under that account's context: the sync refuses to run unbound, because under
+    RLS an unbound read sees nothing and would delete every event. Safe to overlap with the
+    save-triggered syncs — each connection is taken under a lease.
+    """
+    from sqlalchemy import select
+
+    from mihomes.db import get_session
+    from mihomes.models.calendar_connection import CalendarConnection
+    from mihomes.services.personal_calendar.sync import sync_account
+    from mihomes.tenancy import account_context
+
+    accounts = _all_accounts()
+    synced = failed = 0
+    for account_id, _slug in accounts:
+        try:
+            with account_context(account_id):
+                with get_session() as s:
+                    if not s.execute(select(CalendarConnection.id).limit(1)).first():
+                        continue
+                results = sync_account(get_session)
+            synced += len(results)
+            failed += sum(1 for r in results if r.status in ("error", "reconnect"))
+        except Exception:  # noqa: BLE001 — one account must not stop the rest
+            logger.exception("calendar-sync: account %s failed", account_id)
+            failed += 1
+    rprint(f"Calendar sync: {synced} connection(s) synced, {failed} with problems.")
+
+
+@app.command("chat-prune-events")
+def chat_prune_events() -> None:
+    """Delete in-app chat events older than 7 days, account by account (SPEC-012 A30).
+
+    `chat_events` exists only so a reconnecting tab can catch up (`services.chat.stream`); a tab
+    asking for something older than the window is told to reload. Posts are untouched.
+
+    Per account, under that account's context, so RLS scopes each delete — on the app role an
+    unbound delete would remove nothing and report success.
+    """
+    from mihomes.services.chat.events import prune_events
+
+    removed = failed = 0
+    for account_id, _ in _all_accounts():
+        try:
+            with _account_session(account_id) as (session, _account):
+                removed += prune_events(session)
+                session.commit()
+        except Exception:
+            failed += 1
+            logger.exception("chat-prune-events: failed for account %s", account_id)
+    rprint(f"Chat events: removed {removed} older than 7 days; {failed} account(s) failed.")
+
+
+@app.command("cleanup")
+def cleanup() -> None:
+    """Delete data past its retention period, every account plus the global tables (2026-11-10).
+
+    Per account under that account's context, as `chat-prune-events` does, so RLS scopes each
+    delete; **deactivated households included**, because retention applies to data a household
+    still holds while it is switched off. Then the global tables, with no account bound.
+    """
+    from mihomes.db import get_session
+    from mihomes.services.housekeeping import prune_account, prune_global
+
+    totals: dict[str, int] = {}
+    failed = 0
+    for account_id, _ in _all_accounts(include_deactivated=True):
+        try:
+            with _account_session(account_id) as (session, _account):
+                for key, n in prune_account(session).items():
+                    totals[key] = totals.get(key, 0) + n
+                session.commit()
+        except Exception:
+            failed += 1
+            logger.exception("cleanup: failed for account %s", account_id)
+    try:
+        with get_session() as session:
+            totals.update(prune_global(session))
+            session.commit()
+    except Exception:
+        failed += 1
+        logger.exception("cleanup: failed on the global tables")
+    summary = ", ".join(f"{k} {v}" for k, v in totals.items()) or "nothing"
+    rprint(f"Cleanup: removed {summary}; {failed} part(s) failed.")
+
+
+@app.command("alerts")
+def alerts() -> None:
+    """Raise and clear estate alerts, account by account (2026-11-03).
+
+    Overdue tasks, critical issues left open, low stock, and contracts, insurance and warranties
+    expiring within 30 days. Until this job existed only the CLI `mihomes alerts` generated them,
+    so the web Alerts page stayed empty. Cleared alerts are resolved first, so finishing a task
+    removes its alert rather than leaving it to be dismissed by hand.
+
+    Idempotent: each generator skips a source that already has an open alert, and a resolved
+    alert stays resolved. Per account under its own context, because an unbound read under RLS
+    sees no rows and would report success having checked nothing.
+    """
+    from mihomes.services.alerts import generate_alerts, resolve_cleared_alerts
+
+    raised = cleared = failed = 0
+    for account_id, _ in _all_accounts():
+        try:
+            with _account_session(account_id) as (session, _account):
+                cleared += resolve_cleared_alerts(session)
+                raised += generate_alerts(session)
+                session.commit()
+        except Exception:
+            failed += 1
+            logger.exception("alerts: failed for account %s", account_id)
+    rprint(f"Alerts: {raised} raised, {cleared} cleared; {failed} account(s) failed.")
+
+
+@app.command("purge-deletions")
+def purge_deletions(
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="List the accounts that are due, and erase nothing."
+    ),
+) -> None:
+    """Erase every account whose deletion grace period has ended (2026-11-06).
+
+    Per account under its own context: the request is a tenant row, and `purge` itself refuses
+    unless the tenant binding holds. A billing failure skips that account until the next run.
+    Idempotent: a purged request is stamped `purged_at` and is not due again.
+    """
+    from mihomes.services.privacy.deletion import purge_due
+
+    purged = would = skipped = failed = 0
+    # Deactivated accounts included: the 90-day rule erases them, and a deactivated account
+    # can also have a pending deletion of its own.
+    for account_id, _ in _all_accounts(include_deactivated=True):
+        try:
+            with _account_session(account_id) as (session, _account):
+                outcome = purge_due(session, account_id, dry_run=dry_run)
+                if outcome is None:
+                    continue
+                if outcome.status == "purged":
+                    session.commit()
+                    purged += 1
+                elif outcome.status == "would_purge":
+                    would += 1
+                else:
+                    skipped += 1
+                rprint(f"  {outcome.status}: {account_id} — {outcome.detail}")
+        except Exception:
+            failed += 1
+            logger.exception("purge-deletions: failed for account %s", account_id)
+    if dry_run:
+        rprint(f"Deletions due: {would} (dry run: nothing erased); {failed} account(s) failed.")
+    else:
+        rprint(f"Deletions: {purged} purged, {skipped} skipped (billing); {failed} account(s) failed.")
+
+
+@app.command("reconcile")
+def reconcile(
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Report drift without correcting it."
+    ),
+) -> None:
+    """Re-fetch subscription state from the provider and correct local drift.
+
+    **The backstop for webhooks failing eventually** (`BILLING` §6). Webhooks are the source of
+    truth (D1), and they are also delivered over a network by a third party: one dropped event
+    leaves an account on the wrong plan indefinitely, because nothing else would ever revisit it.
+
+    Idempotent by construction — it re-fetches and compares, so a second consecutive run finds
+    nothing to change and reports zero corrections (A16). That is not a defensive property bolted
+    on; it is what "reconcile" means.
+    """
+    from mihomes.services.billing.provider import BillingProviderError, get_billing_provider
+    from mihomes.services.billing.service import apply_subscription_state
+
+    accounts = _accounts_with_customers()
+
+    # **Nothing to reconcile is success, not a configuration error.**
+    #
+    # The provider was constructed before this check, so on an install with no Stripe
+    # customers — which is every install until the founder sets Stripe up (§0.8 U6) — a
+    # nightly `mihomes jobs reconcile` exited 1 with "STRIPE_SECRET_KEY is not set". Cron
+    # mails that failure every night, and an operator learns to filter this job's mail.
+    #
+    # Found by A17 invoking the command, not by testing the sweep: every service-layer test
+    # passed, because they construct a provider themselves.
+    if not accounts:
+        rprint("Reconciled 0 account(s); corrected 0; 0 failed.")
+        return
+
+    try:
+        provider = get_billing_provider("stripe")
+    except BillingProviderError as exc:
+        rprint(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from None
+
+    checked = corrected = failed = 0
+    for account_id, customer_id in accounts:
+        checked += 1
+        try:
+            state = provider.get_subscription(customer_id=customer_id)
+            if dry_run:
+                continue
+            with _account_session(account_id) as (session, account):
+                if apply_subscription_state(session, account, state):
+                    corrected += 1
+                    logger.info("reconcile: corrected drift on account %s", account_id)
+        except Exception:
+            # Per-account, so one bad customer does not strand every account after it.
+            failed += 1
+            logger.exception("reconcile: failed for account %s", account_id)
+
+    verb = "would correct" if dry_run else "corrected"
+    rprint(f"Reconciled {checked} account(s); {verb} {corrected}; {failed} failed.")
+
+
+@app.command("trial-sweep")
+def trial_sweep(
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Report what would expire without changing anything."
+    ),
+) -> None:
+    """Expire finished trials and flag the ones ending soon.
+
+    **The trial's only clock.** `PRICING:143`: *"with no card there is no Stripe subscription
+    during the trial … the `trial_ending` email is triggered by **our scheduler**, not Stripe's
+    `trial_will_end` webhook."* The handler for that webhook exists (Step 5) and is unreachable
+    while the trial is card-less — a deliberate piece of room, not dead code (§7's deferred list).
+
+    Step 13 lands the state machine this drives; today it reports and expires, so the entrypoint
+    is testable before the thing it triggers exists. That ordering is D15's point: the command is
+    verifiable with no scheduler and no trial.
+    """
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC)
+    expired = ending_soon = notified = 0
+
+    for account_id, _customer_id in _accounts_with_trials():
+        with _account_session(account_id) as (session, account):
+            if account.trial_ends_at is None:
+                continue
+            remaining = (account.trial_ends_at - now).days
+            if account.trial_ends_at <= now:
+                expired += 1
+                if not dry_run:
+                    _expire_trial(session, account)
+            elif remaining <= TRIAL_ENDING_WINDOW_DAYS:
+                ending_soon += 1
+                if not dry_run and _send_trial_ending(session, account, remaining):
+                    notified += 1
+
+    verb = "would expire" if dry_run else "expired"
+    rprint(f"Trial sweep: {verb} {expired}; {ending_soon} ending within "
+           f"{TRIAL_ENDING_WINDOW_DAYS} days; {notified} trial-ending email(s) queued.")
+
+
+def _send_trial_ending(session, account, remaining_days: int) -> bool:
+    """Queue the "your trial ends in N days" email, **once per trial** (2026-11-17).
+
+    Returns True when an email was queued now.
+
+    **Once is decided by the outbox, not by a flag.** The sweep runs nightly and the window is
+    three days, so without a check the owner would get three copies. The record of having emailed
+    is the outbox row itself (queued, sent or failed), looked up in this account's own rows. That
+    is also why a failure here records nothing: if enqueueing raises, there is no row, and the
+    next night tries again. A flag set before the send could mark a trial as notified without
+    notifying anyone; a flag set after could be missed by a crash in between.
+
+    Each account has at most one trial ever (`trial_used_at`), so "any trial_ending row for this
+    account" means "this trial". The cleanup job keeps sent rows 90 days, far longer than the
+    three-day window.
+    """
+    from sqlalchemy import select
+
+    from mihomes.models.email_outbox import EmailOutbox
+    from mihomes.services.billing.cancel import downgrade_consequences
+    from mihomes.services.billing.service import _billing_email, _billing_url
+    from mihomes.services.email import get_email_provider
+    from mihomes.services.email.service import EmailService
+
+    already = session.execute(
+        select(EmailOutbox.id)
+        .where(EmailOutbox.account_id == account.id, EmailOutbox.template == "trial_ending")
+        .limit(1)
+    ).first()
+    if already is not None:
+        return False
+
+    try:
+        after = downgrade_consequences(session, account, "free")
+        ends = account.trial_ends_at
+        EmailService(get_email_provider(), session=session).send_trial_ending(
+            _billing_email(session, account),
+            days_left=max(1, remaining_days),
+            ends_on=f"{ends.day} {ends:%B %Y}",
+            billing_url=_billing_url(),
+            home_count=after["homes"],
+            max_homes=after["target_homes"],
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        logger.exception("trial-sweep: trial-ending email not queued for account %s", account.id)
+        return False
+    logger.info("trial-sweep: trial-ending email queued for account %s", account.id)
+    return True
+
+
+#: How far ahead the sweep flags a trial as ending.
+#:
+#: `PRICING` §4.3: *"show the home-picker **~3 days before expiry**, alongside the `trial_ending`
+#: email, so the choice is made before access changes rather than after."* Three days is the
+#: product's number, not an arbitrary window — the point is that the user chooses which home stays
+#: active while they still have access to all of them.
+TRIAL_ENDING_WINDOW_DAYS = 3
+
+
+def _expire_trial(session, account) -> None:
+    """End a trial: back to Free, `trial_ends_at` cleared, `trial_used_at` **kept**.
+
+    `trial_used_at` is what enforces *"one trial per account, ever"* (A18), so clearing it on
+    expiry would hand every account an unlimited supply of trials — the quietest possible way to
+    give the product away. Step 13 owns the full state machine; this is the half the sweep needs.
+
+    **Nothing is deleted.** An account that ran four homes on trial keeps all four, over-limit and
+    read-only per `PRICING` §4.3 — the same non-destructive shape as a voluntary downgrade.
+
+    **`subscription_status` must be cleared too**, and the first version of this function did not
+    — a Step 13 gap found by writing A19's test. `_STATUS_TO_EFFECTIVE_PLAN` maps `trialing` to
+    *"the account's own plan"*, so an expired account left at `trialing` would resolve against
+    whatever `plan` says. It reverts to `free` here, so nothing leaked; but the moment anything
+    read the status directly — a banner, a webhook comparison, the reconcile sweep — it would have
+    said an ended trial was still running.
+    """
+    account.plan = "free"
+    account.subscription_status = None
+    account.trial_ends_at = None
+    session.commit()
+    logger.info("trial expired for account %s", account.id)
+
+
+def _all_accounts(*, include_deactivated: bool = False) -> list[tuple[object, str | None]]:
+    """Every account. The drip sweep visits all of them, not only paying ones.
+
+    `_accounts_with_customers` and `_accounts_with_trials` are billing-shaped filters; an
+    onboarding drip is for people who have just signed up and therefore have neither.
+
+    **Deactivated households are left out** (2026-11-06): their owner switched them off, so no
+    alerts, mail, chat notifications or calendar pushes. Only `purge-deletions` asks for them.
+    """
+    from sqlalchemy import select
+
+    from mihomes.db import get_session
+    from mihomes.models.account import Account
+
+    query = select(Account.id, Account.stripe_customer_id)
+    if not include_deactivated:
+        query = query.where(Account.deactivated_at.is_(None))
+    with get_session() as session:
+        return list(session.execute(query).all())
+
+
+def _accounts_with_customers() -> list[tuple[object, str]]:
+    """`(account_id, stripe_customer_id)` for every account that has one.
+
+    Read with **no account context bound**, which works only because `accounts` is the tenant root
+    (SPEC-002: it has no `account_id` of its own — it is what `account_id` points at). Returned as
+    plain tuples rather than ORM objects so the session can close: the sweep then opens one
+    scoped session per account, and a detached instance would raise on first attribute access.
+    """
+    from sqlalchemy import select
+
+    from mihomes.db import get_session
+    from mihomes.models.account import Account
+
+    with get_session() as session:
+        return list(
+            session.execute(
+                select(Account.id, Account.stripe_customer_id).where(
+                    Account.stripe_customer_id.is_not(None)
+                )
+            ).all()
+        )
+
+
+def _accounts_with_trials() -> list[tuple[object, str | None]]:
+    """Every account with a trial end date set — including past ones, which are the point."""
+    from sqlalchemy import select
+
+    from mihomes.db import get_session
+    from mihomes.models.account import Account
+
+    with get_session() as session:
+        return list(
+            session.execute(
+                select(Account.id, Account.stripe_customer_id).where(
+                    Account.trial_ends_at.is_not(None)
+                )
+            ).all()
+        )
+
+
+class _account_session:  # noqa: N801 - a context manager, named like one
+    """`with _account_session(id) as (session, account):` — one tenant bound, one session open.
+
+    A class rather than `@contextmanager` because it nests two context managers whose order
+    matters: the tenant binding must be established **before** the session, or the first write
+    stamps `account_id` from an unset ContextVar and raises `LookupError` (SPEC-002 D3's
+    fail-closed direction, working as designed).
+    """
+
+    def __init__(self, account_id) -> None:
+        self._account_id = account_id
+        self._ctx = None
+        self._session_cm = None
+        self._tz = None
+
+    def __enter__(self):
+        from mihomes.db import get_session
+        from mihomes.models.account import Account
+        from mihomes.services import localtime
+        from mihomes.tenancy import account_context
+
+        self._ctx = account_context(self._account_id)
+        self._ctx.__enter__()
+        self._session_cm = get_session()
+        session = self._session_cm.__enter__()
+        # The account's time zone, so a sweep's "today" is the estate's (services/localtime).
+        self._tz = localtime.bound(session)
+        self._tz.__enter__()
+        return session, session.get(Account, self._account_id)
+
+    def __exit__(self, *exc) -> None:
+        try:
+            if self._tz is not None:
+                self._tz.__exit__(*exc)
+            if self._session_cm is not None:
+                self._session_cm.__exit__(*exc)
+        finally:
+            if self._ctx is not None:
+                self._ctx.__exit__(*exc)

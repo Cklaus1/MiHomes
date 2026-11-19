@@ -5,8 +5,10 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 
 from mihomes.models.alert import Alert, AlertSeverity, AlertStatus
-from mihomes.models.task import Task, TaskStatus
 from mihomes.models.issue import Issue, IssueSeverity, IssueStatus
+from mihomes.models.task import Task, TaskStatus
+from mihomes.services.localtime import today as local_today
+from mihomes.services.slug import get_by_id
 
 
 def generate_alerts(session: Session) -> int:
@@ -21,26 +23,111 @@ def generate_alerts(session: Session) -> int:
     return count
 
 
+def _utc_naive(dt: datetime | None) -> datetime | None:
+    """Comparable form of a timestamp: the columns are naive UTC once read back, but an object
+    still in the session can hold the aware value its Python default produced."""
+    if dt is None or dt.tzinfo is None:
+        return dt
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _already_alerted(
+    session: Session, alert_type: str, source_type: str, source, *, occurrence_after: date | None = None
+) -> bool:
+    """Whether `source` must not get a new `alert_type` alert.
+
+    True while an alert is open. Also true when one was resolved **after the source last
+    changed**: Resolve in the web app means "dealt with", so the hourly `jobs alerts` must not
+    raise the same thing again at the next :23. The source changing (a task reopened, an issue
+    re-escalated, stock edited) makes it eligible again.
+
+    `occurrence_after` scopes that to the current occurrence for overdue tasks: an alert created
+    on or before the task's current due date belonged to an earlier due date, so moving the due
+    date out and missing it again still raises a fresh alert.
+    """
+    changed = _utc_naive(source.updated_at or source.created_at)
+    alerts = session.query(Alert).filter(
+        Alert.source_entity_type == source_type,
+        Alert.source_entity_id == source.id,
+        Alert.alert_type == alert_type,
+    ).all()
+    for alert in alerts:
+        if alert.status != AlertStatus.RESOLVED:
+            return True
+        if occurrence_after is not None and _utc_naive(alert.created_at).date() <= occurrence_after:
+            continue
+        resolved_at = _utc_naive(alert.updated_at or alert.created_at)
+        if changed is None or resolved_at >= changed:
+            return True
+    return False
+
+
+def resolve_cleared_alerts(session: Session) -> int:
+    """Resolve overdue-task and unresolved-issue alerts whose cause is gone. Returns the count.
+
+    The generators only ever *open* these alerts, so before `jobs alerts` ran them on a schedule
+    a completed task stayed flagged until someone dismissed it by hand. Cleared means the source
+    row was deleted, or it no longer meets the condition that raised the alert. Acknowledged and
+    snoozed alerts are resolved too: the problem they were about no longer exists.
+    (Low-inventory alerts already clear themselves on restock in `_check_low_inventory`.)
+    """
+    today = local_today()
+    resolved = 0
+
+    def _open(alert_type: str) -> list[Alert]:
+        return session.query(Alert).filter(
+            Alert.alert_type == alert_type,
+            Alert.status != AlertStatus.RESOLVED,
+        ).all()
+
+    task_alerts = _open("overdue_task")
+    if task_alerts:
+        tasks = {t.id: t for t in session.query(Task).filter(
+            Task.id.in_({a.source_entity_id for a in task_alerts})
+        )}
+        for alert in task_alerts:
+            task = tasks.get(alert.source_entity_id)
+            if (
+                task is None
+                or task.status in (TaskStatus.COMPLETED, TaskStatus.CANCELLED)
+                or task.due_date is None
+                or task.due_date >= today
+            ):
+                alert.status = AlertStatus.RESOLVED
+                resolved += 1
+
+    issue_alerts = _open("unresolved_issue")
+    if issue_alerts:
+        issues = {i.id: i for i in session.query(Issue).filter(
+            Issue.id.in_({a.source_entity_id for a in issue_alerts})
+        )}
+        for alert in issue_alerts:
+            issue = issues.get(alert.source_entity_id)
+            if (
+                issue is None
+                or issue.status in (IssueStatus.RESOLVED, IssueStatus.VERIFIED)
+                or issue.severity not in (IssueSeverity.CRITICAL, IssueSeverity.HIGH)
+            ):
+                alert.status = AlertStatus.RESOLVED
+                resolved += 1
+
+    session.flush()
+    return resolved
+
+
 def _check_overdue_tasks(session: Session) -> int:
     """Create alerts for overdue tasks."""
     overdue = session.query(Task).filter(
-        Task.due_date < date.today(),
+        Task.due_date < local_today(),
         Task.status.notin_([TaskStatus.COMPLETED, TaskStatus.CANCELLED]),
     ).all()
 
     count = 0
     for task in overdue:
-        # Check if alert already exists for this task
-        existing = session.query(Alert).filter(
-            Alert.source_entity_type == "task",
-            Alert.source_entity_id == task.id,
-            Alert.alert_type == "overdue_task",
-            Alert.status != AlertStatus.RESOLVED,
-        ).first()
-        if existing:
+        if _already_alerted(session, "overdue_task", "task", task, occurrence_after=task.due_date):
             continue
 
-        days_overdue = (date.today() - task.due_date).days
+        days_overdue = (local_today() - task.due_date).days
         severity = AlertSeverity.HIGH if days_overdue > 7 else AlertSeverity.MEDIUM
 
         alert = Alert(
@@ -60,7 +147,7 @@ def _check_overdue_tasks(session: Session) -> int:
 
 def _check_critical_issues(session: Session) -> int:
     """Create alerts for unresolved critical/high issues older than 3 days."""
-    threshold = date.today() - timedelta(days=3)
+    threshold = local_today() - timedelta(days=3)
     issues = session.query(Issue).filter(
         Issue.status.notin_([IssueStatus.RESOLVED, IssueStatus.VERIFIED]),
         Issue.severity.in_([IssueSeverity.CRITICAL, IssueSeverity.HIGH]),
@@ -69,13 +156,7 @@ def _check_critical_issues(session: Session) -> int:
 
     count = 0
     for issue in issues:
-        existing = session.query(Alert).filter(
-            Alert.source_entity_type == "issue",
-            Alert.source_entity_id == issue.id,
-            Alert.alert_type == "unresolved_issue",
-            Alert.status != AlertStatus.RESOLVED,
-        ).first()
-        if existing:
+        if _already_alerted(session, "unresolved_issue", "issue", issue):
             continue
 
         alert = Alert(
@@ -103,13 +184,7 @@ def _check_low_inventory(session: Session) -> int:
 
     count = 0
     for item in items:
-        existing = session.query(Alert).filter(
-            Alert.source_entity_type == "consumable",
-            Alert.source_entity_id == item.id,
-            Alert.alert_type == "low_inventory",
-            Alert.status != AlertStatus.RESOLVED,
-        ).first()
-        if existing:
+        if _already_alerted(session, "low_inventory", "consumable", item):
             continue
 
         severity = AlertSeverity.HIGH if item.status == ConsumableStatus.OUT else AlertSeverity.MEDIUM
@@ -165,13 +240,16 @@ def list_alerts(
     if not include_snoozed:
         now = datetime.now(timezone.utc)
         query = query.filter(
-            (Alert.snoozed_until == None) | (Alert.snoozed_until <= now)
+            # `== None`, not `is None`: SQLAlchemy overloads `==` on a Column to emit
+            # `IS NULL`. `is None` would evaluate to a Python bool and silently drop the
+            # predicate, so ruff's E711 suggestion is wrong for a filter expression.
+            (Alert.snoozed_until == None) | (Alert.snoozed_until <= now)  # noqa: E711
         )
     return query.order_by(Alert.severity, Alert.created_at.desc()).all()
 
 
 def snooze_alert(session: Session, alert_id: int, days: int) -> Alert:
-    alert = session.get(Alert, alert_id)
+    alert = get_by_id(session, Alert, alert_id)
     if alert is None:
         raise ValueError(f"Alert {alert_id} not found")
     alert.snoozed_until = datetime.now(timezone.utc) + timedelta(days=days)
@@ -181,9 +259,45 @@ def snooze_alert(session: Session, alert_id: int, days: int) -> Alert:
 
 
 def acknowledge_alert(session: Session, alert_id: int) -> Alert:
-    alert = session.get(Alert, alert_id)
+    alert = get_by_id(session, Alert, alert_id)
     if alert is None:
         raise ValueError(f"Alert {alert_id} not found")
     alert.status = AlertStatus.ACKNOWLEDGED
     session.flush()
     return alert
+
+
+def source_links(session: Session, alerts: list[Alert]) -> dict:
+    """alert id → the page that opens the thing the alert is about (2026-11-05).
+
+    Dashboard and Alerts rows used to link to /alerts/, the list the person was already on or one
+    click from. Missing here (an insurance policy has no page; the record was deleted) means no
+    link, and the caller falls back to the Alerts page.
+    """
+    from mihomes.models.asset import Asset
+    from mihomes.models.consumable import Consumable
+    from mihomes.models.contract import Contract
+
+    def url(alert: Alert) -> str | None:
+        kind, sid = alert.source_entity_type, alert.source_entity_id
+        if sid is None:
+            return None
+        if kind == "task":
+            return f"/tasks/?open={sid}"
+        if kind == "issue":
+            return f"/issues/?open={sid}"
+        if kind == "consumable":
+            item = session.get(Consumable, sid)
+            return f"/inventory/?open={item.slug}" if item else None
+        if kind == "contract":
+            contract = session.get(Contract, sid)  # contracts live on their vendor's record
+            return f"/vendors/?open={contract.vendor_id}" if contract and contract.vendor_id else None
+        if kind == "asset":
+            asset = session.get(Asset, sid)
+            if asset is None or asset.property is None:
+                return None
+            room = asset.space.slug if asset.space else "unassigned"
+            return f"/assets/{asset.property.slug}/{room}?open=asset-{asset.id}"
+        return None
+
+    return {a.id: url(a) for a in alerts}

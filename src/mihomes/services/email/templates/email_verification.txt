@@ -1,0 +1,12 @@
+Hi,
+
+Thanks for signing up for MiHomes. Confirm this is your email address to finish creating
+your account:
+
+{{ verify_url }}
+
+This link expires in {{ expires_in }}. If it has expired, sign in and we'll send you a new one.
+
+--
+If you didn't sign up for MiHomes, you can ignore this email. The account won't be
+activated without this confirmation.

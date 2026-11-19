@@ -1,0 +1,8 @@
+Hi,
+
+Here is what happened across your estate{% if period %} in {{ period }}{% endif %}.
+
+{{ digest_text|default(digest_html)|striptags }}
+
+You receive this because your plan includes the weekly report. You can generate one at any
+time from the dashboard — the schedule is what the plan adds, not the report itself.

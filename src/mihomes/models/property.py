@@ -1,12 +1,15 @@
 """Property and Space models."""
 
 import enum
-from datetime import date, datetime
+import uuid
+from datetime import date
 
-from sqlalchemy import Boolean, Date, DateTime, Enum, Float, Integer, String, Text
+from sqlalchemy import Boolean, Date, Enum, Float, Integer, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from mihomes.models import Base, SlugMixin, TimestampMixin
+from mihomes.ids import new_id
+from mihomes.models import Base, SlugMixin, TenantOwned, TimestampMixin
 
 
 class PropertyType(str, enum.Enum):
@@ -26,10 +29,15 @@ class PropertyStatus(str, enum.Enum):
     UNDER_RENOVATION = "under-renovation"
 
 
-class Property(Base, TimestampMixin, SlugMixin):
+class Property(Base, TimestampMixin, SlugMixin, TenantOwned):
     __tablename__ = "properties"
+    __table_args__ = (
+        UniqueConstraint("account_id", "slug", name="uq_properties_account_slug"),
+    )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=new_id
+    )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
     property_type: Mapped[PropertyType] = mapped_column(

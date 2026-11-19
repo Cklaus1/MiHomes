@@ -1,0 +1,99 @@
+{# Create an account — SPEC-010 §6 Step 3 (A6). Standalone (`_auth_layout.html`), not
+   `base.html` — see that file.
+
+   **Unlike the login form, this one names its failures.** "That email is already registered" is
+   information the person filling in the form needs, and they can obtain it anyway by pressing
+   the button. The login page must not confirm an address; a signup page cannot avoid it. #}
+{% extends "_auth_layout.html" %}
+{% block title %}Create an account — MiHomes{% endblock %}
+
+{% block card %}
+        <h1 class="text-lg font-semibold text-gray-900">Create an account</h1>
+        <p class="text-sm text-gray-500 mt-1 mb-6">
+          You'll set up your first property next.
+        </p>
+
+        {% if error %}
+        <div id="signup-error" role="alert" class="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+          {{ error }}
+        </div>
+        {% endif %}
+
+        <form method="post" action="/signup" class="space-y-4">
+          {# A14 — carries an invitee back to their invitation after signing in. Validated
+             server-side by `safe_next`, never trusted as given: an unchecked value here
+             makes this page an open redirector. #}
+          {% if next %}<input type="hidden" name="next" value="{{ next }}" />{% endif %}
+          {# Waitlist mode: a tester invite link's token, checked against the email on submit. #}
+          {% if invite %}<input type="hidden" name="invite" value="{{ invite }}" />{% endif %}
+          <div>
+            <label for="name" class="block text-sm font-medium text-gray-700 mb-1">
+              Name <span class="font-normal text-gray-500">(optional)</span>
+            </label>
+            <input type="text" name="name" id="name" autocomplete="name"
+                   value="{{ name or '' }}"
+                   class="w-full p-3 rounded-lg border border-gray-300 text-sm
+                          focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent" />
+          </div>
+          <div>
+            <label for="email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+            <input type="email" name="email" id="email" required autocomplete="email"
+                   value="{{ email or '' }}"
+                   {% if error and error_field == 'email' %}aria-invalid="true" aria-describedby="signup-error" autofocus{% endif %}
+                   class="w-full p-3 rounded-lg border border-gray-300 text-sm
+                          focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent" />
+          </div>
+          <div>
+            <label for="password" class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+            {# `minlength` is a convenience, never the enforcement — the browser attribute is
+               trivially removed, so `create_password_user` checks it again server-side. #}
+            <input type="password" name="password" id="password" required
+                   autocomplete="new-password" minlength="{{ min_length }}"
+                   aria-describedby="{% if error and error_field == 'password' %}signup-error {% endif %}password-hint"
+                   {% if error and error_field == 'password' %}aria-invalid="true" autofocus{% endif %}
+                   class="w-full p-3 rounded-lg border border-gray-300 text-sm
+                          focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent" />
+            {# **Length, and no composition rules** (SPEC-010 O2). Mandatory symbols push people
+               towards `Password1!` and a sticky note; a long passphrase is both stronger and
+               easier to remember. #}
+            <p id="password-hint" class="text-xs text-gray-500 mt-1.5">
+              At least {{ min_length }} characters. A memorable phrase works well.
+            </p>
+          </div>
+          <button type="submit"
+                  class="w-full p-3 rounded-lg bg-brand-600 text-white text-sm font-semibold shadow-sm
+                         hover:bg-brand-700 transition-colors">
+            Create account
+          </button>
+        </form>
+
+        {# Google sign-up is the same `/auth/google/start` as sign-in: a first Google sign-in
+           creates the account (`oidc.upsert_user`). Hidden when credentials are missing, as on
+           `login.html` — which alone carries the localhost-only setup notice. #}
+        {% if oauth_configured %}
+        <div class="flex items-center gap-3 my-5">
+          <div class="h-px flex-1 bg-gray-200"></div>
+          <span class="text-xs text-gray-500 uppercase tracking-wide">or</span>
+          <div class="h-px flex-1 bg-gray-200"></div>
+        </div>
+
+        <a href="/auth/google/start"
+           class="flex items-center justify-center gap-3 w-full p-3 rounded-lg border border-gray-300
+                  bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
+          <svg class="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.65l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0012 23z"/>
+            <path fill="#FBBC05" d="M5.84 14.11a6.6 6.6 0 010-4.22V7.05H2.18a11 11 0 000 9.9l3.66-2.84z"/>
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1a11 11 0 00-9.82 6.05l3.66 2.84c.87-2.6 3.3-4.51 6.16-4.51z"/>
+          </svg>
+          Sign up with Google
+        </a>
+        {% endif %}
+{% endblock %}
+
+{% block below %}
+      <p class="text-center text-sm text-gray-500 mt-6">
+        Already have an account?
+        <a href="/login{% if next %}?next={{ next | urlencode }}{% endif %}" class="font-medium text-gray-900 underline hover:no-underline">Sign in.</a>
+      </p>
+{% endblock %}

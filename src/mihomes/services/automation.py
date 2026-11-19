@@ -1,6 +1,6 @@
 """Automation service — scheduled operations, escalation, digests, reorder alerts."""
 
-from datetime import date, timedelta
+from datetime import timedelta
 
 from sqlalchemy.orm import Session
 
@@ -11,11 +11,12 @@ from mihomes.models.insurance import InsurancePolicy
 from mihomes.models.issue import Issue, IssueSeverity, IssueStatus
 from mihomes.models.property import Property
 from mihomes.models.task import Task, TaskPriority, TaskStatus
+from mihomes.services.localtime import today as local_today
 
 
 def escalate_overdue_tasks(session: Session, escalate_after_days: int = 7) -> int:
     """Escalate priority of tasks overdue by more than N days."""
-    cutoff = date.today() - timedelta(days=escalate_after_days)
+    cutoff = local_today() - timedelta(days=escalate_after_days)
     escalated = 0
 
     tasks = session.query(Task).filter(
@@ -38,8 +39,8 @@ def escalate_overdue_tasks(session: Session, escalate_after_days: int = 7) -> in
 
 def generate_expiration_alerts(session: Session, days_ahead: int = 30) -> int:
     """Generate alerts for items expiring within N days."""
-    cutoff = date.today() + timedelta(days=days_ahead)
-    today = date.today()
+    cutoff = local_today() + timedelta(days=days_ahead)
+    today = local_today()
     count = 0
 
     # Contracts expiring
@@ -98,7 +99,7 @@ def generate_expiration_alerts(session: Session, days_ahead: int = 30) -> int:
 
 def generate_daily_digest(session: Session, property_slug: str | None = None) -> dict:
     """Generate a daily digest summary."""
-    today = date.today()
+    today = local_today()
     week_end = today + timedelta(days=7)
 
     # Tasks due today

@@ -14,12 +14,13 @@ from mihomes.services.config_service import get_config
 DEFAULT_MODEL = "claude-sonnet-5"
 
 
-def get_ai_api_key(session: Session, provider: str = "claude") -> str:
+def get_ai_api_key(session: Session, provider: str = "nim") -> str:
     """Resolve API key from env then config DB. Raises AIAuthError if not found."""
     env_vars = {
         "claude": "ANTHROPIC_API_KEY",
         "openai": "OPENAI_API_KEY",
         "nim": "NVIDIA_API_KEY",
+        "openrouter": "OPENROUTER_API_KEY",
     }
 
     # Try env var first
@@ -42,10 +43,10 @@ def get_ai_api_key(session: Session, provider: str = "claude") -> str:
 
 def get_ai_provider_name(session: Session) -> str:
     """Get configured AI provider name."""
-    return get_config(session, "ai.provider", "claude")
+    return get_config(session, "ai.provider", "nim")
 
 
-def get_ai_model(session: Session, provider: str = "claude") -> str:
+def get_ai_model(session: Session, provider: str = "nim") -> str:
     """Get configured model name with sensible defaults.
 
     Checks ai.<provider>_model first, then ai.model, then built-in defaults.
@@ -60,6 +61,7 @@ def get_ai_model(session: Session, provider: str = "claude") -> str:
         "claude": DEFAULT_MODEL,
         "openai": "gpt-4o",
         "ollama": "llama3.1",
-        "nim": "meta/llama-3.2-11b-vision-instruct",
+        "nim": "meta/muse-glimmer-30b",
+        "openrouter": "anthropic/claude-haiku-5.5",
     }
     return defaults.get(provider, DEFAULT_MODEL)

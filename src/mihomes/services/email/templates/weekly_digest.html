@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{# SPEC-005 Step 13 — the scheduled estate digest (D16, `PRICING:90`'s `weekly_ai_report`).
+
+   **`digest_html` is inserted with `|safe`, and that is a deliberate, narrow exception.**
+   The environment sets `autoescape` on precisely because a name on a public form would
+   otherwise be a stored-XSS vector (see `render.py`). The digest is different in kind: it is
+   markup this application generated from `generate_estate_digest`, and escaping it would mail
+   the customer a page of visible `&lt;p&gt;`.
+
+   The safety argument is that the value never crosses a trust boundary — `cli/jobs.py` builds
+   it from the account's own rows and its own LLM call, and nothing accepts a `digest_html`
+   from a request. **If that ever changes, this filter is the thing that has to change with
+   it**, which is why the reasoning is written here rather than assumed. #}
+
+{% block subject %}Your MiHomes weekly digest{% endblock %}
+
+{% block content %}
+  <p style="margin:0 0 16px;">Hi,</p>
+
+  <p style="margin:0 0 24px;">
+    Here is what happened across your estate{% if period %} in {{ period }}{% endif %}.
+  </p>
+
+  <div style="margin:0 0 28px;">
+    {{ digest_html|safe }}
+  </div>
+
+  <p style="margin:0;color:#6b6b66;font-size:14px;">
+    You receive this because your plan includes the weekly report. You can generate one at any
+    time from the dashboard — the schedule is what the plan adds, not the report itself.
+  </p>
+{% endblock %}

@@ -20,11 +20,11 @@ import logging
 import mimetypes
 import os
 import re
-import uuid
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Protocol
 
 from sqlalchemy.orm import Session
 
@@ -35,6 +35,7 @@ from mihomes.models.staff import Staff
 from mihomes.services.ai.ai_config import get_ai_api_key, get_ai_model, get_ai_provider_name
 from mihomes.services.ai.file_processor import Attachment
 from mihomes.services.ai.provider import get_provider
+from mihomes.services.localtime import today as local_today
 from mihomes.services.query_helpers import escape_like
 from mihomes.services.slug import resolve_identifier
 
@@ -42,19 +43,64 @@ logger = logging.getLogger("mihomes.gateways")
 
 
 # --------------------------------------------------------------------------- #
-# Gateway adapter — the only thing that differs about *sending* a message
+# Channel adapter — everything that differs between messaging channels
 # --------------------------------------------------------------------------- #
+#: Builds the reporter matcher for one conversation's messages: item -> staff id or None.
+ReporterFor = Callable[[Session, list[dict]], Callable[[dict], "int | None"]]
+
+#: Narrows what an AI *answer* may draw on to the people who will read it (SPEC-013 D6).
+#: Called as `answer_scope(session, text, property_slug, messages, money_gate=bool)` and entered
+#: around `ai_response` / `issue_expert_reply` only — never around the write path, which must keep
+#: seeing every Staff row for reporter/assignee lookups. The context manager yields replacement
+#: text (refuse / redirect) or `None` to let the answer run inside whatever restriction it bound.
+AnswerScope = Callable[..., "AbstractContextManager[str | None]"]
+
+
+class ChannelAdapter(Protocol):
+    """The seam a messaging channel plugs into (OMNICHANNEL_GATEWAY_PRD §5.2).
+
+    Everything else — analysis, the category dispatch, trust, tenancy — is shared in this module,
+    so a channel is only what differs about it. Required: `label`, `channel`, `send`. The rest are
+    hooks with defaults on `GatewayAdapter`, because not every channel has them: SMS and email have
+    no inventory scans or group approvers.
+
+    `send(target, text)` bakes in the transport call and any presentation quirk (WhatsApp prefixes
+    every message with "🏠 "); callers in this module always pass plain text.
+    """
+
+    label: str                    # human name, used in log lines and "updated_by"
+    channel: str                  # InternalMessage["channel"]; also the trust-check gateway key
+    send: Callable[[str, str], None]
+    error_text: str               # sent to a conversation when its batch cannot be processed
+    is_approver: Callable[[dict], bool] | None        # PTO APPROVE/DENY pre-check; None = none
+    reporter_for: ReporterFor | None                  # None = match the reporter by name
+    inventory_target: str | None                      # a conversation routed to scan_inventory
+    scan_inventory: Callable[[Session, list[dict], str | None, str], dict] | None
+    analyze: Callable[..., dict] | None               # None = `analyze_messages`
+    answer_scope: AnswerScope | None                  # None = answers unrestricted (CLI, tests)
+
+
+DEFAULT_ERROR_TEXT = "Bot error — couldn't process message(s). Please log manually."
+
+
 @dataclass
 class GatewayAdapter:
-    """How a gateway delivers a reply.
+    """The standard `ChannelAdapter`: a channel's specifics as plain values and closures.
 
-    `send(chat_id, text)` bakes in the client call (Telegram `send_message`,
-    WhatsApp `send_group_message`) and any presentation quirk (WhatsApp prefixes
-    every message with "🏠 "). Callers in this module always pass plain text.
+    Only `label` and `send` are needed to construct one, so a bare `GatewayAdapter(label=, send=)`
+    is still a complete adapter for `dispatch_items`.
     """
 
     label: str
     send: Callable[[str, str], None]
+    channel: str = ""
+    error_text: str = DEFAULT_ERROR_TEXT
+    is_approver: Callable[[dict], bool] | None = None
+    reporter_for: ReporterFor | None = None
+    inventory_target: str | None = None
+    scan_inventory: Callable[[Session, list[dict], str | None, str], dict] | None = None
+    analyze: Callable[..., dict] | None = None
+    answer_scope: AnswerScope | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -221,20 +267,6 @@ SYSTEM_PROMPT = (
 # --------------------------------------------------------------------------- #
 # Small shared helpers — each folds in a defect that had diverged per-gateway
 # --------------------------------------------------------------------------- #
-def uploads_dir() -> Path:
-    """Return the real web uploads directory, anchored in the mihomes package.
-
-    H26: the two responders computed this with different `__file__.parents[N]`
-    depths. WhatsApp's `parents[4]` pointed at a `src/web/static/uploads` that
-    does not exist, so issue photos were silently written into the void. This
-    file lives at `src/mihomes/services/gateways/review_common.py`, so
-    `parents[2]` is `src/mihomes/` for both gateways.
-    """
-    path = Path(__file__).resolve().parents[2] / "web" / "static" / "uploads"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
 def parse_event_date(timestamp_str: str | None) -> date | None:
     """Parse an AI-extracted timestamp/date string into a date, or None.
 
@@ -344,35 +376,48 @@ def resolve_room(session: Session, room_name: str | None, prop_slug: str | None)
     return None
 
 
+def _answer_scope(adapter, session: Session, text: str, property_slug: str | None,
+                  messages: list[dict], *, money_gate: bool) -> AbstractContextManager[str | None]:
+    """The adapter's `answer_scope`, or a no-op for adapters that have none."""
+    hook = getattr(adapter, "answer_scope", None)
+    if hook is None:
+        return nullcontext(None)
+    return hook(session, text, property_slug, messages, money_gate=money_gate)
+
+
 def ai_response(session: Session, prompt: str, role: str, property_slug: str | None) -> str | None:
     """Call the AI advisor for a plain-text 1-2 sentence reply, or None.
 
-    H27: on failure the session must be rolled back before the caller continues
-    to the next item, otherwise a half-applied transaction poisons every
-    subsequent create in the same batch. The WhatsApp copy skipped the rollback.
+    H27: a failure inside the AI call (a provider error, or a failed statement that
+    aborts the Postgres transaction) must not poison the rest of the batch. The call
+    runs in a SAVEPOINT, so a failure undoes only the AI call's own work. The earlier
+    fix was a full `session.rollback()`, which also discarded every write already
+    made in the batch — an issue created a moment before its expert reply failed
+    vanished while `dispatch_items` still counted it and confirmed "logged ✓".
     """
     try:
-        from mihomes.services.ai.orchestrator import ask
-        full_prompt = (
-            f"{prompt}\n\n"
-            "Reply in 1-2 sentences maximum. Plain text only — no bullet points, "
-            "no headers, no markdown. Be direct and practical. "
-            "If you are not confident in your answer or do not have enough information, "
-            "respond with exactly: NO_RESPONSE"
-        )
-        response = ask(session, full_prompt, role=role, property_slug=property_slug)
-        text = strip_markdown(response.text.strip())
-        text = re.sub(r"\n{2,}", " ", text)
-        if not text or text.upper() == "NO_RESPONSE":
-            return None
-        return text
+        with session.begin_nested():
+            return _ai_response_text(session, prompt, role, property_slug)
     except Exception as e:
         logger.warning("AI response failed: %s", e)
-        try:
-            session.rollback()
-        except Exception:
-            logger.exception("ai_response: rollback failed")
         return None
+
+
+def _ai_response_text(session: Session, prompt: str, role: str, property_slug: str | None) -> str | None:
+    from mihomes.services.ai.orchestrator import ask
+    full_prompt = (
+        f"{prompt}\n\n"
+        "Reply in 1-2 sentences maximum. Plain text only — no bullet points, "
+        "no headers, no markdown. Be direct and practical. "
+        "If you are not confident in your answer or do not have enough information, "
+        "respond with exactly: NO_RESPONSE"
+    )
+    response = ask(session, full_prompt, role=role, property_slug=property_slug)
+    text = strip_markdown(response.text.strip())
+    text = re.sub(r"\n{2,}", " ", text)
+    if not text or text.upper() == "NO_RESPONSE":
+        return None
+    return text
 
 
 def issue_expert_reply(session: Session, title: str, description: str | None, property_slug: str | None) -> str | None:
@@ -530,7 +575,7 @@ def analyze_messages(
     provider_name = get_ai_provider_name(session)
     api_key = get_ai_api_key(session, provider_name)
     model = get_ai_model(session, provider_name)
-    provider = get_provider(provider_name, api_key, model=model)
+    provider = get_provider(provider_name, api_key, model=model, entry_point="gateway.review")
 
     max_images = getattr(provider, "max_images_per_request", None)
 
@@ -614,14 +659,19 @@ def handle_approval_messages(
             continue
 
         text = (message.get("text") or "").strip()
-        approve_match = re.match(r"APPROVE\s+(\d+)", text, re.IGNORECASE)
-        deny_match = re.match(r"DENY\s+(\d+)(?:\s+(.+))?", text, re.IGNORECASE)
+        # `(\S+)`, not `(\d+)`: SPEC-002 G6.1 made PTO request ids UUIDv7, so a
+        # digit-only pattern stopped matching altogether and the whole
+        # approve-by-reply flow went dead silently — no error, just no match.
+        # A malformed id now falls through to `approve_pto`, whose lookup raises and
+        # is caught by the handler below, so the approver still gets told it failed.
+        approve_match = re.match(r"APPROVE\s+(\S+)", text, re.IGNORECASE)
+        deny_match = re.match(r"DENY\s+(\S+)(?:\s+(.+))?", text, re.IGNORECASE)
         reply_target = message.get("jid")
 
         if approve_match:
             req_id = approve_match.group(1)
             try:
-                req = approve_pto(session, int(req_id), decided_by="approver")
+                req = approve_pto(session, req_id, decided_by="approver")
                 notify_staff(session, req)
                 if reply_target:
                     adapter.send(reply_target, f"PTO approved for {req.staff.name} — {', '.join(req.dates)} ✓")
@@ -637,7 +687,7 @@ def handle_approval_messages(
             req_id = deny_match.group(1)
             try:
                 req = deny_pto(
-                    session, int(req_id),
+                    session, req_id,
                     decided_by="approver", reason=deny_match.group(2) or None,
                 )
                 notify_staff(session, req)
@@ -680,18 +730,40 @@ def group_by_target(messages: list[dict]) -> dict[str, list[dict]]:
     return groups
 
 
-def is_trusted_sender(session: Session, message: dict, *, gateway: str) -> bool:
+def is_trusted_sender(
+    session: Session, message: dict, *, gateway: str, account=None
+) -> bool:
     """True if the sender may trigger sensitive (money/PTO) actions (M27).
 
     Trust is granted to (a) any configured allowlist entry for the gateway, or
     (b) a known staff member matched by phone (WhatsApp) or sender id (Telegram).
     An empty allowlist does NOT trust everyone — staff-matching is the floor.
+
+    **SPEC-006 D8/A12 — trust is resolved WITHIN an account.** Without that, the
+    staff-match branch below searched every account's staff, so a sender known in
+    account B was trusted in account A and could log expenses or approve PTO
+    against an estate they have nothing to do with.
+
+    `account` is accepted as an explicit `Account` **or** its id, and defaults to
+    `None` meaning "use the session's bound account". The default is safe here
+    and, unlike `dispatch_items`' required `account`, is the *more* conservative
+    choice: the tenancy-scoped session already filters `Staff` to the bound
+    account, so an unpassed account narrows to the caller's own tenant rather
+    than widening to all of them. Passing it explicitly additionally guards the
+    case where a caller holds an unscoped session — which is precisely the state
+    the webhook edge is in before `resolve_sender` has run.
     """
     from mihomes.services.config_service import get_config
 
     raw_sender = str(message.get("sender") or "")
     if not raw_sender:
         return False
+
+    # SPEC-013 D9: in-app chat. The sender is a membership id the server wrote, so trust comes from
+    # that row alone — before the allowlist, which would be a second, drift-prone way to grant it.
+    if gateway == "mihomes":
+        return trusted_membership(session, raw_sender,
+                                  account if account is not None else bound_account())
 
     allow = get_config(session, f"{gateway}.sender_allowlist") or ""
     allow_ids = {a.strip() for a in allow.split(",") if a.strip()}
@@ -703,7 +775,15 @@ def is_trusted_sender(session: Session, message: dict, *, gateway: str) -> bool:
             return True
         if phone:
             from mihomes.models.staff import Staff
-            for s in session.query(Staff).filter(Staff.whatsapp_phone.isnot(None)).all():
+            q = session.query(Staff).filter(Staff.whatsapp_phone.isnot(None))
+            # D8/A12. The scoped session already narrows this to the bound account; the
+            # explicit filter additionally covers an UNSCOPED session, which is the state the
+            # webhook edge is in before the sender has been resolved. Without it, a staff
+            # phone in account B is trusted in account A.
+            account_id = getattr(account, "id", account)
+            if account_id is not None:
+                q = q.filter(Staff.account_id == account_id)
+            for s in q.all():
                 s_phone = (s.whatsapp_phone or "").replace("+", "").replace("-", "").replace(" ", "")
                 if s_phone and (s_phone in phone or phone in s_phone):
                     return True
@@ -717,6 +797,233 @@ def is_trusted_sender(session: Session, message: dict, *, gateway: str) -> bool:
     return bool(approver_id) and raw_sender == str(approver_id).strip()
 
 
+def trusted_membership(session: Session, sender, account) -> bool:
+    """SPEC-013 D9. True iff `sender` is an active owner/admin membership of `account`.
+
+    Anything unparsable, an unbound account, a revoked membership or another account's membership
+    is False — fail closed.
+    """
+    import uuid
+
+    from sqlalchemy import select
+
+    from mihomes.models.membership import Membership
+
+    try:
+        membership_id = uuid.UUID(str(sender))
+    except ValueError:
+        return False
+    account_id = getattr(account, "id", account)
+    if account_id is None:
+        return False
+    m = Membership.__table__.c
+    role = session.execute(
+        select(m.role).where(m.id == membership_id, m.account_id == account_id,
+                             m.status == "active")
+    ).scalar_one_or_none()
+    return role in ("owner", "admin")
+
+
+def bound_account():
+    """The account id this session is scoped to, or `None` when unbound.
+
+    The responders run inside an already-bound tenant context, so this is how they name the
+    account they are operating as without re-resolving it — re-resolution would introduce a
+    *second* answer to "whose estate is this", and two answers is how they come to disagree.
+
+    Returns `None` on an unbound session (CLI, background jobs) rather than raising, which
+    `dispatch_items` then rejects: an explicit `None` account is refused there, so an unbound
+    caller fails at the call instead of writing without a tenant.
+    """
+    from mihomes.tenancy.context import current_account
+
+    try:
+        return current_account.get()
+    except LookupError:
+        return None
+
+
+class AccountMismatch(RuntimeError):
+    """The caller's resolved account is not the account the session is bound to.
+
+    SPEC-006 D11. This is the ingress bug the phase exists to prevent, caught at the one
+    chokepoint every gateway message passes through: the sender resolved to account A, and the
+    session about to be written through belongs to account B. Every one of `dispatch_items`'
+    fourteen writing branches would otherwise land in B while the confirmation went back to
+    A's sender, and nothing would look wrong to anyone.
+
+    Raised rather than logged. A cross-tenant write is not a degraded mode to continue in.
+    """
+
+
+def _assert_account_matches_session(session: Session, account) -> None:
+    """`account` must agree with the session's bound tenant (D11/A11).
+
+    Without this the new parameter would be **decorative** — a caller could pass account A to a
+    session bound to B and every row would still land in B, because tenancy is enforced by the
+    session rather than by this argument. A11 would then pass on a signature change that
+    changed no behaviour at all, which is exactly the vacuous-criterion trap §0.5 warns about.
+
+    An unbound session (the CLI, background jobs) is left alone: `current_account.get()` raises
+    `LookupError`, and there is nothing to disagree with. That is not a hole — the tenancy
+    session's own fail-closed check already governs whether such a session may write.
+    """
+    if account is None:
+        raise AccountMismatch(
+            "dispatch_items requires an account — D11 forbids defaulting the tenant"
+        )
+
+    from mihomes.tenancy.context import current_account
+
+    try:
+        bound = current_account.get()
+    except LookupError:
+        return  # unscoped session: the tenancy layer's own guard applies, not this one
+
+    account_id = getattr(account, "id", account)
+    if bound != account_id:
+        raise AccountMismatch(
+            f"dispatch_items was given account {account_id} but the session is bound to "
+            f"{bound}. The ingress path resolved one tenant and is writing as another"
+        )
+
+
+# --------------------------------------------------------------------------- #
+# Inbound — the one entry point every channel's responder calls
+# --------------------------------------------------------------------------- #
+def _with_conversation_log(
+    session: Session, messages: list[dict], adapter: ChannelAdapter, property_slug: str | None
+) -> ChannelAdapter:
+    """Record the inbound group messages; return an adapter whose `send` also records replies.
+
+    Replies are recorded only into group conversations present in this batch, so a reply into a
+    private chat is never stored. An adapter that is not a dataclass is returned unwrapped (its
+    replies go unrecorded) rather than guessed at.
+    """
+    if getattr(adapter, "channel", "") == "mihomes":
+        return adapter  # SPEC-013: native posts are their own record; chat_messages is the gateway log
+
+    import dataclasses
+
+    from mihomes.services.gateways import conversation_log as log
+
+    groups: dict[str, str | None] = {}
+    for m in messages:
+        log.record_inbound(session, m, property_slug=property_slug)
+        if m.get("isGroup") and m.get("jid"):
+            groups[str(m["jid"])] = m.get("propertySlug") or property_slug
+
+    if not groups or not dataclasses.is_dataclass(adapter):
+        return adapter
+
+    inner = adapter.send
+
+    def send(target: str, text: str) -> None:
+        inner(target, text)  # sending is what matters; record only once it succeeded
+        if str(target) in groups:
+            log.record_outbound(
+                session, channel=adapter.channel, chat_id=str(target), text=text,
+                label=adapter.label, property_slug=groups[str(target)],
+            )
+
+    return dataclasses.replace(adapter, send=send)
+
+
+def handle_inbound(
+    session: Session,
+    messages: list[dict],
+    *,
+    adapter: ChannelAdapter,
+    property_slug: str | None = None,
+) -> dict:
+    """Analyze a batch of normalized messages and act on them; returns logged/replied/errors.
+
+    The Telegram and WhatsApp responders each carried a copy of this loop; they differed only in
+    the values now on the adapter. Steps, per batch:
+
+    1. APPROVE/DENY replies from the approver are handled before analysis (H24).
+    2. Messages are grouped by conversation so replies land where they came from (M26); a message
+       with no property (neither its own `propertySlug` nor `property_slug`) is dropped.
+    3. Per conversation: the inventory conversation goes to the room scanner; any other is
+       analyzed, then dispatched with sensitive actions only when every sender is trusted (M27).
+       An analysis failure sends the adapter's generic error text; detail is logged only.
+    """
+    totals: dict = {"replied": 0, "logged": 0, "errors": []}
+    if not messages:
+        return totals
+
+    from mihomes.services.ai.provider import AIProviderError
+
+    # Conversations page: log the group conversation before anything can filter or fail it, and
+    # log the bot's replies into those groups. Fail-safe — see `conversation_log`.
+    adapter = _with_conversation_log(session, messages, adapter, property_slug)
+
+    if adapter.is_approver is not None:
+        messages = handle_approval_messages(
+            session, messages, adapter=adapter, is_approver=adapter.is_approver
+        )
+        if not messages:
+            return totals
+
+    groups = group_by_target([m for m in messages if m.get("propertySlug") or property_slug])
+    if not groups:
+        totals["errors"].append("No linked chat found")
+        return totals
+
+    analyze = adapter.analyze or analyze_messages
+
+    def _add(result: dict) -> None:
+        totals["replied"] += result.get("replied", 0)
+        totals["logged"] += result.get("logged", 0)
+        totals["errors"].extend(result.get("errors", []))
+
+    for target, convo in groups.items():
+        if (adapter.scan_inventory is not None and adapter.inventory_target
+                and target == str(adapter.inventory_target)):
+            inv_property = (convo[0].get("propertySlug") or property_slug
+                            or resolve_default_property(session))
+            _add(adapter.scan_inventory(session, convo, inv_property, target))
+            continue
+
+        try:
+            result = analyze(session, convo, property_name=property_slug, property_slug=property_slug)
+        except Exception as e:
+            kind = "AI provider error" if isinstance(e, AIProviderError) else "Unexpected error"
+            logger.error("%s %s: %s (conversation %s)", adapter.label, kind, e, target)
+            try:
+                adapter.send(target, adapter.error_text)
+            except Exception:
+                logger.exception("handle_inbound: could not send the error notice")
+            totals["errors"].append(f"{kind}: {e}")
+            continue
+
+        # SPEC-006 D11/A12: `bound_account()` is the account this session is already scoped to;
+        # passing it explicitly lets `dispatch_items` verify the tenant the caller believes it
+        # resolved is the tenant it is about to write as.
+        account = bound_account()
+        sender_trusted = bool(convo) and all(
+            is_trusted_sender(session, m, gateway=adapter.channel, account=account) for m in convo
+        )
+        if adapter.reporter_for is not None:
+            resolve_reporter = adapter.reporter_for(session, convo)
+        else:
+            def resolve_reporter(item: dict) -> int | None:
+                return resolve_reporter_by_name(session, item.get("reported_by"))
+
+        _add(dispatch_items(
+            session, result.get("items", []),
+            account=account,
+            adapter=adapter,
+            reply_target=target,
+            messages=convo,
+            property_slug=property_slug,
+            resolve_reporter=resolve_reporter,
+            sender_trusted=sender_trusted,
+        ))
+
+    return totals
+
+
 # --------------------------------------------------------------------------- #
 # Dispatch — the full category loop, shared verbatim by both gateways (M24)
 # --------------------------------------------------------------------------- #
@@ -724,6 +1031,7 @@ def dispatch_items(
     session: Session,
     items: list[dict],
     *,
+    account,
     adapter: GatewayAdapter,
     reply_target: str,
     messages: list[dict],
@@ -740,7 +1048,31 @@ def dispatch_items(
     `sender_trusted` (M27) gates the sensitive categories: when False, an item in
     `SENSITIVE_CATEGORIES` is skipped (not logged) so an untrusted group member
     can't create money/PTO/resolution records.
+
+    **SPEC-006 D11/A11 — `account` is required and has no default, deliberately.**
+    A default would let a future call site silently write to the wrong tenant, and
+    every one of the fourteen writing category branches below would inherit the
+    mistake. Required-and-explicit means a forgetting caller fails at the call,
+    not in production — SPEC-003 N2's reasoning applied to accounts rather than
+    property scope.
+
+    It is deliberately **not** used to filter each branch. D11/N3 put tenancy at
+    the *transport edge*: the caller resolves the sender, opens a session bound to
+    that account, and passes it here. Row-level enforcement is the tenancy
+    session's `before_flush` stamp and its query filter, which apply to all
+    fourteen branches at once. Scoping inside the branches would mean fourteen
+    chances to forget, and the one that forgets is a leak nobody sees.
+
+    So what this parameter buys is the **assertion below**: the account the caller
+    believes it resolved must be the account the session is actually bound to. A
+    mismatch means the ingress path resolved one tenant and then wrote as
+    another — the exact failure A11 exists to prevent, caught here rather than
+    discovered later in someone else's estate.
+
+    `property_slug` is UNCHANGED and orthogonal (D13/A13): an account may hold
+    several properties, and the chat→property map still decides which house.
     """
+    _assert_account_matches_session(session, account)
     send = adapter.send
     logged = 0
     replied = 0
@@ -763,7 +1095,13 @@ def dispatch_items(
         # --- Questions ---
         if category == "question":
             question_text = item.get("description") or title
-            answer = ai_response(session, question_text, role="estate_manager", property_slug=prop or property_slug)
+            with _answer_scope(adapter, session, question_text, prop or property_slug, messages,
+                               money_gate=True) as replacement:
+                answer = (
+                    replacement if replacement is not None else
+                    ai_response(session, question_text, role="estate_manager",
+                                property_slug=prop or property_slug)
+                )
             if answer:
                 try:
                     send(reply_target, answer)
@@ -1018,7 +1356,7 @@ def dispatch_items(
                     appt_type = AppointmentType.VENDOR_VISIT
                 appt = create_appointment(
                     session, title=title, property_id_or_slug=prop,
-                    appt_date=appt_date or date.today(),
+                    appt_date=appt_date or local_today(),
                     vendor_id=vendor.id if vendor else None,
                     appointment_type=appt_type,
                     notes=item.get("description"),
@@ -1046,7 +1384,7 @@ def dispatch_items(
             try:
                 from mihomes.services.budget import add_transaction
                 vendor = resolve_vendor(session, item.get("vendor_name"))
-                tx_date = parse_event_date(item.get("date") or item.get("timestamp")) or date.today()
+                tx_date = parse_event_date(item.get("date") or item.get("timestamp")) or local_today()
                 add_transaction(
                     session,
                     amount=float(amount),
@@ -1109,7 +1447,12 @@ def dispatch_items(
             continue
 
         if category == "issue":
-            expert_note = issue_expert_reply(session, title, item.get("description"), prop)
+            # The expert note is advice about this issue, not an answer to a money question, so it
+            # skips the money gate — but it still runs inside the audience's restriction.
+            with _answer_scope(adapter, session, title, prop, messages,
+                               money_gate=False) as replacement:
+                expert_note = None if replacement is not None else issue_expert_reply(
+                    session, title, item.get("description"), prop)
             confirmation = f'"{title}" logged ✓\n\n{expert_note}' if expert_note else f'"{title}" logged ✓'
         else:
             confirmation = f'"{title}" logged ✓'
@@ -1149,8 +1492,11 @@ def _create_issue_with_photos(session, item, prop, title, messages, resolve_repo
         space_id_or_slug=room_slug,
     )
 
-    dest_dir = uploads_dir()
-    import shutil
+    # Into tenant-keyed storage, served only by the authorising `/documents/file/<key>` route —
+    # NOT `uploads_dir()`, which is inside the unauthenticated `/static` mount: a photo there was
+    # readable by anyone with its URL, no login, no account check (SPEC-013 D10).
+    from mihomes.storage import build_key, get_storage
+
     for idx, msg in enumerate(messages):
         media_path = msg.get("mediaPath")
         if not media_path or not os.path.isfile(media_path):
@@ -1160,12 +1506,12 @@ def _create_issue_with_photos(session, item, prop, title, messages, resolve_repo
             if not mime.startswith("image/"):
                 continue
             ext = Path(media_path).suffix.lower() or ".jpg"
-            fname = f"{uuid.uuid4().hex}{ext}"
-            shutil.copy2(media_path, dest_dir / fname)
+            key = build_key(issue.account_id, "documents", f"photo{ext}")
+            get_storage().put(key, Path(media_path).read_bytes(), content_type=mime)
             create_document(
                 session,
                 title=f"Photo {idx + 1} — {title}",
-                file_path=f"/static/uploads/{fname}",
+                file_path=key,
                 document_type=DocumentType.OTHER,
                 entity_type="issue",
                 entity_id=issue.id,

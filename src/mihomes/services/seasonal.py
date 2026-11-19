@@ -1,12 +1,12 @@
 """Seasonal service — built-in seasonal maintenance templates and recommendations."""
 
-from datetime import date
 
 from sqlalchemy.orm import Session
 
 from mihomes.models.property import Property
 from mihomes.models.template import Template
-from mihomes.services.slug import ensure_unique_slug, generate_slug, resolve_identifier
+from mihomes.services.localtime import today as local_today
+from mihomes.services.slug import resolve_identifier
 from mihomes.services.template import create_template
 
 BUILTIN_TEMPLATES: dict[str, dict] = {
@@ -138,7 +138,7 @@ def seed_templates(session: Session) -> list[Template]:
 def recommend_seasonal(session: Session, property_slug: str) -> list[dict]:
     """Recommend seasonal templates based on property attributes and current date."""
     prop = resolve_identifier(session, Property, property_slug)
-    today = date.today()
+    today = local_today()
     month = today.month
     recommendations = []
 

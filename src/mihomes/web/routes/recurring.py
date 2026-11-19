@@ -1,15 +1,19 @@
 """Recurring expenses routes — rendered as a tab inside budget.html."""
 
 from datetime import date
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
+from mihomes.authz.actions import Access
+from mihomes.authz.declare import declares
 from mihomes.models.recurring_expense import ExpenseFrequency
 from mihomes.services import note as note_svc
 from mihomes.services import recurring as recurring_svc
-from mihomes.web.deps import get_db, templates
+from mihomes.services.localtime import today as local_today
+from mihomes.web.deps import get_db, templates, with_toast
 from mihomes.web.forms import parse_money
 from mihomes.web.routes.budget import _ctx as _budget_ctx
 
@@ -21,11 +25,13 @@ def _ctx(db: Session) -> dict:
 
 
 @router.get("/")
+@declares("finance.view", Access.ACCOUNT)
 def list_recurring(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "budget.html", _ctx(db))
 
 
 @router.post("/", response_class=HTMLResponse)
+@declares("finance.view", Access.ACCOUNT)
 def create_recurring(
     request: Request,
     name: str = Form(...),
@@ -47,19 +53,20 @@ def create_recurring(
         frequency=ExpenseFrequency(frequency),
         property_id_or_slug=property_slug,
         category=category or "general",
-        start_date=date.fromisoformat(start_date) if start_date else date.today(),
+        start_date=date.fromisoformat(start_date) if start_date else local_today(),
         vendor_id_or_slug=vendor_slug or None,
         end_date=date.fromisoformat(end_date) if end_date else None,
         notes=notes or None,
         interval_count=int(interval_count) if interval_count else None,
     )
-    return templates.TemplateResponse(request, "budget.html", _ctx(db))
+    return with_toast(templates.TemplateResponse(request, "budget.html", _ctx(db)), "Recurring expense added")
 
 
 @router.post("/{expense_id}/edit", response_class=HTMLResponse)
+@declares("finance.view", Access.ACCOUNT)
 def edit_recurring(
     request: Request,
-    expense_id: int,
+    expense_id: str,
     name: str = Form(""),
     amount: str = Form(""),
     frequency: str = Form(""),
@@ -78,7 +85,8 @@ def edit_recurring(
         except ValueError as e:
             ctx = _ctx(db)
             ctx["error"] = str(e)
-            return templates.TemplateResponse(request, "budget.html", ctx)
+            # 400 + full page: app.js swaps it in, so the banner shows instead of a silent no-op.
+            return templates.TemplateResponse(request, "budget.html", ctx, status_code=400)
     if frequency:
         kwargs["frequency"] = ExpenseFrequency(frequency)
     if category:
@@ -88,18 +96,20 @@ def edit_recurring(
     kwargs["notes"] = notes or None
     kwargs["interval_count"] = int(interval_count) if interval_count else None
     recurring_svc.update_recurring_expense(db, expense_id, **kwargs)
-    return templates.TemplateResponse(request, "budget.html", _ctx(db))
+    return with_toast(templates.TemplateResponse(request, "budget.html", _ctx(db)), "Recurring expense saved")
 
 
 @router.post("/generate", response_class=HTMLResponse)
+@declares("finance.view", Access.ACCOUNT)
 def generate_transactions(request: Request, db: Session = Depends(get_db)):
     recurring_svc.generate_transactions(db)
     recurring_svc.generate_upcoming_appointments(db)
-    return templates.TemplateResponse(request, "budget.html", _ctx(db))
+    return with_toast(templates.TemplateResponse(request, "budget.html", _ctx(db)), "Transactions generated")
 
 
 @router.post("/{expense_id}/notes", response_class=HTMLResponse)
-def add_note(request: Request, expense_id: int, content: str = Form(...), db: Session = Depends(get_db)):
+@declares("finance.view", Access.ACCOUNT)
+def add_note(request: Request, expense_id: str, content: str = Form(...), db: Session = Depends(get_db)):
     note_svc.add_note(db, f"recurring:{expense_id}", content)
     notes = note_svc.list_notes(db, f"recurring:{expense_id}")
     return templates.TemplateResponse(request, "partials/notes_section.html", {
@@ -110,7 +120,8 @@ def add_note(request: Request, expense_id: int, content: str = Form(...), db: Se
 
 
 @router.delete("/{expense_id}/notes/{note_id}", response_class=HTMLResponse)
-def delete_note(request: Request, expense_id: int, note_id: int, db: Session = Depends(get_db)):
+@declares("finance.view", Access.ACCOUNT)
+def delete_note(request: Request, expense_id: str, note_id: UUID, db: Session = Depends(get_db)):
     note_svc.delete_note(db, note_id)
     notes = note_svc.list_notes(db, f"recurring:{expense_id}")
     return templates.TemplateResponse(request, "partials/notes_section.html", {
@@ -121,6 +132,7 @@ def delete_note(request: Request, expense_id: int, note_id: int, db: Session = D
 
 
 @router.post("/{expense_id}/delete", response_class=HTMLResponse)
-def delete_recurring(request: Request, expense_id: int, db: Session = Depends(get_db)):
-    recurring_svc.update_recurring_expense(db, expense_id, end_date=date.today())
-    return templates.TemplateResponse(request, "budget.html", _ctx(db))
+@declares("finance.view", Access.ACCOUNT)
+def delete_recurring(request: Request, expense_id: str, db: Session = Depends(get_db)):
+    recurring_svc.update_recurring_expense(db, expense_id, end_date=local_today())
+    return with_toast(templates.TemplateResponse(request, "budget.html", _ctx(db)), "Recurring expense ended")

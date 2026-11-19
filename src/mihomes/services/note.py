@@ -1,9 +1,12 @@
 """Note service — polymorphic notes on any entity."""
 
+import uuid
+
 from sqlalchemy.orm import Session
 
 from mihomes.models.note import Note
 from mihomes.services.audit import record_change
+from mihomes.services.slug import get_by_id
 
 # Map entity types to their model classes for validation
 ENTITY_TYPE_MAP = {}
@@ -78,8 +81,8 @@ def list_notes(session: Session, entity_ref: str) -> list[Note]:
     ).order_by(Note.created_at.desc()).all()
 
 
-def update_note(session: Session, note_id: int, content: str) -> Note:
-    note = session.get(Note, note_id)
+def update_note(session: Session, note_id: uuid.UUID | str, content: str) -> Note:
+    note = get_by_id(session, Note, note_id)
     if note is None:
         raise ValueError(f"Note {note_id} not found")
     note.content = content
@@ -88,8 +91,8 @@ def update_note(session: Session, note_id: int, content: str) -> Note:
     return note
 
 
-def delete_note(session: Session, note_id: int) -> None:
-    note = session.get(Note, note_id)
+def delete_note(session: Session, note_id: uuid.UUID | str) -> None:
+    note = get_by_id(session, Note, note_id)
     if note is None:
         raise ValueError(f"Note {note_id} not found")
     record_change(session, "note", note.id, "delete", {"content": note.content})

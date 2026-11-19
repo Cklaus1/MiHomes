@@ -1,0 +1,9 @@
+Hi,
+
+That is the last of these — from here MiHomes only emails you about things that
+are actually happening: a renewal coming up, a work order changing, a payment.
+
+If there is something you expected it to handle and it does not, reply and say
+so. That is genuinely how the next thing gets built.
+
+Step {{ total_steps|default(3) }} of {{ total_steps|default(3) }}.

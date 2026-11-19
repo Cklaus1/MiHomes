@@ -1,0 +1,14 @@
+Hi,
+
+We tried again and still could not take payment for your MiHomes
+{{ plan|capitalize }} plan.
+
+Your account is still working normally, but this will not resolve on its own —
+the card on file needs updating.
+
+Update your payment method:
+
+{{ billing_url }}
+
+If you have just updated it, you can ignore this — we stop these as soon as a
+payment goes through.

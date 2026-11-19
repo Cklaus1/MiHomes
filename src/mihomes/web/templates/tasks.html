@@ -1,10 +1,12 @@
 {% extends "base.html" %}
+{% from "partials/_status.html" import status_chip %}
 {% block title %}Tasks — MiHomes{% endblock %}
 {% block heading %}Tasks{% endblock %}
 {% block subheading %}<p class="text-sm text-gray-500 mt-0.5">{{ tasks|length }} task{{ 's' if tasks|length != 1 else '' }} · {{ overdue_ids|length }} overdue</p>{% endblock %}
 
 {% block actions %}
-<button onclick="document.getElementById('add-task-modal').classList.remove('hidden')"
+{% set export_type = 'task' %}{% include "partials/_export_csv.html" %}
+<button type="button" onclick="openModal('add-task-modal')"
         class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">
   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
   Add Task
@@ -12,6 +14,36 @@
 {% endblock %}
 
 {% block content %}
+{% set has_filters = filter_property or filter_status or filter_assignee or filter_recurrence or filter_overdue or filter_due_week %}
+
+{# Shown by every view when there is nothing to list: say why, and offer the way out. #}
+{% macro empty_tasks(filtered) %}
+<div class="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center">
+  {% if filtered %}
+  <p class="text-sm font-medium text-gray-700">No tasks match these filters.</p>
+  <p class="text-xs text-gray-500 mt-1">Change a filter above, or clear them to see every task.</p>
+  {% else %}
+  <p class="text-sm font-medium text-gray-700">No tasks yet.</p>
+  <p class="text-xs text-gray-500 mt-1">Add the jobs that keep your homes running — one-off or repeating.</p>
+  {% endif %}
+  <div class="mt-4 flex flex-wrap justify-center gap-2">
+    {% if filtered %}
+    <a href="/tasks/" class="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50">Clear filters</a>
+    {% endif %}
+    <button type="button" onclick="openModal('add-task-modal')"
+            class="px-4 py-2 text-sm font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700">Add task</button>
+  </div>
+</div>
+{% endmacro %}
+
+{% if form_error %}
+<div class="mb-4 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">
+  Task not saved: {{ form_error }}</div>
+{% endif %}
+{% if form_notice %}
+<div class="mb-4 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+  ✓ {{ form_notice }}</div>
+{% endif %}
 
 {% if filter_overdue or filter_due_week %}
 <div class="flex items-center gap-2 mb-4 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-sm">
@@ -23,33 +55,40 @@
 
 <!-- Filters + View Toggle -->
 <div class="flex flex-wrap items-center gap-2 mb-5">
-  <form class="flex flex-wrap gap-2" action="/tasks/" method="get">
-    <select name="property_id" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
+  {# Applies as soon as a select changes; the Apply button is kept only for no-JS browsers. #}
+  <form class="flex flex-wrap gap-2" action="/tasks/" method="get" onchange="this.requestSubmit()">
+    <select name="property_id" aria-label="Property" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
       <option value="">All properties</option>
       {% for p in properties %}
-      <option value="{{ p.id }}" {% if filter_property == p.id %}selected{% endif %}>{{ p.name }}</option>
+      <option value="{{ p.id }}" {% if filter_property == p.id|string %}selected{% endif %}>{{ p.name }}</option>
       {% endfor %}
     </select>
-    <select name="status" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
+    <select name="status" aria-label="Status" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
       <option value="">All statuses</option>
       {% for s in statuses %}
-      <option value="{{ s }}" {% if filter_status == s %}selected{% endif %}>{{ s.replace('-', ' ').title() }}</option>
+      <option value="{{ s }}" {% if filter_status == s %}selected{% endif %}>{{ 'To do' if s == 'pending' else s.replace('-', ' ').capitalize() }}</option>
       {% endfor %}
     </select>
-    <select name="assignee_id" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
+    <select name="assignee_id" aria-label="Assignee" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
       <option value="">All assignees</option>
+      <option value="mine" {% if filter_assignee == 'mine' %}selected{% endif %}>My tasks</option>
       {% for s in staff %}
-      <option value="{{ s.id }}" {% if filter_assignee == s.id %}selected{% endif %}>{{ s.name }}</option>
+      <option value="{{ s.id }}" {% if filter_assignee == s.id|string %}selected{% endif %}>{{ s.name }}</option>
       {% endfor %}
     </select>
-    <select name="recurrence" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
+    <select name="recurrence" aria-label="Occurrence" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
       <option value="" {% if not filter_recurrence %}selected{% endif %}>All occurrences</option>
       <option value="recurring" {% if filter_recurrence == 'recurring' %}selected{% endif %}>Recurring only</option>
       <option value="once" {% if filter_recurrence == 'once' %}selected{% endif %}>One-time only</option>
     </select>
-    <button type="submit" class="text-sm px-3 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-700 hover:bg-gray-50 font-medium">Apply</button>
+    <select name="sort" aria-label="Sort by" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
+      {% for key, label in sort_options %}
+      <option value="{{ key }}" {% if filter_sort == key %}selected{% endif %}>Sort: {{ label }}</option>
+      {% endfor %}
+    </select>
+    <noscript><button type="submit" class="text-sm px-3 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-700 hover:bg-gray-50 font-medium">Apply</button></noscript>
     {% if filter_property or filter_status or filter_assignee or filter_recurrence %}
-    <a href="/tasks/" class="text-sm px-3 py-1.5 text-gray-400 hover:text-gray-600">Clear</a>
+    <a href="/tasks/" class="text-sm px-3 py-1.5 text-gray-500 hover:text-gray-700">Clear</a>
     {% endif %}
   </form>
 
@@ -65,6 +104,11 @@
       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
       Priority
     </button>
+    <button id="view-btn-frequency" onclick="setView('frequency')"
+            class="view-btn px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+      Frequency
+    </button>
     <button id="view-btn-list" onclick="setView('list')"
             class="view-btn px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5">
       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
@@ -76,7 +120,7 @@
 <!-- ── BOARD VIEW ──────────────────────────────────────────────────────── -->
 <div id="view-board" class="hidden">
   {% if tasks %}
-  <div class="grid grid-cols-3 gap-4 items-start">
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 items-start">
 
     {% set col_meta = [
       ('pending',     'To Do',       'bg-gray-100 text-gray-600'),
@@ -89,10 +133,21 @@
     <div class="bg-gray-50 rounded-xl border border-gray-200 overflow-hidden">
       <div class="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
         <span class="text-sm font-semibold text-gray-700">{{ col_label }}</span>
-        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium {{ col_badge }}">{{ col_tasks|length }}</span>
+        <div class="flex items-center gap-2">
+          {# Clears finished ONE-TIME tasks only (archived, not deleted). Repeating tasks shown here
+             are done for this period and return to To Do by themselves, so they are never cleared —
+             and the button is hidden when nothing in the column is clearable. #}
+          {% if col_key == 'completed' and col_tasks | rejectattr('id', 'in', done_now_ids) | list %}
+          <button hx-post="/tasks/clear-completed" hx-target="body" hx-swap="innerHTML"
+                  hx-confirm="Clear all done tasks from the list? They stay in history."
+                  class="text-xs text-gray-500 hover:text-gray-700 underline">Clear</button>
+          {% endif %}
+          <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium {{ col_badge }}">{{ col_tasks|length }}</span>
+        </div>
       </div>
       <div class="p-3 space-y-2 min-h-[120px]">
         {% for task in col_tasks %}
+        {% set st = 'completed' if task.id in done_now_ids else task.status.value %}
         <div onclick="openModal('task-modal-{{ task.id }}')"
              class="bg-white rounded-lg border border-gray-200 p-3 cursor-pointer hover:border-brand-300 hover:shadow-sm transition-all group">
           <!-- Priority stripe -->
@@ -103,9 +158,12 @@
               {% elif task.priority.value == 'medium' %}bg-amber-400
               {% else %}bg-gray-300{% endif %}"></div>
             <div class="flex-1 min-w-0">
-              <div class="text-sm font-medium text-gray-900 leading-snug truncate {% if task.status.value == 'completed' %}line-through text-gray-400{% endif %}">
+              <div class="text-sm font-medium text-gray-900 leading-snug truncate {% if st == 'completed' %}line-through text-gray-400{% endif %}">
                 {{ task.title }}
               </div>
+              {% if task.id in done_now_ids %}
+              <div class="text-xs text-emerald-700 mt-0.5">↻ Back in To Do {{ task.due_date.strftime('%b %d') }}</div>
+              {% endif %}
               <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1.5">
                 {% if task.id in overdue_ids %}
                 <span class="text-xs text-red-600 font-medium">⚠ Overdue</span>
@@ -125,12 +183,25 @@
                 <span class="text-xs text-gray-400">{{ task.assignee.name.split()[0] }}</span>
               </div>
               {% endif %}
+              {# Move a card along without opening it: Start (To Do → In Progress) and Done. #}
+              {% if st in ('pending', 'in-progress') %}
+              <div class="mt-2 flex gap-1.5">
+                {% if st == 'pending' %}
+                <button type="button" onclick="event.stopPropagation()"
+                        hx-post="/tasks/{{ task.slug }}/start" hx-target="body" hx-swap="innerHTML"
+                        class="px-2.5 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors">Start</button>
+                {% endif %}
+                <button type="button" onclick="event.stopPropagation()"
+                        hx-post="/tasks/{{ task.slug }}/complete" hx-target="body" hx-swap="innerHTML"
+                        class="px-2.5 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md hover:bg-emerald-100 transition-colors">Done</button>
+              </div>
+              {% endif %}
             </div>
           </div>
         </div>
         {% endfor %}
         {% if not col_tasks %}
-        <div class="text-center py-6 text-xs text-gray-300">Empty</div>
+        <div class="text-center py-4 text-xs text-gray-400">Nothing here</div>
         {% endif %}
       </div>
     </div>
@@ -138,9 +209,35 @@
 
   </div>
   {% else %}
-  <div class="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center text-sm text-gray-400">No tasks found.</div>
+  {{ empty_tasks(has_filters) }}
   {% endif %}
 </div>
+
+{# One task row, shared by the Priority and Frequency views so the two can't drift.
+   `show_freq=False` in the Frequency view, where the section heading already says it. #}
+{% macro group_row(task, show_freq=True) %}
+      {% set st = 'completed' if task.id in done_now_ids else task.status.value %}
+      <div onclick="openModal('task-modal-{{ task.id }}')"
+           class="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 cursor-pointer transition-colors">
+        <div class="flex-1 min-w-0">
+          <span class="text-sm font-medium text-gray-900 {% if st == 'completed' %}line-through text-gray-400{% endif %}">{{ task.title }}</span>
+          <div class="flex items-center gap-3 mt-0.5">
+            {% if task.id in overdue_ids %}<span class="text-xs text-red-600 font-medium">⚠ Overdue</span>{% endif %}
+            {% if task.property %}<span class="text-xs text-gray-400">{{ task.property.name }}</span>{% endif %}
+            {% if show_freq and task.schedule and task.schedule.frequency.value != 'once' %}<span class="text-xs text-blue-500">↻ {{ task.schedule.frequency.value.replace('_',' ').title() }}</span>{% endif %}
+          </div>
+        </div>
+        <div class="flex items-center gap-3 flex-shrink-0">
+          {% if task.due_date and task.id not in overdue_ids %}
+          <span class="text-xs text-gray-400">{{ task.due_date.strftime('%b %d') }}</span>
+          {% endif %}
+          {% if task.assignee %}
+          <span class="w-6 h-6 rounded-full bg-brand-100 text-brand-700 text-xs flex items-center justify-center font-semibold" title="{{ task.assignee.name }}">{{ task.assignee.name[0].upper() }}</span>
+          {% endif %}
+          {{ status_chip(st) }}
+        </div>
+      </div>
+{% endmacro %}
 
 <!-- ── GROUPED VIEW (by priority) ─────────────────────────────────────── -->
 <div id="view-grouped" class="hidden space-y-4">
@@ -160,47 +257,46 @@
       <span class="text-xs text-gray-400">{{ group|length }}</span>
     </div>
     <div class="divide-y divide-gray-50">
-      {% for task in group %}
-      <div onclick="openModal('task-modal-{{ task.id }}')"
-           class="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 cursor-pointer transition-colors">
-        <div class="flex-1 min-w-0">
-          <span class="text-sm font-medium text-gray-900 {% if task.status.value == 'completed' %}line-through text-gray-400{% endif %}">{{ task.title }}</span>
-          <div class="flex items-center gap-3 mt-0.5">
-            {% if task.id in overdue_ids %}<span class="text-xs text-red-600 font-medium">⚠ Overdue</span>{% endif %}
-            {% if task.property %}<span class="text-xs text-gray-400">{{ task.property.name }}</span>{% endif %}
-            {% if task.schedule and task.schedule.frequency.value != 'once' %}<span class="text-xs text-blue-500">↻ {{ task.schedule.frequency.value.replace('_',' ').title() }}</span>{% endif %}
-          </div>
-        </div>
-        <div class="flex items-center gap-3 flex-shrink-0">
-          {% if task.due_date and task.id not in overdue_ids %}
-          <span class="text-xs text-gray-400">{{ task.due_date.strftime('%b %d') }}</span>
-          {% endif %}
-          {% if task.assignee %}
-          <span class="w-6 h-6 rounded-full bg-brand-100 text-brand-700 text-xs flex items-center justify-center font-semibold" title="{{ task.assignee.name }}">{{ task.assignee.name[0].upper() }}</span>
-          {% endif %}
-          <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
-            {% if task.status.value == 'completed' %}bg-emerald-100 text-emerald-700
-            {% elif task.status.value in ('in_progress', 'in-progress') %}bg-blue-100 text-blue-700
-            {% elif task.status.value == 'cancelled' %}bg-gray-100 text-gray-400
-            {% else %}bg-gray-100 text-gray-600{% endif %}">
-            {{ task.status.value.replace('_', ' ').replace('-', ' ').title() }}
-          </span>
-        </div>
-      </div>
-      {% endfor %}
+      {% for task in group %}{{ group_row(task) }}{% endfor %}
     </div>
   </div>
   {% endif %}
   {% endfor %}
   {% if not tasks %}
-  <div class="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center text-sm text-gray-400">No tasks found.</div>
+  {{ empty_tasks(has_filters) }}
+  {% endif %}
+</div>
+
+<!-- ── FREQUENCY VIEW (grouped by how often a task repeats) ───────────── -->
+<div id="view-frequency" class="hidden space-y-4">
+  {% for fg_key, fg_label in frequency_meta %}
+  {% set group = frequency_groups[fg_key] %}
+  {% if group %}
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2">
+      <span class="text-blue-500 text-xs">{% if fg_key == 'once' %}•{% else %}↻{% endif %}</span>
+      <span class="text-xs font-semibold text-gray-600 uppercase tracking-wide">{{ fg_label }}</span>
+      <span class="text-xs text-gray-400">{{ group|length }}</span>
+    </div>
+    <div class="divide-y divide-gray-50">
+      {% for task in group %}{{ group_row(task, show_freq=False) }}{% endfor %}
+    </div>
+  </div>
+  {% endif %}
+  {% endfor %}
+  {% if not tasks %}
+  {{ empty_tasks(has_filters) }}
   {% endif %}
 </div>
 
 <!-- ── LIST VIEW ──────────────────────────────────────────────────────── -->
 <div id="view-list" class="hidden">
+  {% if not tasks %}
+  {{ empty_tasks(has_filters) }}
+  {% else %}
   <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
     {% if tasks %}
+    <div class="overflow-x-auto">
     <table class="w-full text-sm">
       <thead>
         <tr class="border-b border-gray-100">
@@ -214,10 +310,11 @@
       </thead>
       <tbody class="divide-y divide-gray-50">
         {% for task in tasks %}
-        <tr class="hover:bg-gray-50 cursor-pointer transition-colors {% if task.status.value == 'completed' %}opacity-60{% endif %}"
+        {% set st = 'completed' if task.id in done_now_ids else task.status.value %}
+        <tr class="hover:bg-gray-50 cursor-pointer transition-colors {% if st == 'completed' %}opacity-60{% endif %}"
             onclick="openModal('task-modal-{{ task.id }}')">
           <td class="px-5 py-3">
-            <div class="font-medium text-gray-900 {% if task.status.value == 'completed' %}line-through{% endif %}">{{ task.title }}</div>
+            <div class="font-medium text-gray-900 {% if st == 'completed' %}line-through{% endif %}">{{ task.title }}</div>
             <div class="flex items-center gap-2 mt-0.5">
               {% if task.id in overdue_ids %}<span class="text-xs text-red-600 font-medium">⚠ Overdue</span>{% endif %}
               {% if task.schedule and task.schedule.frequency.value != 'once' %}<span class="text-xs text-blue-500">↻ {{ task.schedule.frequency.value.replace('_',' ').title() }}</span>{% endif %}
@@ -242,41 +339,40 @@
               {{ task.priority.value.title() }}
             </span>
           </td>
-          <td class="px-4 py-3">
-            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
-              {% if task.status.value == 'completed' %}bg-emerald-100 text-emerald-700
-              {% elif task.status.value in ('in_progress', 'in-progress') %}bg-blue-100 text-blue-700
-              {% elif task.status.value == 'cancelled' %}bg-gray-100 text-gray-500
-              {% else %}bg-gray-100 text-gray-600{% endif %}">
-              {{ task.status.value.replace('_', ' ').replace('-', ' ').title() }}
-            </span>
-          </td>
+          <td class="px-4 py-3">{{ status_chip(st) }}</td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
-    {% else %}
-    <div class="px-5 py-12 text-center text-sm text-gray-400">No tasks found.</div>
+    </div>
     {% endif %}
   </div>
+  {% endif %}
 </div>
 
 <!-- Task detail modals -->
 {% for task in tasks %}
+{% set st = 'completed' if task.id in done_now_ids else task.status.value %}
 <div id="task-modal-{{ task.id }}"
-     class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-     onclick="if(event.target===this)closeModal('task-modal-{{ task.id }}')">
-  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col" onclick="event.stopPropagation()">
+     class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
     <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
       <div>
         <h2 class="text-lg font-bold text-gray-900 truncate max-w-xs">{{ task.title }}</h2>
         <p class="text-xs text-gray-500 mt-0.5">
           {% if task.property %}{{ task.property.name }}{% endif %}
-          {% if task.due_date %} · Due {{ task.due_date.strftime('%b %d, %Y') }}{% endif %}
+          {% if task.id in done_now_ids %} · Done — back in To Do {{ task.due_date.strftime('%b %d, %Y') }}
+          {% elif task.due_date %} · Due {{ task.due_date.strftime('%b %d, %Y') }}{% endif %}
         </p>
+        {# A repeating task resets in place when done, so its history lives in the completion log;
+           the latest one is shown here rather than as a pile of completed copies. #}
+        {% if task.schedule and task.schedule.frequency.value != 'once' and task.completions %}
+        <p class="text-xs text-emerald-700 mt-0.5">↻ Last done {{ task.completions[0].completed_at|localtime('%b %d, %Y') }}{% if task.completions[0].completed_by %} by {{ task.completions[0].completed_by.name.split()[0] }}{% endif %}</p>
+        {% endif %}
       </div>
       <div class="flex items-center gap-2 flex-shrink-0">
-        {% if task.status.value not in ('completed', 'cancelled') %}
+        {# Hidden while a repeating task is done for this period: it isn't due again yet. #}
+        {% if st not in ('completed', 'cancelled') %}
         <button hx-post="/tasks/{{ task.slug }}/complete"
                 hx-target="body" hx-swap="innerHTML"
                 class="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors">
@@ -284,28 +380,36 @@
           Done
         </button>
         {% endif %}
+        {% if task.status.value == 'completed' %}
+        <button hx-post="/tasks/{{ task.slug }}/archive"
+                hx-target="body" hx-swap="innerHTML"
+                title="Take this off the task list — it stays in history"
+                class="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-gray-600 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors">
+          Clear from list
+        </button>
+        {% endif %}
         <button hx-post="/tasks/{{ task.slug }}/delete"
                 hx-target="body" hx-swap="innerHTML"
                 hx-confirm="Delete this task? This cannot be undone."
-                class="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                class="p-2.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
         </button>
         <button onclick="closeModal('task-modal-{{ task.id }}')"
-                class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
+                class="p-2.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>
       </div>
     </div>
     <div class="flex border-b border-gray-100 px-6 flex-shrink-0">
-      <button onclick="switchTab('task','{{ task.id }}','details')" id="task-tab-{{ task.id }}-details"
+      <button type="button" onclick="switchTab('task-modal-{{ task.id }}','details')" data-tab="details"
               class="px-1 py-3 text-sm font-medium border-b-2 border-brand-600 text-brand-600 mr-5">Details</button>
-      <button onclick="switchTab('task','{{ task.id }}','notes')" id="task-tab-{{ task.id }}-notes"
+      <button type="button" onclick="switchTab('task-modal-{{ task.id }}','notes')" data-tab="notes"
               class="px-1 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 mr-5">Notes ({{ notes_map[task.id]|length }})</button>
     </div>
     <div class="flex-1 overflow-y-auto">
-      <div id="task-panel-{{ task.id }}-details" class="px-6 py-5">
+      <div id="task-modal-{{ task.id }}-tab-details" class="px-6 py-5">
         <div id="task-view-{{ task.id }}">
-          <dl class="grid grid-cols-2 gap-x-6 gap-y-4 text-sm mb-4">
+          <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 text-sm mb-4">
             <div>
               <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Priority</dt>
               <dd><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
@@ -316,11 +420,7 @@
             </div>
             <div>
               <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Status</dt>
-              <dd><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
-                {% if task.status.value == 'completed' %}bg-emerald-100 text-emerald-700
-                {% elif task.status.value in ('in_progress', 'in-progress') %}bg-blue-100 text-blue-700
-                {% elif task.status.value == 'cancelled' %}bg-gray-100 text-gray-500
-                {% else %}bg-gray-100 text-gray-600{% endif %}">{{ task.status.value.replace('_', ' ').replace('-', ' ').title() }}</span></dd>
+              <dd>{{ status_chip(st) }}</dd>
             </div>
             <div>
               <dt class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Due Date</dt>
@@ -358,33 +458,62 @@
         <div id="task-edit-{{ task.id }}" class="hidden">
           <form hx-post="/tasks/{{ task.slug }}/edit" hx-target="body" hx-swap="innerHTML">
             <div class="space-y-4">
+              {% set fid = 'task-' ~ task.id ~ '-' %}
               <div>
-                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Title</div>
-                <input type="text" name="title" value="{{ task.title }}" required
+                <label for="{{ fid }}title" class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Title <span class="text-red-500">*</span></label>
+                <input type="text" id="{{ fid }}title" name="title" value="{{ task.title }}" required
                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
-              <div class="grid grid-cols-2 gap-3">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Priority</div>
-                  <select name="priority" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                  <label for="{{ fid }}priority" class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Priority</label>
+                  <select id="{{ fid }}priority" name="priority" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
                     {% for p in priorities %}<option value="{{ p }}" {% if task.priority.value == p %}selected{% endif %}>{{ p.title() }}</option>{% endfor %}
                   </select>
                 </div>
                 <div>
-                  <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Due Date</div>
-                  <input type="date" name="due_date" value="{{ task.due_date.isoformat() if task.due_date else '' }}"
+                  <label for="{{ fid }}due" class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Due Date</label>
+                  <input type="date" id="{{ fid }}due" name="due_date" value="{{ task.due_date.isoformat() if task.due_date else '' }}"
                          class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
                 </div>
               </div>
-              <div>
-                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Status</div>
-                <select name="status" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
-                  {% for s in statuses %}<option value="{{ s }}" {% if task.status.value == s %}selected{% endif %}>{{ s.replace('_',' ').replace('-',' ').title() }}</option>{% endfor %}
-                </select>
+              {% set cur_freq = task.schedule.frequency.value if task.schedule else 'once' %}
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label for="{{ fid }}recurrence" class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Repeats</label>
+                  <select id="{{ fid }}recurrence" name="recurrence" onchange="toggleSeasons(this)"
+                          class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                    {% for value, label in frequency_options %}<option value="{{ value }}" {% if cur_freq == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+                  </select>
+                </div>
+                <div data-seasons {% if cur_freq != 'seasonal' %}class="hidden"{% endif %}>
+                  <label for="{{ fid }}seasons" class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Seasons</label>
+                  <input type="text" id="{{ fid }}seasons" name="season_spec" value="{{ task.schedule.season_spec or '' if task.schedule else '' }}"
+                         placeholder="spring, fall"
+                         class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                </div>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label for="{{ fid }}status" class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Status</label>
+                  <select id="{{ fid }}status" name="status" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                    {% for s in statuses %}<option value="{{ s }}" {% if task.status.value == s %}selected{% endif %}>{{ 'To do' if s == 'pending' else s.replace('_',' ').replace('-',' ').capitalize() }}</option>{% endfor %}
+                  </select>
+                </div>
+                <div>
+                  <label for="{{ fid }}assignee" class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Assigned to</label>
+                  <select id="{{ fid }}assignee" name="assignee_id" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                    {# "none", not "": routes/tasks.py UNASSIGNED explains why. #}
+                    <option value="none">Unassigned</option>
+                    {% for member in staff %}<option value="{{ member.id }}" {% if task.assignee_id == member.id %}selected{% endif %}>{{ member.name }}</option>{% endfor %}
+                    {# Someone no longer listed as staff keeps their task until it is reassigned. #}
+                    {% if task.assignee and task.assignee not in staff %}<option value="{{ task.assignee_id }}" selected>{{ task.assignee.name }}</option>{% endif %}
+                  </select>
+                </div>
               </div>
               <div>
-                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Description</div>
-                <textarea name="description" data-autoresize
+                <label for="{{ fid }}description" class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Description</label>
+                <textarea id="{{ fid }}description" name="description" data-autoresize
                           class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
                           placeholder="Add a description…">{{ task.description or '' }}</textarea>
               </div>
@@ -396,7 +525,7 @@
           </form>
         </div>
       </div>
-      <div id="task-panel-{{ task.id }}-notes" class="hidden px-6 py-5" data-notes-container>
+      <div id="task-modal-{{ task.id }}-tab-notes" class="hidden px-6 py-5" data-notes-container>
         {% with notes=notes_map[task.id], post_url="/tasks/"+task.slug+"/notes", delete_url_prefix="/tasks/"+task.slug+"/notes" %}
         {% include "partials/notes_section.html" %}
         {% endwith %}
@@ -408,55 +537,96 @@
 
 <!-- Add task modal -->
 <div id="add-task-modal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6 max-h-[90vh] overflow-y-auto">
     <div class="flex items-center justify-between mb-5">
       <h2 class="text-lg font-semibold text-gray-900">Add Task</h2>
-      <button onclick="document.getElementById('add-task-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600">
+      <button type="button" onclick="closeModal('add-task-modal')" class="p-2.5 -mr-2.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
       </button>
     </div>
     <form hx-post="/tasks/" hx-target="body" hx-swap="innerHTML" class="space-y-4">
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Title</label>
-        <input type="text" name="title" required
+        <label for="new-task-title" class="block text-sm font-medium text-gray-700 mb-1">Title <span class="text-red-500">*</span></label>
+        <input type="text" id="new-task-title" name="title" required
                class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                placeholder="e.g. Replace HVAC filter" />
       </div>
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Property</label>
-        <select name="property_id" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
-          {% for p in properties %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+        <label for="new-task-property" class="block text-sm font-medium text-gray-700 mb-1">Property <span class="text-red-500">*</span></label>
+        {# Preselected only when the page is filtered to a property; otherwise the user picks. #}
+        <select id="new-task-property" name="property_id" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          <option value="" disabled {% if not filter_property %}selected{% endif %}>Select property…</option>
+          {% for p in properties %}<option value="{{ p.id }}" {% if filter_property == p.id|string %}selected{% endif %}>{{ p.name }}</option>{% endfor %}
         </select>
       </div>
-      <div class="grid grid-cols-2 gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Priority</label>
-          <select name="priority" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+          <label for="new-task-priority" class="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+          <select id="new-task-priority" name="priority" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
             {% for p in priorities %}<option value="{{ p }}" {% if p == 'medium' %}selected{% endif %}>{{ p.title() }}</option>{% endfor %}
           </select>
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
-          <input type="date" name="due_date" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          <label for="new-task-due" class="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
+          <input type="date" id="new-task-due" name="due_date" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
         </div>
       </div>
+      <div>
+        <label for="new-task-assignee" class="block text-sm font-medium text-gray-700 mb-1">Assigned to</label>
+        <select id="new-task-assignee" name="assignee_id" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+          <option value="">Unassigned</option>
+          {% for member in staff %}<option value="{{ member.id }}" {% if filter_assignee == member.id|string %}selected{% endif %}>{{ member.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label for="new-task-recurrence" class="block text-sm font-medium text-gray-700 mb-1">Repeats</label>
+          <select id="new-task-recurrence" name="recurrence" onchange="toggleSeasons(this)"
+                  class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+            {% for value, label in frequency_options %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+          </select>
+        </div>
+        <div data-seasons class="hidden">
+          <label for="new-task-seasons" class="block text-sm font-medium text-gray-700 mb-1">Seasons</label>
+          <input type="text" id="new-task-seasons" name="season_spec" placeholder="spring, fall"
+                 class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+      </div>
+      <p class="text-xs text-gray-500">A repeating task makes its next occurrence when you complete it.
+        Seasons: spring, summer, fall, winter (or dry, wet for tropical properties).</p>
       <div class="flex gap-3 pt-1">
         <button type="submit" class="flex-1 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors">Add Task</button>
-        <button type="button" onclick="document.getElementById('add-task-modal').classList.add('hidden')"
+        <button type="button" onclick="closeModal('add-task-modal')"
                 class="flex-1 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">Cancel</button>
       </div>
     </form>
   </div>
 </div>
 
+{# One-shot instructions from the server: open a task (?open=<id>) or the add form (?new=1). #}
+<div id="tasks-page" hidden
+     {% if open_id %}data-open-id="{{ open_id }}"{% endif %}
+     {% if open_new %}data-open-new="1"{% endif %}></div>
+
 <script>
-const VIEWS = ['board', 'grouped', 'list'];
+{# This script re-runs on every body swap, so: no top-level let/const (a redeclaration is a
+   SyntaxError that kills the rest of the script) and listeners are bound once, behind a flag.
+   openModal/closeModal/switchTab are the global ones from static/app.js. #}
+var TASK_VIEWS = ['board', 'grouped', 'frequency', 'list'];
+
+// Show the Seasons field only for seasonal repeats; it lives in the same form as the select.
+function toggleSeasons(select) {
+  const box = select.form.querySelector('[data-seasons]');
+  if (box) box.classList.toggle('hidden', select.value !== 'seasonal');
+}
 
 function setView(v) {
-  localStorage.setItem('tasks_view', v);
-  VIEWS.forEach(name => {
-    document.getElementById('view-' + name).classList.toggle('hidden', name !== v);
+  try { localStorage.setItem('tasks_view', v); } catch (e) { /* private mode: view not remembered */ }
+  TASK_VIEWS.forEach(name => {
+    const panel = document.getElementById('view-' + name);
+    if (panel) panel.classList.toggle('hidden', name !== v);
     const btn = document.getElementById('view-btn-' + name);
+    if (!btn) return;
     btn.classList.toggle('bg-white', name === v);
     btn.classList.toggle('text-gray-900', name === v);
     btn.classList.toggle('shadow-sm', name === v);
@@ -465,25 +635,33 @@ function setView(v) {
 }
 
 function initTasks() {
-  setView(localStorage.getItem('tasks_view') || 'board');
-  document.querySelectorAll('textarea[data-autoresize]').forEach(t => t.addEventListener('input', () => autoResize(t)));
-}
-initTasks();
-document.addEventListener('htmx:afterSettle', initTasks);
-
-function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
-function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
-
-function switchTab(prefix, id, tab) {
-  ['details','notes'].forEach(t => {
-    document.getElementById(prefix+'-panel-'+id+'-'+t).classList.toggle('hidden', t !== tab);
-    const btn = document.getElementById(prefix+'-tab-'+id+'-'+t);
-    btn.classList.toggle('border-brand-600', t === tab);
-    btn.classList.toggle('text-brand-600', t === tab);
-    btn.classList.toggle('border-transparent', t !== tab);
-    btn.classList.toggle('text-gray-500', t !== tab);
+  const marker = document.getElementById('tasks-page');
+  if (!marker) return;                       // another page is in the body now
+  let view = 'board';
+  try { view = localStorage.getItem('tasks_view') || 'board'; } catch (e) {}
+  setView(view);
+  document.querySelectorAll('textarea[data-autoresize]:not([data-ar-bound])').forEach(t => {
+    t.setAttribute('data-ar-bound', '1');
+    t.addEventListener('input', () => autoResize(t));
   });
+  // Consume the one-shot open request so later swaps (notes, polling) don't reopen it, and drop
+  // it from the URL so a save — which re-reads the URL's filters — doesn't either.
+  const openId = marker.dataset.openId, openNew = marker.dataset.openNew;
+  delete marker.dataset.openId; delete marker.dataset.openNew;
+  if (openId && document.getElementById('task-modal-' + openId)) openModal('task-modal-' + openId);
+  else if (openNew) openModal('add-task-modal');
+  if (openId || openNew) {
+    const url = new URL(location.href);
+    url.searchParams.delete('open'); url.searchParams.delete('new');
+    history.replaceState(history.state, '', url.pathname + url.search + url.hash);
+  }
 }
+if (!window.__mhTasksBound) {
+  window.__mhTasksBound = true;
+  document.addEventListener('DOMContentLoaded', () => initTasks());
+  document.addEventListener('htmx:afterSettle', () => initTasks());
+}
+initTasks();   // the markup above already exists; avoids a flash of no view until the event
 
 function autoResize(el){ el.style.height='auto'; el.style.height=el.scrollHeight+'px'; }
 function enterEdit(prefix, id) {

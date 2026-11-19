@@ -1,0 +1,140 @@
+"""THE intra-account scope primitive — SPEC-003 §4.3 (A10, A11).
+
+*"One implementation, four consumers"*: web queries, the AI advisor's 15 executors, the bot's Q&A
+path, and the bot's classification path. §4.3's reason for insisting on one — *"written
+separately they drift, and drift is a leak"* — is the reason this module is deliberately tiny and
+has no siblings.
+
+**Signature note (pre-flight C3's rule, applied here).** §4.3 writes
+`scoped_property_ids(membership)`, but answering for owner/admin requires reading *every property
+in the account*, which needs a session. The session is therefore a required leading positional.
+The rule §4.3 actually encodes — **required, never optional, so a forgetting call site fails
+loudly rather than silently receiving full access** — is preserved; the literal one-argument line
+is not, because it cannot be implemented.
+"""
+
+from __future__ import annotations
+
+import uuid
+from contextlib import contextmanager
+from contextvars import ContextVar
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from mihomes.models.membership import Membership, MembershipPropertyScope
+from mihomes.models.property import Property
+
+__all__ = [
+    "authz_context",
+    "current_property_scope",
+    "current_role",
+    "property_scope",
+    "scoped_property_ids",
+]
+
+
+# The acting role for the current request, or None outside one.
+#
+# **This is not a cached role and does not violate D8/N10.** D8 forbids storing the role *in the
+# session*, so that revocation takes effect on the next request. This is re-derived from the
+# database on every request by `_resolve_authenticated` and lives only for that request's
+# duration — which is what D8 asks for, not what it prohibits.
+#
+# It exists because redaction needs the role at a point where the principal is not in scope: the
+# template renderer. Threading a principal through every route's context dict would be the
+# alternative, and forgetting one route would silently unredact its page.
+current_role: ContextVar[str | None] = ContextVar("current_role", default=None)
+
+
+# The set of properties the current request may see, or **None meaning "unrestricted"**.
+#
+# `None` and `frozenset()` are deliberately different: `None` is owner/admin (and the CLI, and
+# background jobs) where no property restriction applies, while `frozenset()` is a staff member
+# with zero scope rows who must see *nothing* (D3). Collapsing the two — a nullable set where
+# "empty" doubles as "unset" — is the single most likely way this layer fails open, so the
+# distinction is load-bearing rather than stylistic.
+current_property_scope: ContextVar[frozenset[uuid.UUID] | None] = ContextVar(
+    "current_property_scope", default=None
+)
+
+
+@contextmanager
+def authz_context(role: str | None, scope: frozenset[uuid.UUID] | None):
+    """Bind both the acting role and the property scope for a request.
+
+    One contextmanager rather than two nested ones so the two cannot get out of step — a request
+    with a scope bound but no role would redact nothing while filtering rows, which reads as
+    "redaction is broken" rather than "the role was never set".
+    """
+    role_token = current_role.set(role)
+    scope_token = current_property_scope.set(scope)
+    try:
+        yield
+    finally:
+        # Reverse order, in a finally: a scope or role leaking past a raised request would apply
+        # someone else's permissions to whatever runs next on this thread.
+        current_property_scope.reset(scope_token)
+        current_role.reset(role_token)
+
+
+@contextmanager
+def property_scope(scope: frozenset[uuid.UUID] | None):
+    """Bind the property scope for a block, restoring the previous value on exit.
+
+    Token/reset rather than save-and-assign, for the same reason `account_context` uses it: it
+    restores "unset" as distinct from "set to the previous value", and it is exception-safe — a
+    scope leaking past a raised request would apply someone else's whitelist to the next one.
+    """
+    token = current_property_scope.set(scope)
+    try:
+        yield
+    finally:
+        current_property_scope.reset(token)
+
+# Roles whose scope rows are ignored (`ONBOARDING:44`). Kept as a set rather than an `in
+# ("owner", "admin")` literal at the comparison site so there is exactly one place to change if a
+# fourth role is ever introduced — and so a new role defaults to the *staff* branch, which is the
+# fail-closed direction.
+_PRIVILEGED_ROLES = frozenset({"owner", "admin"})
+
+
+def scoped_property_ids(session: Session, membership: Membership) -> frozenset[uuid.UUID]:
+    """The set of properties this membership may see. **The authorization boundary.**
+
+    - `owner`/`admin` → every property in the account, *their scope rows ignored*
+      (`ONBOARDING:44`).
+    - `staff` → exactly their `membership_property_scopes` rows.
+    - staff with zero scope rows → `frozenset()` — zero properties, **never "all"** (D3).
+
+    **The empty set is a real answer, not a missing filter.** The natural implementation — build
+    a filter from the scope rows, and apply no filter when there are none — reads as "no
+    restriction" and returns the whole account. That is D3's failure mode, and it looks exactly
+    like the feature working, so callers must treat `frozenset()` as "show nothing" rather than
+    as "unfiltered".
+
+    A revoked membership yields `frozenset()` regardless of role. Scope rows survive revocation
+    (they cascade on *delete*, not on a status change), so a primitive keyed only on
+    `membership_id` would keep honouring them — and for an owner the privileged branch would
+    *upgrade* a revoked member from "their scope rows" to "everything".
+    """
+    if membership.status != "active":
+        return frozenset()
+
+    if membership.role in _PRIVILEGED_ROLES:
+        rows = session.execute(
+            # `Property` is TenantOwned, so the G8 filter already constrains this to the current
+            # account. The explicit predicate is belt-and-braces: this is the one query here not
+            # naturally keyed on a single row, so it is where a missing tenant context would turn
+            # into a cross-account read rather than an error.
+            select(Property.id).where(Property.account_id == membership.account_id)
+        ).scalars()
+        return frozenset(rows)
+
+    rows = session.execute(
+        select(MembershipPropertyScope.property_id).where(
+            MembershipPropertyScope.membership_id == membership.id,
+            MembershipPropertyScope.account_id == membership.account_id,
+        )
+    ).scalars()
+    return frozenset(rows)

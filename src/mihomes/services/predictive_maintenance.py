@@ -14,10 +14,11 @@ from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 
-from mihomes.models.asset import Asset, AssetCondition, AssetType
+from mihomes.entitlements import check_entitlement
 from mihomes.models.alert import Alert, AlertSeverity, AlertStatus
+from mihomes.models.asset import Asset, AssetCondition, AssetType
 from mihomes.models.task import Task, TaskPriority, TaskStatus
-
+from mihomes.services.localtime import today as local_today
 
 # ── Thresholds ────────────────────────────────────────────────────────────────
 
@@ -52,7 +53,7 @@ class MaintenanceScanResult:
 
 def scan_assets(session: Session) -> list[MaintenanceFlag]:
     """Scan all active assets and return maintenance flags (no DB writes)."""
-    today = date.today()
+    today = local_today()
     assets = session.query(Asset).filter(Asset.active.is_(True)).all()
     flags: list[MaintenanceFlag] = []
 
@@ -134,8 +135,28 @@ def scan_assets(session: Session) -> list[MaintenanceFlag]:
     return sorted(flags, key=lambda f: _risk_order(f.risk_level))
 
 
-def run_predictive_maintenance(session: Session) -> MaintenanceScanResult:
-    """Scan assets and create alerts + tasks for new findings. Returns summary."""
+def run_predictive_maintenance(
+        session: Session,
+        *,
+        account,
+) -> MaintenanceScanResult:
+    """Scan assets and create alerts + tasks for new findings. Returns summary.
+
+    Plan gate (SPEC-005 D10/A12): ``maintenance.predict`` must be Allowed — Estate only.
+    Enforced at function entry, before any reads or writes.
+
+    **The argument is an ACTION, not an entitlement key.** `can()` keys `_BOOLEAN_ACTIONS` on
+    actions; `"predictive_maintenance"` is the *key* that action maps to, matches neither dict,
+    and falls through to `can()`'s final `return Allowed()` — so this gate allowed every plan
+    on every call. Measured at G12, not read: `can(free, "predictive_maintenance")` returned
+    Allowed. A12 written against the old string would have passed vacuously.
+
+    F6: this function still has zero callers, so the gate has no live surface — placed exactly
+    as SPEC-004 D14 placed the dead vendor_rating gates, so whoever wires it up inherits the
+    gate rather than reopening the hole.
+    """
+    check_entitlement(account, "maintenance.predict")
+
     flags = scan_assets(session)
     alerts_created = 0
     tasks_created = 0
@@ -181,7 +202,7 @@ def run_predictive_maintenance(session: Session) -> MaintenanceScanResult:
 
             if not existing_task:
                 from mihomes.services.task import create_task
-                due = date.today() + timedelta(days=30 if flag.risk_level == "high" else 14)
+                due = local_today() + timedelta(days=30 if flag.risk_level == "high" else 14)
                 priority = TaskPriority.HIGH if flag.risk_level == "critical" else TaskPriority.MEDIUM
                 create_task(
                     session,

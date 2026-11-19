@@ -1,0 +1,327 @@
+{# The You page (settings/connections.html, every role) since the 2026-11-05 split; it used to
+   be included on the estate page too. These are the sections about *you*, not the estate. #}
+
+{# ── Messenger connections ──────────────────────────────────────────────── #}
+<section class="mb-10 scroll-mt-4" id="connections">
+  <h2 class="text-lg font-medium mb-1">Messenger connections</h2>
+  <p class="text-sm text-gray-500 mb-3">Link your messaging apps so you can report issues and get
+    updates by message. Each link is yours alone — linking never gives anyone else access.</p>
+
+  {# Telegram #}
+  {% include "settings/_telegram_link.html" %}
+  {% if link_code %}
+  {# This page is the response to "Get a link code" (a POST). Without this, refreshing it re-sends
+     the POST and mints a fresh code even after you have linked. Point the address bar at the
+     settings page instead, so a refresh simply reloads it. #}
+  <script>history.replaceState(null, "", "{{ settings_home }}#connections");</script>
+  {% endif %}
+
+  {# WhatsApp — pairing is not available yet, so status only. #}
+  <div class="border rounded p-3">
+    <div class="flex flex-wrap items-baseline justify-between gap-2">
+      <span class="font-medium">WhatsApp</span>
+      <span class="text-sm text-gray-500">Not available yet</span>
+    </div>
+    <p class="mt-1 text-sm text-gray-500">WhatsApp linking is coming soon.</p>
+  </div>
+
+  {# The log of what linked groups sent (/conversations/) had no link anywhere. Owner/admin:
+     the route is `audit.view`, and this partial is also shown to staff. #}
+  {% if viewer_role in ('owner', 'admin') %}
+  <p class="mt-3 text-sm"><a href="/conversations/" class="text-brand-600 hover:text-brand-700 font-medium">Messenger log →</a>
+    <span class="text-gray-500">what the linked Telegram groups have sent, and what MiHomes did with it.</span></p>
+  {% endif %}
+</section>
+
+{# ── Chat notifications (SPEC-014 D13) — a loaded partial under `chat.use`, so both settings
+   pages' context builders stay unchanged and staff can reach it. #}
+<section id="chat-notifications" class="mb-10 scroll-mt-4"
+         hx-get="/chat/notifications" hx-trigger="load" hx-swap="innerHTML">
+  <h2 class="text-lg font-medium mb-1">Chat notifications</h2>
+  <p class="text-sm text-gray-500">Loading…</p>
+</section>
+
+{# ── Google Calendar (2026-10-30) ───────────────────────────────────────── #}
+{# Your own calendar for this estate. Connecting is a separate Google consent from signing in
+   (`services/personal_calendar/connect.py`); every form here carries the CSRF token. #}
+{% if calendar %}
+{% set cal_csrf = request.cookies.get('mihomes_csrf', '') %}
+{% set conn = calendar.connection %}
+<section class="mb-10 scroll-mt-4" id="calendar">
+  <h2 class="text-lg font-medium mb-1">Google Calendar</h2>
+  <p class="text-sm text-gray-500 mb-3">See this estate's appointments and tasks in your own
+    Google Calendar. MiHomes adds them to a separate calendar it creates — it can't see or change
+    anything else in your Google account.</p>
+
+  {% if calendar.notice %}
+    <p class="mb-3 rounded border border-green-300 bg-green-50 px-3 py-2 text-green-800"
+       data-testid="calendar-notice">{{ calendar.notice }}</p>
+  {% endif %}
+  {% if calendar.error %}
+    <p class="mb-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-red-800"
+       data-testid="calendar-error">{{ calendar.error }}</p>
+  {% endif %}
+
+  <div class="border rounded p-3">
+    <div class="flex flex-wrap items-baseline justify-between gap-2">
+      <span class="font-medium">Google Calendar</span>
+      {% if conn and conn.status == 'active' %}
+        <span class="text-sm text-green-700">Connected</span>
+      {% elif conn %}
+        <span class="text-sm text-red-700">Needs reconnecting</span>
+      {% else %}
+        <span class="text-sm text-gray-500">Not connected</span>
+      {% endif %}
+    </div>
+
+    {% if conn %}
+      <p class="mt-1 text-sm text-gray-600">{{ conn.google_email }}
+        <span class="text-gray-400">— calendar “MiHomes — {{ account.name if account else '' }}”</span></p>
+      <p class="mt-1 text-xs text-gray-500">
+        {% if conn.last_synced_at %}Last synced {{ conn.last_synced_at|localtime("%b %d, %Y %H:%M") }}
+        {% else %}Not synced yet{% endif %}</p>
+      {% if conn.last_error %}
+        <p class="mt-1 text-xs text-red-700">{{ conn.last_error }}</p>
+      {% endif %}
+      {% if conn.import_note %}
+        <p class="mt-1 text-xs text-amber-800" data-testid="calendar-import-note">{{ conn.import_note }}</p>
+      {% endif %}
+
+      {# Google → MiHomes (2026-11-11). #}
+      {% if calendar.importing %}
+        <p class="mt-3 text-sm text-gray-600">Events you add, change or delete in this Google
+          calendar update MiHomes too (within 15 minutes, or press Sync now). Tasks stay managed
+          in MiHomes.</p>
+        <form method="post" action="/settings/calendar/default-property"
+              class="mt-2 flex flex-wrap items-center gap-2">
+          <input type="hidden" name="csrf_token" value="{{ cal_csrf }}" />
+          <label for="cal-default-prop" class="text-sm text-gray-600">When an event names no property, add it to</label>
+          <select id="cal-default-prop" name="property_id" class="border rounded-lg px-2 py-1.5 text-sm">
+            <option value="">— don't add it —</option>
+            {% for p in calendar.import_properties %}
+              <option value="{{ p.id }}" {% if conn.default_property_id == p.id %}selected{% endif %}>{{ p.name }}</option>
+            {% endfor %}
+          </select>
+          <button class="border rounded-lg px-3 py-1.5 text-sm">Save</button>
+        </form>
+      {% else %}
+        <p class="mt-3 text-sm text-gray-500">Updates go one way, MiHomes → Google. Ask an owner or
+          admin if you need events you add in Google to appear in MiHomes.</p>
+      {% endif %}
+
+      <div class="mt-3 flex flex-wrap gap-2">
+        {% if conn.status == 'active' %}
+          <form method="post" action="/settings/calendar/sync">
+            <input type="hidden" name="csrf_token" value="{{ cal_csrf }}" />
+            <button class="border rounded px-3 py-1 text-sm">Sync now</button>
+          </form>
+        {% else %}
+          <form method="post" action="/settings/calendar/google/connect">
+            <input type="hidden" name="csrf_token" value="{{ cal_csrf }}" />
+            <button class="border rounded px-3 py-1 text-sm">Reconnect</button>
+          </form>
+        {% endif %}
+      </div>
+
+      {# Folded away: the remove-from-Google checkbox only applies to Disconnect, and shown next
+         to "Sync now" it read as a sync option (user, 2026-11-10). #}
+      <details class="mt-4 border-t pt-3">
+        <summary class="cursor-pointer text-sm text-gray-600">Disconnect…</summary>
+        <form method="post" action="/settings/calendar/disconnect" class="mt-3"
+              onsubmit="return confirm('Disconnect Google Calendar? MiHomes will stop updating it.')">
+          <input type="hidden" name="csrf_token" value="{{ cal_csrf }}" />
+          <p class="text-sm text-gray-500">MiHomes will stop updating your Google Calendar.</p>
+          <label class="mt-2 flex items-center gap-2 text-sm text-gray-600">
+            <input type="checkbox" name="delete_calendar" value="1" />
+            Also delete the MiHomes calendar and its events from Google
+          </label>
+          <button class="mt-2 text-sm text-red-700 underline">Disconnect</button>
+        </form>
+      </details>
+    {% elif calendar.configured %}
+      <form method="post" action="/settings/calendar/google/connect" class="mt-3">
+        <input type="hidden" name="csrf_token" value="{{ cal_csrf }}" />
+        <button class="border rounded px-3 py-1 text-sm">Connect Google Calendar</button>
+      </form>
+    {% else %}
+      <p class="mt-1 text-sm text-gray-500">Google isn't set up on this server yet.</p>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
+{# ── Your profile ───────────────────────────────────────────────────────── #}
+<section id="profile" class="mb-10 scroll-mt-4">
+  <h2 class="text-lg font-medium mb-1">Your profile</h2>
+  <p class="text-sm text-gray-500 mb-3">Your own name and sign-in address. Other members of
+    the estate are not affected.</p>
+
+  {% if profile_error %}
+    <p id="profile-error" role="alert" tabindex="-1" autofocus
+       class="mb-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-red-800">
+      {{ profile_error }}</p>
+  {% endif %}
+
+  <form method="post" action="/settings/profile" class="space-y-3">
+    <div>
+      <label for="profile-name" class="block text-sm text-gray-600 mb-1">Name</label>
+      <input id="profile-name" name="name" required maxlength="200" autocomplete="name"
+             value="{{ user.name or '' if user else '' }}"
+             class="w-full border rounded px-3 py-2" />
+    </div>
+
+    {% if can_change_email %}
+      <div>
+        <label for="profile-email" class="block text-sm text-gray-600 mb-1">
+          Email <span class="text-gray-500">— this is how you sign in</span>
+        </label>
+        <input id="profile-email" name="email" type="email" required autocomplete="email"
+               value="{{ user.email if user else '' }}"
+               class="w-full border rounded px-3 py-2" />
+      </div>
+      <div>
+        <label for="profile-password" class="block text-sm text-gray-600 mb-1">
+          Current password <span class="text-gray-500">— only needed to change your email</span>
+        </label>
+        <input id="profile-password" name="current_password" type="password"
+               autocomplete="current-password"
+               class="w-full border rounded px-3 py-2" />
+      </div>
+      {# States the residual plainly. Nothing here proves the new address receives mail, so a
+         well-formed typo is still a lockout — saying so is worth more than a control that
+         looks safer than it is. #}
+      <p class="text-xs text-gray-500">
+        Changing your email changes the address you sign in with, immediately. There is no
+        confirmation email yet, so check it carefully before saving.
+      </p>
+    {% else %}
+      {# A Google identity has no password to verify and its address is managed upstream, so
+         the field is absent rather than present-and-always-refused. #}
+      <input type="hidden" name="email" value="{{ user.email if user else '' }}" />
+      <div>
+        <span class="block text-sm text-gray-600 mb-1">Email</span>
+        <p class="text-sm">{{ user.email if user else '' }}
+          <span class="text-gray-500">— managed by Google sign-in</span></p>
+      </div>
+    {% endif %}
+
+    <button class="bg-brand-600 text-white rounded px-4 py-2">Save profile</button>
+  </form>
+</section>
+
+{# ── Sign-in methods (2026-10-19, SPEC-010 U2) ──────────────────────────── #}
+{# Rules live in `auth/sign_in_methods.py`; every form here is a credential change, so each
+   carries the CSRF token (`base.html` uses the same field for sign-out). #}
+{% if sign_in %}
+{% set csrf = request.cookies.get('mihomes_csrf', '') %}
+<section class="mb-10 scroll-mt-4" id="sign-in">
+  <h2 class="text-lg font-medium mb-1">Sign-in methods</h2>
+  <p class="text-sm text-gray-500 mb-3">The ways you can sign in to MiHomes as
+    {{ user.email if user else '' }}.</p>
+
+  {% if sign_in.notice %}
+    <p role="status" class="mb-3 rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-green-800"
+       data-testid="signin-notice">{{ sign_in.notice }}</p>
+  {% endif %}
+  {% if sign_in.error %}
+    <p id="signin-error" role="alert" tabindex="-1" autofocus
+       class="mb-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-red-800"
+       data-testid="signin-error">{{ sign_in.error }}</p>
+  {% endif %}
+
+  {# Google #}
+  <div class="border rounded p-3 mb-3">
+    <div class="flex flex-wrap items-baseline justify-between gap-2">
+      <span class="font-medium">Google</span>
+      {% if sign_in.has_google %}
+        <span class="text-sm text-green-700">Connected</span>
+      {% else %}
+        <span class="text-sm text-gray-500">Not connected</span>
+      {% endif %}
+    </div>
+    {% if not sign_in.has_google %}
+      <p class="mt-1 text-sm text-gray-500">Use the Google account for
+        {{ user.email if user else '' }} — a different address won't connect.</p>
+      <form method="post" action="/settings/sign-in/google/connect" class="mt-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}" />
+        <button class="border rounded px-3 py-1 text-sm">Connect Google</button>
+      </form>
+    {% endif %}
+  </div>
+
+  {# Password #}
+  <div class="border rounded p-3">
+    <div class="flex flex-wrap items-baseline justify-between gap-2">
+      <span class="font-medium">Email and password</span>
+      {% if sign_in.has_password %}
+        <span class="text-sm text-green-700">Set{% if sign_in.password_set_at %}
+          <span class="text-gray-500">— {{ sign_in.password_set_at|localtime("%b %d, %Y") }}</span>{% endif %}</span>
+      {% else %}
+        <span class="text-sm text-gray-500">Not set</span>
+      {% endif %}
+    </div>
+
+    {% if sign_in.has_password %}
+      <form method="post" action="/settings/sign-in/password/change" class="mt-3 space-y-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}" />
+        <div>
+          <label for="pw-current" class="block text-sm text-gray-600 mb-1">Current password</label>
+          <input id="pw-current" name="current_password" type="password" required
+                 autocomplete="current-password" class="w-full border rounded px-3 py-2"
+                 {% if sign_in.error %}aria-describedby="signin-error"{% endif %} />
+        </div>
+        <div>
+          <label for="pw-new" class="block text-sm text-gray-600 mb-1">New password</label>
+          <input id="pw-new" name="password" type="password" required
+                 minlength="{{ sign_in.min_length }}" autocomplete="new-password"
+                 aria-describedby="pw-change-hint"
+                 class="w-full border rounded px-3 py-2" />
+        </div>
+        <div>
+          <label for="pw-confirm" class="block text-sm text-gray-600 mb-1">Confirm new password</label>
+          <input id="pw-confirm" name="confirm" type="password" required
+                 minlength="{{ sign_in.min_length }}" autocomplete="new-password"
+                 class="w-full border rounded px-3 py-2" />
+        </div>
+        <p id="pw-change-hint" class="text-xs text-gray-500">At least {{ sign_in.min_length }} characters. Changing
+          it signs you out on your other devices.</p>
+        <button class="bg-brand-600 text-white rounded px-4 py-2">Change password</button>
+      </form>
+    {% elif sign_in.recent %}
+      <p class="mt-1 text-sm text-gray-500">Add a password to sign in with
+        {{ user.email if user else '' }} without Google.</p>
+      <form method="post" action="/settings/sign-in/password" class="mt-3 space-y-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}" />
+        <div>
+          <label for="pw-add" class="block text-sm text-gray-600 mb-1">Password</label>
+          <input id="pw-add" name="password" type="password" required
+                 minlength="{{ sign_in.min_length }}" autocomplete="new-password"
+                 aria-describedby="pw-add-hint"
+                 class="w-full border rounded px-3 py-2" />
+        </div>
+        <div>
+          <label for="pw-add-confirm" class="block text-sm text-gray-600 mb-1">Confirm password</label>
+          <input id="pw-add-confirm" name="confirm" type="password" required
+                 minlength="{{ sign_in.min_length }}" autocomplete="new-password"
+                 class="w-full border rounded px-3 py-2" />
+        </div>
+        <p id="pw-add-hint" class="text-xs text-gray-500">At least {{ sign_in.min_length }} characters. A
+          memorable phrase works well.</p>
+        <button class="bg-brand-600 text-white rounded px-4 py-2">Add password</button>
+      </form>
+    {% else %}
+      {# A Google-only user has no password to re-enter, so the proof is a fresh Google
+         sign-in (`RECENT_SIGNIN`). Saying why up front beats a form that refuses on submit. #}
+      <p class="mt-1 text-sm text-gray-500">Add a password to sign in without Google. For your
+        security, confirm it's you with Google first.</p>
+      <form method="post" action="/settings/sign-in/google/confirm" class="mt-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}" />
+        <button class="border rounded px-3 py-1 text-sm">Confirm with Google</button>
+      </form>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
+{# Show/Hide on the password fields above (and any others on the page). #}
+{% include "partials/_password_toggle.html" %}

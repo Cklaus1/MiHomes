@@ -10,52 +10,24 @@ Safe methods (GET/HEAD) and same-origin/none requests pass through.
 """
 
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
-from mihomes.models import Base
 from mihomes.models.staff import StaffRole
 from mihomes.services import property as prop_svc
 from mihomes.services import staff as staff_svc
-from mihomes.web.app import create_app
-from mihomes.web.deps import get_db
 
 
 @pytest.fixture
-def client():
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    TestSessionLocal = sessionmaker(bind=engine)
-    with TestSessionLocal() as s:
+def client(web_client_factory):
+    """Overrides the package `client` only to get `raise_server_exceptions=False`,
+    so the guard's 403/400 responses are observable rather than re-raised."""
+
+    def seed(s):
         prop = prop_svc.create_property(s, "Test Manor")
         staff_svc.create_staff(
             s, "Marcia Staff", role=StaffRole.HOUSEKEEPER, property_id_or_slug=prop.slug
         )
-        s.commit()
 
-    def override_get_db():
-        s = TestSessionLocal()
-        try:
-            yield s
-            s.commit()
-        except Exception:
-            s.rollback()
-            raise
-        finally:
-            s.close()
-
-    app = create_app()
-    app.dependency_overrides[get_db] = override_get_db
-    # Bind to a localhost base_url so the Host guard passes by default; the
-    # foreign-host test overrides the Host header explicitly.
-    with TestClient(app, base_url="http://localhost", raise_server_exceptions=False) as c:
-        yield c
+    return web_client_factory(seed, raise_server_exceptions=False)
 
 
 def test_get_allowed_without_origin(client):
@@ -92,3 +64,32 @@ def test_same_origin_post_allowed(client):
 def test_foreign_host_rejected(client):
     resp = client.get("/", headers={"Host": "evil.example.com"})
     assert resp.status_code == 400
+
+
+TS_HOST = "evo-dev.tail6765ef.ts.net"
+
+
+def test_allowed_hosts_env_admits_named_host(client, monkeypatch):
+    monkeypatch.setenv("MIHOMES_ALLOWED_HOSTS", f" {TS_HOST.upper()} , other.example ")
+    assert client.get("/", headers={"Host": TS_HOST}).status_code == 200
+
+
+def test_allowed_hosts_env_admits_matching_origin_on_post(client, monkeypatch):
+    monkeypatch.setenv("MIHOMES_ALLOWED_HOSTS", TS_HOST)
+    resp = client.post(
+        "/budget/transactions",
+        data={"property_id": "1", "description": "x", "amount": "5", "category": "general"},
+        headers={"Host": TS_HOST, "Origin": f"https://{TS_HOST}"},
+    )
+    assert resp.status_code not in (400, 403)
+
+
+def test_allowed_hosts_env_admits_nothing_else(client, monkeypatch):
+    monkeypatch.setenv("MIHOMES_ALLOWED_HOSTS", TS_HOST)
+    assert client.get("/", headers={"Host": "evil.example.com"}).status_code == 400
+    resp = client.post(
+        "/budget/transactions",
+        data={"property_id": "1", "description": "x", "amount": "5", "category": "general"},
+        headers={"Host": TS_HOST, "Origin": "https://evil.example.com"},
+    )
+    assert resp.status_code == 403

@@ -15,9 +15,22 @@ _engine: Engine | None = None
 _SessionLocal: sessionmaker | None = None
 
 
+def _is_sqlite_connection(dbapi_conn) -> bool:
+    """True when the raw DBAPI connection belongs to the stdlib sqlite3 driver.
+
+    The listener below binds to the Engine *class*, so it fires for every engine
+    in the process — including a Postgres one (SPEC-001 onward). PRAGMA is a
+    syntax error outside SQLite, so the dialect has to be checked on the
+    connection itself; there is no engine in scope to ask.
+    """
+    return type(dbapi_conn).__module__.split(".")[0] == "sqlite3"
+
+
 @event.listens_for(Engine, "connect")
 def _set_sqlite_pragmas(dbapi_conn, connection_record):
-    """Enable WAL mode and foreign key enforcement on every connection."""
+    """Enable WAL mode and foreign key enforcement on every SQLite connection."""
+    if not _is_sqlite_connection(dbapi_conn):
+        return
     cursor = dbapi_conn.cursor()
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.execute("PRAGMA foreign_keys=ON")
@@ -26,19 +39,48 @@ def _set_sqlite_pragmas(dbapi_conn, connection_record):
 
 
 def _active_url() -> str:
-    # Resolve config paths live rather than binding them at import: a test that
-    # reloads mihomes.config (logging/backup isolation) rebinds config.DB_DIR to
-    # a new object, and a by-value import here would silently keep the stale one.
+    """The database this process should use.
+
+    **`DATABASE_URL` wins (SPEC-002 Step 13).** SPEC-002 makes the product Postgres-only, and
+    the reason is stronger than RLS: `0001_pg_baseline` is Postgres-native, so a SQLite database
+    built from it is not merely unenforced but **subtly broken** — its `created_at` columns carry
+    a `DEFAULT now()` that SQLite has no such function for, so the first INSERT into `accounts`
+    fails with `unknown function: now()`. Measured while wiring G13.
+
+    The SQLite fallback is kept for one reason only: a pre-SPEC-002 local install whose data has
+    not yet been imported (G16). It is not a supported runtime — `verify_runtime_role` does not
+    even apply there, and neither RLS nor the drift guard exists.
+
+    Resolve config paths live rather than binding them at import: a test that reloads
+    `mihomes.config` (logging/backup isolation) rebinds `config.DB_DIR` to a new object, and a
+    by-value import here would silently keep the stale one.
+    """
     if os.environ.get("MIHOMES_DEMO") == "1":
         return f"sqlite:///{config.DB_DIR / 'demo.db'}"
-    return config.DB_URL
+    return os.environ.get("DATABASE_URL") or config.DB_URL
 
 
 def get_engine(url: str | None = None) -> Engine:
-    """Get or create the SQLAlchemy engine."""
+    """Get or create the SQLAlchemy engine.
+
+    `pool_pre_ping=True` for Postgres (§5, Step 9): a pooled connection can be closed by the
+    server, a network blip, or PgBouncer between checkouts, and without a pre-ping the first
+    query of the next request fails instead of transparently reconnecting. Not applied to
+    SQLite, where there is no server to lose and the ping is pure overhead.
+
+    **The engine is shared; the tenant is never baked into it.** The account travels on the
+    ContextVar and reaches the connection through `tenancy/connection.py`'s transaction-local
+    GUC. An engine or pool per tenant would be the obvious-looking alternative and is the
+    thing N3 exists to prevent — see that module for what a session-scoped GUC does to a
+    reused connection.
+    """
     global _engine, _SessionLocal
     if _engine is None or url is not None:
-        _engine = create_engine(url or _active_url(), echo=False)
+        resolved = url or _active_url()
+        kwargs = {"echo": False}
+        if not resolved.startswith("sqlite"):
+            kwargs["pool_pre_ping"] = True
+        _engine = create_engine(resolved, **kwargs)
         # H3: a swapped engine must invalidate the cached session factory, or
         # get_session() keeps binding new sessions to the previous DB. cli/init.py
         # used to hand-poke this global as a workaround; the reset belongs here.
@@ -85,9 +127,25 @@ def get_session(engine: Engine | None = None) -> Generator[Session, None, None]:
 
 
 def init_db(url: str | None = None) -> None:
-    """Initialize the database: create dirs, run migrations."""
+    """Initialize the database: create dirs, run migrations, ensure an account exists.
+
+    The account bootstrap lives here rather than in the CLI callback so that **every** path
+    which initialises a database gets one — the CLI, the demo seeder, and the test fixtures that
+    call `init_db()` directly. Under SPEC-002 a write with no account raises `LookupError` (G8.3
+    stamps `account_id` and fails closed), so a database without an account is a database nothing
+    can write to.
+    """
     ensure_dirs()
     engine = get_engine(url)
+
+    # Refuse a backend that cannot enforce tenant isolation, before creating anything. The
+    # migration is dialect-correct, so SQLite would build a schema and then silently serve every
+    # tenant's rows to every request — RLS, the GUC and the drift trigger are all Postgres-only
+    # and all skipped without a word. Failing here gives an actionable message instead of
+    # `unknown function: now()` from three frames inside an INSERT.
+    from mihomes.tenancy.runtime_role import verify_tenant_capable_backend
+
+    verify_tenant_capable_backend(engine)
 
     from alembic.config import Config
 
@@ -95,8 +153,38 @@ def init_db(url: str | None = None) -> None:
 
     alembic_cfg = Config()
     alembic_cfg.set_main_option("script_location", _get_alembic_dir())
-    alembic_cfg.set_main_option("sqlalchemy.url", str(engine.url))
+
+    # **`render_as_string(hide_password=False)`, never `str(url)`.** SQLAlchemy's `__str__`
+    # masks the password as literal `***`, so handing `str(engine.url)` to Alembic passed it a
+    # URL that authenticates as the password `***` — and Postgres answered exactly that:
+    #
+    #     FATAL: password authentication failed for user "mihomes"
+    #
+    # `mihomes init` therefore could not migrate any password-authenticated database, while
+    # `psql` with the same URL connected fine and `alembic upgrade head` also worked (it reads
+    # `DATABASE_URL` from the environment in `env.py` and never passes through here). That
+    # divergence is what made it read as a credentials problem rather than a code one.
+    #
+    # Invisible under SQLite, whose URL is a file path with no password to mask — so this
+    # survived every local run and only surfaced on the first real Postgres install.
+    #
+    # **`%` doubled to `%%`, and this is not optional.** Alembic's `Config` is a ConfigParser,
+    # which reads `%` as interpolation syntax and raises
+    # `ValueError: invalid interpolation syntax` on a raw one. The masked form never contained a
+    # `%`, so unmasking is what exposes it — a percent-encoded password (`p%40ss`) or any
+    # generated password containing `%` would trade the authentication failure above for a
+    # crash. `set_main_option` unescapes on read, so the value round-trips exactly.
+    alembic_cfg.set_main_option(
+        "sqlalchemy.url",
+        engine.url.render_as_string(hide_password=False).replace("%", "%%"),
+    )
     command.upgrade(alembic_cfg, "head")
+
+    # Imported here, not at module scope: `mihomes.tenancy` imports the models, and db.py is
+    # imported by them in turn during CLI startup.
+    from mihomes.tenancy.bootstrap import ensure_default_account
+
+    ensure_default_account(engine)
 
 
 def _get_alembic_dir() -> str:

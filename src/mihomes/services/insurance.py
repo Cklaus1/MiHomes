@@ -7,7 +7,9 @@ from sqlalchemy.orm import Session
 from mihomes.models.insurance import InsurancePolicy, InsuranceType
 from mihomes.models.property import Property
 from mihomes.services.audit import diff_instance, record_change, snapshot_instance
-from mihomes.services.slug import resolve_identifier
+from mihomes.services.localtime import today as local_today
+from mihomes.services.money import resolve_currency
+from mihomes.services.slug import get_by_id, resolve_identifier
 from mihomes.services.update_helpers import safe_update
 
 
@@ -23,7 +25,7 @@ def create_policy(
     annual_premium: float | None = None,
     renewal_date: date | None = None,
     property_id_or_slug: str | None = None,
-    currency: str = "USD",
+    currency: str | None = None,
     notes: str | None = None,
 ) -> InsurancePolicy:
     property_id = None
@@ -35,7 +37,7 @@ def create_policy(
         agent_contact=agent_contact, coverage_limit=coverage_limit,
         deductible=deductible, annual_premium=annual_premium,
         renewal_date=renewal_date, property_id=property_id,
-        currency=currency, notes=notes,
+        currency=resolve_currency(session, currency), notes=notes,
     )
     session.add(policy)
     session.flush()
@@ -54,13 +56,18 @@ def list_policies(
         prop = resolve_identifier(session, Property, property_id_or_slug)
         query = query.filter(InsurancePolicy.property_id == prop.id)
     if expiring_days:
-        cutoff = date.today() + timedelta(days=expiring_days)
-        query = query.filter(InsurancePolicy.renewal_date != None, InsurancePolicy.renewal_date <= cutoff)
+        cutoff = local_today() + timedelta(days=expiring_days)
+        # `!= None`, not `is not None`: SQLAlchemy overloads `!=` on a Column to emit
+        # `IS NOT NULL`. See the same note in services/alerts.py.
+        query = query.filter(
+            InsurancePolicy.renewal_date != None,  # noqa: E711
+            InsurancePolicy.renewal_date <= cutoff,
+        )
     return query.order_by(InsurancePolicy.renewal_date.asc().nullslast()).all()
 
 
 def update_policy(session: Session, policy_id: int, **kwargs) -> InsurancePolicy:
-    policy = session.get(InsurancePolicy, policy_id)
+    policy = get_by_id(session, InsurancePolicy, policy_id)
     if policy is None:
         raise ValueError(f"Insurance policy {policy_id} not found")
     old_snap = snapshot_instance(policy)
@@ -73,7 +80,7 @@ def update_policy(session: Session, policy_id: int, **kwargs) -> InsurancePolicy
 
 
 def delete_policy(session: Session, policy_id: int) -> None:
-    policy = session.get(InsurancePolicy, policy_id)
+    policy = get_by_id(session, InsurancePolicy, policy_id)
     if policy is None:
         raise ValueError(f"Insurance policy {policy_id} not found")
     record_change(session, "insurance", policy.id, "delete", snapshot_instance(policy))

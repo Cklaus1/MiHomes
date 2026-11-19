@@ -1,0 +1,741 @@
+# SPEC-004 Build Loop — Phase 3: Billing / Freemium
+
+> **Input spec:** `docs/specs/SPEC-004-phase3-billing-freemium.md` (852 lines, *Ready to build*,
+> **one open decision — O1**, blocks-ship only)
+> **Conventions:** `tasks/build-loop-conventions.md` — stop condition, poison ceiling, circuit
+> breaker, artifact routing are defined there and inherited here **unchanged**.
+> **Branch:** `worktree-spec-build-harness`. **Target ref:** HEAD `4178286` (SPEC-003 complete).
+> **Invocation:** `/loop tasks/build-loop-spec004.md`
+
+**Phase 1 defended the boundary between customers. Phase 2 defended the boundary inside one.
+Phase 3 defends the boundary between what was paid for and what was not** — and it is the first
+phase where a defect costs money in *both* directions. The spec's own framing (§ "The stake"):
+
+> A gate that fails open gives away the product. A meter that fails open hands an unbounded Claude
+> bill to whoever is paying for inference. **Both failure modes look exactly like the feature
+> working.**
+
+**A11 is the definition of done** (spec §8): *"The AI meter binds at every entry point, or it
+bounds nothing."* A meter on the web route but not the Telegram bot, the CLI, or `agent_stream`
+does not cap spend. If A11 is not green, Phase 3 has not shipped regardless of what else is.
+
+**A31 is the exit criterion** (`SAAS_PRD:180`): a Free gate flips to Pro **via webhook, not
+redirect**. Phase 3 is the **MVP cut line** — the last phase before the product can be sold.
+
+---
+
+## 0. Prerequisites
+
+| # | Prerequisite | State |
+|---|---|---|
+| P1 | Reachable Postgres, all four DB env vars set | ✅ PostgreSQL 18.x, `mihomes_test` + `mihomes_phase0` exist |
+| P2 | `MIHOMES_SECRET_KEY` set (**new since SPEC-003 U1** — a required env var, not optional) | ✅ set; without it the config service refuses secret writes |
+| P3 | SPEC-002 landed: `accounts` Stripe columns, RLS, `TenantOwned`, scoped session | ✅ verified §0.6 — **all six Stripe columns pre-ship**, so N13 holds |
+| P4 | SPEC-003 landed: `can()`/`usage()`, `require_permission`, the matrix, `PLAN_LIMITS_PHASE3` | ✅ verified §0.6 — and it pre-shipped more than the spec expects (**C4**) |
+| P5 | SPEC-001 `services/email/` package (Step 15 needs it) | ✅ exists — `provider.py`, `service.py`, `__init__.py` |
+| P6 | A Stripe account with test-mode keys | ❌ **NOT PRESENT — see §0.9.** Does *not* halt: `FakeBillingProvider` covers every criterion but the live-key ones |
+
+**Environment — pass inline, the worktree guard rejects `export` chains:**
+
+```
+DATABASE_URL               postgresql+psycopg://postgres@localhost:5432/mihomes_test
+MIGRATION_DATABASE_URL     postgresql+psycopg://postgres@localhost:5432/mihomes_test
+TEST_DATABASE_URL          postgresql+psycopg://postgres@localhost:5432/mihomes_test
+LANDING_TEST_DATABASE_URL  postgresql+psycopg://postgres@localhost:5432/mihomes_phase0
+MIHOMES_SECRET_KEY         <Fernet key — `mihomes config generate-key`>
+```
+
+Invoke pytest as `py -m pytest`, never `python` (Store shim). Use `--color=no` when parsing
+output programmatically — ANSI codes defeated a mutation harness during SPEC-003 (lessons).
+
+---
+
+## 0.3 Stop condition
+
+Per conventions §0, all five. Conventions §0.1: *"SPEC-003 onward — C is suite green **including
+this spec's new tests**."*
+
+| | Condition | For SPEC-004 |
+|---|---|---|
+| **A** | every checkbox `[x]` or `[!]` | §1 below |
+| **B** | every §6 step tasked **and** every §8 criterion gated | F.3a + F.3b |
+| **C** | full suite green **including this spec's new tests** | baseline below → final |
+| **D** | smoke green | `tests/integration/test_smoke_all_tools.py` — **a Step 10 target**, see §0.5 |
+| **E** | every §8 criterion green by its own named test | all 31, F.2 |
+
+**Measured baseline — HEAD `4178286`, correct env, before any SPEC-004 code:**
+
+```
+py -m pytest -q   →   1945 passed, 3 skipped, 2 xfailed, 0 failed   (266s)
+```
+
+The 3 skips and 2 xfails are inherited and known-benign. Conventions §0 makes **a new skip red** —
+a skipped test is the most likely way this harness reports a false success.
+
+### 0.4 Condition E has a hole this spec cannot close by itself — one gate closes it
+
+Conventions §0: *"a stub can satisfy A+B+C+D"*. SPEC-004 already anticipated its own version of
+this and wrote the fix into the criterion (§8, A11):
+
+> A11 must discover entry points **from the tree** and assert each one increments the counter. A
+> hand-maintained list in a test file rots the first time someone adds a dispatch path, and it
+> rots silently.
+
+This is the same principle as SPEC-003's G-census and `UNFILTERED_CLASSES`: **derive the gate from
+the code, never from a transcription of it.** One derived gate is mandatory here:
+
+| Gate | Check | Closes |
+|---|---|---|
+| **G-dispatch** | Every module that calls `provider.complete` / `structured_output` / `stream` — enumerated by walking `src/` at test time — produces an `AIUsageEvent`. A new dispatch path fails the suite until metered. | A11's list-rot |
+
+Paired with **A10**'s static assertion that no module outside `services/ai/*_provider.py`
+constructs an SDK client directly — the check `agent.py:78` would have failed today (**F8**,
+confirmed at §0.6).
+
+### 0.5 D's smoke file is a Step 10 target
+
+`tests/integration/test_smoke_all_tools.py` invokes the AI tool executors against a stubbed
+provider. Step 10 makes `get_provider()` return a `MeteredProvider` wrapper. The smoke file is a
+call site of the thing being wrapped. Expect it to move when G10 lands; **do not soften
+`MeteredProvider`'s proxying to keep it green** — the proxy requirement (F8) is the whole point.
+
+---
+
+## 0.6 PRE-FLIGHT RE-VERIFICATION (conventions §3.1) — measured at HEAD `4178286`, 2026-08-24
+
+**SPEC-004 was written 2026-08-04, and its §0.1 is now false in the build's favour.** It opens:
+*"Phases 0, 1 and 2 are all unbuilt… Zero hits in `src/` for `stripe`, `BillingProvider`,
+`EmailProvider`, `resend`, `entitlement`, `max_homes`, `def can(`. No `User`, `Account` or
+`Tenant` model. **No auth layer at all.**"*
+
+All three phases have since landed. **This section is the re-verification §0.1 itself demands**
+(*"Re-verify §4 and §5 against the tree before building"*). **Corrected values are authoritative
+over the spec's prose.**
+
+### Claims that hold — verified, not assumed
+
+| Claim | Source | Measured |
+|---|---|---|
+| `agent.py` constructs its own Anthropic client, bypassing the factory | F8 | ✅ **`agent.py:78`** — `anthropic.Anthropic(api_key=api_key)`. The only bypass; the other three constructions are inside `*_provider.py` where they belong |
+| `provider.stream()` is called but **not declared** on the `AIProvider` Protocol | F8 | ✅ called at `agent.py:44`; Protocol declares `complete` + `structured_output` only |
+| `ai_conversations.tokens_used` is dead — no assignment anywhere | F9 | ✅ zero `tokens_used=` writes in `src/`. Only the column definition, an unrelated dataclass field, and archive's raw-SQL column list |
+| `archive.py` DELETEs `ai_conversations` rows | F10 | ✅ `archive.py:191-199` selects-then-archives-then-deletes. **D18 (materialized counters) stands** |
+| The cached `_get_provider` in `calendar_sync`/`staff_pto`/`routes/calendar` is **Google Calendar**, unrelated | F10 | ✅ confirmed — 4 false positives, named here so a later reader does not re-derive it |
+| `accounts` pre-ships every Stripe column | §3, N13 | ✅ all six: `stripe_customer_id`, `stripe_subscription_id`, `subscription_status`, `current_period_end`, `trial_ends_at`, `trial_used_at`. **No `accounts` migration — N13 holds** |
+| `services/email/` exists | P5 | ✅ SPEC-001 shipped it |
+| `stripe` is not a dependency | §3 | ✅ absent from `pyproject.toml` — Step 1 adds it |
+
+### Claims corrected — build against the right-hand column
+
+| # | Claim | Spec | **Measured at HEAD** |
+|---|---|---|---|
+| **C1** | "Phases 0, 1, 2 unbuilt; no auth layer" | §0.1 | **All three landed.** 1945 tests green. Every forward reference in §5 now describes *code*, not a spec |
+| **C2** | `config.py:14` hardcodes `DB_URL = sqlite:///…` | §0.1 | **False** — SPEC-002 D1 dropped SQLite; Postgres throughout |
+| **C3** | "`entitlement` — zero hits in `src/`" | §0.1 | **`entitlements/` is a full package** — `limits.py`, `service.py` |
+| **C4** | Step 8 is "real limits… replacing D7's free-unlimited" | §6 Step 8 | **SPEC-003 pre-shipped `PLAN_LIMITS_PHASE3` with §3.1's numbers verbatim, inert**, plus `test_tables_declare_identical_keys` so the two cannot drift. **Step 8 is a one-line swap of which table is active**, exactly as `limits.py`'s docstring promises. See **C11** for the O1 tension this creates |
+| **C5** | `usage()` "stops being a stub" | §5.3 | Signature already final: `usage(account, meter) -> UsageReport`, returning `limit=None` deliberately (*"`None` cannot be mistaken for a measurement"*). Only the **body** changes |
+| **C6** | §4's DDL: `String(36)` PKs with `default=new_id` | §4.1, §4.2 | **Superseded.** The tree is `Mapped[uuid.UUID]` + `PGUUID(as_uuid=True)` since SPEC-002. **Transcribing §4 verbatim would fail `test_baseline_matches_metadata`.** Conventions §6's *"build the spec, not your idea of the spec"* yields here to *"divergence compounds — re-verify §4"*, which §0.1 itself instructs |
+| **C7** | §9: "migrations are never exercised by any existing test — the only conftest has two fixtures" | §9 | **Stale.** `tests/conftest.py` has ~14 fixtures; `tests/integration/test_pg_baseline.py` already gates round-trip (`test_upgrade_then_downgrade_is_clean`), metadata drift (`test_baseline_matches_metadata`) and single-head. **A30 is nearly free** — it inherits these |
+| **C8** | `billing.manage` needs a new matrix key | D8 implication | **Already exists** — `actions.py:151`, row 15, `(owner=ALLOW, admin=DENY, staff=DENY)`, `Access.ACCOUNT`. **No matrix change for D8**, and none is possible without breaking A1 (see C9) |
+
+### C9 — SPEC-003's fail-closed gates will reject SPEC-004's new code
+
+**This is the finding that shapes the DAG, and it appears nowhere in SPEC-004** — the spec
+predates every gate below. Each is a *live test that turns red* the moment SPEC-004's code lands,
+unless the step accounts for it. Not defects: they are the phase working as designed.
+
+| # | Gate | What it does to SPEC-004 | Which step must handle it |
+|---|---|---|---|
+| **C9a** | `test_matrix.py::test_every_model_is_classified` — fail-closed over every mapped model | SPEC-004 adds **three** models. All three need an `ENTITY_CLASSES` entry or the suite goes red | **G3** (ledger), **G10** (usage tables) |
+| **C9b** | `test_route_declarations.py` — `CEILING == 0`, `UNDECLARED_MODULES == set()` | `POST /webhooks/stripe` has **no session, no principal, no tenant scope by design** (N3, `BILLING:414`). It cannot declare a matrix action. Adding it to `UNDECLARED_MODULES` breaks `test_ceiling_is_not_slack`, which pins the two together | **G4** — see the decision below |
+| **C9c** | `tenancy/registry.py::check_registry` — every table classified as tenant or global, explicitly | Three new tables need registry entries. The ledger is `GLOBAL_TABLES` (same carve-out as `sessions`, which the module docstring already justifies) | **G3**, **G10** |
+| **C9d** | `test_pg_baseline.py::test_baseline_matches_metadata` | Caught a `DateTime(timezone=True)`-vs-naive mismatch in migration 0009 during SPEC-003. **C6's UUID correction is the same class of trap** | **G3**, **G10** |
+| **C9e** | `test_composite_indexes_lead_with_account_id` | §4.1 declares `index=True` on the ledger's `account_id`. The ledger is **not** a tenant table so the rule may not bind — **measure before assuming**. This exact rule bit `staff.user_id` during SPEC-003 | **G3** |
+| **C9f** | `authz/query_scope.py::UNFILTERED_CLASSES` — every entity class is filtered or *declared* unfiltered, with a reason | Whatever class the three new models take, the declaration must be honest. `AIUsageEvent`/`AIUsageRollup` are account-level billing data staff must never read | **G3**, **G10** |
+
+**C9b's decision, made here so G4 does not improvise it.** The webhook route is unauthenticated
+*by design and verified by a different mechanism* — a signature over raw bytes (N3). That is not
+the same as "not yet declared", which is what `UNDECLARED_MODULES` means, and it is not the same
+as `PERMANENT_ALLOWLIST`'s existing entry either (`auth` is excused because *identity does not yet
+exist*; here identity is irrelevant — Stripe is not a user).
+
+> **Add it to `PERMANENT_ALLOWLIST` with its own reason string**, which is what that list is for:
+> *"Each entry carries a one-line justification, because an unauthenticated route is a decision."*
+> The temporary list stays empty and the ceiling stays 0.
+
+**And add a derived gate, because the permanent list is now load-bearing in a way it was not**:
+every `PERMANENT_ALLOWLIST` module must have *some* non-session authentication mechanism.
+`test_permanent_allowlist_entries_are_still_live` already catches stale entries; it does not catch
+a module added to the list to silence the harness. Same shape as `UNFILTERED_CLASSES` — the
+non-decision is declared as data, and a test asserts the declaration is complete.
+
+### C10 — the AI dispatch census, pinned now (A11's ground truth)
+
+A11 must derive this at test time. Pinned here so a divergence between the derived set and the
+measured set is visible rather than silent — the SPEC-003 pattern for the 15 tool executors.
+
+**9 `get_provider()` call sites** (excluding the 4 Google-Calendar `_get_provider` false
+positives, and the definition itself):
+
+```
+services/ai/agent.py:41          services/ai/assessors.py:129,181,222
+services/ai/orchestrator.py:65,239   services/ai/reports.py:171,398
+services/gateways/review_common.py:533   services/resume_ranker.py:138
+services/weather_tasks.py:78
+```
+
+**14 dispatch sites across 8 modules:**
+
+```
+agent.py:44 (stream)            assessors.py:145,204,231 (structured_output)
+orchestrator.py:91,251 (complete)   reports.py:173,400 (complete)
+review_common.py:566,575,585 (structured_output)   resume_ranker.py:169 (structured_output)
+weather_tasks.py:102 (complete)     web/routes/ai.py:518 (via provider_stream)
+```
+
+**Plus the one bypass: `agent.py:78`** — `anthropic.Anthropic(api_key=api_key)`, reached through
+`provider_stream` from `web/routes/ai.py:518`. **This is why Step 9 precedes Step 10.**
+
+### C11 — O1 vs. the literals already in the tree, decided here
+
+SPEC-004 §1.3 says every step *"targets config keys and `STRIPE_PRICE_*` env vars, **never
+literals**, so the code is complete and testable before the numbers exist."* But SPEC-003 already
+shipped `PLAN_LIMITS_PHASE3` containing §3.1's placeholder numbers **as literals** (C4). The two
+statements conflict.
+
+> **Decision: the two halves are different things, and both are right.** `STRIPE_PRICE_*` must be
+> env vars — a price id is deployment identity and a wrong one is a real charge (D3, §9). The
+> *limits* (`max_homes: 1`, `ai_calls_per_month: 200`) are product definition, already committed,
+> already gated by `test_tables_declare_identical_keys`, and moving them to env would make the
+> plan table unreadable and untestable for no safety gain. **Limits stay literal-with-a-swap;
+> prices are env-only.** O1 changes the numbers in one file, not the mechanism.
+
+Recorded because a later reader will otherwise "fix" one half to match the other.
+
+### C13 — `usage()` gained a keyword-only `session`, and that is a divergence
+
+SPEC-003 §5.3 requires `usage(account, meter)` *"character-for-character"*, because a signature
+edit there puts the two specs in contradiction. Step 11 added `*, session=None`.
+
+**Call-compatible, but still an addition**, and logged rather than judged — the discipline that has
+caught things all build. The two-argument form keeps working and returns the real limit with
+`used=0`; the reason it needs a session at all is that the counter lives in a tenant table and
+`usage()` has no other way to reach one. The alternative — opening a session *inside* `usage()` —
+would commit outside the caller's transaction, which is the race `PRICING` §3.2 rule 5 forbids.
+
+### C12 — bug found during pre-flight → `opportunities.md`
+
+None found at pre-flight beyond the corrections above. Any surfaced mid-run follow conventions §5.
+
+---
+
+## 0.7 O1 — the one open decision, and why it does not block the run
+
+Conventions §3.3: classify each `O` as **blocks-build** or **blocks-ship**. **O1 (the actual
+prices and limits) is blocks-ship, and the spec says so itself** (§1.3): *"**Launch configuration
+only, not the build.**"*
+
+Every step targets config keys and env vars; the numbers arrive when the founder sets them. The
+gate is creating the Stripe Products and setting `STRIPE_PRICE_*`. **Do not route this to the user
+mid-run** — it is recorded in §0.8 and the end-of-run report as an unmet launch gate.
+
+## 0.8 UNMET LAUNCH GATES — carried forward, not silently satisfied
+
+Conventions §3.3. Inherited from SPEC-003's report plus this phase's own.
+
+| # | What is off / unresolved | Owner |
+|---|---|---|
+| **U1** | **O1 — the ~20 placeholder prices and limits.** Mechanism ships; the numbers do not. A perfectly correct billing system charging the wrong amount is still wrong, and no test in §9 will say so | founder |
+| **U2** | **No Stripe account / test keys present** (P6). Every criterion is provable against `FakeBillingProvider`; **nothing here proves the live Stripe account's own configuration** — Products, prices, tax, the endpoint secret, whether the restricted key is actually scoped right. A mis-scoped key fails at runtime, in production (spec §10) | founder |
+| **U3** | **Revenue correctness.** §8 proves the mechanism, never the amounts (spec §10) | founder |
+| **U4** | **Cost attribution below the account.** The meter counts calls per account — that is what `PRICING` §5.1 bills. One member can exhaust the quota with no visibility into who (spec §10) | accepted |
+| **U5** | **Inference cost vs. price.** `ai_calls_per_month` caps *calls*, not tokens. The event log records `tokens_in`/`tokens_out` so it becomes measurable; nothing acts on it until metered billing (Phase 4+) | Phase 4+ |
+| **U6** | **Inherited from SPEC-003 §10, unchanged:** mis-declared action keys (U2 there), aggregate inference (U3 there), the Telegram bot's transport (U4 there) | as recorded |
+| **U8** | **A metering-infrastructure outage lifts the AI ceiling for its duration.** `MeteredProvider._check` fails **open** when the lookup itself raises — measured before choosing: `web/routes/ai.py:460` reads the provider key from the database *before* a provider exists, so a dead database already fails the request, and the real choice is between a confusing billing error and a database error rather than between capped and uncapped. A `Denied` still raises — only the lookup is wrapped — and re-mutating the ceiling confirms A14 kept its teeth. Bounded, and cheaper than the alternative | accepted |
+| **U7** | **SPEC-003's O1 is CLOSED** — secrets are Fernet-encrypted at rest as of SPEC-003 U1. **SPEC-004 §10's first bullet and N12 are stale**: they say provider keys "remain plaintext" and `mihomes config list` "still prints them unredacted". Both were fixed. N12's *rule* still holds (`STRIPE_SECRET_KEY` from env, never `configurations.value`) but its *reason* has changed | ✅ resolved |
+
+---
+
+## 1. Task DAG
+
+Conventions §1.3: **one step per group by default**; the group commit is the resume point. Format
+is conventions §4: `checkbox + ID · spec-ref · criteria · imperative · verify:`.
+
+**Three ordering constraints are load-bearing** (spec §6): **G9 before G10** (close the bypass
+before metering, or the suite goes green with an uncapped bill), **G12 before G13** (the scheduler
+exists before the trial needs it), **G3 before G4** (the ledger exists before the webhook writes).
+
+### [x] G1+G2 — Steps 1–2: billing provider seam + price map — *dep: none* — *21 tests; 1945 → 1966; 2 arms mutation-verified; commit `d4ae614`*
+
+> **Landed as one commit, and the reason is the import graph.** `stripe_provider.create_checkout_session`
+> resolves `(plan, interval)` through `prices.py`, so G1 cannot be green without G2's module — and
+> stubbing it would make the D3 assertion vacuous, which is the one thing Step 2 exists for. The
+> group boundary bends to the dependency rather than the dependency being faked to preserve it.
+
+- [x] G1.1 · §6 Step 1 · — · `services/billing/provider.py` reusing `BILLING` §4.1's `BillingProviderError`/`BillingAuthError`/`WebhookVerificationError`, `SubscriptionState`, `NormalizedEvent`, `BillingProvider` Protocol **verbatim** (N5: the adapter never touches the DB) · verify: `tests/unit/test_billing_provider.py::test_fake_satisfies_protocol_structurally` ✓
+- [x] G1.2 · §6 Step 1 · — · `get_billing_provider()` mirroring `ai/provider.py`'s string dispatch + lazy import + explicit `else: raise`; **takes no api_key** (§9: env only) · verify: `tests/unit/test_billing_provider.py::test_unknown_provider_names_supported_list` ✓
+- [x] G1.3 · §6 Step 1 · — · `stripe_provider.py` + `stripe>=11.0` in `pyproject.toml` + coverage `omit` (§9 precedent) · verify: `tests/unit/test_billing_provider.py::test_factory_returns_stripe` ✓
+- [x] G2.1 · §6 Step 2 · A29 · `prices.py` resolving `(plan, interval) -> price_id` from `STRIPE_PRICE_*` env, following `ai_config.py`'s env→raise precedent · verify: `tests/unit/test_prices.py::test_missing_env_names_the_var` ✓
+- [x] G2.2 · §6 Step 2 · A29 · **D3/N2** — no price id in any signature, none accepted from a request · verify: `tests/unit/test_prices.py::test_no_price_id_in_interface` ✓
+
+> **Mutation-verified, two arms.** Adding `price_id: str` to the Protocol turns *two* unrelated
+> tests red (`test_no_price_id_in_interface` and `test_fake_satisfies_protocol_structurally`) —
+> which is what a real invariant looks like from outside. And `plan_for_price_id` returning
+> `"free"` instead of `None` for an unknown id fails `test_unknown_price_id_is_none_not_free`:
+> **an unrecognised price id must never default to Free**, because it means a customer bought
+> something this deployment cannot name, and recording that as Free strips entitlements they are
+> being charged for.
+
+### [x] G3 — Step 3: the idempotency ledger + migration — *dep: G1 — MUST precede G4* — *19 tests; 1966 → 1985; 2 arms mutation-verified; commit `b672571`*
+- [x] G3.1 · §6 Step 3 · — · `models/processed_webhook_event.py` per §4.1, **corrected to UUID PKs (C6)**; `UniqueConstraint(provider, provider_event_id)` — the dedup signal itself, not a bare index · verify: `tests/unit/test_webhook_tenancy.py::test_unique_constraint_is_the_dedup_mechanism` ✓
+- [x] G3.2 · §6 Step 3 · A6 · migration `0010`; **ledger is `GLOBAL_TABLES`, no RLS** (B7, C9c) — same carve-out as `sessions` · verify: `tests/unit/test_webhook_tenancy.py::test_ledger_not_rls` ✓ **plus** `test_no_later_migration_adds_a_policy`, sweeping every revision file — A6 as written names one migration, and the danger is a *later* one
+- [x] G3.3 · C9a,C9f · — · classify `ProcessedWebhookEvent` as `EntityClass.GLOBAL` · verify: `tests/unit/test_matrix.py::test_every_model_is_classified` ✓
+- [x] G3.4 · C9d,C9e · A30 · migration round-trip + metadata-drift gates (inherited, C7); table count 47 → 48 · verify: `tests/integration/test_pg_baseline.py::test_baseline_matches_metadata` ✓
+
+> **C9 fired four times, which is the phase working.** Adding one model turned four SPEC-003 gates
+> red before a line of billing logic existed. The fourth was a genuine design conflict, not a
+> missing entry: the registry forbids `account_id` on a global table, and §4.1 puts one on the
+> ledger deliberately.
+>
+> **The distinction is input versus output.** The rule exists because such a column invites RLS,
+> and RLS on a table read before account context exists returns zero rows (D3) — which binds when
+> the column is an *input* to visibility. The ledger's is an **output**: the account is discovered
+> by resolving a Stripe customer id (D2) and then recorded, never consulted to decide who may read
+> the row, and legitimately NULL.
+>
+> **The general rule was not relaxed** — A6 covers one table, and says nothing about a fourth
+> global table added later, which is what the rule is prophylactic against. Carve-out declared as
+> data with a reason (`GLOBAL_TABLES_WITH_ACCOUNT_ID`) plus a derived liveness test. Same
+> construction as U6, same reason: a correct exemption and a forgotten one are byte-identical.
+> Mutation-verified both directions.
+>
+> **Two latent bugs found in existing tests.** `test_single_head_and_no_legacy_revisions`
+> distinguished legacy revisions by `startswith("000")` — correct for 0001–0009 and *guaranteed*
+> to fail at 0010; now matches the shape `\d{4}_\w+`. And this group's own A6 test failed on the
+> migration's comment warning readers not to add a policy: a source scan cannot tell a warning
+> from a call, so it now strips comments and the docstring via `ast` rather than the wording being
+> softened — a test that punishes an explanation trains the next author to delete it.
+
+### [x] G4 — Step 4: the webhook route — *dep: G3* — *10 tests; 1985 → 1995; 2 arms mutation-verified; commit `682f0e7`*
+- [x] G4.1 · §6 Step 4 · A4 · `POST /webhooks/stripe` — raw body read, signature verified **before any parse** (N3); no session auth, no tenant scoping · verify: `tests/integration/test_webhooks.py::test_bad_signature_no_write` ✓ — asserts the **ledger count** on both sides, not just the 400: recording-then-rejecting would consume the event id and deduplicate the legitimate delivery away
+- [x] G4.2 · C9b · — · module added to `PERMANENT_ALLOWLIST` with its reason; ceiling stays 0, temporary list stays empty · verify: `tests/unit/test_route_declarations.py::test_ceiling_is_not_slack` ✓
+- [x] G4.3 · C9b · — · **new derived gate**: every `PERMANENT_ALLOWLIST` module declares its non-session mechanism · verify: `tests/unit/test_route_declarations.py::test_every_allowlisted_module_names_its_mechanism` ✓
+- [x] G4.4 · **found here** · — · **the Host guard rejected every live webhook.** H30 400s any non-loopback `Host`; Stripe posts to the endpoint's public hostname, and no test would ever have caught it because the test client's base URL is `localhost`. Webhook prefix exempted from both guards · verify: `tests/integration/test_webhooks.py::test_host_guard_does_not_block_a_public_hostname` ✓
+
+> **The exemption does not weaken either defence, and the reason is precise.** CSRF is *the
+> browser attaching the user's cookies to a forged request*; this route reads no cookie and
+> trusts no caller identity. Its authentication is an HMAC over the raw body — strictly stronger
+> than an Origin header, which is advisory and unauthenticated. DNS rebinding likewise targets a
+> session that does not exist here.
+>
+> **Mutation-verified with the blast radius, not the feature.** Widening the exemption to every
+> path turns four tests red, including `test_other_routes_still_reject_a_bad_host` — a guard on
+> the exemption, because a prefix typo would disable H30 app-wide while every webhook test still
+> passed. Second arm: a stale `ALLOWLIST_MECHANISMS` entry fails its gate.
+>
+> **A real SDK behaviour the mocks would have hidden.** `StripeObject` supports `obj["key"]` and
+> deliberately **raises `AttributeError` on `.get()`**. Four tests failed the first time the real
+> SDK parsed a real signed payload — the case for signing real bytes rather than stubbing
+> verification, since a stub returns whatever shape the test author imagined.
+
+### [x] G5 — Step 5: idempotency + out-of-order handling — *dep: G4* — *12 tests; 1995 → 2007; A27 mutation-verified after two failed attempts; commit `38c3633`*
+- [x] G5.1 · §6 Step 5 · A5 · **insert-first**, unique violation *is* the dedup signal (N4 — check-then-insert races) · verify: `tests/integration/test_webhook_idempotency.py::test_idempotent_replay` ✓
+- [x] G5.2 · §6 Step 5 · A27 · two concurrent deliveries of one event apply once · verify: `tests/integration/test_webhook_idempotency.py::test_concurrent_delivery` ✓
+- [x] G5.3 · §6 Step 5 · A7 · drop events whose `occurred_at` predates applied state · verify: `tests/integration/test_webhook_idempotency.py::test_out_of_order_dropped` ✓
+- [x] G5.4 · **found here** · — · two adapter gaps `BILLING` §5–§6 exposed: `checkout.session.completed` missing from the event map, and vendor statuses passed through unmapped · verify: same module
+
+> **A27's test was written wrong twice, and the mutation check caught both.** First version: two
+> sequential calls across two sessions — session one committed before session two began, so no
+> race occurred, and check-then-insert left all twelve green. Second: two threads behind a
+> barrier — the SELECT→COMMIT window is microseconds, so they serialized by luck. **Third works
+> by forcing the overlap**: a rival connection flushes the row and holds the transaction open
+> past the handler's read, so the handler runs against a database where the row exists but is
+> invisible to it. Verified with a standalone probe before trusting it.
+>
+> **Then it passed alone and failed in the full suite** — a real interaction, not a flake. Under
+> load the rival sometimes *loses*, and its own commit raises; the rival is a raw fixture with no
+> dedup handling by design, and both sides' exceptions were being collected in one list. Split
+> into `handler_errors` / `rival_errors`, then **re-mutated to confirm the teeth survived the
+> fix** — a fix that quietly removes an assertion's power is worse than the flake it cured.
+>
+> **Two out-of-order refinements the criterion does not name.** Only state-bearing events are
+> compared, and only against each other (a receipt must not shadow a plan change); and errored
+> rows are excluded, or one dropped delivery poisons the reference timestamp and every later
+> event is dropped too — compounding silently while looking like webhooks having stopped.
+
+### [x] G6 — Step 6: checkout + portal — *dep: G2, G5* — *11 tests; 2007 → 2018; A28 mutation-verified; commit `6aae48a`*
+- [x] G6.1 · §6 Step 6 · A28 · `web/routes/billing.py`, owner-only via the **existing** `billing.manage` row-15 key (C8) · verify: `tests/integration/test_billing_routes.py::test_owner_only` ✓ — parameterised over **admin and staff**, and the route list is derived from the mounted app so a seventh route is covered without editing the test
+- [x] G6.2 · §6 Step 6 · — · `start_checkout` reuses `stripe_customer_id` rather than creating a second Customer · verify: `tests/integration/test_billing_routes.py::test_customer_reused` ✓
+- [x] G6.3 · N1/D1 · — · `/billing/success` **grants nothing** — the confirmation page reads and renders, never writes · verify: `tests/integration/test_billing_routes.py::test_success_page_does_not_change_the_plan` ✓
+
+> **The admin half of A28 is the one that could have been missed.** Everywhere else in this
+> codebase an admin is the near-equal of an owner, so a staff-only denial test would read as
+> complete while missing half of D8 — *"admins manage the estate, not the card."*
+> **Mutation-verified:** swapping in `member.manage` (owner+admin) turns two tests red.
+>
+> **Two decisions worth finding later.** The customer id **commits before** checkout is created —
+> reversed, a failed commit leaves Stripe holding a Customer this database never heard of and its
+> webhooks land unmappable forever. And customer reuse is not cosmetic: a second Stripe Customer
+> means the upgrade is paid for and **silently never applies**.
+>
+> The billing email resolves from the **active owner membership**, not the caller — an
+> authorization fact and an invoice-address fact are different things, and `status == "active"`
+> matters because a revoked former owner can still hold an owner-role row.
+
+### [x] G7 — Step 7: status → entitlement mapping — *dep: G5* — *26 tests; 2018 → 2044; 2 arms mutation-verified; commit `5995d9b`*
+- [x] G7.1 · §6 Step 7 · A2 · `apply_subscription_state` — the **single** writer of `plan`/`subscription_status`/`current_period_end` (SPEC-002 §4.2), called by both webhook and reconcile · verify: `tests/unit/test_billing_mapping.py::test_status_table` ✓ — parameterised over all eight, **plus** a test asserting the row set equals Stripe's set so a missing row cannot hide behind the parametrisation
+- [x] G7.2 · §6 Step 7 · A8 · `past_due` keeps full access; `unpaid` restricts (D10) · verify: `tests/unit/test_billing_mapping.py::test_grace_then_restrict` ✓ (unit, not integration — the mapping is pure; the *route-level* downgrade behaviour is G14/A20)
+
+> **Two arms mutation-verified, both of which would have cost real money.**
+> `plan=None` must not mean Free: `invoice.paid` carries no line items, so treating it as Free
+> downgrades a paying customer **on an ordinary receipt**. And an unknown status must fail closed
+> *at the boundary* — the mutant still half-worked, because an unmapped string reaches
+> `limits_for`, misses its lookup and lands on Free anyway. Correct by luck, through two layers of
+> default, with no warning that a new Stripe status exists.
+>
+> **The plan column is memory, not access.** A cancelled Pro account keeps `plan="pro"` while
+> entitlements resolve to Free via `limits_for`. Clearing it too would be a second mechanism doing
+> the same job — and the one that forgets what to restore, which `PRICING` §4.3 promises is
+> instant. §4.3's "nothing was deleted" applied to the plan column itself.
+>
+> A8 carries a guard on itself: a second test asserts Pro and Free actually have different limits,
+> or A8 would pass while proving nothing about the distinction.
+
+### [x] G8 — Step 8: real limits — *dep: G7* — **the exit criterion's first half** — *11 tests; 2044 → 2055; A1 mutation-verified (12 red); commit `4cd5043`*
+- [x] G8.1 · §6 Step 8 · A1 · the §3.1 numbers become the active table · verify: `tests/unit/test_limits.py::test_free_gates` ✓
+- [x] G8.2 · §6 Step 8 · A3 · every `Denied` names an upgrade target (rule 4) · verify: `tests/unit/test_limits.py::test_denied_names_target` ✓ — **plus** `test_the_named_target_actually_allows_it`: naming a plan that would still deny is worse than naming none
+- [x] G8.3 · **C4 corrected** · — · ~96 test outcomes moved, not one line · verify: below
+
+> **C4 was stale in our favour and this is the correction.** It said Step 8 was *"a one-line swap,
+> not a rewrite"* — true of the **production** change, false of the total change. Probing the flip
+> first: **15 failures + 81 errors**. Every one was a fixture creating a second property as setup
+> for something unrelated to billing, so **the fixtures moved, not the gate**.
+>
+> Two provisioning paths, found by enumeration: `_make_account`/`_create_account` now take a plan
+> (`DEFAULT_FIXTURE_PLAN = "estate"`), and the CLI operator database — bootstrapped on Free per
+> `ONBOARDING:143` — is raised by a shared fixture across its five modules. **Tests about Free must
+> now say so explicitly**; defaulting to `free` would make every unrelated test a billing test.
+>
+> **Collapsed to one table rather than aliased.** `PLAN_LIMITS = PLAN_LIMITS_PHASE3` would make
+> `test_tables_declare_identical_keys` pass vacuously — same object — losing the drift gate in the
+> same commit that makes the table real. `_phase2_free()` is deleted instead. Checked first:
+> `roles_allowed` has **zero consumers**, so no SPEC-003 staff test is affected.
+>
+> **Two tests rewritten, not deleted** — they asserted the inverse, and one's docstring said it
+> *"would fail the day someone activates the Phase 3 numbers without meaning to"*. Old names kept
+> in the docstrings so the change of intent is legible. Same precedent as SPEC-003's `len(MATRIX)`
+> move.
+>
+> **Mutation shape mattered here:** a permissive fixture default could have made A1 vacuous — the
+> exact hole §0.4 exists to close. Flipping Free back to permissive turns **12 tests** red. A1's
+> tests also resolve against the **live binding** rather than passing `table=`, because Step 8's
+> whole content is which table is active.
+
+### [x] G9 — Step 9: close the `agent_stream` bypass — *dep: none — MUST precede G10* — *11 tests; 2055 → 2066; A10 mutation-verified; commit `9402cd7`*
+- [x] G9.1 · §6 Step 9 · A10 · `agent.py` obtains its client from `get_provider()`; `stream` declared on the `AIProvider` Protocol (F8) · verify: `tests/unit/test_ai_metering.py::test_no_factory_bypass` ✓
+- [x] G9.2 · §6 Step 9 · — · the agentic tool-loop and streaming still work end to end · verify: `tests/integration/test_web_smoke.py::test_ai_stream_persists_conversation` ✓ (46 passed)
+
+> **This is why Step 9 precedes Step 10 rather than folding into it.** `agent.py:78` was the one
+> path outside the factory *and* the highest-token path in the app — an agentic loop makes up to
+> six API calls per question. Step 10 meters by wrapping what `get_provider()` returns, so a path
+> that never calls the factory is one the meter cannot see: a green suite and an uncapped bill.
+>
+> **The client is borrowed, not replaced.** The loop needs raw `messages.create(..., tools=...)`,
+> which the Protocol deliberately does not expose (three of four providers have no equivalent),
+> so `agent_stream` takes `provider.client`. Construction stays in one place — all the meter
+> needs — and the loop is unchanged.
+>
+> **A10 is AST, not grep**, because this module's own docstring contains the constructor string a
+> text scan would flag. Same trap G3's A6 test hit, same fix: a test that punishes the
+> explanation trains the next author to delete it. Mutation-verified — restoring the bypass turns
+> two tests red — and the scan carries a guard on itself, since a scanner with a typo would look
+> identical to a clean tree.
+>
+> **`stream` was called for a whole phase without being declared** (F8). An undeclared method is
+> one a wrapper has no reason to proxy — exactly how streaming would escape the meter even after
+> the bypass closed. Verified honest before declaring: all four implementations have it, asserted
+> per-provider, since a missing one fails at runtime on whichever provider a deployment configures.
+
+### [x] G10 — Step 10: the meter — **A11, the phase's definition of done** — *dep: G8, G9* — *29 tests; 2066 → 2095; 3 arms mutation-verified; commit `61812f2`*
+- [x] G10.1 · §6 Step 10 · — · `models/ai_usage.py`, migration `0011`, RLS policies, registry entries, entity classification · verify: `tests/integration/test_pg_baseline.py::test_baseline_matches_metadata` ✓
+- [x] G10.2 · §6 Step 10 · — · `meter.py::record_usage` — event + rollup increment in **one transaction**, rollup locked `FOR UPDATE` · verify: `tests/integration/test_ai_usage.py` ✓
+- [x] G10.3 · §6 Step 10 · — · `MeteredProvider` proxying the **full** surface: `__getattr__` for `client`, `__setattr__` for `provider.model = …` (F8) · verify: `tests/unit/test_ai_metering.py::test_attribute_writes_reach_the_provider` ✓
+- [x] G10.4 · §6 Step 10 · **A11** · **G-dispatch** — every dispatch path, enumerated from the tree, is metered · verify: `tests/unit/test_ai_metering.py::test_all_entry_points_metered` ✓
+- [x] G10.5 · §6 Step 10 · A12,A13 · no provider cached module-level; archiving does not reduce `calls_used` · verify: `::test_no_module_level_cache`, `tests/integration/test_ai_usage.py::test_archive_preserves_usage` ✓
+
+> **A11 is an enumeration, and that is the criterion.** *"Does the meter increment when called"*
+> passes trivially, so the test walks `src/` at test time and asserts every `get_provider()` call
+> passes an `entry_point` — a nineteenth dispatch path added later fails the suite rather than
+> joining the unmetered set silently. **Mutation-verified**: unmetering one of eight paths turns
+> it red. Plus a guard on the guard — if the AST walk stopped finding call sites, A11 would pass
+> over a tree with *no metering at all*, the exact false green §0.4 exists to close.
+>
+> **The one unmetered path is declared, not omitted.** `weather_tasks` is the nightly job D11/N10
+> exempts; `UNMETERED_DISPATCH` names it with its reason, and a test checks both directions.
+>
+> **Both of F8's hazards have tests, and one is very quiet.** `provider.model = …` stored on the
+> wrapper instead of passed through would succeed silently and leave the provider on its default
+> model forever — a caller asking for Opus getting Sonnet, visible only in the bill.
+> Mutation-verified. `stream` is metered once per *call*, not per token (§5.1 bills calls), and
+> `_record` never raises into the caller: the vendor already billed, so failing the request would
+> cost money and deliver nothing.
+>
+> **February is the trap.** `dateutil` is not a dependency and a naive `date(y, m, 31)` raises —
+> inside `record_usage`, on the hot path, for one customer in twelve. Clamped, with a test.
+>
+> Four SPEC-003 gates fired, all correctly, including U7's census demanding the two new models be
+> acknowledged as denied-to-staff — the right outcome, since usage rows are billing data.
+
+### [x] G11 — Step 11: overage behaviour — *dep: G10* — *13 tests; 2095 → 2108; 2 arms mutation-verified; commit `408e43b`*
+- [x] G11.1 · §6 Step 11 · A14 · soft cap passes, hard ceiling denies, each nudge fires once · verify: `tests/integration/test_overage.py::test_ceiling_and_nudges` ✓
+- [x] G11.2 · §6 Step 11 · A15 · **N10** — system-initiated calls never metered or denied · verify: `tests/integration/test_overage.py::test_system_calls_exempt` ✓
+- [x] G11.3 · §6 Step 11 · A26 · two concurrent calls at the cap: the counter cannot lose an increment · verify: `tests/integration/test_overage.py::test_concurrent_at_cap` ✓
+- [x] G11.4 · **P3-b closed** · — · `usage()` returns a real measurement; its Phase 2 test asserted the inverse and was **rewritten, not deleted** · verify: `tests/unit/test_entitlements.py::test_usage_reports_the_real_limit` ✓
+
+> **Three regions, not two.** §5.3 rejected a hard wall — *"it punishes the most engaged users,
+> our best upgrade candidates"* — so the middle region (over the plan, inside the buffer, still
+> working) is the one worth pinning. Free's buffer is **0%**, asserted, because "borrow 20% from
+> a plan that pays nothing" is the generous-looking bug that costs money.
+>
+> **The design question this step surfaced.** Adding `_check` before `_record` meant a dead
+> metering database blocked AI entirely — caught by a test that was *right to fail*. Measured
+> before choosing: `web/routes/ai.py:460` reads the provider key from the database before a
+> provider exists, so a dead database already fails the request. `_check` now fails **open on
+> infrastructure error, closed on a real `Denied`**, with only the lookup wrapped — a `try` around
+> the whole block would swallow `EntitlementError` and remove A14's teeth, so **the ceiling
+> mutation was re-run after the fix** and still turns four tests red. Recorded as **U8**.
+>
+> **A mutation with no teeth, found and fixed.** Re-marking `warned_100_at` on every call — the
+> notification-storm bug the columns exist to prevent — passed all twelve tests: the test asserted
+> the 80% marker's stability and never the 100% one. Independent columns, independent guards.
+>
+> `check_and_reserve` deliberately **does not reserve** (§5.3's ordering rule is what binds, not
+> §5.4's verb), and C13 records that `usage()` gained a keyword-only `session`.
+
+### [x] G12 — Step 12: scheduled-job entrypoints — *dep: G7 — MUST precede G13* — *13 tests; 2108 → 2121; 2 arms mutation-verified; commit `44f1d35`*
+- [x] G12.1 · §6 Step 12 · A16 · `mihomes jobs trial-sweep` / `reconcile`, both idempotent (D15) · verify: `tests/integration/test_jobs.py::test_idempotent` ✓
+- [x] G12.2 · §6 Step 12 · A9 · `reconcile` corrects a deliberately drifted account · verify: `tests/integration/test_jobs.py::test_drift_corrected` ✓
+- [x] G12.3 · **found here** · — · **`mihomes jobs` could not be invoked at all** on a multi-account install · verify: `tests/integration/test_jobs.py::test_the_command_actually_runs_on_a_multi_account_install` ✓
+
+> **The bug the service-layer tests could not see.** Every sweep function was green; the first
+> time the *command* ran it exited 1 with *"This install has 7 accounts, so --account is
+> required"*. The root callback binds a tenant before any subcommand — right for every group
+> except this one, which sweeps **across** estates. `mihomes jobs` was unreachable on exactly the
+> installs it exists for. The regression test uses **two** account fixtures, because the gate only
+> fires when there is a choice to make: one account would have passed while production failed.
+>
+> **`trial_used_at` survives expiry**, and that is A18's foundation — clearing it reads as
+> tidy-up and would hand every account unlimited trials. Mutation-verified. Expiry also deletes
+> nothing (`PRICING` §4.3), asserted because "clean up the surplus" is the intuitive wrong move.
+>
+> **A16 is structural, not defensive.** For `reconcile`, "nothing changed" is what the word means.
+> For `trial-sweep`, expiry clears `trial_ends_at` and the sweep selects on `IS NOT NULL`, so an
+> account that expired yesterday is not re-expired nightly forever.
+>
+> One account's failure must not abort the sweep: errors are logged per account and it continues,
+> or one unreachable Stripe customer strands every account after it in the list.
+
+### [x] G13 — Step 13: the trial state machine — *dep: G12* — *13 tests; 2121 → 2134; 2 arms mutation-verified; commit `b69983a`*
+- [x] G13.1 · §6 Step 13 · A17 · a trial grants Pro entitlements with **no Stripe subscription existing** (F3) · verify: `tests/integration/test_trial.py::test_cardless_trial_entitlements` ✓
+- [x] G13.2 · §6 Step 13 · A18 · one trial per account, ever (`trial_used_at`) · verify: `tests/integration/test_trial.py::test_one_trial_ever` ✓
+- [x] G13.3 · §6 Step 13 · A19 · expiry downgrades and surfaces over-limit, dropping nothing · verify: `tests/integration/test_trial.py::test_expiry_is_nondestructive` ✓
+- [x] G13.4 · **found here** · — · `_expire_trial` left `subscription_status="trialing"` — a Step 12 gap · verify: `tests/integration/test_trial.py::test_expiry_clears_the_trialing_status` ✓
+
+> **A17's phrasing is the test: "no Stripe subscription *existing*."** The absence is the
+> assertion — a trial that quietly created a Customer would grant the right entitlements and pass
+> any test that only checked `can()`, while making `start_checkout` reuse a customer built before
+> anyone agreed to pay.
+>
+> **The trial needed no special case**, which is the interesting part: `trialing` already maps to
+> *"the account's own plan"*, so `plan="pro"` grants real Pro limits through the ordinary path. A
+> trial-shaped branch in `can()` would be a second mechanism answering an answered question.
+>
+> **A18 refuses on history, not state.** Trial → convert → cancel leaves an account that looks
+> exactly like a new Free one; a plan check hands it a second trial. Mutation-verified: the plan
+> check turns two tests red.
+>
+> **A19: "tidy up the surplus" is the wrong move** and the intuitive implementation.
+> Mutation-verified by making expiry delete the extra homes. The test also asserts the over-limit
+> state is *visible* — the next home is refused — rather than silent.
+>
+> `is_on_trial` checks the **date**, not just the status: a trial ending at 03:00 is over at
+> 03:00, not when the sweep runs. The sweep tidies up; it does not enforce.
+>
+> Started on the first gated action (§4.2), and the gate **re-asks** `can()` rather than assuming
+> the trial started — without that, every Free account would get unlimited homes by hitting the
+> limit twice.
+
+### [x] G14 — Step 14: downgrade + restricted mode — *dep: G13* — *13 tests; 2134 → 2147; 2 arms mutation-verified; commit `681daa0`*
+- [x] G14.1 · §6 Step 14 · A20 · **D9** — surplus read-only, core home editable, **nothing deleted**, all three arrival paths · verify: `tests/integration/test_downgrade.py::test_nothing_deleted` ✓ (parameterised over past-due / cancellation / trial expiry)
+- [x] G14.2 · §6 Step 14 · A20 · the core home stays editable; a frozen one refuses edits and names the upgrade · verify: `tests/integration/test_downgrade.py::test_the_core_home_is_editable` ✓
+- [x] G14.3 · §6 Step 14 · A8 · `past_due` unrestricted, `unpaid` restricted, at the account level · verify: `tests/integration/test_downgrade.py::test_grace_then_restrict` ✓
+
+> **A20's two clauses are each other's control.** Freezing *everything* satisfies "nothing
+> deleted" completely and leaves a museum; deleting the surplus satisfies "core home editable"
+> just as completely. Both asserted, both mutation-verified — freeze-everything turns **five**
+> tests red.
+>
+> **Frozen is computed, never stored.** No `properties.frozen` column: the frozen set is a
+> function of `(homes, max_homes, choice)` and all three move, so a stored flag is a cache with no
+> invalidation that would present as *"why can't I edit my own house"*. Computing it makes the
+> non-destructive guarantee **structural** — there is no write to get wrong.
+>
+> **The read half is a real assertion.** An implementation that *hid* frozen homes would pass
+> every "nothing deleted" test while making the data unreachable — deletion from the customer's
+> point of view. Each frozen row is read back.
+>
+> A choice that would exceed the limit is ignored (or the picker becomes a way around the cap); a
+> *partial* choice is honoured and topped up from the oldest.
+>
+> **A test bug worth recording:** `test_grace_then_restrict` first failed because the test's setup
+> was wrong, not the rule — it dropped `plan` to `free` alongside `past_due`, and grace preserves
+> the account's *own* plan.
+
+### [x] G15 — Step 15: the four emails — *dep: G7, G12* — *20 tests; 2147 → 2167; 1 arm mutation-verified; commit `3b11c17`*
+- [x] G15.1 · §6 Step 15 · A21 · four template pairs + four `send_*` on the **existing** `EmailService`; the transport-only `EmailProvider` Protocol is **not** extended · verify: `tests/integration/test_billing_emails.py::test_four_templates` ✓
+- [x] G15.2 · §6 Step 15 · A21 · 3 webhook-triggered + 1 scheduler-triggered (`trial_ending`, F3/B2); each fires once · verify: `tests/integration/test_billing_emails.py::test_fires_once` ✓
+
+> **Rendered through `ConsoleProvider`, not a mock.** A mock asserts `send` was called; the real
+> provider proves the *template renders*, and most template faults are render-time.
+> **Mutation-verified** with the exact typo this guards — `{{ billing_url }` — which turns three
+> tests red. Harder than the test's own reasoning assumed: I expected Jinja to emit the broken
+> delimiter as literal text; it raises instead.
+>
+> **The Protocol assertion is structural**, not a file read: `EmailProvider` must stay
+> `{send}` so a provider swap never has to know what mail types exist (SPEC-001 §5.1).
+>
+> **The copy is part of the correctness**, and three tests assert it. `payment_failed` says
+> *"nothing has changed yet"* because it has not (D10) — leading with "suspended" would be false
+> and worse for recovery. Both downgrade mails carry §4.3's nothing-is-deleted promise, which only
+> counts if it reaches the customer. `subscription_cancelled` names the date access ends (§4.4),
+> or the email itself causes the *"I cancelled and lost access immediately"* ticket.
+>
+> A control test confirms an account **within** its limits gets no over-limit warning — otherwise
+> `over_limit` could be hardcoded true and every other assertion would still pass.
+
+### [x] G16 — Step 16: the three feature gates — *dep: G8* — *12 tests; 2167 → 2179; 1 arm mutation-verified after **three** vacuity fixes; commit `4e0af61`*
+- [x] G16.1 · §6 Step 16 · A22 · ratings gated at **context assembly**, not the route (N11) — live path `services/vendor.py` *and* `vendor_rating.py`'s three dead ones (F6) · verify: `tests/integration/test_feature_gates.py::test_free_gets_no_ratings` ✓
+- [x] G16.2 · §6 Step 16 · A22 · both pages **still load** on Free · verify: `tests/integration/test_feature_gates.py::test_ratings_gated_pages_load` ✓
+- [x] G16.3 · §6 Step 16 · A23 · `due_date` denied on Free; an **undated** work order succeeds (D13) · verify: `tests/integration/test_feature_gates.py::test_due_date_gate` ✓
+- [x] G16.4 · §6 Step 16 · A24 · **N9/N10** — the Telegram path passes no `due_date`, asserted statically · verify: `tests/integration/test_feature_gates.py::test_bot_path_ungated` ✓
+
+> **A22's test was green for three separate wrong reasons**, and mutation found all of them.
+> Making the gate raise turned three tests red and left the page-load test green:
+> (1) no vendor existed in the request's world — `web_client_as` runs on a different connection
+> from `session`, so the comprehension never called the gated function; (2) the seed then had to
+> be *proven* to arrive, since a 200 says nothing if the gate was never reached; (3) the account
+> was on `DEFAULT_FIXTURE_PLAN = "estate"` (Step 8) and therefore entitled. Only after all three
+> does the mutation turn it red — the exact shape §0.4 exists to close.
+>
+> **The gate degrades, it does not refuse.** Same shape, empty data: six templates render it, and
+> a caller getting `None` on Free would need a branch at every one — the first forgotten branch
+> being a 500 on the page the gate exists to keep loading. The dead module **raises** instead,
+> deliberately: a caller asking to compare vendors has no partial answer to render.
+>
+> **D13's scope is narrower than the key's name.** Not `assignee_id` (no web UI field, so the gate
+> would fire only on the operator CLI), not `Appointment`/`/calendar` (a different product wearing
+> the same word — gating it would present as a broken nightly job, N9). No due date, no gate.
+
+### [x] G17 — Step 17: the importer gate — *dep: G8* — *3 tests; commit `a0146e5`*
+- [x] G17.1 · §6 Step 17 · A25 · **D16** — assert `can("home.create")` per home; refuse rather than create an over-limit account; no partial account left · verify: `tests/integration/test_importer.py::test_over_limit_refused` ✓
+
+> **A25 closes a path §4.3 has no language for.** That table describes accounts that *downgrade*
+> into an over-limit state; an import is none of those — the account arrives there having never
+> had more. Refusing at the source beats provisioning the importing account as Estate, because
+> special-casing the founder's archive works exactly once.
+>
+> The gate turned **eight existing importer tests red** — their fixture is a Free account and the
+> archive holds several properties, which is D16's exact scenario. Fixture moved to `estate`; the
+> test *about* the limit provisions Free explicitly so it never depends on a shared default.
+
+### [x] G18 — Step 18: reconciliation in anger + **the exit criterion** — *dep: all* — *2 tests; A31 mutation-verified; commit `a0146e5`*
+- [x] G18.1 · §6 Step 18 · A9 · drift corrected within one sweep · verify: `tests/integration/test_jobs.py::test_drift_corrected` ✓ (landed at G12)
+- [x] G18.2 · §6 exit · **A31** · a Free gate flips to Pro **from the webhook, not the redirect** (D1/N1) · verify: `tests/integration/test_upgrade_flow.py::test_exit_criterion` ✓
+
+> **The "not the redirect" clause is the whole criterion.** A system granting entitlements on
+> `success_url` would pass *"the user upgraded and the gate flipped"* perfectly while handing the
+> product to anyone who visits a URL they control. So the redirect is visited **before** the
+> webhook arrives — production's order — and the gate must still be closed there.
+>
+> **The bug that cost the most to find, and three wrong diagnoses.** A31 passed alone and failed
+> in the suite; the webhook returned 200 and logged *"no account for customer"*, which reads as a
+> mapping bug. Not the ledger (zero rows). Not the `session` fixture's open transaction — the
+> rewrite onto a dedicated committed account **still failed**, which is what falsified it. The
+> cause: `get_session()` resolves `DATABASE_URL` **at call time**, and session-scoped
+> `cli_database` rewrites that variable, so every test after it sees the CLI database. And
+> pinning it was not enough — `db._engine` is a module-level cache, so `dispose_engine()` is
+> required alongside. Both facts are now in the fixture's docstring.
+
+### [x] G-Final — Compound-stop verification (conventions §4.1) — **all five conditions hold**
+- [x] F.1 · full-suite `pytest -q` green (condition C) ✓ `2184 passed, 3 skipped, 2 xfailed, 0 failed`
+- [x] F.2 · every §8 criterion green by its own named test (condition E) ✓ **31 node ids run explicitly — `44 passed, 0 skipped`**
+- [x] F.3a · walk §6 top-to-bottom: every step has a task (condition B, steps) ✓ 18/18
+- [x] F.3b · walk §8 top-to-bottom: every criterion has a gate (condition B, criteria) ✓ 31/31
+- [x] F.4 · smoke green (condition D) ✓ `test_smoke_all_tools.py` 18 passed
+- [x] F.5 · end-of-run report written ✓ `tasks/build-loop-spec004-report.md`
+
+> **F.2 was run by node id, not inferred from the suite.** Conventions §0: *"a gate that cannot
+> fail is not a gate"* — a criterion whose test silently skipped would leave C green while the
+> thing it proves never executed. `-rs` confirms zero skips among the 31.
+>
+> **Four tests live in different files from §9's manifest**, each because the test belongs where
+> its subject lives: A5/A7/A27 in `test_webhook_idempotency.py` (Step 5's module, separate from
+> Step 4's route tests); A8 as a unit test because the mapping is pure; A13 with the meter's
+> behavioural tests rather than its static ones; A25 extending `test_importer.py` so its eight
+> shared fixtures stay in one place. A30 is discharged by the inherited `test_pg_baseline.py`
+> round-trip, which C7 measured as already covering every migration.
+
+---
+
+## 2. Group-specific gates (conventions §2)
+
+| Group | Gate | Failure class it targets |
+|---|---|---|
+| **G3, G10** | migration round-trip + autogenerate-clean + `test_baseline_matches_metadata` | reversibility, convergence — **and C6's UUID trap** |
+| **G5** | concurrent-delivery test with two real sessions, not a mocked race | the insert-first guarantee is only real under concurrency (N4) |
+| **G10** | **G-dispatch derived from the tree** (§0.4) | A11's list-rot — the phase's definition of done |
+| **G16** | both dashboard pages render for a Free account | N11 — gating the route would 403 the dashboard |
+
+**Mutation-check every new security/billing arm** before believing it (SPEC-003 lesson): break the
+arm, confirm red, restore. Two of SPEC-002's four security arms had no teeth until this was done.
+And per SPEC-003's third lesson: **a surviving mutation has three diagnoses** — redundant condition
+(delete), untested arm (add the test), inert difference (document with the measurement). Measure
+what differs before deciding which.
+
+## 2.1 RUN STATE — where a resuming session picks up
+
+**COMPLETE.** All 18 steps, all 31 criteria, all five stop conditions. Suite at **2184 passed, 3
+skipped, 2 xfailed, 0 failed** (baseline 1945) — **no new skip introduced**, which conventions §0
+treats as a red gate.
+**RUN COMPLETE.** Nothing to resume — see `tasks/build-loop-spec004-report.md`.
+
+| Group | State | Commit |
+|---|---|---|
+| harness + pre-flight | ✅ | `36eca9b` |
+| G1+G2 — provider seam, price map | ✅ 21 tests | `d4ae614` |
+| G3 — the ledger, A6 carve-out | ✅ 19 tests | `b672571` |
+| G4 — webhook route, Host-guard fix | ✅ 10 tests | `682f0e7` |
+| G5 — idempotency, out-of-order | ✅ 12 tests | `38c3633` |
+| G6 — checkout, portal, plan page | ✅ 11 tests | `6aae48a` |
+| G7 — status mapping, single writer | ✅ 26 tests | `5995d9b` |
+| G8 — real limits, gates live | ✅ 11 tests | `4cd5043` |
+| G9 — factory bypass closed | ✅ 11 tests | `9402cd7` |
+| G10 — **the meter (A11)** | ✅ 29 tests | `61812f2` |
+| G11 — overage, ceiling, nudges | ✅ 13 tests | `408e43b` |
+| G12 — scheduled jobs | ✅ 13 tests | `44f1d35` |
+| G13 — the trial state machine | ✅ 13 tests | `b69983a` |
+| G14 — restricted mode | ✅ 13 tests | `681daa0` |
+| G15 — the four billing emails | ✅ 20 tests | `3b11c17` |
+| G16 — the three feature gates | ✅ 12 tests | `4e0af61` |
+| G17+G18 — importer gate, **A31** | ✅ 5 tests | `a0146e5` |
+| G-Final — compound stop | ✅ all five conditions | `fb4d962` |
+
+**All 31 criteria discharged** — A1 through A31, including **A11** (the definition of done) and
+**A31** (the exit criterion). G-Final proves it formally.
+
+## 3. Circuit breaker (conventions §3)
+
+Halt and write the report with status `HALTED` if: more than **5** tasks poison, **or** G9/G10
+poisons (A11 is the definition of done and G9 is its precondition), **or** G3/G4 poisons (the
+webhook path has no idempotency guarantee without them), **or** two consecutive groups fail their
+full-suite gate.

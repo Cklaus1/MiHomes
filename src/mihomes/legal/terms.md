@@ -11,7 +11,7 @@ These terms are between you and [COMPANY LEGAL NAME], [REGISTERED ADDRESS] ("MiH
 
 # The service
 
-MiHomes is software for running homes and estates: properties, rooms and assets, inventory, tasks, issues, work orders, vendors, staff, documents, budgets, a calendar, in-app chat, a Telegram bot, an AI advisor, and spreadsheet import and export. MiHomes is in [PRIVATE BETA]; features can change, and we may add, change or remove them.
+MiHomes is software for running homes and estates: properties, rooms and assets, inventory, tasks, issues, work orders, vendors, staff, documents, budgets, a calendar, in-app chat, a Telegram bot, an AI advisor, and spreadsheet import and export. MiHomes is in beta; features can change, and we may add, change or remove them.
 
 # Accounts and households
 

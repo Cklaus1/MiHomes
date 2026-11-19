@@ -1430,3 +1430,20 @@ owner/admin grants. Everyone else stays one-way.
 - [x] Tests: permission gate, staff scope, property matching, edit/delete flow-back, no
       duplicate push, syncToken expiry, revoked permission
 - [ ] Deploy (migration 0030, backup first) + live test from a phone
+
+## Open sign-up + Pro/Estate trials (2026-11-19, branch `open-signup`)
+
+Decided by user: drop the waitlist; everyone can sign up free now. Pro and Estate each start with a
+14-day no-card trial (app-managed, one trial per account ever). Trial buttons on the landing plan
+cards and on the billing page.
+
+- [ ] `trial.py`: `start_trial` / `maybe_start_trial` take `plan` (pro | estate; anything else refused)
+- [ ] `POST /billing/trial` takes `plan`; billing page: trial button on Pro and Estate cards;
+      `/billing?trial=estate` shows a "Start your 14-day Estate trial" callout (one deliberate click)
+- [ ] Landing (open mode): "Try for free" CTAs; Pro/Estate cards get "Try … free for 14 days" →
+      `/signup?next=/billing?trial=<plan>`; plans note + FAQ drop "opening in stages"
+- [ ] Sign-up carries `next` for Google too (cookie through the OAuth round trip); `/signup` when
+      already signed in goes to `next`
+- [ ] Trial wording names the plan (trial-ending email, banner)
+- [ ] Tests; landing + billing + auth + trial suites on Postgres
+- [ ] Deploy (when user says): unset `MIHOMES_SIGNUP_MODE` in Droplet web.env + deploy.sh

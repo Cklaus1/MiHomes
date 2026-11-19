@@ -63,11 +63,19 @@ def _account(db: Session, principal) -> Account:
 
 @router.get("/billing")
 @declares(BILLING_ACTION, Access.ACCOUNT)
-def index(request: Request, principal=require_authenticated(),
+def index(request: Request, trial: str = "", principal=require_authenticated(),
           db: Session = Depends(get_db)):
-    """The plan page: current plan, status, and what upgrading would buy."""
+    """The plan page: current plan, status, and what upgrading would buy.
+
+    `?trial=<plan>` (from the landing page's "Try … free" buttons, for someone already signed in)
+    puts that plan's trial at the top as one button. Never starts it from a GET.
+    """
+    from mihomes.services.billing.trial import trial_plan
+
     account = _account(db, principal)
-    return templates.TemplateResponse(request, "billing.html", _page_context(account))
+    return templates.TemplateResponse(
+        request, "billing.html", _page_context(account, trial_offer=trial_plan(trial))
+    )
 
 
 def _page_context(account: Account, **extra) -> dict:
@@ -105,9 +113,10 @@ def _page_context(account: Account, **extra) -> dict:
             and account.subscription_status == "active" and account.plan in saving
         ),
         "plans": plan_cards(account, prices),
-        # The Pro card offers the one-click trial when pressing it would work — the same check
-        # the upgrade prompts use, so the two never disagree.
+        # The Pro and Estate cards offer the one-click trial when pressing it would work — the
+        # same check the upgrade prompts use, so the two never disagree.
         "trial_available": current == "free" and trial_available(account),
+        "trial_offer": None,
         **extra,
     }
 
@@ -374,6 +383,7 @@ def start_trial(
     request: Request,
     action: str = Form(""),
     next: str = Form(""),
+    plan: str = Form("pro"),
     principal=require_authenticated(),
     db: Session = Depends(get_db),
 ):
@@ -391,7 +401,8 @@ def start_trial(
     from mihomes.auth.session_flow import safe_next
     from mihomes.services.billing.trial import maybe_start_trial
 
-    if maybe_start_trial(db, _account(db, principal), action=action or "upgrade_prompt"):
+    if maybe_start_trial(db, _account(db, principal), action=action or "upgrade_prompt",
+                         plan=plan):
         return RedirectResponse(safe_next(next) or "/", status_code=303)
     return RedirectResponse("/billing", status_code=303)
 

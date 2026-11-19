@@ -418,7 +418,8 @@ class EmailService:
 
     def send_trial_ending(self, to: str, *, days_left: int, ends_on: str, billing_url: str,
                           home_count: int | None = None,
-                          max_homes: int | None = None) -> None:
+                          max_homes: int | None = None,
+                          plan_name: str = "Pro") -> None:
         """The trial is nearly over — **sent by the scheduler, never by a webhook** (F3, B2).
 
         Carries the over-limit numbers when they apply, because §4.3 shows the home-picker ~3
@@ -433,6 +434,7 @@ class EmailService:
                 "days_left": days_left,
                 "ends_on": ends_on,
                 "billing_url": billing_url,
+                "plan_name": plan_name,
                 "home_count": home_count,
                 "max_homes": max_homes,
                 "over_limit": bool(

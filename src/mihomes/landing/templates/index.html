@@ -237,6 +237,7 @@
   .tag{position:absolute;top:-13px;left:30px;background:linear-gradient(135deg,var(--brand-light),var(--brand));
        color:#fff;font-size:11.5px;font-weight:750;letter-spacing:.05em;text-transform:uppercase;
        padding:4px 11px;border-radius:999px;box-shadow:0 4px 12px -2px rgba(2,132,199,.5)}
+  .plan-cta{margin-top:18px;width:100%;justify-content:center}
   .plans-note{text-align:center;margin:30px 0 0;color:var(--muted);font-size:15px}
 
   /* FAQ ----------------------------------------------------------------------- */
@@ -296,7 +297,7 @@
 {% block header_cta %}
   {% if signup_url %}
   <a class="link" href="{{ signin_url }}">Sign in</a>
-  <a class="btn btn-sm" href="{{ signup_url }}">Start free</a>
+  <a class="btn btn-sm" href="{{ signup_url }}">Try for free</a>
   {% elif waitlist_mode %}
   <a class="link" href="{{ signin_url }}">Sign in</a>
   <a class="btn btn-sm" href="#waitlist">Join the waitlist</a>
@@ -324,7 +325,7 @@
            OAuth stub feeding the waitlist — there is nothing to sign up *to* there. #}
         <div class="cta-row">
           {% if signup_url %}
-          <a class="btn" href="{{ signup_url }}">Start free
+          <a class="btn" href="{{ signup_url }}">Try for free
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
           {% elif waitlist_mode %}
           {# Product app with MIHOMES_SIGNUP_MODE=waitlist: no open signup, the form below instead. #}
@@ -565,6 +566,7 @@
             <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>One home, three seats</li>
             <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Free forever</li>
           </ul>
+          {% if signup_url %}<a class="btn btn-ghost btn-sm plan-cta" href="{{ signup_url }}">Start free</a>{% endif %}
         </div>
         <div class="card plan plan-pop">
           <span class="tag">Most popular</span>
@@ -575,6 +577,7 @@
             <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Staff and team seats</li>
             <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>External staff invites</li>
           </ul>
+          {% if signup_url %}<a class="btn btn-sm plan-cta" href="{{ signup_url }}?trial=pro">Try Pro free for 14 days</a>{% endif %}
         </div>
         <div class="card plan">
           <h3>Estate</h3>
@@ -584,14 +587,15 @@
             <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Family-office scale</li>
             <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Priority AI</li>
           </ul>
+          {% if signup_url %}<a class="btn btn-ghost btn-sm plan-cta" href="{{ signup_url }}?trial=estate">Try Estate free for 14 days</a>{% endif %}
         </div>
       </div>
       <p class="plans-note">
         {# Phase 0 had no product to "get started" with, so all three CTAs resolved to the
            waitlist (GTM §2.6). Served from the product app, Free is real and reachable. #}
         {% if signup_url %}
-        Free is free forever — <a href="{{ signup_url }}">start there</a>. Pro and Estate are
-        opening in stages.
+        Free is free forever — <a href="{{ signup_url }}">start there</a>. Pro and Estate each
+        start with a 14-day free trial. No card needed.
         {% else %}
         All three start with the <a href="#waitlist">waitlist</a>.
         {% endif %}
@@ -627,7 +631,7 @@
           {% endif %}</details>
         <details><summary>When does it launch?</summary>
           {% if signup_url %}
-          <p>We're opening access in stages — the free plan is available now.</p>
+          <p>It's available now — sign up and use it free, today.</p>
           {% else %}
           <p>We're opening access in stages. The waitlist is how you get in.</p>
           {% endif %}</details>
@@ -648,10 +652,10 @@
         <div>
           <span class="eyebrow">Get started</span>
           <h2>Take control of every home.</h2>
-          <p class="lede">One home, three seats, free forever. No credit card.</p>
+          <p class="lede">One home, three seats, free forever. Try Pro or Estate free for 14 days. No credit card.</p>
         </div>
         <div class="cta-row" style="margin:0">
-          <a class="btn btn-white" href="{{ signup_url }}">Start free</a>
+          <a class="btn btn-white" href="{{ signup_url }}">Try for free</a>
           <a class="text-link" href="{{ signin_url }}">Already have an account?</a>
         </div>
       </div>

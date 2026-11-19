@@ -1436,16 +1436,22 @@ owner/admin grants. Everyone else stays one-way.
 Decided by user: Free 500k / Pro 10M / Estate 20M tokens a month; tokens in + out count equally;
 plan cards mix words + number ("Standard AI use · 10M tokens a month"). Pro/Estate keep the 20% buffer.
 
-- [ ] Providers keep the last call's token usage (`last_usage`): NIM/OpenRouter (incl. stream via
+- [x] Providers keep the last call's token usage (`last_usage`): NIM/OpenRouter (incl. stream via
       `stream_options.include_usage`), Claude, OpenAI; Ollama falls back
-- [ ] `MeteredProvider` records tokens per call; falls back to chars/4 when usage is missing (never 0);
+- [x] `MeteredProvider` records tokens per call; falls back to chars/4 when usage is missing (never 0);
       `stream()` records in `finally` after consumption (abandoned streams still counted)
-- [ ] Migration 0033: `ai_usage_rollups.tokens_used` BIGINT default 0; clear this period's 80/100%
+- [x] Migration 0033: `ai_usage_rollups.tokens_used` BIGINT default 0; clear this period's 80/100%
       warn markers (they were set against call counts). Down-revision 0031 for now — re-point
       whichever of 0032_invite_token_policy / 0033 merges second
-- [ ] `limits.py`: `ai_calls_per_month` → `ai_tokens_per_month` + `ai_usage_label`
-- [ ] Meter: cap/ceiling/nudges/denial on tokens ("1.2M of 10M AI tokens used"); `calls_used` kept as telemetry
-- [ ] `usage()` meter key `ai_tokens`; plan cards text
-- [ ] Tests updated + new tests (token capture, stream, fallback, ceiling on tokens); full metering
+- [x] `limits.py`: `ai_calls_per_month` → `ai_tokens_per_month` + `ai_usage_label`
+- [x] Meter: cap/ceiling/nudges/denial on tokens ("1.2M of 10M AI tokens used"); `calls_used` kept as telemetry
+- [x] `usage()` meter key `ai_tokens`; plan cards text
+- [x] Tests updated + new tests (token capture, stream, fallback, ceiling on tokens); full metering
       suites run against Postgres (not skipped)
-- [ ] Not deployed until user says so (image-support 065f1c6 also pending deploy)
+- [ ] **Not deployed** until user says so (image-support 065f1c6 also pending deploy)
+
+**Review (2026-11-19):** 9a6da63 + cc81e81. 2,199 unit pass (1 pre-existing email failure, also on base);
+387 related integration/web pass on Postgres, 2 failures also on base (chat-digest unsubscribe,
+waitlist landing DB). Migration 0033 up/down/up on an empty DB, single head. Known gap: the direct
+`claude` provider's agentic loop (`agent.py`) calls the raw client and isn't token-metered — not used
+while the provider is OpenRouter.

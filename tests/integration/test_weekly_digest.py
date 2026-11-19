@@ -232,3 +232,82 @@ def test_the_route_is_reachable_on_a_non_estate_plan(web_client_as, _pg_engine):
         f"POST /ai/estate-digest returned {response.status_code} on a Pro account; "
         "A14b requires the on-request digest on every plan (N8)"
     )
+
+
+# ── Written to the person it is sent to, signed MiHomes (2026-11-23) ─────────────────────────
+
+
+class _CapturingProvider:
+    """Records what the digest sends to the model; returns a fixed letter."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    def complete(self, system, user_message, attachments=None):
+        self.calls.append((system, user_message))
+        return "Hi Millena,\n\n## Operations\nQuiet week.\n\nMiHomes"
+
+
+def _capture(monkeypatch):
+    from mihomes.services.ai import reports
+
+    provider = _CapturingProvider()
+    monkeypatch.setattr(reports, "get_provider", lambda *a, **k: provider)
+    return provider
+
+
+def test_the_reader_is_named_to_the_model(session, monkeypatch):
+    """The weekly email went to the account holder but greeted "Dear Chris", the staff member
+    marked OWNER, because the model was never told who was reading."""
+    from datetime import date
+
+    from mihomes.services.ai.reports import generate_estate_digest
+
+    provider = _capture(monkeypatch)
+    generate_estate_digest(session, date(2026, 11, 16), date(2026, 11, 23), reader_name="Millena")
+    system, message = provider.calls[-1]
+    assert message.startswith("Reader: Millena\n")
+
+    generate_estate_digest(session, date(2026, 11, 16), date(2026, 11, 23))
+    assert not provider.calls[-1][1].startswith("Reader:"), "no reader given, none invented"
+
+
+def test_the_prompt_greets_the_reader_and_signs_as_mihomes():
+    from mihomes.services.ai.reports import ESTATE_DIGEST_PROMPT as prompt
+
+    assert "Reader:" in prompt and "Hi <first name>," in prompt.replace("\\n", "")
+    assert "OWNER is the homeowner" in prompt
+    assert '"MiHomes"' in prompt and "sign-off" in prompt
+    assert "Never offer to" in prompt
+    assert "estate manager to the owner" not in prompt, "the old 'letter to the owner' framing"
+
+
+def test_the_weekly_email_passes_the_account_holders_name(session, account_a, monkeypatch):
+    """`_send_one_digest` resolves the owner first: their address receives it and their name
+    is the reader."""
+    import uuid as _uuid
+    from datetime import date
+
+    from mihomes.cli import jobs
+    from mihomes.ids import new_id
+    from mihomes.models.account import Account
+    from mihomes.models.membership import Membership
+    from mihomes.models.user import User
+
+    monkeypatch.setenv("EMAIL_PROVIDER", "console")
+    user = User(id=new_id(), google_sub=f"sub-digest-{_uuid.uuid4().hex[:8]}",
+                email="holder@example.com", name="Millena")
+    session.add(user)
+    session.flush()
+    session.add(Membership(id=new_id(), account_id=account_a, user_id=user.id,
+                           role="owner", status="active"))
+    session.commit()
+
+    provider = _capture(monkeypatch)
+    account = session.get(Account, account_a)
+    assert jobs._send_one_digest(
+        session, account, date(2026, 11, 16), date(2026, 11, 23), "the week of 16 November"
+    ) == 1
+    assert provider.calls[-1][1].startswith("Reader: Millena\n")
+    rows = _queued_digests(session)
+    assert [r.to_address for r in rows] == ["holder@example.com"]

@@ -1,5 +1,5 @@
 {# The three-way choice at a plan limit — `PRICING` §4.1: "Adding another home is a Pro feature.
-   Start your 14-day Pro trial."
+   Start your 30-day Pro trial."
 
    Shared by the popup on /properties, the /properties/new page and the 402 paywall, so the
    choice reads the same wherever the limit is met. Expects:
@@ -21,7 +21,7 @@
     <h2 class="text-lg font-semibold text-gray-900">{{ headline }}</h2>
     <p class="mt-1 text-sm text-gray-600">
       {% if trial_available and upgrade_target == 'pro' %}
-        Start your 14-day Pro trial to continue — no card needed. After the trial you can
+        Start your 30-day Pro trial to continue — no card needed. After the trial you can
         subscribe, or go back to Free; nothing you add is deleted.
       {% elif upgrade_target %}
         This is included in {{ plan_name }}.
@@ -40,7 +40,7 @@
           <input type="hidden" name="next" value="{{ trial_next or '/' }}">
           <button type="submit" data-testid="start-trial"
                   class="w-full rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700">
-            Start 14-day Pro trial
+            Start 30-day Pro trial
           </button>
         </form>
       {% endif %}

@@ -17,7 +17,7 @@
   {% if trial_offer %}
     {% if trial_available %}
       <div data-testid="trial-offer" class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
-        <p class="text-sm text-blue-900"><strong>Try {{ trial_offer|capitalize }} free for 14 days.</strong> No card needed — you go back to Free afterwards unless you choose a plan.</p>
+        <p class="text-sm text-blue-900"><strong>Try {{ trial_offer|capitalize }} free for 30 days.</strong> No card needed — you go back to Free afterwards unless you choose a plan.</p>
         <form method="post" action="/billing/trial">
           <input type="hidden" name="action" value="landing_offer">
           <input type="hidden" name="next" value="/">
@@ -192,7 +192,7 @@
             <input type="hidden" name="plan" value="{{ plan.key }}">
             <button type="submit" data-testid="start-trial{% if plan.key != 'pro' %}-{{ plan.key }}{% endif %}"
                     class="w-full min-h-[44px] rounded-lg px-4 text-sm font-semibold text-brand-700 underline hover:text-brand-800">
-              Start 14-day free trial — no card needed
+              Start 30-day free trial — no card needed
             </button>
           </form>
         {% endif %}

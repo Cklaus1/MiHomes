@@ -342,6 +342,26 @@ def weekly_digest(
 DIGEST_WINDOW_DAYS = 7
 
 
+def _owner_name(session, account) -> str | None:
+    """The account holder's name as entered on their profile, for the digest's greeting.
+
+    The same active owner `_billing_email` sends to. None when the profile has no name, and the
+    digest then opens without a greeting rather than guessing one.
+    """
+    from sqlalchemy import select
+
+    from mihomes.models.membership import Membership
+    from mihomes.models.user import User
+
+    return session.execute(
+        select(User.name)
+        .join(Membership, Membership.user_id == User.id)
+        .where(Membership.account_id == account.id, Membership.role == "owner",
+               Membership.status == "active")
+        .limit(1)
+    ).scalar_one_or_none()
+
+
 def _send_one_digest(session, account, start, end, period: str) -> int:
     """Generate one account's digest and enqueue it. Returns 1 if enqueued, 0 if not.
 
@@ -350,19 +370,21 @@ def _send_one_digest(session, account, start, end, period: str) -> int:
     no mail, rather than a weekly email saying nothing happened.
     """
     from mihomes.services.ai.reports import generate_estate_digest
+    from mihomes.services.billing.service import _billing_email
     from mihomes.services.email import get_email_provider
     from mihomes.services.email.service import EmailService
 
-    response = generate_estate_digest(session, start, end)
+    # Resolved before generating: the summary greets the person it is emailed to, so their name
+    # goes into the prompt (2026-11-23). Raises on an account with no owner, as the send did.
+    to = _billing_email(session, account)
+    response = generate_estate_digest(session, start, end, reader_name=_owner_name(session, account))
     text = (getattr(response, "text", "") or "").strip()
     if not text:
         logger.info("weekly-digest: empty digest for account %s, nothing sent", account.id)
         return 0
 
-    from mihomes.services.billing.service import _billing_email
-
     EmailService(get_email_provider(), session=session).send_weekly_digest(
-        _billing_email(session, account),
+        to,
         digest_html=_as_html(text),
         period=period,
     )

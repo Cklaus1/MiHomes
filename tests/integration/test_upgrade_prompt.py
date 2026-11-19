@@ -144,7 +144,7 @@ def test_start_trial_then_add_the_home(rls_app):  # noqa: F811
 
     banner = client.get("/trial-status", headers=_HTML)
     assert 'data-testid="trial-banner"' in banner.text
-    assert "14 days left" in banner.text
+    assert "30 days left" in banner.text
 
 
 def test_the_trial_starts_only_once(rls_app):  # noqa: F811

@@ -54,7 +54,7 @@ def test_an_estate_trial_grants_estate():
     assert start_trial(_Session(), account, plan="estate") is True
     assert account.plan == "estate"
     assert account.subscription_status == "trialing"
-    assert (account.trial_ends_at - account.trial_used_at).days == 14
+    assert (account.trial_ends_at - account.trial_used_at).days == 30
 
 
 def test_a_made_up_plan_starts_nothing():
@@ -103,7 +103,7 @@ def _sign_up_and_create_account(client, mail, path):
 def test_signing_up_from_the_estate_button_starts_an_estate_trial(client, mail):
     page, made = _sign_up_and_create_account(client, mail, "/signup?trial=estate")
 
-    assert "14-day Estate trial" in page.text, "the form should say which trial is coming"
+    assert "30-day Estate trial" in page.text, "the form should say which trial is coming"
     account = _new_account(client)
     assert account.plan == "estate"
     assert account.subscription_status == "trialing"
@@ -140,7 +140,7 @@ def test_signed_in_trial_link_goes_to_the_billing_offer(rls_app):  # noqa: F811
 
     page = client.get("/billing?trial=estate", headers=_HTML)
     assert 'data-testid="trial-offer"' in page.text
-    assert "Try Estate free for 14 days" in page.text
+    assert "Try Estate free for 30 days" in page.text
     assert _account_state(account_id)[1] == "free", "a GET must never start a trial"
 
 

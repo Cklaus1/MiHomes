@@ -13,7 +13,10 @@ class OpenRouterProvider(NIMProvider):
     LABEL = "OpenRouter"
     DEFAULT_MODEL = "anthropic/claude-haiku-5.5"
 
-    # H13: vision callers (room scans) check this flag. Haiku 5.5 accepts images on
-    # OpenRouter, but the image path through this client is not verified yet, and the
-    # model is operator-configurable (a text-only slug would break), so it stays off.
-    supports_images: bool = False
+    # H13: vision callers (room scans) check this flag. It follows the configured model,
+    # because OpenRouter fronts both vision models (Anthropic's Claude family) and text-only
+    # ones (DeepSeek chat): pointing `ai.openrouter_model` at a text-only slug must turn room
+    # scans off, or the model "lists the assets in these photos" without seeing any.
+    @property
+    def supports_images(self) -> bool:
+        return self.model.startswith("anthropic/")

@@ -118,13 +118,14 @@ class MeteredProvider:
         fails before producing anything is not counted, matching `complete`.
         """
         self._check()
-        return self._metered_stream(args, kwargs)
+        # The provider is called now, as before; only the *record* waits for the stream to end.
+        return self._metered_stream(self._provider.stream(*args, **kwargs), args, kwargs)
 
-    def _metered_stream(self, args, kwargs):
+    def _metered_stream(self, chunks, args, kwargs):
         pieces: list[str] = []
         failed = False
         try:
-            for chunk in self._provider.stream(*args, **kwargs):
+            for chunk in chunks:
                 pieces.append(chunk)
                 yield chunk
         except Exception:

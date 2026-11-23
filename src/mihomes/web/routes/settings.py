@@ -134,6 +134,9 @@ _NOTICES = {
     "saved": "Settings saved",
     "account_saved": "Account name saved",
     "profile_saved": "Profile saved",
+    "emails_saved": "Email choices saved",
+    "team_emails_saved": "Your team's emails saved",
+    "emails_resumed": "Optional emails turned back on",
     "role_changed": "Role changed",
     "access_saved": "Property access saved",
     "playbooks_on": "Playbook editing turned on — they can now create and edit playbooks",
@@ -318,6 +321,126 @@ def _home_for(principal) -> str:
     the tabs. It used to send owners and admins back to one long page that held both.
     """
     return "/settings/connections"
+
+
+# ── Emails — every role sees their own; owners and admins also set the team's (2026-11-23) ──
+#
+# Personal changes read `principal.membership_id` only and accept no member id, the same
+# self-only mechanism as the profile and messenger routes. The team settings are an estate
+# setting, so that one route declares `member.manage` (owner/admin).
+
+
+def _membership(db: Session, principal):
+    from mihomes.models.membership import Membership
+
+    return db.get(Membership, principal.membership_id)
+
+
+def _unsubscribed_by_link(db: Session, principal) -> bool:
+    """Did this person use an email's unsubscribe link? Only that reason can be undone here:
+    a spam complaint or a bounce is never reversed from a settings page."""
+    from sqlalchemy import select
+
+    from mihomes.models.email_suppression import EmailSuppression
+
+    user = db.get(_user_model(), principal.user_id)
+    if user is None or not user.email:
+        return False
+    reason = db.execute(
+        select(EmailSuppression.reason).where(EmailSuppression.address == user.email.strip().lower())
+    ).scalar_one_or_none()
+    return reason == "unsubscribe"
+
+
+def _emails_context(db: Session, principal, **extra):
+    from mihomes.models.account import Account
+    from mihomes.services.email import preferences
+
+    membership = _membership(db, principal)
+    context = {
+        "page": "settings",
+        "account": db.get(Account, principal.account_id),
+        "role": principal.role,
+        "mine": preferences.page_rows(db, membership),
+        "team": preferences.team_rows(db) if principal.role in ("owner", "admin") else None,
+        "roles": preferences.ROLES,
+        "role_labels": preferences.ROLE_LABELS,
+        "unsubscribed": _unsubscribed_by_link(db, principal),
+    }
+    context.update(extra)
+    return context
+
+
+@router.get("/settings/emails")
+@declares(_PROFILE_ACTION, Access.ACCOUNT)
+def emails_page(request: Request, principal=require_authenticated(),
+                db: Session = Depends(get_db)):
+    """**Emails** — which emails you get, and (owners/admins) which emails your team gets."""
+    return templates.TemplateResponse(
+        request, "settings/emails.html", _emails_context(db, principal, notice=_notice(request))
+    )
+
+
+@router.post("/settings/emails/mine")
+@declares(_PROFILE_ACTION, Access.ACCOUNT)
+async def save_my_emails(request: Request, principal=require_authenticated(),
+                         db: Session = Depends(get_db)):
+    """Save the signed-in member's own switches. A checkbox that is absent means off.
+
+    Only emails the member's role is given are touched: a posted type their role is not given is
+    ignored, so nobody can switch on an email the household did not send them.
+    """
+    from mihomes.services.email import preferences
+
+    form = await request.form()
+    _require_csrf(request, str(form.get("csrf_token", "")))
+    membership = _membership(db, principal)
+    chosen = set(form.getlist("on"))
+    for t in preferences.OPTIONAL:
+        if membership.role in preferences.team_roles(db, t.key):
+            preferences.set_personal_switch(db, membership, t.key, t.key in chosen)
+    db.commit()
+    return RedirectResponse("/settings/emails?notice=emails_saved", status_code=303)
+
+
+@router.post("/settings/emails/team")
+@declares(_SETTINGS_ACTION, Access.ACCOUNT)
+async def save_team_emails(request: Request, principal=require_authenticated(),
+                           db: Session = Depends(get_db)):
+    """Save which roles get each optional email. Fields are `<type>.<role>` checkboxes; roles a
+    type does not allow are dropped in `set_team_roles`, whatever is posted."""
+    from mihomes.services.email import preferences
+
+    form = await request.form()
+    _require_csrf(request, str(form.get("csrf_token", "")))
+    ticked = set(form.getlist("roles"))
+    for t in preferences.OPTIONAL:
+        preferences.set_team_roles(
+            db, t.key, [r for r in preferences.ROLES if f"{t.key}.{r}" in ticked]
+        )
+    db.commit()
+    return RedirectResponse("/settings/emails?notice=team_emails_saved#team", status_code=303)
+
+
+@router.post("/settings/emails/resume")
+@declares(_PROFILE_ACTION, Access.ACCOUNT)
+def resume_emails(request: Request, csrf_token: str = Form(""),
+                  principal=require_authenticated(), db: Session = Depends(get_db)):
+    """Undo an unsubscribe-link click for the signed-in person's own address. Removes only a
+    suppression whose reason is `unsubscribe`; complaints and bounces stay."""
+    from sqlalchemy import delete
+
+    from mihomes.models.email_suppression import EmailSuppression
+
+    _require_csrf(request, csrf_token)
+    user = db.get(_user_model(), principal.user_id)
+    if user is not None and user.email:
+        db.execute(delete(EmailSuppression).where(
+            EmailSuppression.address == user.email.strip().lower(),
+            EmailSuppression.reason == "unsubscribe",
+        ))
+        db.commit()
+    return RedirectResponse("/settings/emails?notice=emails_resumed", status_code=303)
 
 
 # ── Messenger connections — every role, own membership only ────────────────────

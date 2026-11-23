@@ -48,6 +48,7 @@ from mihomes.models.chat_notify import ChatNotifyPref
 from mihomes.models.membership import Membership
 from mihomes.models.user import User
 from mihomes.services.chat.access import visible_conversation_ids
+from mihomes.services.email.preferences import wants
 
 logger = logging.getLogger(__name__)
 
@@ -190,7 +191,9 @@ def plan_account(session: Session, *, now: datetime) -> AccountPlan:
                 plan.pushes.append((member_id, build_payload(conv, reason, title=title(conv))))
 
         through = prefs.digest_through if prefs is not None else None
-        if prefs is not None and not prefs.email_digest:
+        # Team setting AND own switch (Settings, Emails; 2026-11-23). `wants` reads the same
+        # `email_digest` column this check used to, plus which roles the household chose.
+        if not wants(session, member, "chat_digest"):
             continue
         if through is not None and through + DIGEST_INTERVAL > cutoff:
             continue
@@ -211,7 +214,7 @@ def plan_account(session: Session, *, now: datetime) -> AccountPlan:
             "conversations": [{"title": t, "count": n} for t, n in sorted(counts.items())],
             "total": sum(counts.values()),
             "chat_url": f"{base}/chat/",
-            "settings_url": f"{base}/settings/connections#chat-notifications",
+            "settings_url": f"{base}/settings/emails",
         }))
         plan.digest_marks.append((member_id, cutoff))
     return plan

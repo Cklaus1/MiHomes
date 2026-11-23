@@ -485,7 +485,8 @@ class EmailService:
         )
 
     def send_weekly_digest(self, to: str, *, digest_html: str,
-                           period: str | None = None) -> None:
+                           period: str | None = None, name: str | None = None,
+                           settings_url: str | None = None) -> None:
         """The scheduled estate digest — Estate's `weekly_ai_report` key (D16).
 
         **`digest_html` arrives already rendered.** `generate_estate_digest` returns prose from
@@ -502,7 +503,9 @@ class EmailService:
         self._send(
             to,
             "weekly_digest",
-            {"digest_html": digest_html, "period": period},
+            # `name` greets each recipient (2026-11-23): one report per household, many readers.
+            {"digest_html": digest_html, "period": period, "name": name,
+             "settings_url": settings_url},
             # D13: A periodic summary nobody asked for individually. Suppressible, and it carries
             # the RFC 8058 headers `drain` adds for lifecycle mail.
             klass="lifecycle",

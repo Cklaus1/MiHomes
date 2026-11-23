@@ -180,6 +180,12 @@ def send_due_steps(session: Session, email_service, *, now: datetime) -> int:
     for enrolment in due_sends(session, now=now):
         if enrolment.campaign in PAUSED:
             continue  # not sent, not advanced: it stays due for when the campaign resumes
+        if not _owner_wants_tips(session, enrolment.account_id):
+            # Turned off on the Emails page: the sequence is finished, not postponed, so turning
+            # it back on later does not send weeks-old "day 1" tips.
+            complete(session, enrolment, now=now)
+            session.flush()
+            continue
         sequence = SEQUENCES[enrolment.campaign]
         template, _delay = sequence[enrolment.step]
 
@@ -201,6 +207,21 @@ def send_due_steps(session: Session, email_service, *, now: datetime) -> int:
         sent += 1
 
     return sent
+
+
+def _owner_wants_tips(session: Session, account_id) -> bool:
+    """Does the account's active owner want getting-started tips (Settings, Emails)?"""
+    from mihomes.models.membership import Membership
+    from mihomes.services.email.preferences import wants
+
+    owner = session.execute(
+        sa.select(Membership).where(
+            Membership.account_id == account_id,
+            Membership.role == "owner",
+            Membership.status == "active",
+        ).limit(1)
+    ).scalar_one_or_none()
+    return owner is not None and wants(session, owner, "onboarding_tips")
 
 
 def _recipient(session: Session, account_id) -> str:

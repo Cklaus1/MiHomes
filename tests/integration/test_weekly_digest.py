@@ -234,18 +234,19 @@ def test_the_route_is_reachable_on_a_non_estate_plan(web_client_as, _pg_engine):
     )
 
 
-# ── Written to the person it is sent to, signed MiHomes (2026-11-23) ─────────────────────────
+# ── One report, greeted per reader, signed MiHomes (2026-11-23) ──────────────────────────────
 
 
 class _CapturingProvider:
-    """Records what the digest sends to the model; returns a fixed letter."""
+    """Records what the digest sends to the model; returns a fixed report."""
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
 
     def complete(self, system, user_message, attachments=None):
         self.calls.append((system, user_message))
-        return "Hi Millena,\n\n## Operations\nQuiet week.\n\nMiHomes"
+        return ("## Operations\nQuiet week. Chris Klaus may want to approve the roof quote."
+                "\n\nMiHomes")
 
 
 def _capture(monkeypatch):
@@ -256,35 +257,22 @@ def _capture(monkeypatch):
     return provider
 
 
-def test_the_reader_is_named_to_the_model(session, monkeypatch):
-    """The weekly email went to the account holder but greeted "Dear Chris", the staff member
-    marked OWNER, because the model was never told who was reading."""
-    from datetime import date
-
-    from mihomes.services.ai.reports import generate_estate_digest
-
-    provider = _capture(monkeypatch)
-    generate_estate_digest(session, date(2026, 11, 16), date(2026, 11, 23), reader_name="Millena")
-    system, message = provider.calls[-1]
-    assert message.startswith("Reader: Millena\n")
-
-    generate_estate_digest(session, date(2026, 11, 16), date(2026, 11, 23))
-    assert not provider.calls[-1][1].startswith("Reader:"), "no reader given, none invented"
-
-
-def test_the_prompt_greets_the_reader_and_signs_as_mihomes():
+def test_the_prompt_writes_no_greeting_and_signs_as_mihomes():
+    """It once opened "Dear Chris" (the staff member marked OWNER) in an email that went to the
+    account holder. The report is now greeting-free; the email greets each reader."""
     from mihomes.services.ai.reports import ESTATE_DIGEST_PROMPT as prompt
 
-    assert "Reader:" in prompt and "Hi <first name>," in prompt.replace("\\n", "")
-    assert "OWNER is the homeowner" in prompt
-    assert '"MiHomes"' in prompt and "sign-off" in prompt
-    assert "Never offer to" in prompt
-    assert "estate manager to the owner" not in prompt, "the old 'letter to the owner' framing"
+    flat = prompt  # the source's line continuations are already joined at runtime
+    assert "no greeting" in flat and "Never address the summary to a named person" in flat
+    assert "OWNER is the homeowner" in flat
+    assert '"MiHomes"' in flat and "sign-off" in flat
+    assert "Never offer to" in flat
+    assert "estate manager to the owner" not in flat
 
 
-def test_the_weekly_email_passes_the_account_holders_name(session, account_a, monkeypatch):
-    """`_send_one_digest` resolves the owner first: their address receives it and their name
-    is the reader."""
+def test_the_report_goes_to_everyone_who_wants_it_greeted_by_name(session, account_a, monkeypatch):
+    """Owner and admin by default, never staff, minus anyone who turned it off. Generated once."""
+    import json
     import uuid as _uuid
     from datetime import date
 
@@ -293,14 +281,22 @@ def test_the_weekly_email_passes_the_account_holders_name(session, account_a, mo
     from mihomes.models.account import Account
     from mihomes.models.membership import Membership
     from mihomes.models.user import User
+    from mihomes.services.email import preferences
+    from mihomes.services.email.render import render_template
 
     monkeypatch.setenv("EMAIL_PROVIDER", "console")
-    user = User(id=new_id(), google_sub=f"sub-digest-{_uuid.uuid4().hex[:8]}",
-                email="holder@example.com", name="Millena")
-    session.add(user)
-    session.flush()
-    session.add(Membership(id=new_id(), account_id=account_a, user_id=user.id,
-                           role="owner", status="active"))
+    members = {}
+    for role, name in (("owner", "Millena"), ("admin", "Ana"), ("admin", "Off"), ("staff", "Sam")):
+        user = User(id=new_id(), google_sub=f"sub-{_uuid.uuid4().hex[:8]}",
+                    email=f"{name.lower()}@example.com", name=name)
+        session.add(user)
+        session.flush()
+        m = Membership(id=new_id(), account_id=account_a, user_id=user.id, role=role,
+                       status="active")
+        session.add(m)
+        session.flush()
+        members[name] = m
+    preferences.set_personal_switch(session, members["Off"], "weekly_report", False)
     session.commit()
 
     provider = _capture(monkeypatch)
@@ -308,6 +304,28 @@ def test_the_weekly_email_passes_the_account_holders_name(session, account_a, mo
     assert jobs._send_one_digest(
         session, account, date(2026, 11, 16), date(2026, 11, 23), "the week of 16 November"
     ) == 1
-    assert provider.calls[-1][1].startswith("Reader: Millena\n")
-    rows = _queued_digests(session)
-    assert [r.to_address for r in rows] == ["holder@example.com"]
+    assert len(provider.calls) == 1, "the report was generated more than once"
+    assert "Reader:" not in provider.calls[0][1]
+
+    rows = sorted(_queued_digests(session), key=lambda r: r.to_address)
+    assert [r.to_address for r in rows] == ["ana@example.com", "millena@example.com"]
+    ctx = json.loads(rows[1].context) if isinstance(rows[1].context, str) else rows[1].context
+    _, html, text_part = render_template("weekly_digest", ctx)
+    assert "Hi Millena," in html and "Hi Millena," in text_part
+    assert html.count("Hi ") == 1, "greeted twice"
+    assert "/settings/emails" in html
+
+
+def test_nobody_wants_it_means_no_ai_call(session, account_a, monkeypatch):
+    from datetime import date
+
+    from mihomes.cli import jobs
+    from mihomes.models.account import Account
+    from mihomes.services.email import preferences
+
+    preferences.set_team_roles(session, "weekly_report", [])
+    session.commit()
+    provider = _capture(monkeypatch)
+    assert jobs._send_one_digest(session, session.get(Account, account_a),
+                                 date(2026, 11, 16), date(2026, 11, 23), "x") == 0
+    assert provider.calls == []

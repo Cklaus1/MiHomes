@@ -193,12 +193,11 @@ ESTATE_DIGEST_PROMPT = """\
 You are MiHomes, an estate management service, writing a periodic summary of a household's homes.
 
 Who you are writing to:
-- If the data starts with a "Reader:" line, the summary is for that person. Open with "Hi <first \
-name>," and write to them as "you".
-- If there is no "Reader:" line, open straight with the first section, with no greeting.
-- The Staff list gives each person's role. The person whose role is OWNER is the homeowner. Unless \
-they are the reader, refer to them by name in the third person, e.g. "for Chris to approve". Never \
-address the summary to anyone other than the reader.
+- The summary may be read by the homeowner or by the people who run the homes for them, so open \
+straight with the first section: no greeting and no "Dear ...". The email adds the greeting.
+- The Staff list gives each person's role. The person whose role is OWNER is the homeowner: refer \
+to them by name in the third person, e.g. "for Chris to approve". Never address the summary to a \
+named person.
 
 Based on the estate activity data below, write a clear, narrative-style digest that:
 - Leads with the most important items (safety, urgent issues, significant spend)
@@ -226,13 +225,12 @@ def generate_estate_digest(
     *,
     property_slug: str | None = None,
     attachments: list[Attachment] | None = None,
-    reader_name: str | None = None,
 ) -> AIResponse:
     """Generate a narrative estate digest for a time period, pulling live data from the DB.
 
-    `reader_name` is who will read it (2026-11-23): the weekly email passes the account holder's
-    name so the summary greets them. Without it the model picked the staff member marked OWNER
-    and wrote "Dear Chris" in an email that went to someone else.
+    Written with no greeting (2026-11-23): one report goes to several readers, so the weekly
+    email greets each by name. Asked to write "to the owner", the model had picked the staff
+    member marked OWNER and opened "Dear Chris" in an email that went to someone else.
     """
     start_dt = datetime.combine(start_date, datetime.min.time())
     end_dt = datetime.combine(end_date, datetime.max.time())
@@ -411,9 +409,7 @@ def generate_estate_digest(
         logger.exception("generate_estate_digest: suppressed exception")
 
     estate_data = "\n".join(lines)
-    reader = " ".join((reader_name or "").split())[:100]
-    reader_line = f"Reader: {reader}\n\n" if reader else ""
-    user_message = f"{reader_line}Generate an estate digest for {period_label}.\n\n{estate_data}"
+    user_message = f"Generate an estate digest for {period_label}.\n\n{estate_data}"
 
     provider_name = get_ai_provider_name(session)
     api_key = get_ai_api_key(session, provider_name)

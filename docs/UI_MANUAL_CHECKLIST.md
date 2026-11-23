@@ -102,6 +102,7 @@ static tests do cover them directly.
 | `settings/_personal.html` | (the You page, /settings/connections) | — | ☐ | ☐ | ☐ |
 | `settings/_telegram_link.html` | (Telegram card on /settings/connections) | — | ☐ | ☐ | ☐ |
 | `settings/connections.html` | /settings/connections (You tab, every role) | — | ☐ | ☐ | ☐ |
+| `settings/emails.html` | /settings/emails (Emails tab, every role; team section owner/admin) | — | ☐ | ☐ | ☐ |
 | `settings/index.html` | /settings (Estate tab, owner/admin) | 54 | ☐ | ☐ | ☐ |
 | `signup.html` | /signup | 87 | ☐ | ☐ | ☐ |
 | `staff.html` | /staff/ | 353 | ☐ | ☐ | ☐ |

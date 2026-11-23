@@ -163,7 +163,8 @@ def test_upgrade_then_downgrade_is_clean(scratch_db):
     # calendar_event_links) -> 73. No enums.
     # 0030 adds columns only -> still 73.
     # 0031 adds email_verification_tokens -> 74.
-    assert len(first["tables"]) == 74, first["tables"]
+    # 0034 adds email_preferences -> 75.
+    assert len(first["tables"]) == 75, first["tables"]
     assert len(first["enums"]) == 22
     assert first["guard_fns"] == ["mihomes_assert_account_matches_parent"]
 

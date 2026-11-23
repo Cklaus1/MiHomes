@@ -189,6 +189,7 @@ TENANT_TABLES = frozenset({
     "chat_events",
     "push_subscriptions",   # SPEC-014 0028
     "chat_notify_prefs",
+    "email_preferences",    # Emails page, 0034 (2026-11-23)
     # Per-person Google Calendar sync (0029, 2026-10-30): one connection per membership, and
     # which Google event each appointment/task became for it. The refresh token is encrypted.
     "calendar_connections",

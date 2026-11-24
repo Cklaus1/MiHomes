@@ -7,9 +7,8 @@ current period starts counting tokens from zero at deploy.
 This period's 80% / 100% warning markers are cleared, because they were set against call counts
 and would otherwise stop the token-based warnings from firing until next period.
 
-**Down-revision note:** `0032_invite_token_policy` lives on the unmerged `invite-email` branch and
-also revises 0031. Whichever of the two merges second must re-point its `down_revision` at the
-other, so the chain keeps one head.
+**Down-revision note:** there is no 0032. The `invite-email` branch's 0032 also revised 0031; it
+was renumbered `0035_invite_token_policy` (after 0034) when merged, so the chain keeps one head.
 
 Revision ID: 0033_ai_token_metering
 Revises: 0031_email_verification

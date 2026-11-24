@@ -311,6 +311,7 @@ def _entity_classes() -> dict[type, EntityClass]:
     from mihomes.models.email_campaign import CampaignEnrolment
     from mihomes.models.email_delivery import EmailDelivery
     from mihomes.models.email_outbox import EmailOutbox
+    from mihomes.models.email_preference import EmailPreference
     from mihomes.models.email_suppression import EmailSuppression
     from mihomes.models.email_verification_token import EmailVerificationToken
     from mihomes.models.event import Event, EventGuest, Guest
@@ -433,6 +434,8 @@ def _entity_classes() -> dict[type, EntityClass]:
         # ACCOUNT_LEVEL would deny staff their OWN preferences and devices.
         PushSubscription: EntityClass.ACCOUNT_SHARED,
         ChatNotifyPref: EntityClass.ACCOUNT_SHARED,
+        # Emails page (2026-11-23): own-row only, enforced in the route, like ChatNotifyPref.
+        EmailPreference: EntityClass.ACCOUNT_SHARED,
         # Per-person Google Calendar (0029): own-row only, enforced in the route
         # (`principal.membership_id`); every role connects their own calendar.
         CalendarConnection: EntityClass.ACCOUNT_SHARED,

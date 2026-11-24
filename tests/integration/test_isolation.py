@@ -92,7 +92,8 @@ from mihomes.tenancy.registry import ASSOCIATION_TABLES, GLOBAL_TABLES, TENANT_T
 # SPEC-014 `0028_chat_notifications` (2026-10-30) -> 64: push_subscriptions, chat_notify_prefs.
 # Per-person Google Calendar sync `0029_calendar_connections` (2026-10-30) -> 66:
 # calendar_connections, calendar_event_links.
-EXPECTED_TENANT_TABLE_COUNT = 66
+# Emails page `0034_email_preferences` (2026-11-23) -> 67.
+EXPECTED_TENANT_TABLE_COUNT = 67
 
 
 # --------------------------------------------------------------------------------------

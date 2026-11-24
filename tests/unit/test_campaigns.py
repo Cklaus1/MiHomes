@@ -359,3 +359,22 @@ def test_a_paused_campaign_sends_nothing_and_keeps_its_place(session, account_a,
 def test_onboarding_is_paused_until_the_real_wording_lands():
     """Guard for the shipped setting: un-pausing must be a deliberate edit, made with the copy."""
     assert "onboarding" in SHIPPED_PAUSED
+
+
+def test_an_owner_who_turned_tips_off_gets_none_and_the_sequence_ends(session, account_a, owner):
+    """Settings, Emails (2026-11-23): "Getting-started tips" off means no step is sent, and the
+    enrolment is completed so turning it back on later does not send weeks-old tips."""
+    from mihomes.models.membership import Membership
+    from mihomes.services.email import preferences
+
+    _provider, service = _service(session)
+    with account_context(account_a):
+        member = session.execute(sa.select(Membership).where(
+            Membership.account_id == account_a, Membership.role == "owner")).scalars().one()
+        preferences.set_personal_switch(session, member, "onboarding_tips", False)
+        enrol(session, account_a, "onboarding", now=NOW)
+        assert send_due_steps(session, service, now=NOW + timedelta(days=30)) == 0
+        row = session.execute(sa.select(CampaignEnrolment)).scalars().one()
+        assert row.completed_at is not None
+
+    assert _queued(session, account_a) == []

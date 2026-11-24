@@ -1,5 +1,27 @@
 # MiHomes — Project State & Next Actions
 
+## Email preferences page (2026-11-23, branch `email-verification`)
+Decisions (user, "go with your suggestions"): weekly report never offered to staff (it has
+spending); members may turn off anything optional the admin gave them; defaults = weekly report
+on for owner + admins, chat digest on for everyone, onboarding tips for the owner; existing
+emails only (estate alerts, which still send nothing, come later).
+- [x] `services/email/preferences.py`: one registry of email types. Required (shown locked):
+      security (everyone), billing (owner). Optional: weekly report (owner/admin), chat digest
+      (all roles), onboarding tips (owner). `wants(session, membership, type)` = role allowed by
+      the household AND personal switch on.
+- [x] Team policy in the configurations table (`email.roles.<type>`), validated to the type's
+      allowed roles (staff can never be given the weekly report).
+- [x] Personal switches: new table `email_preferences` (migration 0034, tenant RLS). The chat
+      digest keeps its existing `chat_notify_prefs.email_digest` column; the service maps it.
+- [x] `/settings/emails` (every member): "Emails you get"; owners/admins also "What your team
+      gets". Tabs: Estate | You | Emails (staff: You | Emails). Unsubscribed-by-link shows a
+      notice with "Resume optional emails" (only for reason=unsubscribe, never a complaint).
+- [x] Weekly report: generated once, sent to every member who wants it, template greets each by
+      name (fixes the double "Hi," + "Hi Millena," the 2026-11-23 change would have caused);
+      footer links to Settings, Emails.
+- [x] Chat digest and onboarding drips respect `wants()`.
+- [x] Tests + deploy.
+
 ## Email verification at signup (2026-11-13, branch `email-verification`)
 Decisions (user): Resend for all mail (free plan to start), build verification first.
 Design: an unverified password user **never gets a session**. The gate sits at session creation,

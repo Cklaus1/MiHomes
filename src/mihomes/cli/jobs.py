@@ -348,10 +348,23 @@ def _send_one_digest(session, account, start, end, period: str) -> int:
     Split out so the gate above reads as a gate rather than as twenty lines of generation, and
     so a digest that comes back empty is a *decision* — an account with nothing to report gets
     no mail, rather than a weekly email saying nothing happened.
+
+    **Who gets it is the household's choice** (Settings, Emails; 2026-11-23): owner and admins
+    by default, never staff, minus anyone who turned it off. One report is generated per
+    household, written without a greeting, and each email greets its reader by name.
     """
+    import os
+
     from mihomes.services.ai.reports import generate_estate_digest
     from mihomes.services.email import get_email_provider
+    from mihomes.services.email.preferences import recipients
     from mihomes.services.email.service import EmailService
+
+    # Checked before generating, so a household where nobody wants it costs no AI call.
+    readers = recipients(session, account.id, "weekly_report")
+    if not readers:
+        logger.info("weekly-digest: nobody in account %s wants it, nothing sent", account.id)
+        return 0
 
     response = generate_estate_digest(session, start, end)
     text = (getattr(response, "text", "") or "").strip()
@@ -359,13 +372,16 @@ def _send_one_digest(session, account, start, end, period: str) -> int:
         logger.info("weekly-digest: empty digest for account %s, nothing sent", account.id)
         return 0
 
-    from mihomes.services.billing.service import _billing_email
-
-    EmailService(get_email_provider(), session=session).send_weekly_digest(
-        _billing_email(session, account),
-        digest_html=_as_html(text),
-        period=period,
-    )
+    base = os.environ.get("MIHOMES_BASE_URL", "https://mihomes.ai").rstrip("/")
+    email = EmailService(get_email_provider(), session=session)
+    for to, name in readers:
+        email.send_weekly_digest(
+            to,
+            digest_html=_as_html(text),
+            period=period,
+            name=name,
+            settings_url=f"{base}/settings/emails",
+        )
     return 1
 
 

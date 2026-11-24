@@ -1305,11 +1305,14 @@ class TestSettingsSplit:
                 assert section in you.text, (role, section)
             assert 'id="members"' not in you.text
 
-    def test_staff_have_only_their_page_and_no_tabs(self, web_client_as):
+    def test_staff_have_their_pages_but_not_the_estate_tab(self, web_client_as):
+        """Staff get You and Emails (2026-11-23); the Estate tab stays owner/admin."""
         staff = web_client_as("staff")
         assert staff.get("/settings", follow_redirects=False).headers["location"] == "/settings/connections"
         page = staff.get("/settings/connections").text
-        assert 'aria-label="Settings pages"' not in page and 'id="profile"' in page
+        assert 'id="profile"' in page
+        tabs = page.split('aria-label="Settings pages"', 1)[1].split("</nav>", 1)[0]
+        assert ">You</a>" in tabs and ">Emails</a>" in tabs and ">Estate</a>" not in tabs
 
     def test_personal_saves_return_to_the_you_page(self, web_client_as):
         import re

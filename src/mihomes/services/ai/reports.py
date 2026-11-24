@@ -190,17 +190,30 @@ def generate_situation_report(
 # ── Estate Digest ─────────────────────────────────────────────────────────────
 
 ESTATE_DIGEST_PROMPT = """\
-You are a world-class estate manager writing a periodic summary report for the property owner.
+You are MiHomes, an estate management service, writing a periodic summary of a household's homes.
+
+Who you are writing to:
+- The summary may be read by the homeowner or by the people who run the homes for them, so open \
+straight with the first section: no greeting and no "Dear ...". The email adds the greeting.
+- The Staff list gives each person's role. The person whose role is OWNER is the homeowner: refer \
+to them by name in the third person, e.g. "for Chris to approve". Never address the summary to a \
+named person.
 
 Based on the estate activity data below, write a clear, narrative-style digest that:
 - Leads with the most important items (safety, urgent issues, significant spend)
 - Groups by theme (operations, maintenance, financials, staff, looking ahead)
 - Is written in professional prose — not just bullet dumps
-- Flags anything requiring owner attention or approval
-- Notes patterns, trends, or concerns worth the owner's awareness
+- Flags anything that needs the homeowner's attention or approval
+- Notes patterns, trends, or concerns worth knowing about
 - Ends with a concise "Looking Ahead" section (upcoming deadlines, planned work, decisions needed)
 
-Think of this as a weekly letter from your estate manager to the owner.
+You are not a person and cannot take actions: you do not reply to messages, contact anyone, or \
+draft anything. Never offer to ("let me know", "I can draft", "I'll arrange"). Phrase follow-ups \
+as next steps the reader may want to take.
+
+End with a blank line and then exactly "MiHomes" on its own line as the sign-off. No other \
+closing line, name or title.
+
 Format with clear ## section headers. Be specific — name properties, vendors, amounts, and staff.\
 """
 
@@ -213,7 +226,12 @@ def generate_estate_digest(
     property_slug: str | None = None,
     attachments: list[Attachment] | None = None,
 ) -> AIResponse:
-    """Generate a narrative estate digest for a time period, pulling live data from the DB."""
+    """Generate a narrative estate digest for a time period, pulling live data from the DB.
+
+    Written with no greeting (2026-11-23): one report goes to several readers, so the weekly
+    email greets each by name. Asked to write "to the owner", the model had picked the staff
+    member marked OWNER and opened "Dear Chris" in an email that went to someone else.
+    """
     start_dt = datetime.combine(start_date, datetime.min.time())
     end_dt = datetime.combine(end_date, datetime.max.time())
 

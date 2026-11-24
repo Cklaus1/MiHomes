@@ -1,0 +1,96 @@
+{# Emails (2026-11-23): which emails you get, and, for owners and admins, which your team gets.
+   Two forms, two routes: `/settings/emails/mine` (self only) and `/settings/emails/team`
+   (member.manage). Both carry the CSRF token. #}
+{% extends "base.html" %}
+{% block title %}Emails — MiHomes{% endblock %}
+{% block heading %}Settings{% endblock %}
+{% block subheading %}<p class="text-sm text-gray-500 mt-0.5">Emails: what you receive{% if team is not none %} and what your team receives{% endif %}</p>{% endblock %}
+{% block content %}
+{% set csrf = request.cookies.get('mihomes_csrf', '') %}
+<div class="max-w-2xl mx-auto py-2 sm:py-4">
+  {% set settings_tab = "emails" %}{% include "settings/_tabs.html" %}
+  {% include "settings/_notice.html" %}
+
+  {% if unsubscribed %}
+  <div role="status" class="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+    <p>You used an unsubscribe link, so MiHomes sends you no optional emails, whatever is ticked
+      below. Account and billing emails still arrive.</p>
+    <form method="post" action="/settings/emails/resume" class="mt-2">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}" />
+      <button type="submit" class="rounded-md border border-amber-300 bg-white px-3 py-1.5 font-medium hover:bg-amber-100">
+        Turn optional emails back on</button>
+    </form>
+  </div>
+  {% endif %}
+
+  <section class="mb-10 scroll-mt-4" id="mine">
+    <h2 class="text-lg font-medium mb-1">Emails you get</h2>
+    <p class="text-sm text-gray-500 mb-3">Turn off anything you don't want. Some emails always arrive
+      because you need them to use your account.</p>
+    <form method="post" action="/settings/emails/mine" class="space-y-3 border rounded-lg p-4">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}" />
+      {% for row in mine %}
+        {% set t = row.type %}
+        <label class="flex items-start gap-3 text-sm {% if t.required %}text-gray-500{% endif %}">
+          <input type="checkbox" name="on" value="{{ t.key }}" class="mt-0.5 h-4 w-4"
+                 {% if row.on %}checked{% endif %} {% if t.required %}disabled{% endif %}
+                 aria-describedby="desc-{{ t.key }}" />
+          <span>
+            <span class="font-medium text-gray-900">{{ t.label }}</span>
+            {% if t.required %}<span class="ml-1 rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">Always on</span>{% endif %}
+            <span id="desc-{{ t.key }}" class="block text-gray-500">{{ t.description }}{% if t.note %} {{ t.note }}{% endif %}</span>
+          </span>
+        </label>
+      {% endfor %}
+      <button type="submit" class="bg-brand-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-brand-700">
+        Save my emails</button>
+    </form>
+  </section>
+
+  {% if team is not none %}
+  <section class="mb-10 scroll-mt-4" id="team">
+    <h2 class="text-lg font-medium mb-1">What your team gets</h2>
+    <p class="text-sm text-gray-500 mb-3">Choose who in your household receives each optional email.
+      Each person can still turn off what you give them. Emails with spending in them can't go to
+      staff, who don't see costs in MiHomes.</p>
+    <form method="post" action="/settings/emails/team" class="border rounded-lg p-4">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}" />
+      <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-left text-gray-500">
+            <th scope="col" class="pb-2 pr-4 font-medium">Email</th>
+            {% for r in roles %}<th scope="col" class="pb-2 px-2 font-medium text-center">{{ role_labels[r] }}</th>{% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in team %}
+            {% set t = row.type %}
+            <tr class="border-t">
+              <th scope="row" class="py-2 pr-4 text-left font-normal">
+                <span class="font-medium text-gray-900">{{ t.label }}</span>
+                {% if t.note %}<span class="block text-xs text-gray-500">{{ t.note }}</span>{% endif %}
+              </th>
+              {% for r in roles %}
+                <td class="py-2 px-2 text-center">
+                  {% if r in t.allowed_roles %}
+                    <input type="checkbox" name="roles" value="{{ t.key }}.{{ r }}" class="h-4 w-4"
+                           aria-label="{{ t.label }}: {{ role_labels[r] }}"
+                           {% if r in row.roles %}checked{% endif %} />
+                  {% else %}
+                    <span class="text-gray-300" title="Not available for {{ role_labels[r] | lower }}" aria-label="Not available">—</span>
+                  {% endif %}
+                </td>
+              {% endfor %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      <button type="submit" class="mt-4 bg-brand-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-brand-700">
+        Save team emails</button>
+    </form>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

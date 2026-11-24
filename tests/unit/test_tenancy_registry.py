@@ -280,7 +280,8 @@ def test_registry_size_is_asserted_explicitly():
     #
     # Per-person Google Calendar sync `0029_calendar_connections` (2026-10-30) -> 66:
     # calendar_connections, calendar_event_links.
-    assert len(TENANT_TABLES) == 66, (
-        f"expected 66 tenant-owned tables, registry has {len(TENANT_TABLES)} — "
+    # Emails page `0034_email_preferences` (2026-11-23) -> 67.
+    assert len(TENANT_TABLES) == 67, (
+        f"expected 67 tenant-owned tables, registry has {len(TENANT_TABLES)} — "
         "if a table was legitimately added or removed, update this number and say why"
     )

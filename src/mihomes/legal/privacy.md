@@ -7,7 +7,7 @@ effective_date:
 
 # Who we are
 
-MiHomes ("we", "us") is based in Atlanta, GA. Questions about this policy or your data: [mlim@fusen.world](mailto:mlim@fusen.world).
+MiHomes ("we", "us") is based in Atlanta, GA. Questions about this policy or your data: [support@mihomes.ai](mailto:support@mihomes.ai).
 
 MiHomes helps households and estates run their homes: properties, rooms and assets, tasks, issues, vendors, staff, documents, a calendar, in-app chat, a Telegram bot and an AI advisor.
 
@@ -81,7 +81,7 @@ Only these service providers, and only what each needs:
 - **Browser push services** (Google, Mozilla, Apple, Microsoft): delivering notifications you turned on.
 - **OpenStreetMap (Nominatim) and Open-Meteo**: weather for your property. The **property address** is sent to OpenStreetMap to find its location, and the coordinates to Open-Meteo.
 - **jsDelivr**: some pages load open-source scripts from this content network, which sees your IP address when they load.
-- **Hosting and storage**: MiHomes, its database, uploaded files and backups run on servers we rent from DigitalOcean, in New York, United States. Your data is not kept on personal computers.
+- **Hosting and storage**: MiHomes, its database, uploaded files and backups run on servers we rent from DigitalOcean, in New York, United States.
 
 We may also disclose data if the law requires it, or to protect people's safety or our rights.
 
@@ -106,7 +106,7 @@ Your browser also remembers a few display choices on your own device (for exampl
 - **Deleting a household:** the owner can delete it in Settings. It can be undone for 30 days; then its data and files are permanently erased. A record that the deletion happened is kept, and so is the unsubscribe list.
 - **Deactivating a household:** if the owner deactivates it and does not reactivate it within 90 days, it is permanently erased the same way.
 - **Leaving or deleting your profile:** staff and admins can leave a household, and anyone who owns no household can delete their profile. That erases their name, email, password and Google link and signs them out everywhere. Households keep the work they added.
-- **Backups:** we back up the database every night, and DigitalOcean also backs up the whole server; all backups stay within our DigitalOcean hosting in New York. Our nightly backups are deleted after **14 days**, and DigitalOcean's after **[4] weeks**. Erasing data removes it from MiHomes straight away, but backups made before the erasure still contain it until they reach that age, so erased data is fully gone **within [4] weeks**. [CONFIRM: how long DigitalOcean keeps Droplet backups once they are switched on.] Backups are used only to recover from a failure, and only authorised MiHomes staff can access them; if one were ever restored, erasures made since it was taken would be applied again.
+- **Backups:** we keep regular backups with our hosting provider so we can recover from a failure. Backups are kept for up to **[4] weeks**, so data you erase may stay in a backup until it expires. Backups are used only for recovery, and only authorised MiHomes staff can access them.
 - **Telegram group messages** shown on the Conversations page are deleted after 1 year.
 - **Emails:** copies of sent emails and their delivery results are deleted 90 days after sending. The unsubscribe list is kept.
 - **Unconfirmed sign-ups:** if you sign up with a password and never confirm your email address, the account is deleted after 30 days.
@@ -120,11 +120,11 @@ In MiHomes you can:
 - **Delete** your household (owner), **leave** a household, or **delete your profile**.
 - **Unsubscribe** from emails and turn off notifications at any time.
 
-Depending on where you live you may also have the right to object to or restrict processing, to data portability, and to complain to a data protection authority. To exercise any right, or if you're a staff member, vendor or guest whose details a household added, contact [mlim@fusen.world](mailto:mlim@fusen.world). If your details were added by a household, we may refer you to that household, since it decides what is kept about you.
+Depending on where you live you may also have the right to object to or restrict processing, to data portability, and to complain to a data protection authority. To exercise any right, or if you're a staff member, vendor or guest whose details a household added, contact [support@mihomes.ai](mailto:support@mihomes.ai). If your details were added by a household, we may refer you to that household, since it decides what is kept about you.
 
 # Security
 
-Passwords are stored as one-way hashes, sessions as hashes, and calendar tokens encrypted. Each household's data is separated from every other household's at the database level. Connections are encrypted, and access to production systems and backups is limited to authorised MiHomes staff. No system is perfectly secure; tell us at [mlim@fusen.world](mailto:mlim@fusen.world) if you find a problem.
+Passwords are stored as one-way hashes, sessions as hashes, and calendar tokens encrypted. Each household's data is separated from every other household's at the database level. Connections are encrypted, and access to production systems and backups is limited to authorised MiHomes staff. No system is perfectly secure; tell us at [support@mihomes.ai](mailto:support@mihomes.ai) if you find a problem.
 
 # Children
 

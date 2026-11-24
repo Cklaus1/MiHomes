@@ -62,7 +62,7 @@ The Telegram bot (and, when available, WhatsApp) works through those companies' 
 - **Deactivating** a household cancels its paid plan straight away. The rest of the period is not refunded, except under the annual-plan rule above.
 - **Deleting** a household does not change your plan automatically. Cancel your paid plan before deleting; billing stops when the household is erased 30 days later.
 - **Our mistakes.** If we charge you by mistake, charge you twice, or MiHomes is unavailable for a long period, contact us and we will put it right, including by refund.
-- **How to ask.** Email [mlim@fusen.world](mailto:mlim@fusen.world) from the account owner's address. Refunds go back to the original payment method through Stripe, normally within 5 to 10 business days.
+- **How to ask.** Email [support@mihomes.ai](mailto:support@mihomes.ai) from the account owner's address. Refunds go back to the original payment method through Stripe, normally within 5 to 10 business days.
 - **Your legal rights.** Nothing here limits a refund or cancellation right that the law gives you. [COUNSEL: the EU/UK 14-day right of withdrawal for digital services (and the express consent and acknowledgement needed to start a paid plan straight away), and any state automatic-renewal rules for annual plans.]
 
 # Ending your use of MiHomes
@@ -75,7 +75,7 @@ The Telegram bot (and, when available, WhatsApp) works through those companies' 
 
 # Availability and support
 
-We work to keep MiHomes available and your data safe, and we back it up every night, but we don't promise it will be uninterrupted or error-free. Support: [mlim@fusen.world](mailto:mlim@fusen.world).
+We work to keep MiHomes available and your data safe, and we back it up every night, but we don't promise it will be uninterrupted or error-free. Support: [support@mihomes.ai](mailto:support@mihomes.ai).
 
 # Our liability
 
@@ -91,4 +91,4 @@ These terms are governed by the laws of [GOVERNING LAW], and disputes go to the 
 
 # Contact
 
-MiHomes, Atlanta, GA, [mlim@fusen.world](mailto:mlim@fusen.world).
+MiHomes, Atlanta, GA, [support@mihomes.ai](mailto:support@mihomes.ai).

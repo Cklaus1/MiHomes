@@ -60,7 +60,7 @@ The Telegram bot (and, when available, WhatsApp) works through those companies' 
 - **Monthly plans** are not refunded for part of a month. When you cancel, you keep the plan until the end of the month you've paid for.
 - **Annual plans.** If you ask within 14 days of being charged for a new annual plan or an annual renewal, we will refund that payment in full and move the household to the Free plan. After 14 days, annual payments are not refunded for the rest of the year; when you cancel, you keep the plan until the end of the year you've paid for.
 - **Deactivating** a household cancels its paid plan straight away. The rest of the period is not refunded, except under the annual-plan rule above.
-- **Deleting** a household does not change your plan automatically. Cancel your paid plan before deleting; billing stops when the household is erased 30 days later.
+- **Deleting** a household doesn't cancel its paid plan. Cancel your plan in Settings → Billing first, or it keeps billing.
 - **Our mistakes.** If we charge you by mistake, charge you twice, or MiHomes is unavailable for a long period, contact us and we will put it right, including by refund.
 - **How to ask.** Email [support@mihomes.ai](mailto:support@mihomes.ai) from the account owner's address. Refunds go back to the original payment method through Stripe, normally within 5 to 10 business days.
 - **Your legal rights.** Nothing here limits a refund or cancellation right that the law gives you. [COUNSEL: the EU/UK 14-day right of withdrawal for digital services (and the express consent and acknowledgement needed to start a paid plan straight away), and any state automatic-renewal rules for annual plans.]
@@ -68,7 +68,7 @@ The Telegram bot (and, when available, WhatsApp) works through those companies' 
 # Ending your use of MiHomes
 
 - **Deactivating** a household (owner) switches it off for everyone; the owner can reactivate it within 90 days, after which it is permanently erased.
-- **Deleting** a household (owner) can be undone for 30 days; after that its data is permanently erased. Deleting does not cancel a paid plan: cancel it first, or billing continues until the household is erased.
+- **Deleting** a household (owner) can be undone for 30 days; after that its data is permanently erased. Deleting a household doesn't cancel its paid plan. Cancel your plan in Settings → Billing first, or it keeps billing.
 - **Leaving** a household or **deleting your profile** is available to members who don't own a household.
 - We may end or suspend access for a serious or repeated breach of these terms, or if required by law. Where we can, we will give notice and a chance to export your data first.
 - How long data is kept after deletion, including in backups, is explained in the Privacy Policy.

@@ -1,10 +1,8 @@
 ---
 title: Privacy Policy
-version: draft-2026-11-19
-effective_date:
+version: 2026-11-24
+effective_date: 2026-11-24
 ---
-**DRAFT for counsel review. Not in effect.** Describes MiHomes as a production service for its customers. Every statement must be true of the live service on the day this is published; items in [BRACKETS] must be filled in or decided first.
-
 # Who we are
 
 MiHomes ("we", "us") is based in Atlanta, GA. Questions about this policy or your data: [support@mihomes.ai](mailto:support@mihomes.ai).
@@ -14,7 +12,7 @@ MiHomes helps households and estates run their homes: properties, rooms and asse
 # Two kinds of data, two roles
 
 - **Your account data** (your name, email, sign-in details, billing). We decide how this is used, so we are its controller.
-- **Your household's content** (everything you and your household put into MiHomes, including details about other people such as staff, vendors and guests). Your household decides what goes in and why; we store and process it to provide the service on your household's behalf. [COUNSEL: confirm the controller/processor split and whether a data processing agreement is offered to estate customers.]
+- **Your household's content** (everything you and your household put into MiHomes, including details about other people such as staff, vendors and guests). Your household decides what goes in and why; we store and process it to provide the service on your household's behalf.
 
 If you add information about other people (for example a housekeeper's phone number or a guest's dietary needs), you are responsible for having the right to do so and for telling them where appropriate.
 
@@ -67,7 +65,7 @@ We use IP addresses briefly, in memory, to limit repeated sign-in attempts and f
 - To answer AI advisor questions, by sending the question and the relevant household context to an AI provider (see below).
 - To contact you about your account, and with onboarding or product emails you can unsubscribe from.
 
-We do not sell personal data, and we do not use your household's content to advertise to you. [COUNSEL: confirm the lawful bases (contract, legitimate interests, consent) per purpose.]
+We do not sell personal data, and we do not use your household's content to advertise to you.
 
 # Who we share it with
 
@@ -76,7 +74,7 @@ Only these service providers, and only what each needs:
 - **Stripe**: payments and subscriptions.
 - **Google**: sign-in, if you choose it; Google Calendar, if you connect it. Calendar events we create include the title, description and the **property's address**.
 - **Telegram**: messages to and from the bot, if you use it.
-- **AI providers**: your question, attached images and files, and relevant household context. We send them through OpenRouter, which passes them to Anthropic's Claude models; the same for every household. [COUNSEL: check OpenRouter's and Anthropic's data-use and retention terms, confirm OpenRouter's logging and prompt-training settings are off on our account, and state whether either may train on submitted data.]
+- **AI providers**: your question, attached images and files, and relevant household context. We send them through OpenRouter, which passes them to Anthropic's Claude models; the same for every household.
 - **Resend**: sending email.
 - **Browser push services** (Google, Mozilla, Apple, Microsoft): delivering notifications you turned on.
 - **OpenStreetMap (Nominatim) and Open-Meteo**: weather for your property. The **property address** is sent to OpenStreetMap to find its location, and the coordinates to Open-Meteo.
@@ -85,7 +83,7 @@ Only these service providers, and only what each needs:
 
 We may also disclose data if the law requires it, or to protect people's safety or our rights.
 
-[COUNSEL: international transfers. Several providers are in the United States; state the transfer safeguards that apply.]
+MiHomes is based in the United States, and your data is stored and processed there.
 
 # Cookies and browser storage
 
@@ -102,11 +100,11 @@ Your browser also remembers a few display choices on your own device (for exampl
 
 # How long we keep it
 
-- **While your household uses MiHomes**, we keep its content. [DECISION: audit-trail and AI-conversation history are currently kept until the household is deleted; settings for 2 years and 1 year exist but are not yet enforced.]
+- **While your household uses MiHomes**, we keep its content. This includes its audit trail and AI advisor history.
 - **Deleting a household:** the owner can delete it in Settings. It can be undone for 30 days; then its data and files are permanently erased. A record that the deletion happened is kept, and so is the unsubscribe list.
 - **Deactivating a household:** if the owner deactivates it and does not reactivate it within 90 days, it is permanently erased the same way.
 - **Leaving or deleting your profile:** staff and admins can leave a household, and anyone who owns no household can delete their profile. That erases their name, email, password and Google link and signs them out everywhere. Households keep the work they added.
-- **Backups:** we keep regular backups with our hosting provider so we can recover from a failure. Backups are kept for up to **[4] weeks**, so data you erase may stay in a backup until it expires. Backups are used only for recovery, and only authorised MiHomes staff can access them.
+- **Backups:** we keep regular backups with our hosting provider so we can recover from a failure. Backups are kept for a limited time, so data you erase may stay in a backup until it expires. Backups are used only for recovery, and only authorised MiHomes staff can access them.
 - **Telegram group messages** shown on the Conversations page are deleted after 1 year.
 - **Emails:** copies of sent emails and their delivery results are deleted 90 days after sending. The unsubscribe list is kept.
 - **Unconfirmed sign-ups:** if you sign up with a password and never confirm your email address, the account is deleted after 30 days.
@@ -128,7 +126,7 @@ Passwords are stored as one-way hashes, sessions as hashes, and calendar tokens 
 
 # Children
 
-MiHomes is not intended for anyone under [MINIMUM AGE]. Do not create an account for a child.
+MiHomes is not intended for anyone under 18. Do not create an account for a child.
 
 # Changes to this policy
 

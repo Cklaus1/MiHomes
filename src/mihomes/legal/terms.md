@@ -1,13 +1,11 @@
 ---
 title: Terms of Service
-version: draft-2026-11-09
-effective_date:
+version: 2026-11-24
+effective_date: 2026-11-24
 ---
-**DRAFT for counsel review. Not in effect.** Describes MiHomes as a production service for its customers. Every statement must be true of the live service on the day this is published; items in [BRACKETS] must be filled in or decided first.
-
 # Agreement
 
-These terms are between you and [COMPANY LEGAL NAME], [REGISTERED ADDRESS] ("MiHomes", "we", "us"). By creating an account or using MiHomes you agree to them and to our [Privacy Policy](/legal/privacy). If you use MiHomes for a business or on behalf of someone else, you confirm you can bind them to these terms.
+These terms are between you and MiHomes, Atlanta, GA ("MiHomes", "we", "us"). By creating an account or using MiHomes you agree to them and to our [Privacy Policy](/legal/privacy). If you use MiHomes for a business or on behalf of someone else, you confirm you can bind them to these terms.
 
 # The service
 
@@ -15,7 +13,7 @@ MiHomes is software for running homes and estates: properties, rooms and assets,
 
 # Accounts and households
 
-- You must be at least [MINIMUM AGE] and give accurate sign-up details.
+- You must be at least 18 years old and give accurate sign-up details.
 - Keep your sign-in details secure. You are responsible for what happens under your account.
 - Each household has one **owner**, who can invite **admins** and **staff**, decide what they can see, manage billing, and deactivate or delete the household. Admins can manage most of the household; staff see what the owner gives them.
 - Ownership can be transferred to another member. A household always has exactly one owner.
@@ -47,29 +45,42 @@ The Telegram bot (and, when available, WhatsApp) works through those companies' 
 
 # Plans, trials and billing
 
-- **Plans.** MiHomes has a Free plan and paid plans with different limits on homes, members and AI use. Current plans and prices are shown on the [PRICING PAGE].
-- **Trial.** New households can try a paid plan free for 30 days, once. At the end of the trial the household moves to the Free plan unless you choose a paid plan.
+- **Plans.** MiHomes has a Free plan and paid plans with different limits on homes, members and monthly AI use (measured in AI tokens). Current plans and prices are shown on our [plans page](/#plans). When a household reaches its monthly AI allowance, AI features pause until the next month or an upgrade.
+- **Trial.** Each household can try Pro or Estate free for 30 days (one month), once. No card is needed, and nothing is charged: at the end of the trial the household moves to the Free plan unless you choose a paid plan.
 - **Payment.** Paid plans are billed in advance, monthly or annually, through Stripe, and renew automatically until cancelled. Taxes may apply.
-- **Failed payments.** If a payment fails, we email reminders and retry over about two weeks; if it still fails, the household moves to the Free plan.
+- **Failed payments.** If a payment fails, we email you and Stripe retries the payment. If it still can't be collected, we may move the household to the Free plan.
 - **Cancelling.** You can cancel in Settings at any time. You keep the paid plan until the end of the period you've paid for, then move to the Free plan. Nothing is deleted; homes over the Free limit become read-only until you upgrade or remove some.
-- **Refunds.** [DECISION: refund policy. Currently: no refunds for partial periods, and deactivating a household cancels its subscription immediately without a refund for the rest of the period.]
-- **Price changes.** We will give at least [30] days' notice of a price change for an existing subscription.
+- **Price changes.** We will give at least 30 days' notice of a price change for an existing subscription.
+
+# Refunds
+
+- **Try before you pay.** Every household can use Pro or Estate free for 30 days (one month), with no card, before paying anything.
+- **Monthly plans** are not refunded for part of a month. When you cancel, you keep the plan until the end of the month you've paid for.
+- **Annual plans.** If you ask within 14 days of being charged for a new annual plan or an annual renewal, we will refund that payment in full and move the household to the Free plan. After 14 days, annual payments are not refunded for the rest of the year; when you cancel, you keep the plan until the end of the year you've paid for.
+- **Deactivating** a household cancels its paid plan straight away. The rest of the period is not refunded, except under the annual-plan rule above.
+- **Deleting** a household doesn't cancel its paid plan. Cancel your plan in Settings → Billing first, or it keeps billing.
+- **Our mistakes.** If we charge you by mistake, charge you twice, or MiHomes is unavailable for a long period, contact us and we will put it right, including by refund.
+- **How to ask.** Email [support@mihomes.ai](mailto:support@mihomes.ai) from the account owner's address. Refunds go back to the original payment method through Stripe, normally within 5 to 10 business days.
+- **Your legal rights.** Nothing here limits a refund or cancellation right that the law gives you.
 
 # Ending your use of MiHomes
 
 - **Deactivating** a household (owner) switches it off for everyone; the owner can reactivate it within 90 days, after which it is permanently erased.
-- **Deleting** a household (owner) can be undone for 30 days; after that its data is permanently erased.
+- **Deleting** a household (owner) can be undone for 30 days; after that its data is permanently erased. Deleting a household doesn't cancel its paid plan. Cancel your plan in Settings → Billing first, or it keeps billing.
 - **Leaving** a household or **deleting your profile** is available to members who don't own a household.
 - We may end or suspend access for a serious or repeated breach of these terms, or if required by law. Where we can, we will give notice and a chance to export your data first.
 - How long data is kept after deletion, including in backups, is explained in the Privacy Policy.
 
 # Availability and support
 
-We work to keep MiHomes available and your data safe, and we back it up every night, but we don't promise it will be uninterrupted or error-free. Support: [SUPPORT CONTACT EMAIL].
+We work to keep MiHomes available and your data safe, and we back it up every night, but we don't promise it will be uninterrupted or error-free. Support: [support@mihomes.ai](mailto:support@mihomes.ai).
 
 # Our liability
 
-[COUNSEL: disclaimers of warranties, limitation of liability (for example a cap of fees paid in the previous 12 months), exclusions that the law does not allow, and any indemnity. To be written for the governing law below.]
+- **No warranties.** MiHomes is provided "as is" and "as available". To the extent the law allows, we make no warranties, express or implied, including that it is fit for a particular purpose, accurate, or uninterrupted.
+- **Limits.** To the extent the law allows, we are not liable for indirect, incidental, special or consequential losses, or for lost profits, revenue or data. Our total liability for any claim about MiHomes is limited to the amount you paid us in the 12 months before the claim, or US$100 if that is more.
+- **What isn't limited.** Nothing in these terms limits liability that the law does not allow to be limited.
+- **Your responsibility.** If someone brings a claim against us because of content you added or your breach of these terms, you agree to cover our reasonable costs of that claim, to the extent the law allows.
 
 # Changes to these terms
 
@@ -77,8 +88,8 @@ We may update these terms. We will post the new version here with a new effectiv
 
 # Governing law
 
-These terms are governed by the laws of [GOVERNING LAW], and disputes go to the courts of [JURISDICTION]. [COUNSEL: consumer-protection rights that cannot be waived.]
+These terms are governed by the laws of the State of Georgia, USA, and disputes go to the state or federal courts in Fulton County, Georgia. If you are a consumer, this does not take away any protection that the law where you live gives you and that cannot be waived.
 
 # Contact
 
-[COMPANY LEGAL NAME], [REGISTERED ADDRESS], [CONTACT EMAIL].
+MiHomes, Atlanta, GA, [support@mihomes.ai](mailto:support@mihomes.ai).

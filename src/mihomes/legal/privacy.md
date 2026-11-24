@@ -1,20 +1,18 @@
 ---
 title: Privacy Policy
-version: draft-2026-11-09
-effective_date:
+version: 2026-11-24
+effective_date: 2026-11-24
 ---
-**DRAFT for counsel review. Not in effect.** Describes MiHomes as a production service for its customers. Every statement must be true of the live service on the day this is published; items in [BRACKETS] must be filled in or decided first.
-
 # Who we are
 
-MiHomes is operated by [COMPANY LEGAL NAME], [REGISTERED ADDRESS] ("MiHomes", "we", "us"). Questions about this policy or your data: [PRIVACY CONTACT EMAIL].
+MiHomes ("we", "us") is based in Atlanta, GA. Questions about this policy or your data: [support@mihomes.ai](mailto:support@mihomes.ai).
 
 MiHomes helps households and estates run their homes: properties, rooms and assets, tasks, issues, vendors, staff, documents, a calendar, in-app chat, a Telegram bot and an AI advisor.
 
 # Two kinds of data, two roles
 
 - **Your account data** (your name, email, sign-in details, billing). We decide how this is used, so we are its controller.
-- **Your household's content** (everything you and your household put into MiHomes, including details about other people such as staff, vendors and guests). Your household decides what goes in and why; we store and process it to provide the service on your household's behalf. [COUNSEL: confirm the controller/processor split and whether a data processing agreement is offered to estate customers.]
+- **Your household's content** (everything you and your household put into MiHomes, including details about other people such as staff, vendors and guests). Your household decides what goes in and why; we store and process it to provide the service on your household's behalf.
 
 If you add information about other people (for example a housekeeper's phone number or a guest's dietary needs), you are responsible for having the right to do so and for telling them where appropriate.
 
@@ -23,7 +21,9 @@ If you add information about other people (for example a housekeeper's phone num
 **When you sign up and sign in**
 - Name, email address and, if you use Google sign-in, your Google account identifier and profile picture address.
 - A password, stored only as a one-way hash, if you set one.
+- Whether and when you confirmed your email address. We email a confirmation link when you sign up with a password.
 - Your role in each household (owner, admin or staff) and who invited you.
+- If a household invites you: your email address and the invitation, which we email to you.
 - A sign-in session: a random identifier (we store only a hash of it), when it was created and last used. We do not store your IP address or browser details with your session.
 
 **What your household adds**
@@ -65,7 +65,7 @@ We use IP addresses briefly, in memory, to limit repeated sign-in attempts and f
 - To answer AI advisor questions, by sending the question and the relevant household context to an AI provider (see below).
 - To contact you about your account, and with onboarding or product emails you can unsubscribe from.
 
-We do not sell personal data, and we do not use your household's content to advertise to you. [COUNSEL: confirm the lawful bases (contract, legitimate interests, consent) per purpose.]
+We do not sell personal data, and we do not use your household's content to advertise to you.
 
 # Who we share it with
 
@@ -74,16 +74,16 @@ Only these service providers, and only what each needs:
 - **Stripe**: payments and subscriptions.
 - **Google**: sign-in, if you choose it; Google Calendar, if you connect it. Calendar events we create include the title, description and the **property's address**.
 - **Telegram**: messages to and from the bot, if you use it.
-- **AI providers**: your question, attachments and relevant household context. We use NVIDIA (NIM), the same provider for every household. [COUNSEL: check each provider's data-use and retention terms, and state whether they may train on submitted data.]
+- **AI providers**: your question, attached images and files, and relevant household context. We send them through OpenRouter, which passes them to Anthropic's Claude models; the same for every household.
 - **Resend**: sending email.
 - **Browser push services** (Google, Mozilla, Apple, Microsoft): delivering notifications you turned on.
 - **OpenStreetMap (Nominatim) and Open-Meteo**: weather for your property. The **property address** is sent to OpenStreetMap to find its location, and the coordinates to Open-Meteo.
 - **jsDelivr**: some pages load open-source scripts from this content network, which sees your IP address when they load.
-- **Hosting and storage**: MiHomes, its database, uploaded files and backups run on [PRODUCTION HOSTING: cloud provider, or servers operated by MiHomes], in [DATA REGION(S)]. Your data is not kept on personal computers.
+- **Hosting and storage**: MiHomes, its database, uploaded files and backups run on servers we rent from DigitalOcean, in New York, United States.
 
 We may also disclose data if the law requires it, or to protect people's safety or our rights.
 
-[COUNSEL: international transfers. Several providers are in the United States; state the transfer safeguards that apply.]
+MiHomes is based in the United States, and your data is stored and processed there.
 
 # Cookies and browser storage
 
@@ -92,18 +92,22 @@ We use only the cookies MiHomes needs to work:
 - **mihomes_session**: keeps you signed in. 14 days.
 - **mihomes_csrf**: protects forms against cross-site attacks. 14 days.
 - **Google sign-in cookies** (mihomes_oauth_state, mihomes_oauth_verifier, mihomes_oauth_intent, oauth_state): used only during a Google sign-in, for up to 10 minutes.
+- **mihomes_signup_invite**: carries a household invitation through sign-up. 30 minutes.
+- **mihomes_trial_intent**: remembers which plan you chose to try while you sign up. 1 day.
+- **mihomes_notice**: shows a one-time message, such as "Email confirmed". 5 minutes.
 
 Your browser also remembers a few display choices on your own device (for example which task view or vendor tab you last used, and your current AI conversation). We use no advertising or analytics cookies.
 
 # How long we keep it
 
-- **While your household uses MiHomes**, we keep its content. [DECISION: audit-trail and AI-conversation history are currently kept until the household is deleted; settings for 2 years and 1 year exist but are not yet enforced.]
+- **While your household uses MiHomes**, we keep its content. This includes its audit trail and AI advisor history.
 - **Deleting a household:** the owner can delete it in Settings. It can be undone for 30 days; then its data and files are permanently erased. A record that the deletion happened is kept, and so is the unsubscribe list.
 - **Deactivating a household:** if the owner deactivates it and does not reactivate it within 90 days, it is permanently erased the same way.
 - **Leaving or deleting your profile:** staff and admins can leave a household, and anyone who owns no household can delete their profile. That erases their name, email, password and Google link and signs them out everywhere. Households keep the work they added.
-- **Backups:** we back up the database every night, encrypted, within our hosting ([BACKUP LOCATION AND REGION]). Each backup is deleted after **[14] days**. Erasing data removes it from MiHomes straight away, but backups made before the erasure still contain it until they reach that age, so erased data is fully gone **within [14] days**. Backups are used only to recover from a failure, and only authorised MiHomes staff can access them; if one were ever restored, erasures made since it was taken would be applied again.
+- **Backups:** we keep regular backups with our hosting provider so we can recover from a failure. Backups are kept for a limited time, so data you erase may stay in a backup until it expires. Backups are used only for recovery, and only authorised MiHomes staff can access them.
 - **Telegram group messages** shown on the Conversations page are deleted after 1 year.
 - **Emails:** copies of sent emails and their delivery results are deleted 90 days after sending. The unsubscribe list is kept.
+- **Unconfirmed sign-ups:** if you sign up with a password and never confirm your email address, the account is deleted after 30 days.
 - **Shorter-lived data:** sign-in sessions expire after 14 days, password-reset links after 1 hour, invitations after 7 days, Telegram link codes after 15 minutes, and the chat activity log behind live updates after 7 days; expired records are deleted every night. Server logs rotate and are overwritten.
 
 # Your rights
@@ -114,15 +118,15 @@ In MiHomes you can:
 - **Delete** your household (owner), **leave** a household, or **delete your profile**.
 - **Unsubscribe** from emails and turn off notifications at any time.
 
-Depending on where you live you may also have the right to object to or restrict processing, to data portability, and to complain to a data protection authority. To exercise any right, or if you're a staff member, vendor or guest whose details a household added, contact [PRIVACY CONTACT EMAIL]. If your details were added by a household, we may refer you to that household, since it decides what is kept about you.
+Depending on where you live you may also have the right to object to or restrict processing, to data portability, and to complain to a data protection authority. To exercise any right, or if you're a staff member, vendor or guest whose details a household added, contact [support@mihomes.ai](mailto:support@mihomes.ai). If your details were added by a household, we may refer you to that household, since it decides what is kept about you.
 
 # Security
 
-Passwords are stored as one-way hashes, sessions as hashes, and calendar tokens encrypted. Each household's data is separated from every other household's at the database level. Connections are encrypted, and access to production systems and backups is limited to authorised MiHomes staff. [CONFIRM: the database, uploaded files and backups are encrypted at rest.] No system is perfectly secure; tell us at [SECURITY CONTACT EMAIL] if you find a problem.
+Passwords are stored as one-way hashes, sessions as hashes, and calendar tokens encrypted. Each household's data is separated from every other household's at the database level. Connections are encrypted, and access to production systems and backups is limited to authorised MiHomes staff. No system is perfectly secure; tell us at [support@mihomes.ai](mailto:support@mihomes.ai) if you find a problem.
 
 # Children
 
-MiHomes is not intended for anyone under [MINIMUM AGE]. Do not create an account for a child.
+MiHomes is not intended for anyone under 18. Do not create an account for a child.
 
 # Changes to this policy
 

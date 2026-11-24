@@ -1,32 +1,32 @@
-"""Terms and Privacy: drafts stay hidden until published, and render safely (2026-11-09)."""
+"""Terms and Privacy: hidden until published, and render safely (2026-11-09; published 2026-11-24)."""
 
+from dataclasses import replace
 from datetime import date
 
 from fastapi.testclient import TestClient
 
 from mihomes import legal
 
+PUBLISHED_ON = date(2026, 11, 24)
 
-def test_the_drafts_load_and_are_not_published():
+
+def test_both_documents_are_published_and_complete():
     for slug in ("terms", "privacy"):
         doc = legal.load(slug)
         assert doc is not None and doc.title and "<h2" in doc.html
-        assert doc.effective_date is None
-        assert legal.published(slug) is None
-        assert "DRAFT for counsel review" in legal.unresolved(slug)
+        assert doc.effective_date == PUBLISHED_ON
+        assert legal.unresolved(slug) == [], "a placeholder is live on the public page"
+        assert legal.published(slug) is not None
 
 
-def test_a_date_on_an_unfinished_draft_still_does_not_publish(monkeypatch):
-    real = legal.load
-
-    def dated(slug):
-        doc = real(slug)
-        return legal.LegalDocument(doc.slug, doc.title, date(2027, 1, 1), doc.version, doc.html)
-
-    monkeypatch.setattr(legal, "load", dated)
+def test_a_placeholder_or_a_missing_date_keeps_a_document_hidden(monkeypatch):
+    monkeypatch.setattr(legal, "unresolved", lambda slug: ["[MINIMUM AGE]"])
     assert legal.published("terms") is None, "placeholders left: must stay hidden"
-    monkeypatch.setattr(legal, "unresolved", lambda slug: [])
-    assert legal.published("terms").effective_date == date(2027, 1, 1)
+    monkeypatch.undo()
+
+    real = legal.load
+    monkeypatch.setattr(legal, "load", lambda slug: replace(real(slug), effective_date=None))
+    assert legal.published("terms") is None, "no effective date: must stay hidden"
 
 
 def test_the_renderer_escapes_and_only_links_safely():
@@ -39,35 +39,29 @@ def test_the_renderer_escapes_and_only_links_safely():
     assert "<ol><li>one</li><li>two</li></ol>" in html
 
 
-def _published(monkeypatch):
+def _unpublished(monkeypatch):
     real = legal.load
-
-    def dated(slug):
-        doc = real(slug)
-        return None if doc is None else legal.LegalDocument(
-            doc.slug, doc.title, date(2027, 1, 1), doc.version, doc.html)
-
-    monkeypatch.setattr(legal, "load", dated)
-    monkeypatch.setattr(legal, "unresolved", lambda slug: [])
+    monkeypatch.setattr(legal, "load", lambda slug: None if real(slug) is None
+                        else replace(real(slug), effective_date=None))
 
 
 def test_web_app_serves_them_signed_out_only_when_published(monkeypatch):
     from mihomes.web.app import create_app
 
     client = TestClient(create_app(), base_url="http://localhost")
+    r = client.get("/legal/privacy")
+    assert r.status_code == 200 and "Privacy Policy" in r.text and "Effective 24 November 2026" in r.text
+    assert client.get("/legal/terms").status_code == 200
+    _unpublished(monkeypatch)
     for path in ("/legal/terms", "/legal/privacy"):
         assert client.get(path).status_code == 404, f"{path} is unpublished"
-    _published(monkeypatch)
-    r = client.get("/legal/privacy")
-    assert r.status_code == 200 and "Privacy Policy" in r.text and "Effective 1 January 2027" in r.text
-    assert client.get("/legal/terms").status_code == 200
 
 
 def test_landing_app_serves_them_too(monkeypatch):
     from mihomes.landing.app import create_landing_app
 
     client = TestClient(create_landing_app(), base_url="http://localhost")
-    assert client.get("/legal/terms").status_code == 404
-    _published(monkeypatch)
     assert client.get("/legal/terms").status_code == 200
     assert client.get("/legal/nonsense").status_code == 404
+    _unpublished(monkeypatch)
+    assert client.get("/legal/terms").status_code == 404

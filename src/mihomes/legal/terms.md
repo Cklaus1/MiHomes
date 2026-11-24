@@ -7,7 +7,7 @@ effective_date:
 
 # Agreement
 
-These terms are between you and [COMPANY LEGAL NAME], [REGISTERED ADDRESS] ("MiHomes", "we", "us"). By creating an account or using MiHomes you agree to them and to our [Privacy Policy](/legal/privacy). If you use MiHomes for a business or on behalf of someone else, you confirm you can bind them to these terms.
+These terms are between you and MiHomes, Atlanta, GA ("MiHomes", "we", "us"). By creating an account or using MiHomes you agree to them and to our [Privacy Policy](/legal/privacy). If you use MiHomes for a business or on behalf of someone else, you confirm you can bind them to these terms.
 
 # The service
 
@@ -60,22 +60,22 @@ The Telegram bot (and, when available, WhatsApp) works through those companies' 
 - **Monthly plans** are not refunded for part of a month. When you cancel, you keep the plan until the end of the month you've paid for.
 - **Annual plans.** If you ask within 14 days of being charged for a new annual plan or an annual renewal, we will refund that payment in full and move the household to the Free plan. After 14 days, annual payments are not refunded for the rest of the year; when you cancel, you keep the plan until the end of the year you've paid for.
 - **Deactivating** a household cancels its paid plan straight away. The rest of the period is not refunded, except under the annual-plan rule above.
-- **Deleting** a household cancels its paid plan straight away, without a refund for the rest of the period except under the annual-plan rule above. [DECISION: today a paid plan keeps billing during the 30-day undo period and is only cancelled when the data is erased; the delete screen should cancel at the request, or warn the owner to cancel first.]
+- **Deleting** a household does not change your plan automatically. Cancel your paid plan before deleting; billing stops when the household is erased 30 days later.
 - **Our mistakes.** If we charge you by mistake, charge you twice, or MiHomes is unavailable for a long period, contact us and we will put it right, including by refund.
-- **How to ask.** Email [SUPPORT CONTACT EMAIL] from the account owner's address. Refunds go back to the original payment method through Stripe, normally within 5 to 10 business days.
+- **How to ask.** Email [mlim@fusen.world](mailto:mlim@fusen.world) from the account owner's address. Refunds go back to the original payment method through Stripe, normally within 5 to 10 business days.
 - **Your legal rights.** Nothing here limits a refund or cancellation right that the law gives you. [COUNSEL: the EU/UK 14-day right of withdrawal for digital services (and the express consent and acknowledgement needed to start a paid plan straight away), and any state automatic-renewal rules for annual plans.]
 
 # Ending your use of MiHomes
 
 - **Deactivating** a household (owner) switches it off for everyone; the owner can reactivate it within 90 days, after which it is permanently erased.
-- **Deleting** a household (owner) can be undone for 30 days; after that its data is permanently erased.
+- **Deleting** a household (owner) can be undone for 30 days; after that its data is permanently erased. Deleting does not cancel a paid plan: cancel it first, or billing continues until the household is erased.
 - **Leaving** a household or **deleting your profile** is available to members who don't own a household.
 - We may end or suspend access for a serious or repeated breach of these terms, or if required by law. Where we can, we will give notice and a chance to export your data first.
 - How long data is kept after deletion, including in backups, is explained in the Privacy Policy.
 
 # Availability and support
 
-We work to keep MiHomes available and your data safe, and we back it up every night, but we don't promise it will be uninterrupted or error-free. Support: [SUPPORT CONTACT EMAIL].
+We work to keep MiHomes available and your data safe, and we back it up every night, but we don't promise it will be uninterrupted or error-free. Support: [mlim@fusen.world](mailto:mlim@fusen.world).
 
 # Our liability
 
@@ -91,4 +91,4 @@ These terms are governed by the laws of [GOVERNING LAW], and disputes go to the 
 
 # Contact
 
-[COMPANY LEGAL NAME], [REGISTERED ADDRESS], [CONTACT EMAIL].
+MiHomes, Atlanta, GA, [mlim@fusen.world](mailto:mlim@fusen.world).

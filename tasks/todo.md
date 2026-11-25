@@ -1024,10 +1024,6 @@ Replace the WhatsApp/Baileys bridge with a Telegram bot — no Node.js, no pairi
 - [ ] Confirm `mihomes recurring generate` end-to-end works in production
 - [ ] Wire health score into dashboard web UI (service exists, not surfaced)
 
-### Hiring (Active)
-- [ ] Finalize trial day candidates: Brandi Beam (comp + background check decision with Chris)
-- [ ] Backups if Brandi doesn't clear: Shakita Baker, Zion (both at 17.5/25)
-- [ ] Sherri Martinez (16.5/25) — hold as third backup
 
 ---
 

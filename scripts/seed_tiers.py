@@ -4,7 +4,7 @@
     py scripts/seed_tiers.py            # create the two testers
     py scripts/seed_tiers.py --reset    # put them back on their plan after a trial starts
 
-**Why.** `mlim@fusen.world` owns an Estate account, so the Estate experience is already
+**Why.** The founding team's own account is on Estate, so the Estate experience is already
 visible. Seeing what a *paying* or *non-paying* customer sees needs accounts on the other two
 plans, and nothing in the product creates one: `onboarding_service.create_account_step`
 hardcodes `plan="free"`, and `plan` is otherwise written only by the Stripe webhook — which

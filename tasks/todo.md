@@ -435,7 +435,7 @@ Owners/admins read a bound group's chat in the app. Channel-agnostic: recorded i
 ## ACTIVE: Editable, per-account playbooks + template gallery (2026-10-21)
 
 > User: playbooks are "set in stone" with no edit button; they should be made by the admin or
-> whoever the admin gives access; the existing ones are strictly for mlim@fusen.world's account;
+> whoever the admin gives access; the existing ones are strictly for the founding team's account;
 > new users get templates. Decisions (user, 2026-10-21): edit = owner + admins + **chosen staff**
 > (per-person toggle) · templates = **gallery** (new accounts start empty, one-click copy) ·
 > template content = **new generic versions** (not copies of Belle's).
@@ -1029,7 +1029,7 @@ Replace the WhatsApp/Baileys bridge with a Telegram bot — no Node.js, no pairi
 
 ## ACTIVE: Tier tester accounts (`scripts/seed_tiers.py`)
 
-> Goal: see the Free/Pro/Estate difference in a running app. `mlim@fusen.world` is already
+> Goal: see the Free/Pro/Estate difference in a running app. the founding team's account is already
 > Estate (account `belle`), so only Free and Pro need seeding.
 > Target: local `mihomes_dev` only — the tier code exists **only** in this worktree, and the
 > VM holds real estate data that fake tenants must not touch.
@@ -1245,7 +1245,7 @@ Flow code already existed (SPEC-002 G12); this is configuration plus two gaps.
 - [x] `docs/deploy/GOOGLE-OAUTH.md` — console steps, env vars, troubleshooting
 - [x] User: create Web OAuth client, redirect `https://evo-dev.tail6765ef.ts.net/auth/google/callback`, add test users
 - [x] evo-dev: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `LANDING_BASE_URL` in web.env; deploy + restart
-- [x] Live proof (2026-10-19): new account created via Google sign-up on the Tailscale URL. Existing-user path not testable — mlim@fusen.world is not a Google account
+- [x] Live proof (2026-10-19): new account created via Google sign-up on the Tailscale URL. Existing-user path not testable — the team account used is not a Google account
 - Open: SPEC-010 U2 — link Google to an existing password account from signed-in Settings
 
 ## Sign-in methods in Settings (2026-10-19) — approved: + change password, + email alerts, email must match

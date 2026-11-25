@@ -187,7 +187,7 @@ def session(_pg_engine, account_a):
     # join_transaction_mode="create_savepoint" so a test's own commit()/rollback()
     # behaves as it expects while still living inside the outer transaction.
     #
-    # Without it, a test that commits and later rolls back (test_real_data's
+    # Without it, a test that commits and later rolls back (the former real-data loader test's
     # idempotency check does exactly that, deliberately) loses its committed rows —
     # the rollback unwound past the commit and the count came back 0 instead of 4.
     # The savepoint gives the session a nested scope to roll back to, and the outer

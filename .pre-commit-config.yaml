@@ -17,3 +17,9 @@ repos:
         language: system
         types_or: [python, pyi]
         require_serial: true
+      - id: privacy-check
+        name: privacy check (no real names, addresses, emails, phones, private files)
+        entry: python3 scripts/privacy_check.py --staged
+        language: system
+        pass_filenames: false
+        always_run: true

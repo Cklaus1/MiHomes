@@ -54,3 +54,15 @@ mihomes_dev_backup_*.sql
 
 # Candidate notes written by `mihomes ai rank-resumes` contain applicants' personal data; never commit them.
 knowledge/staff/candidates/
+
+# Private estate data (real homes, staff, alarm systems). Keep it outside the repo and point
+# MIHOMES_KB at it; scripts/privacy_check.py blocks these paths in commits and pull requests.
+knowledge/staff/
+knowledge/properties/*
+!knowledge/properties/property-template.md
+*.sqlite
+*.sqlite3
+*.dump
+.env
+.env.*
+!.env.example

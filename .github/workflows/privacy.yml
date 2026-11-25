@@ -1,0 +1,61 @@
+# Privacy and secrets check — runs on every pull request and on pushes to main.
+#
+# MiHomes manages real homes, so a change can easily carry a real address, a phone number, a
+# candidate's notes or an API key. Two independent checks, both required to pass:
+#
+#   1. scripts/privacy_check.py — private paths and file types, real-looking emails and phone
+#      numbers, and hashed private names/addresses (.privacy/denylist.sha256). Only what the
+#      change ADDS is checked, so existing text never blocks an unrelated PR.
+#   2. gitleaks — API keys, tokens and private keys in the commits the PR adds.
+#
+# Uses `pull_request` (not `pull_request_target`): forks run with no secrets, and none are needed.
+
+name: privacy
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  privacy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the diff against the base branch needs history
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Private data in this change
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
+        run: |
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            BASE="$(git rev-list --max-parents=0 HEAD | tail -1)"
+          fi
+          python scripts/privacy_check.py --diff "$BASE"
+
+      - name: Secrets in this change (gitleaks)
+        env:
+          GITLEAKS_VERSION: "8.18.4"
+          RANGE: ${{ github.event_name == 'pull_request' && format('origin/{0}..HEAD', github.base_ref) || format('{0}..HEAD', github.event.before) }}
+        run: |
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz gitleaks
+          case "$RANGE" in 0000000000000000000000000000000000000000..*|..*) RANGE="" ;; esac
+          if [ -n "$RANGE" ]; then
+            ./gitleaks detect --source . --log-opts="$RANGE" --redact --no-banner
+          else
+            ./gitleaks detect --source . --redact --no-banner
+          fi

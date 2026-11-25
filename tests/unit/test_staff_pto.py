@@ -28,7 +28,7 @@ def _make_property(session):
     return prop
 
 
-def _make_staff(session, name="Diego Regalado", slug="diego-regalado", whatsapp=None):
+def _make_staff(session, name="Pat Rivera", slug="pat-rivera", whatsapp=None):
     # A property must exist before staff can be attached to one.
     if not session.query(Property).first():
         _make_property(session)
